@@ -1,0 +1,6 @@
+file(GLOB_RECURSE LIB_SRCS *.cpp)
+list(FILTER LIB_SRCS EXCLUDE REGEX "\\.test\\.cpp$")
+list(FILTER LIB_SRCS EXCLUDE REGEX "\\.bench\\.cpp$")
+list(FILTER LIB_SRCS EXCLUDE REGEX "\\.fuzz\\.cpp$")
+add_library(lib OBJECT ${LIB_SRCS})
+target_include_directories(lib PUBLIC .)
