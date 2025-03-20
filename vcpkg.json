@@ -1,0 +1,6 @@
+{
+  "dependencies": [
+    "fmt"
+  ],
+  "builtin-baseline": "7adc2e4d49e8d0efc07a369079faa6bc3dbb90f3"
+}

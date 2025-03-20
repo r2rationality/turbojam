@@ -6,4 +6,8 @@
 #include "types.hpp"
 
 namespace turbo::jam {
+    template<>
+    void block_t<>::to_bytes(jam::codec::encoder &) const {
+
+    }
 }
