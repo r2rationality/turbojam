@@ -61,6 +61,9 @@ namespace turbo::jam {
         static sequence_t from_bytes(codec::decoder &dec)
         {
             const auto sz = dec.uint_general<uint64_t>();
+            if (static_cast<int>(sz < MIN) | static_cast<int>(sz > MAX)) [[unlikely]]
+                throw error(fmt::format("the recorded number of elements is {} and outside of the allowed range [{}:{}] for {}",
+                            sz, MIN, MAX, typeid(sequence_t).name()));
             sequence_t res {};
             res.reserve(sz);
             for (size_t i = 0; i < sz; i++)
@@ -315,7 +318,8 @@ namespace turbo::jam {
         sequence_t<reported_work_package_t> reported;
     };
 
-    using blocks_history_t = sequence_t<block_info_t>; //0..max-blocks-history
+    template<typename CONSTANTS=config_prod>
+    using blocks_history_t = sequence_t<block_info_t, 0, CONSTANTS::max_blocks_history>;
 
     struct activity_record_t {
         uint32_t blocks;
@@ -352,7 +356,8 @@ namespace turbo::jam {
         static ticket_body_t from_bytes(codec::decoder &dec);
     };
 
-    using tickets_accumulator_t = sequence_t<ticket_body_t>; // 0..epoch-length
+    template<typename CONSTANTS=config_prod>
+    using tickets_accumulator_t = sequence_t<ticket_body_t, 0, CONSTANTS::epoch_length>;
 
     template<typename CONSTANTS=config_prod>
     using tickets_t = fixed_sequence_t<ticket_body_t, CONSTANTS::epoch_length>;
@@ -363,7 +368,8 @@ namespace turbo::jam {
     template<typename CONSTANTS=config_prod>
     using tickets_or_keys_t = std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>>;
 
-    using tickets_extrinsic_t = sequence_t<ticket_envelope_t>; // 0..max-tickets-per-block
+    template<typename CONSTANTS=config_prod>
+    using tickets_extrinsic_t = sequence_t<ticket_envelope_t, 0, CONSTANTS::max_tickets_per_block>;
 
     struct judgement_t {
         bool vote;
@@ -573,7 +579,7 @@ namespace turbo::jam {
 
     template<typename CONSTANTS=config_prod>
     struct extrinsic_t {
-        tickets_extrinsic_t tickets;
+        tickets_extrinsic_t<CONSTANTS> tickets;
         preimages_extrinsic_t preimages;
         guarantees_extrinsic_t<CONSTANTS> guarantees;
         assurances_extrinsic_t<CONSTANTS> assurances;

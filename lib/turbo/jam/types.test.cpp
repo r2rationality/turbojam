@@ -33,7 +33,7 @@ suite turbo_jam_types_suite = [] {
         test_decode<header_t<config_tiny>>("./test/jam-test-vectors/codec/data/header_1.bin");
         test_decode<preimages_extrinsic_t>("./test/jam-test-vectors/codec/data/preimages_extrinsic.bin");
         test_decode<refine_context_t>("./test/jam-test-vectors/codec/data/refine_context.bin");
-        test_decode<tickets_extrinsic_t>("./test/jam-test-vectors/codec/data/tickets_extrinsic.bin");
+        test_decode<tickets_extrinsic_t<config_tiny>>("./test/jam-test-vectors/codec/data/tickets_extrinsic.bin");
         test_decode<work_item_t>("./test/jam-test-vectors/codec/data/work_item.bin");
         test_decode<work_package_t>("./test/jam-test-vectors/codec/data/work_package.bin");
         test_decode<work_report_t>("./test/jam-test-vectors/codec/data/work_report.bin");
