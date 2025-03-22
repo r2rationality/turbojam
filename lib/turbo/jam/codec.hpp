@@ -23,12 +23,23 @@ namespace turbo::jam::codec {
         template<typename T>
         void uint_general(T x)
         {
+            if constexpr (std::numeric_limits<T>::max() > std::numeric_limits<uint64_t>::max()) [[unlikely]]
+                throw error(fmt::format("only integral types up to 64-bytes are supported but got {}", typeid(T).name()));
+            if (x == 0) {
+                _bytes.emplace_back(0);
+                return;
+            }
+            if (x >= 1 << 63) {
+                _bytes.emplace_back(0xFF);
+                uint_trivial(8, x);
+                return;
+            }
             size_t l = 0;
             while (x >= 1 << (7 * l)) {
                 ++l;
             }
             const auto base = 8 * l;
-            _bytes.emplace_back(0x100 - (1 << 8 - l) + (x >> base));
+            _bytes.emplace_back(0x100 - (1 << (8 - l)) + (x >> base));
             uint_trivial(l, x & ((1 << base) - 1));
         }
 
@@ -64,16 +75,28 @@ namespace turbo::jam::codec {
         {
             T x = 0;
             for (size_t i = 0; i < num_bytes; ++i) {
-                x <<= 8;
-                x |= _next();
+                x |= next() << (i * 8);
             }
             return x;
         }
 
         template<typename T>
+        T uint_general()
+        {
+            uint8_t prefix = uint_trivial<uint8_t>(1);
+            size_t l = 0;
+            while (prefix & (1 << (7 - l))) {
+                ++l;
+                prefix &= ~(1 << (7 - l));
+            }
+            T res = prefix << (l * 8);
+            res |= uint_trivial<T>(l);
+            return res;
+        }
+
+        template<typename T>
         T decode()
         {
-            using T = std::decay_t<T>;
             if constexpr (std::is_same_v<uint64_t, T>) {
                 return uint_trivial<T>(8);
             } else if constexpr (std::is_same_v<uint32_t, T>) {
@@ -82,19 +105,35 @@ namespace turbo::jam::codec {
                 return uint_trivial<T>(2);
             } else if constexpr (std::is_same_v<uint8_t, T>) {
                 return uint_trivial<T>(1);
+            } else if constexpr (std::is_same_v<bool, T>) {
+                return static_cast<T>(uint_trivial<uint8_t>(1));
             } else {
                 return T::from_bytes(*this);
             }
         }
-    private:
-        const uint8_t *_ptr, *_end;
 
-        uint8_t _next()
+        uint8_t next()
         {
             if (_ptr >= _end) [[unlikely]]
                 throw error("codec: an attempt to read past the end of the byte stream");
             return *_ptr++;
         }
+
+        buffer next_bytes(const size_t sz)
+        {
+            if (_ptr + sz > _end) [[unlikely]]
+                throw error("codec: an attempt to read past the end of the byte stream");
+            const auto *begin = _ptr;
+            _ptr += sz;
+            return { begin, sz };
+        }
+
+        bool empty() const noexcept
+        {
+            return _ptr >= _end;
+        }
+    private:
+        const uint8_t *_ptr, *_end;
     };
 
     template<typename T>

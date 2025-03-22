@@ -42,12 +42,72 @@ namespace turbo::jam {
 
     // jam-types.asn
 
-    using byte_sequence_t = std::vector<uint8_t>;
+    struct byte_sequence_t: uint8_vector {
+        using base_type = uint8_vector;
+        using base_type::base_type;
+
+        static byte_sequence_t from_bytes(codec::decoder &dec)
+        {
+            const auto sz = dec.uint_general<uint64_t>();
+            return { dec.next_bytes(sz) };
+        }
+    };
+
+    template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
+    struct sequence_t: std::vector<T> {
+        using base_type = std::vector<T>;
+        using base_type::base_type;
+
+        static sequence_t from_bytes(codec::decoder &dec)
+        {
+            const auto sz = dec.uint_general<uint64_t>();
+            sequence_t res {};
+            res.reserve(sz);
+            for (size_t i = 0; i < sz; i++)
+                res.emplace_back(dec.decode<T>());
+            return res;
+        }
+    };
+
+    template<typename T, size_t SZ>
+    struct fixed_sequence_t: std::array<T, SZ> {
+        using base_type = std::array<T, SZ>;
+        using base_type::base_type;
+
+        static fixed_sequence_t from_bytes(codec::decoder &dec)
+        {
+            fixed_sequence_t res {};
+            for (size_t i = 0; i < SZ; i++)
+                res[i] = dec.decode<T>();
+            return res;
+        }
+    };
+
+    template<typename T>
+    struct optional_t: std::optional<T> {
+        using base_type = std::optional<T>;
+        using base_type::base_type;
+
+        static optional_t from_bytes(codec::decoder &dec)
+        {
+            const auto typ = dec.decode<uint8_t>();
+            switch (typ) {
+                case 0: return {};
+                case 1: return { dec.decode<T>() };
+                [[unlikely]] default: throw error(fmt::format("invalid optional type: {}", typ));
+            }
+        }
+    };
 
     template<size_t SZ>
-    struct byte_array_t: std::array<uint8_t, SZ> {
-        using base_type = std::array<uint8_t, SZ>;
+    struct byte_array_t: byte_array<SZ> {
+        using base_type = byte_array<SZ>;
         using base_type::base_type;
+
+        static byte_array_t from_bytes(codec::decoder &dec)
+        {
+            return { dec.next_bytes(SZ) };
+        }
     };
 
     using byte_array_32_t = byte_array_t<32>;
@@ -79,7 +139,7 @@ namespace turbo::jam {
     using gas_t = uint64_t;
 
     using entropy_t = opaque_hash_t;
-    using entropy_buffer = std::array<entropy_t, 4>;
+    using entropy_buffer = fixed_sequence_t<entropy_t, 4>;
 
     using validator_metadata_t = byte_array_t<128>;
 
@@ -107,36 +167,44 @@ namespace turbo::jam {
 	    beefy_root_t beefy_root;
 	    header_hash_t lookup_anchor;
 	    time_slot_t lookup_anchor_slot;
-	    std::vector<opaque_hash_t> prerequisites;
+	    sequence_t<opaque_hash_t> prerequisites;
+
+        static refine_context_t from_bytes(codec::decoder &dec);
     };
 
     struct authorizer_t  {
         opaque_hash_t code_hash;
         byte_sequence_t params;
+
+        static authorizer_t from_bytes(codec::decoder &dec);
     };
 
     using authorizer_hash_t = opaque_hash_t;
 
     // max size: auth_pool_max_size
-    using auth_pool_t = std::vector<authorizer_hash_t>;
+    using auth_pool_t = sequence_t<authorizer_hash_t>;
 
     template<typename CONSTANT_SET=config_prod>
-    using auth_pools_t = std::array<auth_pool_t, CONSTANT_SET::core_count>;
+    using auth_pools_t = fixed_sequence_t<auth_pool_t, CONSTANT_SET::core_count>;
 
     template<typename CONSTANT_SET=config_prod>
-    using auth_queue_t = std::array<authorizer_hash_t, CONSTANT_SET::auth_queue_size>;
+    using auth_queue_t = fixed_sequence_t<authorizer_hash_t, CONSTANT_SET::auth_queue_size>;
 
     template<typename CONSTANT_SET=config_prod>
-    using auth_queues_t = std::array<auth_queue_t<CONSTANT_SET>, CONSTANT_SET::core_count>;
+    using auth_queues_t = fixed_sequence_t<auth_queue_t<CONSTANT_SET>, CONSTANT_SET::core_count>;
 
     struct import_spec_t {
         opaque_hash_t tree_root;
         uint16_t index;
+
+        static import_spec_t from_bytes(codec::decoder &dec);
     };
 
     struct extrinsic_spec_t {
         opaque_hash_t hash;
         uint32_t len;
+
+        static extrinsic_spec_t from_bytes(codec::decoder &dec);
     };
 
     struct work_item_t {
@@ -145,9 +213,11 @@ namespace turbo::jam {
         byte_sequence_t payload;
         gas_t refine_gas_limit;
         gas_t accumulate_gas_limit;
-        std::vector<import_spec_t> import_specs;
-        std::vector<extrinsic_spec_t> extrinsic_specs;
+        sequence_t<import_spec_t> import_specs;
+        sequence_t<extrinsic_spec_t> extrinsic_specs;
         uint16_t export_count;
+
+        static work_item_t from_bytes(codec::decoder &dec);
     };
 
     struct work_package_t {
@@ -155,16 +225,25 @@ namespace turbo::jam {
         service_id_t auth_code_host;
         authorizer_t authorizer;
         refine_context_t context;
-        std::vector<work_item_t> items; // size: 1..16;
+        sequence_t<work_item_t, 1, 16> items;
+
+        static work_package_t from_bytes(codec::decoder &dec);
     };
 
-    enum class work_exec_result_t: uint8_t {
-        ok = 0,
-        out_of_gas = 1,
-        panic = 2,
-        bad_exports = 3,
-        bad_code = 4,
-        code_oversize = 5
+    struct work_result_ok_t {
+        byte_sequence_t data;
+
+        static work_result_ok_t from_bytes(codec::decoder &dec);
+    };
+    struct work_result_out_of_gas_t {};
+    struct work_result_panic_t {};
+    struct work_result_bad_exports_t {};
+    struct work_result_bad_code_t {};
+    struct work_result_code_oversize_t {};
+
+    struct work_exec_result_t: std::variant<work_result_ok_t, work_result_out_of_gas_t, work_result_panic_t, work_result_bad_exports_t,
+                                            work_result_bad_code_t, work_result_code_oversize_t> {
+        static work_exec_result_t from_bytes(codec::decoder &dec);
     };
 
     struct work_result_t {
@@ -173,6 +252,8 @@ namespace turbo::jam {
         opaque_hash_t payload_hash;
         gas_t accumulate_gas;
         work_exec_result_t result;
+
+        static work_result_t from_bytes(codec::decoder &dec);
     };
 
     struct work_package_spec_t {
@@ -181,14 +262,18 @@ namespace turbo::jam {
         erasure_root_t erasure_root;
         erasure_root_t exports_root;
         uint16_t exports_count;
+
+        static work_package_spec_t from_bytes(codec::decoder &dec);
     };
 
     struct segment_root_lookup_item {
         work_package_hash_t work_package_hash;
         opaque_hash_t segment_tree_root;
+
+        static segment_root_lookup_item from_bytes(codec::decoder &dec);
     };
 
-    using segment_root_lookup_t = std::vector<segment_root_lookup_item>;
+    using segment_root_lookup_t = sequence_t<segment_root_lookup_item>;
 
     struct work_report_t {
         work_package_spec_t package_spec;
@@ -197,7 +282,9 @@ namespace turbo::jam {
         opaque_hash_t authorizer_hash;
         byte_sequence_t auth_output;
         segment_root_lookup_t segment_root_lookup;
-        std::vector<work_result_t> results; // 1..16
+        sequence_t<work_result_t, 1, 16> results;
+
+        static work_report_t from_bytes(codec::decoder &dec);
     };
 
     struct availability_assignment_t  {
@@ -205,16 +292,16 @@ namespace turbo::jam {
         uint32_t timeout;
     };
 
-    using availability_assignments_item_t = std::optional<availability_assignment_t>;
+    using availability_assignments_item_t = optional_t<availability_assignment_t>;
 
     template<typename CONSTANT_SET=config_prod>
-    using validators_data_t = std::array<validator_data_t, CONSTANT_SET::validator_count>;
+    using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANT_SET::validator_count>;
 
     template<typename CONSTANT_SET=config_prod>
-    using availability_assignments = std::array<availability_assignments_item_t, CONSTANT_SET::core_count>;
+    using availability_assignments = fixed_sequence_t<availability_assignments_item_t, CONSTANT_SET::core_count>;
 
-    using mmr_peak_t = std::optional<opaque_hash_t>;
-    using mmr_t = std::vector<mmr_peak_t>;
+    using mmr_peak_t = optional_t<opaque_hash_t>;
+    using mmr_t = sequence_t<mmr_peak_t>;
 
     struct reported_work_package_t {
         work_report_hash_t hash;
@@ -225,10 +312,10 @@ namespace turbo::jam {
         header_hash_t header_hash;
         mmr_t mmr;
         state_root_t state_root;
-        std::vector<reported_work_package_t> reported;
+        sequence_t<reported_work_package_t> reported;
     };
 
-    using blocks_history_t = std::vector<block_info_t>; //0..max-blocks-history
+    using blocks_history_t = sequence_t<block_info_t>; //0..max-blocks-history
 
     struct activity_record_t {
         uint32_t blocks;
@@ -240,7 +327,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS=config_prod>
-    using activity_records_t = std::array<activity_record_t, CONSTANTS::validator_count>;
+    using activity_records_t = fixed_sequence_t<activity_record_t, CONSTANTS::validator_count>;
 
     template<typename CONSTANTS=config_prod>
     struct statistics_t {
@@ -254,43 +341,60 @@ namespace turbo::jam {
     struct ticket_envelope_t {
         ticket_attempt_t attempt;
         bandersnatch_ring_vrf_signature_t signature;
+
+        static ticket_envelope_t from_bytes(codec::decoder &dec);
     };
 
     struct ticket_body_t {
         ticket_id_t id;
         ticket_attempt_t attempt;
+
+        static ticket_body_t from_bytes(codec::decoder &dec);
     };
 
-    using tickets_accumulator_t = std::vector<ticket_body_t>; // 0..epoch-length
+    using tickets_accumulator_t = sequence_t<ticket_body_t>; // 0..epoch-length
 
     template<typename CONSTANTS=config_prod>
-    using tickets_t = std::array<ticket_body_t, CONSTANTS::epoch_length>;
+    using tickets_t = fixed_sequence_t<ticket_body_t, CONSTANTS::epoch_length>;
 
     template<typename CONSTANTS=config_prod>
-    using keys_t = std::array<bandersnatch_public_t, CONSTANTS::epoch_length>;
+    using keys_t = fixed_sequence_t<bandersnatch_public_t, CONSTANTS::epoch_length>;
 
     template<typename CONSTANTS=config_prod>
     using tickets_or_keys_t = std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>>;
 
-    using tickets_extrinsic_t = std::vector<ticket_envelope_t>; // 0..max-tickets-per-block
+    using tickets_extrinsic_t = sequence_t<ticket_envelope_t>; // 0..max-tickets-per-block
 
     struct judgement_t {
         bool vote;
         validator_index_t index;
         ed25519_signature_t signature;
+
+        static judgement_t from_bytes(codec::decoder &dec);
     };
 
     template<typename CONSTANTS=config_prod>
     struct verdict_t {
         opaque_hash_t target;
         uint32_t age;
-        std::array<judgement_t, CONSTANTS::validator_super_majority> votes;
+        fixed_sequence_t<judgement_t, CONSTANTS::validator_super_majority> votes;
+
+        static verdict_t from_bytes(codec::decoder &dec)
+        {
+            return {
+                dec.decode<decltype(target)>(),
+                dec.decode<decltype(age)>(),
+                dec.decode<decltype(votes)>()
+            };
+        }
     };
 
     struct culprit_t {
         work_report_hash_t target;
         ed25519_public_t key;
         ed25519_signature_t signature;
+
+        static culprit_t from_bytes(codec::decoder &dec);
     };
 
     struct fault_t {
@@ -298,67 +402,95 @@ namespace turbo::jam {
         bool vote;
         ed25519_public_t key;
         ed25519_signature_t signature;
+
+        static fault_t from_bytes(codec::decoder &dec);
     };
 
     struct disputes_records_t {
-        std::vector<work_report_hash_t> good;
-        std::vector<work_report_hash_t> bad;
-        std::vector<work_report_hash_t> wonky;
-        std::vector<ed25519_public_t> offenders;
+        sequence_t<work_report_hash_t> good;
+        sequence_t<work_report_hash_t> bad;
+        sequence_t<work_report_hash_t> wonky;
+        sequence_t<ed25519_public_t> offenders;
     };
 
     template<typename CONSTANTS=config_prod>
     struct disputes_extrinsic_t {
-        verdict_t<CONSTANTS> verdicts;
-        culprit_t culprits;
-        fault_t faults;
+        sequence_t<verdict_t<CONSTANTS>> verdicts;
+        sequence_t<culprit_t> culprits;
+        sequence_t<fault_t> faults;
+
+        static disputes_extrinsic_t from_bytes(codec::decoder &dec)
+        {
+            return {
+                dec.decode<decltype(verdicts)>(),
+                dec.decode<decltype(culprits)>(),
+                dec.decode<decltype(faults)>()
+            };
+        }
     };
 
     struct preimage_t  {
         service_id_t requester;
         byte_sequence_t blob;
+
+        static preimage_t from_bytes(codec::decoder &dec);
     };
 
-    using preimages_extrinsic_t = std::vector<preimage_t>;
+    using preimages_extrinsic_t = sequence_t<preimage_t>;
 
     template<typename CONSTANTS=config_prod>
     struct avail_assurance_t {
         opaque_hash_t anchor;
-        byte_array_t<CONSTANTS::max_bitfield_bytes> bitfield;
+        byte_array_t<CONSTANTS::avail_bitfield_bytes> bitfield;
         validator_index_t validator_index;
         ed25519_signature_t signature;
+
+        static avail_assurance_t from_bytes(codec::decoder &dec)
+        {
+            return {
+                dec.decode<decltype(anchor)>(),
+                dec.decode<decltype(bitfield)>(),
+                dec.decode<decltype(validator_index)>(),
+                dec.decode<decltype(signature)>()
+            };
+        }
     };
 
     template<typename CONSTANTS=config_prod>
-    using assurances_extrinsic_t = std::vector<avail_assurance_t<CONSTANTS>>; // 0..validators-count
+    using assurances_extrinsic_t = sequence_t<avail_assurance_t<CONSTANTS>, 0, CONSTANTS::validator_count>;
 
     struct validator_signature_t {
         validator_index_t validator_index;
         ed25519_signature_t signature;
+
+        static validator_signature_t from_bytes(codec::decoder &dec);
     };
 
     struct report_guarantee_t {
         work_report_t report;
         time_slot_t slot;
-        std::vector<validator_signature_t> signatures;
+        sequence_t<validator_signature_t> signatures;
+
+        static report_guarantee_t from_bytes(codec::decoder &dec);
     };
 
-    using guarantees_extrinsic_t = std::vector<report_guarantee_t>; // 0..cores-count
+    template<typename CONSTANTS=config_prod>
+    using guarantees_extrinsic_t = sequence_t<report_guarantee_t, 0, CONSTANTS::core_count>;
 
     struct ready_record_t {
         work_report_t report;
-        std::vector<work_package_hash_t> dependencies;
+        sequence_t<work_package_hash_t> dependencies;
     };
 
-    using ready_queue_item_t = std::vector<ready_record_t>;
+    using ready_queue_item_t = sequence_t<ready_record_t>;
 
     template<typename CONSTANTS=config_prod>
-    using ready_queue_t = std::array<ready_queue_item_t, CONSTANTS::ready_queue_count>;
+    using ready_queue_t = fixed_sequence_t<ready_queue_item_t, CONSTANTS::ready_queue_count>;
 
-    using accumulated_queue_item_t = std::vector<work_package_hash_t>;
+    using accumulated_queue_item_t = sequence_t<work_package_hash_t>;
 
     template<typename CONSTANTS=config_prod>
-    using accumulated_queue_t = std::array<accumulated_queue_item_t, CONSTANTS::epoch_length>;
+    using accumulated_queue_t = fixed_sequence_t<accumulated_queue_item_t, CONSTANTS::epoch_length>;
 
     struct always_accumulate_map_item_t {
         service_id_t id;
@@ -369,7 +501,7 @@ namespace turbo::jam {
         service_id_t bless;
         service_id_t assign;
         service_id_t designate;
-        std::vector<always_accumulate_map_item_t> always_acc;
+        sequence_t<always_accumulate_map_item_t> always_acc;
     };
 
     using accumulate_root_t = opaque_hash_t;
@@ -378,13 +510,22 @@ namespace turbo::jam {
     struct epoch_mark_t {
         entropy_t entropy;
         entropy_t tickets_entropy;
-        std::array<bandersnatch_public_t, CONSTANTS::validator_count> validators;
+        fixed_sequence_t<bandersnatch_public_t, CONSTANTS::validator_count> validators;
+
+        static epoch_mark_t from_bytes(codec::decoder &dec)
+        {
+            return {
+                dec.decode<decltype(entropy)>(),
+                dec.decode<decltype(tickets_entropy)>(),
+                dec.decode<decltype(validators)>()
+            };
+        }
     };
 
     template<typename CONSTANTS=config_prod>
-    using tickets_mark_t = std::array<ticket_body_t, CONSTANTS::epoch_length>;
+    using tickets_mark_t = fixed_sequence_t<ticket_body_t, CONSTANTS::epoch_length>;
 
-    using offenders_mark_t = std::vector<ed25519_public_t>;
+    using offenders_mark_t = sequence_t<ed25519_public_t>;
 
     template<typename CONSTANTS=config_prod>
     struct header_t {
@@ -392,8 +533,8 @@ namespace turbo::jam {
         state_root_t parent_state_root;
         opaque_hash_t extrinsic_hash;
         time_slot_t slot;
-        std::optional<epoch_mark_t<CONSTANTS>> epoch_mark;
-        std::optional<tickets_mark_t<CONSTANTS>> tickets_mark;
+        optional_t<epoch_mark_t<CONSTANTS>> epoch_mark;
+        optional_t<tickets_mark_t<CONSTANTS>> tickets_mark;
         offenders_mark_t offenders_mark;
         validator_index_t author_index;
         bandersnatch_vrf_signature_t entropy_source;
@@ -434,7 +575,7 @@ namespace turbo::jam {
     struct extrinsic_t {
         tickets_extrinsic_t tickets;
         preimages_extrinsic_t preimages;
-        guarantees_extrinsic_t guarantees;
+        guarantees_extrinsic_t<CONSTANTS> guarantees;
         assurances_extrinsic_t<CONSTANTS> assurances;
         disputes_extrinsic_t<CONSTANTS> disputes;
 
