@@ -24,20 +24,20 @@ namespace {
 
 suite turbo_jam_types_suite = [] {
     "turbo::jam::types"_test = [] {
-        test_decode<assurances_extrinsic_t<config_tiny>>("./test/jam-test-vectors/codec/data/assurances_extrinsic.bin");
-        test_decode<block_t<config_tiny>>("./test/jam-test-vectors/codec/data/block.bin");
-        test_decode<disputes_extrinsic_t<config_tiny>>("./test/jam-test-vectors/codec/data/disputes_extrinsic.bin");
-        test_decode<extrinsic_t<config_tiny>>("./test/jam-test-vectors/codec/data/extrinsic.bin");
-        test_decode<guarantees_extrinsic_t<config_tiny>>("./test/jam-test-vectors/codec/data/guarantees_extrinsic.bin");
-        test_decode<header_t<config_tiny>>("./test/jam-test-vectors/codec/data/header_0.bin");
-        test_decode<header_t<config_tiny>>("./test/jam-test-vectors/codec/data/header_1.bin");
-        test_decode<preimages_extrinsic_t>("./test/jam-test-vectors/codec/data/preimages_extrinsic.bin");
-        test_decode<refine_context_t>("./test/jam-test-vectors/codec/data/refine_context.bin");
-        test_decode<tickets_extrinsic_t<config_tiny>>("./test/jam-test-vectors/codec/data/tickets_extrinsic.bin");
-        test_decode<work_item_t>("./test/jam-test-vectors/codec/data/work_item.bin");
-        test_decode<work_package_t>("./test/jam-test-vectors/codec/data/work_package.bin");
-        test_decode<work_report_t>("./test/jam-test-vectors/codec/data/work_report.bin");
-        test_decode<work_result_t>("./test/jam-test-vectors/codec/data/work_result_0.bin");
-        test_decode<work_result_t>("./test/jam-test-vectors/codec/data/work_result_1.bin");
+        test_decode<assurances_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/assurances_extrinsic.bin"));
+        test_decode<block_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/block.bin"));
+        test_decode<disputes_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/disputes_extrinsic.bin"));
+        test_decode<extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/extrinsic.bin"));
+        test_decode<guarantees_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/guarantees_extrinsic.bin"));
+        test_decode<header_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/header_0.bin"));
+        test_decode<header_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/header_1.bin"));
+        test_decode<preimages_extrinsic_t>(file::install_path("test/jam-test-vectors/codec/data/preimages_extrinsic.bin"));
+        test_decode<refine_context_t>(file::install_path("test/jam-test-vectors/codec/data/refine_context.bin"));
+        test_decode<tickets_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/tickets_extrinsic.bin"));
+        test_decode<work_item_t>(file::install_path("test/jam-test-vectors/codec/data/work_item.bin"));
+        test_decode<work_package_t>(file::install_path("test/jam-test-vectors/codec/data/work_package.bin"));
+        test_decode<work_report_t>(file::install_path("test/jam-test-vectors/codec/data/work_report.bin"));
+        test_decode<work_result_t>(file::install_path("test/jam-test-vectors/codec/data/work_result_0.bin"));
+        test_decode<work_result_t>(file::install_path("test/jam-test-vectors/codec/data/work_result_1.bin"));
     };
 };

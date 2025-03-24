@@ -185,10 +185,11 @@ namespace turbo::jam {
     using authorizer_hash_t = opaque_hash_t;
 
     // max size: auth_pool_max_size
-    using auth_pool_t = sequence_t<authorizer_hash_t>;
+    template<typename CONSTANTS=config_prod>
+    using auth_pool_t = sequence_t<authorizer_hash_t, 0, CONSTANTS::auth_pool_max_size>;
 
-    template<typename CONSTANT_SET=config_prod>
-    using auth_pools_t = fixed_sequence_t<auth_pool_t, CONSTANT_SET::core_count>;
+    template<typename CONSTANTS=config_prod>
+    using auth_pools_t = fixed_sequence_t<auth_pool_t<CONSTANTS>, CONSTANTS::core_count>;
 
     template<typename CONSTANT_SET=config_prod>
     using auth_queue_t = fixed_sequence_t<authorizer_hash_t, CONSTANT_SET::auth_queue_size>;
@@ -579,10 +580,15 @@ namespace turbo::jam {
 
     template<typename CONSTANTS=config_prod>
     struct extrinsic_t {
+        // JAM paper: ET - capital epsilon with a lower index T
         tickets_extrinsic_t<CONSTANTS> tickets;
+        // JAM paper: EP - capital epsilon with a lower index P
         preimages_extrinsic_t preimages;
+        // JAM paper: EP - capital epsilon with a lower index G
         guarantees_extrinsic_t<CONSTANTS> guarantees;
+        // JAM paper: EP - capital epsilon with a lower index A
         assurances_extrinsic_t<CONSTANTS> assurances;
+        // JAM paper: EP - capital epsilon with a lower index D
         disputes_extrinsic_t<CONSTANTS> disputes;
 
         static extrinsic_t from_bytes(codec::decoder &dec)
@@ -608,7 +614,9 @@ namespace turbo::jam {
 
     template<typename CONSTANTS=config_prod>
     struct block_t {
+        // JAM paper: H - capital eta
         header_t<CONSTANTS> header;
+        // JAM paper: E - capital epsilon
         extrinsic_t<CONSTANTS> extrinsic;
 
         static block_t from_bytes(codec::decoder &dec)

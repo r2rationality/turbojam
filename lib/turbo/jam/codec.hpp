@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <turbo/common/bytes.hpp>
+#include <turbo/common/file.hpp>
 
 namespace turbo::jam::codec {
     struct encoder {
@@ -141,5 +142,13 @@ namespace turbo::jam::codec {
     {
         enc.encode(val);
         return enc;
+    }
+
+    template<typename T>
+    T load(const std::string &path)
+    {
+        const auto bytes = file::read(path);
+        decoder dec { bytes };
+        return T::from_bytes(dec);
     }
 }

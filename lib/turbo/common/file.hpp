@@ -301,6 +301,9 @@ namespace turbo::file {
         auto storage = std::filesystem::space(path);
         return storage.available;
     }
+
+    extern std::string install_path(std::string_view rel_path);
+    extern std::vector<std::string> files_with_ext(const std::string_view &dir, const std::string_view &ext);
 }
 
 namespace fmt {

@@ -6,6 +6,7 @@
 #include <source_location>
 #define BOOST_UT_DISABLE_MODULE 1
 #include <boost/ut.hpp>
+#include "file.hpp"
 #include "format.hpp"
 
 namespace turbo {
