@@ -7,7 +7,7 @@
 #include "json.hpp"
 
 namespace turbo::codec::json {
-    inline object canonical(const object &obj)
+    object canonical(const object &obj)
     {
         std::vector<std::pair<std::string, value>> items {};
         items.reserve(obj.size());
@@ -26,22 +26,22 @@ namespace turbo::codec::json {
         return res;
     }
 
-    inline std::string serialize_canon(const object &obj)
+    std::string serialize_canon(const object &obj)
     {
         return serialize(canonical(obj));
     }
 
-    inline value parse(const buffer &buf)
+    value parse(const buffer &buf)
     {
         return boost::json::parse(static_cast<std::string_view>(buf));
     }
 
-    inline value load(const std::string &path)
+    value load(const std::string &path)
     {
         return parse(file::read(path));
     }
 
-    inline void save_pretty(std::ostream& os, value const &jv, std::string *indent)
+    void save_pretty(std::ostream& os, value const &jv, std::string *indent)
     {
         static constexpr size_t indent_step = 2;
         std::string indent_ {};
@@ -102,14 +102,14 @@ namespace turbo::codec::json {
         }
     }
 
-    inline std::string serialize_pretty(const value &jv)
+    std::string serialize_pretty(const value &jv)
     {
         std::ostringstream ss {};
         save_pretty(ss, jv);
         return ss.str();
     }
 
-    inline void save_pretty(const std::string &path, const value &jv)
+    void save_pretty(const std::string &path, const value &jv)
     {
         file::write(path, serialize_pretty(jv));
     }

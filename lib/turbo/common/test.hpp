@@ -36,6 +36,14 @@ namespace turbo {
         expect(res, loc) << fmt::format("{} != {}", x, y);
         return res;
     }
+
+    template<typename X, typename Y>
+    bool expect_equal(const std::string_view name, const X &x, const Y &y, const std::source_location &loc=std::source_location::current())
+    {
+        const auto res = x == y;
+        expect(res, loc) << fmt::format("{}: {} != {}", name, x, y);
+        return res;
+    }
 }
 
 template <class... Ts>

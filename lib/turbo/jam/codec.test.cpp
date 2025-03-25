@@ -3,7 +3,6 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <turbo/common/file.hpp>
 #include <turbo/common/test.hpp>
 #include "codec.hpp"
 

@@ -177,6 +177,15 @@ namespace turbo {
             return *this;
         }
 
+        bool bit(const size_t bit_no) const
+        {
+            const auto byte_no = bit_no >> 3;
+            const auto byte_bit_no = bit_no & 0x7;
+            if (byte_no >= SZ) [[unlikely]]
+                throw error(fmt::format("a bit number {} is out of range for byte strings of {} bytes", bit_no, SZ));
+            return base_type::operator[](byte_no) & (1 << byte_bit_no);
+        }
+
         operator buffer() const noexcept
         {
             return { base_type::data(), SZ };
@@ -187,11 +196,6 @@ namespace turbo {
         {
             return { reinterpret_cast<const char *>(base_type::data()), base_type::size() };
         }
-
-        /*bool operator==(const byte_array<SZ> &o) const
-        {
-            return memcmp(base_type::data(), o.data(), base_type::size()) == 0;
-        }*/
     };
 
     extern void secure_clear(std::span<uint8_t> store);
