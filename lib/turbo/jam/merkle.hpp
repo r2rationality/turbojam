@@ -20,11 +20,21 @@ namespace turbo::jam::merkle {
         }
     };
 
-    struct key_val_t {
-        hash_t key;
-        uint8_vector val;
-    };
-    using flat_tree_t = std::vector<key_val_t>;
+    namespace trie {
+        struct key_val_t {
+            hash_t key;
+            uint8_vector val;
+        };
+        using flat_tree_t = std::vector<key_val_t>;
 
-    extern hash_t encode(const flat_tree_t &tree);
+        extern hash_t encode_blake2b(const flat_tree_t &tree);
+        extern hash_t encode_keccak(const flat_tree_t &tree);
+    }
+
+    namespace binary {
+        using value_list = std::vector<hash_t>;
+
+        extern hash_t encode_blake2b(const value_list &items);
+        extern hash_t encode_keccak(const value_list &items);
+    }
 }

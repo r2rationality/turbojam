@@ -22,13 +22,14 @@ suite turbo_jam_merkle_suite = [] {
         for (const auto &vector: test_vectors.as_array()) {
             const auto &input = vector.at("input").as_object();
             const auto exp_out = hash_t::from_hex(json::value_to<std::string_view>(vector.at("output")));
-            flat_tree_t tree {};
+            trie::flat_tree_t tree {};
             tree.reserve(input.size());
             for (const auto &[k, v]: input) {
                 tree.emplace_back(hash_t::from_hex(k), uint8_vector::from_hex(json::value_to<std::string_view>(v)));
             }
-            const auto act_out = encode(tree);
-            expect_equal(fmt::format("#{}", case_no++), exp_out, act_out);
+            const auto act_out = encode_blake2b(tree);
+            expect_equal(fmt::format("#{}", case_no), exp_out, act_out);
+            ++case_no;
         }
     };
 };
