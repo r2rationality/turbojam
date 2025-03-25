@@ -16,7 +16,7 @@ namespace turbo::jam {
         struct alpha_t {};
 
         // most recent blocks
-        blocks_history_t<CONSTANTS> beta_t {};
+        blocks_history_t<CONSTANTS> beta {};
 
         // validator-selection state
         struct gamma_t {};
@@ -66,6 +66,11 @@ namespace turbo::jam {
             // for performance this function operates on the same set
             // this means that extra care must be taken when handling errors
             // to ensure that the state after a failed apply never changes
+        }
+
+        bool operator==(const state_t &o) const noexcept
+        {
+            return beta == o.beta;
         }
     };
 }

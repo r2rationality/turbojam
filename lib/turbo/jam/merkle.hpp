@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/bytes.hpp>
+#include "types.hpp"
 
 namespace turbo::jam::merkle {
     using hash_t = byte_array<32>;

@@ -55,6 +55,8 @@ namespace turbo::jam {
 
     template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
     struct sequence_t: std::vector<T> {
+        static constexpr size_t min_size = MIN;
+        static constexpr size_t max_size = MAX;
         using base_type = std::vector<T>;
         using base_type::base_type;
 
@@ -99,6 +101,11 @@ namespace turbo::jam {
                 case 1: return { dec.decode<T>() };
                 [[unlikely]] default: throw error(fmt::format("invalid optional type: {}", typ));
             }
+        }
+
+        bool operator==(const optional_t &o) const noexcept
+        {
+            return *reinterpret_cast<const base_type*>(this) == *reinterpret_cast<const base_type*>(&o);
         }
     };
 
@@ -305,22 +312,51 @@ namespace turbo::jam {
     using availability_assignments = fixed_sequence_t<availability_assignments_item_t, CONSTANT_SET::core_count>;
 
     using mmr_peak_t = optional_t<opaque_hash_t>;
-    using mmr_t = sequence_t<mmr_peak_t>;
+
+    struct mmr_t: sequence_t<mmr_peak_t> {
+        using base_type = sequence_t<mmr_peak_t>;
+        using base_type::base_type;
+
+        static mmr_t from_bytes(codec::decoder &dec);
+        mmr_t append(const opaque_hash_t &l) const;
+    };
 
     struct reported_work_package_t {
         work_report_hash_t hash;
         exports_root_t exports_root;
+
+        static reported_work_package_t from_bytes(codec::decoder &dec);
+
+        bool operator==(const reported_work_package_t &o) const noexcept
+        {
+            return hash == o.hash && exports_root == o.exports_root;
+        }
     };
+    using reported_work_seq_t = sequence_t<reported_work_package_t>;
 
     struct block_info_t {
         header_hash_t header_hash;
         mmr_t mmr;
         state_root_t state_root;
-        sequence_t<reported_work_package_t> reported;
+        reported_work_seq_t reported;
+
+        static block_info_t from_bytes(codec::decoder &dec);
+
+        bool operator==(const block_info_t &o) const noexcept
+        {
+            return header_hash == o.header_hash && mmr == o.mmr && state_root == o.state_root && reported == o.reported;
+        }
     };
 
     template<typename CONSTANTS=config_prod>
-    using blocks_history_t = sequence_t<block_info_t, 0, CONSTANTS::max_blocks_history>;
+    struct blocks_history_t: sequence_t<block_info_t, 0, CONSTANTS::max_blocks_history>
+    {
+        using base_type = sequence_t<block_info_t, 0, CONSTANTS::max_blocks_history>;
+        using base_type::base_type;
+
+        static blocks_history_t from_bytes(codec::decoder &dec);
+        blocks_history_t apply(const header_hash_t &, const state_root_t &, const opaque_hash_t &, const reported_work_seq_t &) const;
+    };
 
     struct activity_record_t {
         uint32_t blocks;

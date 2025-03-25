@@ -21,7 +21,7 @@ suite turbo_jam_merkle_suite = [] {
         size_t case_no = 0;
         for (const auto &vector: test_vectors.as_array()) {
             const auto &input = vector.at("input").as_object();
-            const auto exp_out = hash_t::from_hex(codec::json::value_to<std::string_view>(vector.at("output")));
+            const auto exp_out = hash_t::from_hex(json::value_to<std::string_view>(vector.at("output")));
             flat_tree_t tree {};
             tree.reserve(input.size());
             for (const auto &[k, v]: input) {

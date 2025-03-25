@@ -14,6 +14,16 @@ namespace turbo::jam {
         };
     }
 
+    block_info_t block_info_t::from_bytes(codec::decoder &dec)
+    {
+        return {
+            dec.decode<decltype(header_hash)>(),
+            dec.decode<decltype(mmr)>(),
+            dec.decode<decltype(state_root)>(),
+            dec.decode<decltype(reported)>()
+        };
+    }
+
     culprit_t culprit_t::from_bytes(codec::decoder &dec)
     {
         return {
@@ -83,6 +93,14 @@ namespace turbo::jam {
             dec.decode<decltype(report)>(),
             dec.decode<decltype(slot)>(),
             dec.decode<decltype(signatures)>()
+        };
+    }
+
+    reported_work_package_t reported_work_package_t::from_bytes(codec::decoder &dec)
+    {
+        return {
+            dec.decode<decltype(hash)>(),
+            dec.decode<decltype(exports_root)>()
         };
     }
 

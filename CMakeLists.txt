@@ -98,6 +98,7 @@ endif()
 
 add_subdirectory(3rdparty)
 add_subdirectory(lib)
+target_link_libraries(lib PUBLIC 3rdparty)
 
 file(GLOB_RECURSE TEST_SRCS lib/*.test.cpp)
 add_executable(run-test src/run-test.cpp ${TEST_SRCS})
