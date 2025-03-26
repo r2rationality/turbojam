@@ -5,39 +5,11 @@
 
 #include <turbo/common/test.hpp>
 #include "types.hpp"
+#include "state.hpp"
 
 namespace {
     using namespace turbo;
     using namespace turbo::jam;
-
-    template<typename CONSTANTS=config_prod>
-    struct test_state_t {
-        auth_pools_t<CONSTANTS> auth_pools;
-        auth_queues_t<CONSTANTS> auth_queues;
-
-        static test_state_t from_bytes(codec::decoder &dec)
-        {
-            return {
-                dec.decode<decltype(auth_pools)>(),
-                dec.decode<decltype(auth_queues)>()
-            };
-        }
-    };
-
-    struct core_authorizer_t {
-        core_index_t core;
-        opaque_hash_t auth_hash;
-
-        static core_authorizer_t from_bytes(codec::decoder &dec)
-        {
-            return {
-                dec.decode<decltype(core)>(),
-                dec.decode<decltype(auth_hash)>()
-            };
-        }
-    };
-
-    using core_authorizers_t = sequence_t<core_authorizer_t>;
 
     struct input_t {
         time_slot_t slot;
@@ -55,15 +27,23 @@ namespace {
     template<typename CONSTANTS=config_prod>
     struct test_case_t {
         input_t input;
-        test_state_t<CONSTANTS> pre_state;
-        test_state_t<CONSTANTS> post_state;
+        state_t<CONSTANTS> pre_state;
+        state_t<CONSTANTS> post_state;
+
+        static state_t<CONSTANTS> decode_state(codec::decoder &dec)
+        {
+            return {
+                .alpha = dec.decode<decltype(pre_state.alpha)>(),
+                .phi = dec.decode<decltype(pre_state.phi)>()
+            };
+        }
 
         static test_case_t from_bytes(codec::decoder &dec)
         {
             return {
                 dec.decode<decltype(input)>(),
-                dec.decode<decltype(pre_state)>(),
-                dec.decode<decltype(post_state)>()
+                decode_state(dec),
+                decode_state(dec)
             };
         }
     };
@@ -72,7 +52,8 @@ namespace {
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
-        expect(false) << path;
+        const auto new_alpha = tc.pre_state.alpha.apply(tc.input.slot, tc.input.auths, tc.pre_state.phi);
+        expect(new_alpha == tc.post_state.alpha) << path;
     }
 }
 

@@ -26,8 +26,8 @@ namespace turbo::jam {
         static constexpr size_t max_blocks_history = 8;
         static constexpr size_t auth_pool_max_size = 8;
         static constexpr size_t auth_queue_size = 80;
-        // core assignment rotation period: 10
-        // ticket attempts: 2
+        static constexpr size_t core_assignment_rotation_period = 10;
+        static constexpr size_t ticket_attempts = 2;
     };
 
     struct config_tiny: config_prod {
@@ -36,8 +36,8 @@ namespace turbo::jam {
         static constexpr size_t epoch_length = 12;
         static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
         static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
-        // core assignment rotation period: 4
-        // ticket attempts: 3
+        static constexpr size_t core_assignment_rotation_period = 4;
+        static constexpr size_t ticket_attempts = 3;
     };
 
     // jam-types.asn
@@ -57,6 +57,7 @@ namespace turbo::jam {
     struct sequence_t: std::vector<T> {
         static constexpr size_t min_size = MIN;
         static constexpr size_t max_size = MAX;
+        static_assert(MIN < MAX);
         using base_type = std::vector<T>;
         using base_type::base_type;
 
@@ -76,12 +77,22 @@ namespace turbo::jam {
 
     template<typename T, size_t SZ>
     struct fixed_sequence_t: std::array<T, SZ> {
+        static_assert(SZ > 0);
         using base_type = std::array<T, SZ>;
         using base_type::base_type;
 
         static fixed_sequence_t from_bytes(codec::decoder &dec)
         {
             fixed_sequence_t res {};
+            for (size_t i = 0; i < SZ; i++)
+                res[i] = dec.decode<T>();
+            return res;
+        }
+
+        template<typename C>
+        static C from_bytes_as(codec::decoder &dec)
+        {
+            C res {};
             for (size_t i = 0; i < SZ; i++)
                 res[i] = dec.decode<T>();
             return res;
@@ -191,18 +202,39 @@ namespace turbo::jam {
 
     using authorizer_hash_t = opaque_hash_t;
 
-    // max size: auth_pool_max_size
-    template<typename CONSTANTS=config_prod>
-    using auth_pool_t = sequence_t<authorizer_hash_t, 0, CONSTANTS::auth_pool_max_size>;
-
-    template<typename CONSTANTS=config_prod>
-    using auth_pools_t = fixed_sequence_t<auth_pool_t<CONSTANTS>, CONSTANTS::core_count>;
-
     template<typename CONSTANT_SET=config_prod>
     using auth_queue_t = fixed_sequence_t<authorizer_hash_t, CONSTANT_SET::auth_queue_size>;
 
     template<typename CONSTANT_SET=config_prod>
     using auth_queues_t = fixed_sequence_t<auth_queue_t<CONSTANT_SET>, CONSTANT_SET::core_count>;
+
+    // max size: auth_pool_max_size
+    template<typename CONSTANTS=config_prod>
+    using auth_pool_t = sequence_t<authorizer_hash_t, 0, CONSTANTS::auth_pool_max_size>;
+
+    struct core_authorizer_t {
+        core_index_t core;
+        opaque_hash_t auth_hash;
+
+        static core_authorizer_t from_bytes(codec::decoder &dec)
+        {
+            return {
+                dec.decode<decltype(core)>(),
+                dec.decode<decltype(auth_hash)>()
+            };
+        }
+    };
+    using core_authorizers_t = sequence_t<core_authorizer_t>;
+
+    template<typename CONSTANTS=config_prod>
+    struct auth_pools_t: fixed_sequence_t<auth_pool_t<CONSTANTS>, CONSTANTS::core_count>
+    {
+        using base_type = fixed_sequence_t<auth_pool_t<CONSTANTS>, CONSTANTS::core_count>;
+        using base_type::base_type;
+
+        static auth_pools_t from_bytes(codec::decoder &dec);
+        auth_pools_t apply(time_slot_t slot, const core_authorizers_t &cas, const auth_queues_t<CONSTANTS> &phi) const;
+    };
 
     struct import_spec_t {
         opaque_hash_t tree_root;

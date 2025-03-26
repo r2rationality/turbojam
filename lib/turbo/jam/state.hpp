@@ -11,52 +11,36 @@ namespace turbo::jam {
     // lower-case sigma in terms of the JAM paper
     template<typename CONSTANTS=config_prod>
     struct state_t {
+        auth_pools_t<CONSTANTS> alpha {}; // authorizations
+        blocks_history_t<CONSTANTS> beta {}; // most recent blocks
+        auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
 
-        // authorizations
-        struct alpha_t {};
-
-        // most recent blocks
-        blocks_history_t<CONSTANTS> beta {};
+        // Not implemented
 
         // validator-selection state
         struct gamma_t {};
-
         // services
         struct delta_t {};
-
         // entropy
         struct eta_t {};
-
         // scheduled validators
         struct iota_t {};
-
         // active validators
         struct kappa_t {};
-
         // archive validators
         struct lambda_t {};
-
         // assigned work reports
         struct ro_t {};
-
         // most recent timeslot
         time_slot_t tau_t {};
-
-        // work queue
-        struct phi_t {};
-
         // validator statistics
         struct pi_t {};
-
         // privileged services
         struct chi_t {};
-
         // judgements
         struct psi_t {};
-
         // work reports ready to be accumulated
         struct nu_t {};
-
         // recently accumulated work reports
         struct ksi_t {};
 
@@ -68,9 +52,7 @@ namespace turbo::jam {
             // to ensure that the state after a failed apply never changes
         }
 
-        bool operator==(const state_t &o) const noexcept
-        {
-            return beta == o.beta;
-        }
+        state_t apply(const block_info_t &) const;
+        bool operator==(const state_t &o) const noexcept;
     };
 }
