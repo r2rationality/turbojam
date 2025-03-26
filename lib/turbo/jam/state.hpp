@@ -13,7 +13,9 @@ namespace turbo::jam {
     struct state_t {
         auth_pools_t<CONSTANTS> alpha {}; // authorizations
         blocks_history_t<CONSTANTS> beta {}; // most recent blocks
+        validators_data_t<CONSTANTS> kappa {}; // active validators
         auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
+        availability_assignments_t<CONSTANTS> ro {}; // assigned work reports
 
         // Not implemented
 
@@ -25,12 +27,8 @@ namespace turbo::jam {
         struct eta_t {};
         // scheduled validators
         struct iota_t {};
-        // active validators
-        struct kappa_t {};
         // archive validators
         struct lambda_t {};
-        // assigned work reports
-        struct ro_t {};
         // most recent timeslot
         time_slot_t tau_t {};
         // validator statistics
