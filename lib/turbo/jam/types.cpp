@@ -14,6 +14,14 @@ namespace turbo::jam {
         };
     }
 
+    availability_assignment_t availability_assignment_t::from_bytes(codec::decoder &dec)
+    {
+        return {
+            dec.decode<decltype(report)>(),
+            dec.decode<decltype(timeout)>()
+        };
+    }
+
     block_info_t block_info_t::from_bytes(codec::decoder &dec)
     {
         return {
@@ -125,6 +133,16 @@ namespace turbo::jam {
         return {
             dec.decode<decltype(attempt)>(),
             dec.decode<decltype(signature)>()
+        };
+    }
+
+    validator_data_t validator_data_t::from_bytes(codec::decoder &dec)
+    {
+        return {
+            dec.decode<decltype(bandersnatch)>(),
+            dec.decode<decltype(ed25519)>(),
+            dec.decode<decltype(bls)>(),
+            dec.decode<decltype(metadata)>()
         };
     }
 

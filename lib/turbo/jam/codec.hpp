@@ -21,27 +21,27 @@ namespace turbo::jam::codec {
                 throw error(fmt::format("{} cannot be encoded as a sequence of {} bytes", val, num_bytes));
         }
 
-        template<typename T>
-        void uint_general(T x)
+        void uint_general(const uint64_t x)
         {
-            if constexpr (std::numeric_limits<T>::max() > std::numeric_limits<uint64_t>::max()) [[unlikely]]
-                throw error(fmt::format("only integral types up to 64-bytes are supported but got {}", typeid(T).name()));
-            if (x == 0) {
-                _bytes.emplace_back(0);
-                return;
-            }
-            if (x >= 1 << 63) {
+            static constexpr size_t max_uint_val = uint64_t { 1 } << 63;
+            if (x >= max_uint_val) [[unlikely]] {
                 _bytes.emplace_back(0xFF);
                 uint_trivial(8, x);
                 return;
             }
+            if (x == 0) {
+                _bytes.emplace_back(0);
+                return;
+            }
             size_t l = 0;
-            while (x >= 1 << (7 * l)) {
+            while (x >= uint64_t { 1 } << (7 * (l + 1))) {
                 ++l;
             }
-            const auto base = 8 * l;
-            _bytes.emplace_back(0x100 - (1 << (8 - l)) + (x >> base));
-            uint_trivial(l, x & ((1 << base) - 1));
+            const auto base = l << 3;
+            const auto bit_mask = static_cast<uint8_t>(0x100 - (uint8_t { 1 } << (8 - l)));
+            const auto high_bits = static_cast<uint8_t>(x >> base);
+            _bytes.emplace_back(bit_mask | high_bits);
+            uint_trivial(l, x & ((uint64_t { 1 } << base) - 1));
         }
 
         template<typename T>
@@ -59,6 +59,11 @@ namespace turbo::jam::codec {
             } else {
                 val.to_bytes(*this);
             }
+        }
+
+        uint8_vector &bytes()
+        {
+            return _bytes;
         }
     private:
         uint8_vector _bytes {};
@@ -81,17 +86,16 @@ namespace turbo::jam::codec {
             return x;
         }
 
-        template<typename T>
-        T uint_general()
+        uint64_t uint_general()
         {
-            uint8_t prefix = uint_trivial<uint8_t>(1);
+            auto prefix = uint_trivial<uint8_t>(1);
             size_t l = 0;
             while (prefix & (1 << (7 - l))) {
-                ++l;
                 prefix &= ~(1 << (7 - l));
+                ++l;
             }
-            T res = prefix << (l * 8);
-            res |= uint_trivial<T>(l);
+            uint64_t res = prefix << (l << 3);
+            res |= uint_trivial<uint64_t>(l);
             return res;
         }
 

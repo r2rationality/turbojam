@@ -8,9 +8,22 @@
 
 namespace {
     using namespace turbo;
+    using namespace turbo::jam::codec;
 }
 
 suite turbo_jam_codec_suite = [] {
     "turbo::jam::codec"_test = [] {
+        "uint_general"_test = [] {
+            static const auto exp = uint8_vector::from_hex("83FF");
+            {
+                encoder enc {};
+                enc.uint_general(1023);
+                expect_equal(exp, enc.bytes());
+            }
+            {
+                decoder dec { exp };
+                expect_equal(1023, dec.uint_general());
+            }
+        };
     };
 };

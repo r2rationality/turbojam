@@ -48,7 +48,7 @@ namespace turbo::jam {
 
         static byte_sequence_t from_bytes(codec::decoder &dec)
         {
-            const auto sz = dec.uint_general<uint64_t>();
+            const auto sz = dec.uint_general();
             return { dec.next_bytes(sz) };
         }
     };
@@ -63,7 +63,7 @@ namespace turbo::jam {
 
         static sequence_t from_bytes(codec::decoder &dec)
         {
-            const auto sz = dec.uint_general<uint64_t>();
+            const auto sz = dec.uint_general();
             if (static_cast<int>(sz < MIN) | static_cast<int>(sz > MAX)) [[unlikely]]
                 throw error(fmt::format("the recorded number of elements is {} and outside of the allowed range [{}:{}] for {}",
                             sz, MIN, MAX, typeid(sequence_t).name()));
@@ -169,6 +169,8 @@ namespace turbo::jam {
         ed25519_public_t ed25519;
         bls_public_t bls;
         validator_metadata_t metadata;
+
+        static validator_data_t from_bytes(codec::decoder &dec);
     };
 
     using service_id_t = uint32_t;
@@ -329,10 +331,13 @@ namespace turbo::jam {
 
         static work_report_t from_bytes(codec::decoder &dec);
     };
+    using work_reports_t = sequence_t<work_report_t>;
 
     struct availability_assignment_t  {
         work_report_t report;
         uint32_t timeout;
+
+        static availability_assignment_t from_bytes(codec::decoder &dec);
     };
 
     using availability_assignments_item_t = optional_t<availability_assignment_t>;
@@ -341,7 +346,7 @@ namespace turbo::jam {
     using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANT_SET::validator_count>;
 
     template<typename CONSTANT_SET=config_prod>
-    using availability_assignments = fixed_sequence_t<availability_assignments_item_t, CONSTANT_SET::core_count>;
+    using availability_assignments_t = fixed_sequence_t<availability_assignments_item_t, CONSTANT_SET::core_count>;
 
     using mmr_peak_t = optional_t<opaque_hash_t>;
 
