@@ -10,6 +10,7 @@
 #include <optional>
 #include <variant>
 #include <vector>
+#include <boost/json.hpp>
 #include <turbo/common/bytes.hpp>
 #include "codec.hpp"
 
@@ -46,11 +47,8 @@ namespace turbo::jam {
         using base_type = uint8_vector;
         using base_type::base_type;
 
-        static byte_sequence_t from_bytes(codec::decoder &dec)
-        {
-            const auto sz = dec.uint_general();
-            return { dec.next_bytes(sz) };
-        }
+        static byte_sequence_t from_bytes(codec::decoder &dec);
+        static byte_sequence_t from_json(const boost::json::value &);
     };
 
     template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
@@ -61,16 +59,32 @@ namespace turbo::jam {
         using base_type = std::vector<T>;
         using base_type::base_type;
 
-        static sequence_t from_bytes(codec::decoder &dec)
+        template<typename C=sequence_t>
+        static C from_bytes(codec::decoder &dec)
         {
             const auto sz = dec.uint_general();
             if (static_cast<int>(sz < MIN) | static_cast<int>(sz > MAX)) [[unlikely]]
                 throw error(fmt::format("the recorded number of elements is {} and outside of the allowed range [{}:{}] for {}",
                             sz, MIN, MAX, typeid(sequence_t).name()));
-            sequence_t res {};
+            C res {};
             res.reserve(sz);
             for (size_t i = 0; i < sz; i++)
                 res.emplace_back(dec.decode<T>());
+            return res;
+        }
+
+        template<typename C=sequence_t>
+        static C from_json(const boost::json::value &j)
+        {
+            const auto &j_arr = j.as_array();
+            const auto sz = j_arr.size();
+            if (static_cast<int>(sz < MIN) | static_cast<int>(sz > MAX)) [[unlikely]]
+                throw error(fmt::format("the recorded number of elements is {} and outside of the allowed range [{}:{}] for {}",
+                            sz, MIN, MAX, typeid(sequence_t).name()));
+            C res {};
+            res.reserve(sz);
+            for (const auto &jv: j_arr)
+                res.emplace_back(T::from_json(jv));
             return res;
         }
     };
@@ -81,20 +95,25 @@ namespace turbo::jam {
         using base_type = std::array<T, SZ>;
         using base_type::base_type;
 
-        static fixed_sequence_t from_bytes(codec::decoder &dec)
+        template<typename C=fixed_sequence_t>
+        static C from_bytes(codec::decoder &dec)
         {
-            fixed_sequence_t res {};
+            C res {};
             for (size_t i = 0; i < SZ; i++)
                 res[i] = dec.decode<T>();
             return res;
         }
 
-        template<typename C>
-        static C from_bytes_as(codec::decoder &dec)
+        template<typename C=fixed_sequence_t>
+        static C from_json(const boost::json::value &j)
         {
+            const auto &j_arr = j.as_array();
+            if (j_arr.size() != SZ) [[unlikely]]
+                throw error(fmt::format("{} expects an array of {} items but got {}", typeid(C).name(), SZ, j_arr.size()));
             C res {};
-            for (size_t i = 0; i < SZ; i++)
-                res[i] = dec.decode<T>();
+            size_t i = 0;
+            for (const auto &jv: j_arr)
+                res[i++] = T::from_json(jv);
             return res;
         }
     };
@@ -114,6 +133,14 @@ namespace turbo::jam {
             }
         }
 
+        static optional_t from_json(const boost::json::value &j)
+        {
+            if (!j.is_null()) {
+                return T::from_json(j);
+            }
+            return {};
+        }
+
         bool operator==(const optional_t &o) const noexcept
         {
             return *reinterpret_cast<const base_type*>(this) == *reinterpret_cast<const base_type*>(&o);
@@ -128,6 +155,16 @@ namespace turbo::jam {
         static byte_array_t from_bytes(codec::decoder &dec)
         {
             return { dec.next_bytes(SZ) };
+        }
+
+        static byte_array_t from_json(const boost::json::value &j)
+        {
+            const auto hex = boost::json::value_to<std::string_view>(j);
+            if (!hex.starts_with("0x")) [[unlikely]]
+                throw error(fmt::format("expected a hex string but got: {}", hex));
+            byte_array_t res;
+            turbo::init_from_hex(res, hex.substr(2));
+            return res;
         }
     };
 
@@ -171,6 +208,12 @@ namespace turbo::jam {
         validator_metadata_t metadata;
 
         static validator_data_t from_bytes(codec::decoder &dec);
+        static validator_data_t from_json(const boost::json::value &json);
+
+        bool operator==(const validator_data_t &o) const
+        {
+            return bandersnatch == o.bandersnatch && ed25519 == o.ed25519 && bls == o.bls && metadata == o.metadata;
+        }
     };
 
     using service_id_t = uint32_t;
@@ -193,6 +236,8 @@ namespace turbo::jam {
 	    sequence_t<opaque_hash_t> prerequisites;
 
         static refine_context_t from_bytes(codec::decoder &dec);
+        static refine_context_t from_json(const boost::json::value &);
+        bool operator==(const refine_context_t &o) const;
     };
 
     struct authorizer_t  {
@@ -200,6 +245,12 @@ namespace turbo::jam {
         byte_sequence_t params;
 
         static authorizer_t from_bytes(codec::decoder &dec);
+        static authorizer_t from_json(const boost::json::value &);
+
+        bool operator==(const authorizer_t &o) const
+        {
+            return code_hash == o.code_hash && params == o.params;
+        }
     };
 
     using authorizer_hash_t = opaque_hash_t;
@@ -218,12 +269,12 @@ namespace turbo::jam {
         core_index_t core;
         opaque_hash_t auth_hash;
 
-        static core_authorizer_t from_bytes(codec::decoder &dec)
+        static core_authorizer_t from_bytes(codec::decoder &dec);
+        static core_authorizer_t from_json(const boost::json::value &json);
+
+        bool operator==(const core_authorizer_t &o) const
         {
-            return {
-                dec.decode<decltype(core)>(),
-                dec.decode<decltype(auth_hash)>()
-            };
+            return core == o.core && auth_hash == o.auth_hash;
         }
     };
     using core_authorizers_t = sequence_t<core_authorizer_t>;
@@ -235,6 +286,7 @@ namespace turbo::jam {
         using base_type::base_type;
 
         static auth_pools_t from_bytes(codec::decoder &dec);
+        static auth_pools_t from_json(const boost::json::value &json);
         auth_pools_t apply(time_slot_t slot, const core_authorizers_t &cas, const auth_queues_t<CONSTANTS> &phi) const;
     };
 
@@ -243,6 +295,12 @@ namespace turbo::jam {
         uint16_t index;
 
         static import_spec_t from_bytes(codec::decoder &dec);
+        static import_spec_t from_json(const boost::json::value &json);
+
+        bool operator==(const import_spec_t &o) const
+        {
+            return tree_root == o.tree_root && index == o.index;
+        }
     };
 
     struct extrinsic_spec_t {
@@ -250,6 +308,12 @@ namespace turbo::jam {
         uint32_t len;
 
         static extrinsic_spec_t from_bytes(codec::decoder &dec);
+        static extrinsic_spec_t from_json(const boost::json::value &json);
+
+        bool operator==(const extrinsic_spec_t &o) const
+        {
+            return hash == o.hash && len == o.len;
+        }
     };
 
     struct work_item_t {
@@ -258,11 +322,20 @@ namespace turbo::jam {
         byte_sequence_t payload;
         gas_t refine_gas_limit;
         gas_t accumulate_gas_limit;
-        sequence_t<import_spec_t> import_specs;
-        sequence_t<extrinsic_spec_t> extrinsic_specs;
+        sequence_t<import_spec_t> import_segments;
+        sequence_t<extrinsic_spec_t> extrinsic;
         uint16_t export_count;
 
         static work_item_t from_bytes(codec::decoder &dec);
+        static work_item_t from_json(const boost::json::value &json);
+
+        bool operator==(const work_item_t &o) const
+        {
+            return service == o.service && code_hash == o.code_hash && payload == o.payload
+                && refine_gas_limit == o.refine_gas_limit && accumulate_gas_limit == o.accumulate_gas_limit
+                && import_segments == o.import_segments && extrinsic == o.extrinsic
+                && export_count == o.export_count;
+        }
     };
 
     struct work_package_t {
@@ -273,22 +346,84 @@ namespace turbo::jam {
         sequence_t<work_item_t, 1, 16> items;
 
         static work_package_t from_bytes(codec::decoder &dec);
+        static work_package_t from_json(const boost::json::value &json);
+
+        bool operator==(const work_package_t &o) const
+        {
+            return authorization == o.authorization && auth_code_host == o.auth_code_host
+                && authorizer == o.authorizer && context == o.context
+                && items == o.items;
+        }
     };
 
     struct work_result_ok_t {
         byte_sequence_t data;
 
         static work_result_ok_t from_bytes(codec::decoder &dec);
+        static work_result_ok_t from_json(const boost::json::value &json);
+
+        bool operator==(const work_result_ok_t &o) const
+        {
+            return data == o.data;
+        }
     };
-    struct work_result_out_of_gas_t {};
-    struct work_result_panic_t {};
-    struct work_result_bad_exports_t {};
-    struct work_result_bad_code_t {};
-    struct work_result_code_oversize_t {};
+
+    struct work_result_out_of_gas_t {
+        bool operator==(const work_result_out_of_gas_t &) const
+        {
+            return true;
+        }
+    };
+
+    struct work_result_panic_t {
+        bool operator==(const work_result_panic_t &) const
+        {
+            return true;
+        }
+    };
+
+    struct work_result_bad_exports_t {
+        bool operator==(const work_result_bad_exports_t &) const
+        {
+            return true;
+        }
+    };
+
+    struct work_result_bad_code_t {
+        bool operator==(const work_result_bad_code_t &) const
+        {
+            return true;
+        }
+    };
+
+    struct work_result_code_oversize_t {
+        bool operator==(const work_result_code_oversize_t &) const
+        {
+            return true;
+        }
+    };
 
     struct work_exec_result_t: std::variant<work_result_ok_t, work_result_out_of_gas_t, work_result_panic_t, work_result_bad_exports_t,
                                             work_result_bad_code_t, work_result_code_oversize_t> {
         static work_exec_result_t from_bytes(codec::decoder &dec);
+        static work_exec_result_t from_json(const boost::json::value &json);
+    };
+
+    struct refine_load_t {
+        gas_t gas_used;
+        uint16_t imports;
+        uint16_t extrinsic_count;
+        uint32_t extrinsic_size;
+        uint16_t exports;
+
+        static refine_load_t from_bytes(codec::decoder &dec);
+        static refine_load_t from_json(const boost::json::value &json);
+
+        bool operator==(const refine_load_t &o) const
+        {
+            return gas_used == o.gas_used && imports == o.imports && extrinsic_count == o.extrinsic_count
+                && extrinsic_size == o.extrinsic_size && exports == o.exports;
+        }
     };
 
     struct work_result_t {
@@ -297,8 +432,17 @@ namespace turbo::jam {
         opaque_hash_t payload_hash;
         gas_t accumulate_gas;
         work_exec_result_t result;
+        refine_load_t refine_load;
 
         static work_result_t from_bytes(codec::decoder &dec);
+        static work_result_t from_json(const boost::json::value &json);
+
+        bool operator==(const work_result_t &o) const
+        {
+            return service_id == o.service_id && code_hash == o.code_hash && payload_hash == o.payload_hash
+                && accumulate_gas == o.accumulate_gas && refine_load == o.refine_load
+                && refine_load == o.refine_load;
+        }
     };
 
     struct work_package_spec_t {
@@ -309,6 +453,14 @@ namespace turbo::jam {
         uint16_t exports_count;
 
         static work_package_spec_t from_bytes(codec::decoder &dec);
+        static work_package_spec_t from_json(const boost::json::value &json);
+
+        bool operator==(const work_package_spec_t &o) const
+        {
+            return hash == o.hash && length == o.length && erasure_root == o.erasure_root
+                && erasure_root == o.erasure_root && exports_root == o.exports_root
+                && exports_count == o.exports_count;
+        }
     };
 
     struct segment_root_lookup_item {
@@ -316,6 +468,12 @@ namespace turbo::jam {
         opaque_hash_t segment_tree_root;
 
         static segment_root_lookup_item from_bytes(codec::decoder &dec);
+        static segment_root_lookup_item from_json(const boost::json::value &json);
+
+        bool operator==(const segment_root_lookup_item &o) const
+        {
+            return work_package_hash == o.work_package_hash && segment_tree_root == o.segment_tree_root;
+        }
     };
 
     using segment_root_lookup_t = sequence_t<segment_root_lookup_item>;
@@ -328,8 +486,18 @@ namespace turbo::jam {
         byte_sequence_t auth_output;
         segment_root_lookup_t segment_root_lookup;
         sequence_t<work_result_t, 1, 16> results;
+        gas_t auth_gas_used;
 
         static work_report_t from_bytes(codec::decoder &dec);
+        static work_report_t from_json(const boost::json::value &json);
+
+        bool operator==(const work_report_t &o) const
+        {
+            return package_spec == o.package_spec && context == o.context && core_index == o.core_index
+                && authorizer_hash == o.authorizer_hash && auth_output == o.auth_output
+                && segment_root_lookup == o.segment_root_lookup && results == o.results
+                && auth_gas_used == o.auth_gas_used;
+        }
     };
     using work_reports_t = sequence_t<work_report_t>;
 
@@ -338,6 +506,12 @@ namespace turbo::jam {
         uint32_t timeout;
 
         static availability_assignment_t from_bytes(codec::decoder &dec);
+        static availability_assignment_t from_json(const boost::json::value &json);
+
+        bool operator==(const availability_assignment_t &o) const
+        {
+            return report == o.report && timeout == o.timeout;
+        }
     };
 
     using availability_assignments_item_t = optional_t<availability_assignment_t>;
@@ -355,6 +529,7 @@ namespace turbo::jam {
         using base_type::base_type;
 
         static mmr_t from_bytes(codec::decoder &dec);
+        static mmr_t from_json(const boost::json::value &json);
         mmr_t append(const opaque_hash_t &l) const;
     };
 
@@ -363,6 +538,7 @@ namespace turbo::jam {
         exports_root_t exports_root;
 
         static reported_work_package_t from_bytes(codec::decoder &dec);
+        static reported_work_package_t from_json(const boost::json::value &json);
 
         bool operator==(const reported_work_package_t &o) const noexcept
         {
@@ -378,6 +554,7 @@ namespace turbo::jam {
         reported_work_seq_t reported;
 
         static block_info_t from_bytes(codec::decoder &dec);
+        static block_info_t from_json(const boost::json::value &json);
 
         bool operator==(const block_info_t &o) const noexcept
         {
@@ -392,6 +569,7 @@ namespace turbo::jam {
         using base_type::base_type;
 
         static blocks_history_t from_bytes(codec::decoder &dec);
+        static blocks_history_t from_json(const boost::json::value &json);
         blocks_history_t apply(const header_hash_t &, const state_root_t &, const opaque_hash_t &, const reported_work_seq_t &) const;
     };
 
@@ -421,6 +599,12 @@ namespace turbo::jam {
         bandersnatch_ring_vrf_signature_t signature;
 
         static ticket_envelope_t from_bytes(codec::decoder &dec);
+        static ticket_envelope_t from_json(const boost::json::value &json);
+
+        bool operator==(const ticket_envelope_t &o) const
+        {
+            return attempt == o.attempt && signature == o.signature;
+        }
     };
 
     struct ticket_body_t {
@@ -428,6 +612,12 @@ namespace turbo::jam {
         ticket_attempt_t attempt;
 
         static ticket_body_t from_bytes(codec::decoder &dec);
+        static ticket_body_t from_json(const boost::json::value &json);
+
+        bool operator==(const ticket_body_t &o) const
+        {
+            return id == o.id && attempt == o.attempt;
+        }
     };
 
     template<typename CONSTANTS=config_prod>
@@ -451,6 +641,12 @@ namespace turbo::jam {
         ed25519_signature_t signature;
 
         static judgement_t from_bytes(codec::decoder &dec);
+        static judgement_t from_json(const boost::json::value &json);
+
+        bool operator==(const judgement_t &o) const
+        {
+            return vote == o.vote && index == o.index && signature == o.signature;
+        }
     };
 
     template<typename CONSTANTS=config_prod>
@@ -467,6 +663,20 @@ namespace turbo::jam {
                 dec.decode<decltype(votes)>()
             };
         }
+
+        static verdict_t from_json(const boost::json::value &j)
+        {
+            return {
+                decltype(target)::from_json(j.at("target")),
+                boost::json::value_to<decltype(age)>(j.at("age")),
+                decltype(votes)::from_json(j.at("votes"))
+            };
+        }
+
+        bool operator==(const verdict_t &o) const
+        {
+            return target == o.target && age == o.age && votes == o.votes;
+        }
     };
 
     struct culprit_t {
@@ -475,6 +685,12 @@ namespace turbo::jam {
         ed25519_signature_t signature;
 
         static culprit_t from_bytes(codec::decoder &dec);
+        static culprit_t from_json(const boost::json::value &json);
+
+        bool operator==(const culprit_t &o) const
+        {
+            return target == o.target && key == o.key && signature == o.signature;
+        }
     };
 
     struct fault_t {
@@ -484,6 +700,12 @@ namespace turbo::jam {
         ed25519_signature_t signature;
 
         static fault_t from_bytes(codec::decoder &dec);
+        static fault_t from_json(const boost::json::value &json);
+
+        bool operator==(const fault_t &o) const
+        {
+            return target == o.target && vote == o.vote && key == o.key && signature == o.signature;
+        }
     };
 
     struct disputes_records_t {
@@ -507,6 +729,20 @@ namespace turbo::jam {
                 dec.decode<decltype(faults)>()
             };
         }
+
+        static disputes_extrinsic_t from_json(const boost::json::value &j)
+        {
+            return {
+                decltype(verdicts)::from_json(j.at("verdicts")),
+                decltype(culprits)::from_json(j.at("culprits")),
+                decltype(faults)::from_json(j.at("faults"))
+            };
+        }
+
+        bool operator==(const disputes_extrinsic_t &o) const
+        {
+            return verdicts == o.verdicts && culprits == o.culprits && faults == o.faults;
+        }
     };
 
     struct preimage_t  {
@@ -514,6 +750,12 @@ namespace turbo::jam {
         byte_sequence_t blob;
 
         static preimage_t from_bytes(codec::decoder &dec);
+        static preimage_t from_json(const boost::json::value &json);
+
+        bool operator==(const preimage_t &o) const
+        {
+            return requester == o.requester && blob == o.blob;
+        }
     };
 
     using preimages_extrinsic_t = sequence_t<preimage_t>;
@@ -534,6 +776,21 @@ namespace turbo::jam {
                 dec.decode<decltype(signature)>()
             };
         }
+
+        static avail_assurance_t from_json(const boost::json::value &j)
+        {
+            return {
+                decltype(anchor)::from_json(j.at("anchor")),
+                decltype(bitfield)::from_json(j.at("bitfield")),
+                boost::json::value_to<decltype(validator_index)>(j.at("validator_index")),
+                decltype(signature)::from_json(j.at("signature"))
+            };
+        }
+
+        bool operator==(const avail_assurance_t &o) const
+        {
+            return anchor == o.anchor && bitfield == o.bitfield && validator_index == o.validator_index && signature == o.signature;
+        }
     };
 
     template<typename CONSTANTS=config_prod>
@@ -544,6 +801,12 @@ namespace turbo::jam {
         ed25519_signature_t signature;
 
         static validator_signature_t from_bytes(codec::decoder &dec);
+        static validator_signature_t from_json(const boost::json::value &json);
+
+        bool operator==(const validator_signature_t &o) const
+        {
+            return validator_index == o.validator_index && signature == o.signature;
+        }
     };
 
     struct report_guarantee_t {
@@ -552,6 +815,12 @@ namespace turbo::jam {
         sequence_t<validator_signature_t> signatures;
 
         static report_guarantee_t from_bytes(codec::decoder &dec);
+        static report_guarantee_t from_json(const boost::json::value &json);
+
+        bool operator==(const report_guarantee_t &o) const
+        {
+            return report == o.report && slot == o.slot && signatures == o.signatures;
+        }
     };
 
     template<typename CONSTANTS=config_prod>
@@ -560,6 +829,14 @@ namespace turbo::jam {
     struct ready_record_t {
         work_report_t report;
         sequence_t<work_package_hash_t> dependencies;
+
+        static ready_record_t from_bytes(codec::decoder &dec);
+        static ready_record_t from_json(const boost::json::value &json);
+
+        bool operator==(const ready_record_t &o) const
+        {
+            return report == o.report && dependencies == o.dependencies;
+        }
     };
 
     using ready_queue_item_t = sequence_t<ready_record_t>;
@@ -575,6 +852,14 @@ namespace turbo::jam {
     struct always_accumulate_map_item_t {
         service_id_t id;
         gas_t gas;
+
+        static always_accumulate_map_item_t from_bytes(codec::decoder &dec);
+        static always_accumulate_map_item_t from_json(const boost::json::value &json);
+
+        bool operator==(const always_accumulate_map_item_t &o) const
+        {
+            return id == o.id && gas == o.gas;
+        }
     };
 
     struct privileges_t {
@@ -586,11 +871,24 @@ namespace turbo::jam {
 
     using accumulate_root_t = opaque_hash_t;
 
+    struct epoch_mark_validator_keys_t {
+        bandersnatch_public_t bandersnatch;
+        ed25519_public_t ed25519;
+
+        static epoch_mark_validator_keys_t from_bytes(codec::decoder &dec);
+        static epoch_mark_validator_keys_t from_json(const boost::json::value &j);
+
+        bool operator==(const epoch_mark_validator_keys_t &o) const
+        {
+            return bandersnatch == o.bandersnatch && ed25519 == o.ed25519;
+        }
+    };
+
     template<typename CONSTANTS=config_prod>
     struct epoch_mark_t {
         entropy_t entropy;
         entropy_t tickets_entropy;
-        fixed_sequence_t<bandersnatch_public_t, CONSTANTS::validator_count> validators;
+        fixed_sequence_t<epoch_mark_validator_keys_t, CONSTANTS::validator_count> validators;
 
         static epoch_mark_t from_bytes(codec::decoder &dec)
         {
@@ -599,6 +897,20 @@ namespace turbo::jam {
                 dec.decode<decltype(tickets_entropy)>(),
                 dec.decode<decltype(validators)>()
             };
+        }
+
+        static epoch_mark_t from_json(const boost::json::value &json)
+        {
+            return {
+                decltype(entropy)::from_json(json.at("entropy")),
+                decltype(tickets_entropy)::from_json(json.at("tickets_entropy")),
+                decltype(validators)::from_json(json.at("validators"))
+            };
+        }
+
+        bool operator==(const epoch_mark_t &o) const
+        {
+            return entropy == o.entropy && tickets_entropy == o.tickets_entropy && validators == o.validators;
         }
     };
 
@@ -636,6 +948,22 @@ namespace turbo::jam {
             };
         }
 
+        static header_t from_json(const boost::json::value &j)
+        {
+            return {
+                decltype(parent)::from_json(j.at("parent")),
+                decltype(parent_state_root)::from_json(j.at("parent_state_root")),
+                decltype(extrinsic_hash)::from_json(j.at("extrinsic_hash")),
+                boost::json::value_to<decltype(slot)>(j.at("slot")),
+                decltype(epoch_mark)::from_json(j.at("epoch_mark")),
+                decltype(tickets_mark)::from_json(j.at("tickets_mark")),
+                decltype(offenders_mark)::from_json(j.at("offenders_mark")),
+                boost::json::value_to<decltype(author_index)>(j.at("author_index")),
+                decltype(entropy_source)::from_json(j.at("entropy_source")),
+                decltype(seal)::from_json(j.at("seal"))
+            };
+        }
+
         void to_bytes(codec::encoder &enc) const
         {
             enc << parent;
@@ -648,6 +976,14 @@ namespace turbo::jam {
             enc << author_index;
             enc << entropy_source;
             enc << seal;
+        }
+
+        bool operator==(const header_t &o) const
+        {
+            return parent == o.parent && parent_state_root == o.parent_state_root && extrinsic_hash == o.extrinsic_hash
+                && slot == o.slot && epoch_mark == o.epoch_mark && tickets_mark == o.tickets_mark
+                && offenders_mark == o.offenders_mark && author_index == o.author_index && entropy_source == o.entropy_source
+                && seal == o.seal;
         }
     };
 
@@ -675,6 +1011,17 @@ namespace turbo::jam {
             };
         }
 
+        static extrinsic_t from_json(const boost::json::value &j)
+        {
+            return {
+                decltype(tickets)::from_json(j.at("tickets")),
+                decltype(preimages)::from_json(j.at("preimages")),
+                decltype(guarantees)::from_json(j.at("guarantees")),
+                decltype(assurances)::from_json(j.at("assurances")),
+                decltype(disputes)::from_json(j.at("disputes"))
+            };
+        }
+
         void to_bytes(codec::encoder &enc) const
         {
             enc << tickets;
@@ -682,6 +1029,12 @@ namespace turbo::jam {
             enc << guarantees;
             enc << assurances;
             enc << disputes;
+        }
+
+        bool operator==(const extrinsic_t &o) const
+        {
+            return tickets == o.tickets && preimages == o.preimages && guarantees == o.guarantees
+                && assurances == o.assurances && disputes == o.disputes;
         }
     };
 
@@ -700,10 +1053,23 @@ namespace turbo::jam {
             };
         }
 
+        static block_t from_json(const boost::json::value &j)
+        {
+            return {
+                decltype(header)::from_json(j.at("header")),
+                decltype(extrinsic)::from_json(j.at("extrinsic"))
+            };
+        }
+
         void to_bytes(codec::encoder &enc) const
         {
             enc << header;
             enc << extrinsic;
+        }
+
+        bool operator==(const block_t &o) const
+        {
+            return header == o.header && extrinsic == o.extrinsic;
         }
     };
 }

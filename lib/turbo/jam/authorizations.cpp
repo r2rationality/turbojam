@@ -3,7 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <boost/container/flat_set.hpp>
+#include <boost/json.hpp>
 #include "types.hpp"
 
 namespace turbo::jam {
@@ -11,7 +11,13 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
-        return base_type::from_bytes_as<auth_pools_t>(dec);
+        return base_type::from_bytes<auth_pools_t>(dec);
+    }
+
+    template<typename CONSTANTS>
+    auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::from_json(const boost::json::value &j)
+    {
+        return base_type::from_json<auth_pools_t>(j);
     }
 
     template<typename CONSTANTS>

@@ -69,14 +69,23 @@ namespace turbo::file {
         return fmt::format("./{}", rel_path);
     }
 
+    std::vector<std::filesystem::path> files_with_ext_path(const std::string_view &dir, const std::string_view &ext)
+    {
+        std::vector<std::filesystem::path> res {};
+        for (auto &entry: std::filesystem::recursive_directory_iterator(dir)) {
+            if (entry.is_regular_file() && entry.path().extension().string() == ext)
+                res.emplace_back(entry.path());
+        }
+        std::sort(res.begin(), res.end());
+        return res;
+    }
+
     std::vector<std::string> files_with_ext(const std::string_view &dir, const std::string_view &ext)
     {
         std::vector<std::string> res {};
-        for (auto &entry: std::filesystem::recursive_directory_iterator(dir)) {
-            if (entry.is_regular_file() && entry.path().extension().string() == ext)
-                res.emplace_back(entry.path().string());
+        for (const auto &p: files_with_ext_path(dir, ext)) {
+            res.emplace_back(p.string());
         }
-        std::sort(res.begin(), res.end());
         return res;
     }
 }

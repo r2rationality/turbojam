@@ -278,11 +278,12 @@ namespace turbo {
     }
 
     struct uint8_vector: std::vector<uint8_t> {
-        static uint8_vector from_hex(const std::string_view hex)
+        template<typename C=uint8_vector>
+        static C from_hex(const std::string_view hex)
         {
             if (hex.size() % 2 != 0)
                 throw error(fmt::format("hex string must have an even number of characters but got {}!", hex.size()));
-            uint8_vector data(hex.size() / 2);
+            C data(hex.size() / 2);
             init_from_hex(data, hex);
             return data;
         }

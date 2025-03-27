@@ -11,8 +11,12 @@ namespace turbo::jam {
 
     mmr_t mmr_t::from_bytes(codec::decoder &dec)
     {
-        auto seq = dec.decode<base_type>();
-        return { seq.begin(), seq.end() };
+        return base_type::from_bytes<mmr_t>(dec);
+    }
+
+    mmr_t mmr_t::from_json(const boost::json::value &j)
+    {
+        return base_type::from_json<mmr_t>(j);
     }
 
     static mmr_t replace(const mmr_t &r, size_t i, const mmr_peak_t &v)

@@ -304,6 +304,7 @@ namespace turbo::file {
 
     extern std::string install_path(std::string_view rel_path);
     extern std::vector<std::string> files_with_ext(const std::string_view &dir, const std::string_view &ext);
+    extern std::vector<std::filesystem::path> files_with_ext_path(const std::string_view &dir, const std::string_view &ext);
 }
 
 namespace fmt {

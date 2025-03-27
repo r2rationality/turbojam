@@ -86,7 +86,8 @@ namespace turbo::jam::codec {
             return x;
         }
 
-        uint64_t uint_general()
+        template<typename T=uint64_t>
+        T uint_general()
         {
             auto prefix = uint_trivial<uint8_t>(1);
             size_t l = 0;
@@ -96,7 +97,7 @@ namespace turbo::jam::codec {
             }
             uint64_t res = prefix << (l << 3);
             res |= uint_trivial<uint64_t>(l);
-            return res;
+            return static_cast<T>(res);
         }
 
         template<typename T>

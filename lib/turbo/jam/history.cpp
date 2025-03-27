@@ -9,8 +9,13 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     blocks_history_t<CONSTANTS> blocks_history_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
-        auto seq = dec.decode<base_type>();;
-        return { seq.begin(), seq.end() };
+        return base_type::from_bytes<blocks_history_t<CONSTANTS>>(dec);
+    }
+
+    template<typename CONSTANTS>
+    blocks_history_t<CONSTANTS> blocks_history_t<CONSTANTS>::from_json(const boost::json::value &j)
+    {
+        return base_type::from_json<blocks_history_t<CONSTANTS>>(j);
     }
 
     template<typename CONSTANTS>
