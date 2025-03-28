@@ -160,6 +160,7 @@ namespace {
 
 suite turbo_jam_assurances_suite = [] {
     "turbo::jam::assurances"_test = [] {
+        test_file<config_tiny>("./test/jam-test-vectors/assurances/tiny/assurances_with_bad_signature-1.bin");
         "tiny"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/assurances/tiny"), ".bin")) {
                 test_file<config_tiny>(path);

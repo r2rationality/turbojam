@@ -3,7 +3,8 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <boost/container/flat_set.hpp>
+#include <turbo/crypto/blake2b.hpp>
+#include <turbo/crypto/ed25519.hpp>
 #include "types.hpp"
 
 namespace turbo::jam {
@@ -21,6 +22,18 @@ namespace turbo::jam {
             if (prev_validator && a.validator_index <= *prev_validator) [[unlikely]]
                 throw err_not_sorted_or_unique_assurers(fmt::format("a validator assurance out of order: {} came after {}", a.validator_index, *prev_validator));
             prev_validator = a.validator_index;
+            uint8_vector msg {};
+            msg << std::string_view { "jam_available" };
+            {
+                codec::encoder enc {};
+                enc.bytes();
+                parent.to_bytes(enc);
+                a.bitfield.to_bytes(enc);
+                msg << crypto::blake2b::digest(enc.bytes());
+            }
+            const auto &vk = kappa[a.validator_index].ed25519;
+            if (!crypto::ed25519::verify(a.signature, msg, vk)) [[unlikely]]
+                throw err_bad_signature_t(fmt::format("the signature of a validator {} has failed the validation", a.validator_index));
             for (size_t ci = 0; ci < CONSTANTS::core_count; ++ci) {
                 if (a.bitfield.test(ci)) {
                     if (!this->at(ci)) [[unlikely]]

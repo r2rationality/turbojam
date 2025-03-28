@@ -170,6 +170,11 @@ namespace turbo::jam {
             turbo::init_from_hex(res, hex.substr(2));
             return res;
         }
+
+        void to_bytes(codec::encoder &enc) const
+        {
+            enc.bytes() << *this;
+        }
     };
 
     template<size_t SZ>
