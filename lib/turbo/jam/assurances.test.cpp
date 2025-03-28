@@ -36,13 +36,39 @@ namespace {
                 dec.decode<decltype(reported)>()
             };
         }
+
+        bool operator==(const output_data_t &o) const
+        {
+            return reported == o.reported;
+        }
     };
 
-    struct err_bad_attestation_parent_t {};
-    struct err_bad_validator_index_t {};
-    struct err_core_not_engaged_t {};
-    struct err_bad_signature_t {};
-    struct err_not_sorted_or_unique_assurers {};
+    struct err_bad_attestation_parent_t {
+        bool operator==(const err_bad_attestation_parent_t &o) const
+        {
+            return true;
+        }
+    };
+    struct err_bad_validator_index_t {
+        bool operator==(const err_bad_validator_index_t &o) const {
+            return true;
+        }
+    };
+    struct err_core_not_engaged_t {
+        bool operator==(const err_core_not_engaged_t &o) const {
+            return true;
+        }
+    };
+    struct err_bad_signature_t {
+        bool operator==(const err_bad_signature_t &o) const {
+            return true;
+        }
+    };
+    struct err_not_sorted_or_unique_assurers {
+        bool operator==(const err_not_sorted_or_unique_assurers &o) const {
+            return true;
+        }
+    };
 
     struct err_code_t: std::variant<err_bad_attestation_parent_t, err_bad_validator_index_t, err_core_not_engaged_t, err_bad_signature_t, err_not_sorted_or_unique_assurers> {
         using base_type = std::variant<err_bad_attestation_parent_t, err_bad_validator_index_t, err_core_not_engaged_t, err_bad_signature_t, err_not_sorted_or_unique_assurers>;
@@ -109,9 +135,26 @@ namespace {
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
-        //const auto new_alpha = tc.pre_state.alpha.apply(tc.input.slot, tc.input.auths, tc.pre_state.phi);
-        //expect(new_alpha == tc.post_state.alpha) << path;
-        expect(false);
+        auto new_st = tc.pre_state;
+        std::optional<output_t> out {};
+        try {
+            output_data_t res {};
+            new_st.ro = tc.pre_state.ro.apply(res.reported, tc.pre_state.kappa, tc.input.slot, tc.input.parent, tc.input.assurances);
+            out.emplace(std::move(res));
+        } catch (jam::err_bad_attestation_parent_t &) {
+            out.emplace(err_bad_attestation_parent_t {});
+        } catch (jam::err_bad_validator_index_t &) {
+            out.emplace(err_bad_validator_index_t {});
+        } catch (jam::err_core_not_engaged_t &) {
+            out.emplace(err_core_not_engaged_t {});
+        } catch (jam::err_bad_signature_t &) {
+            out.emplace(err_bad_signature_t {});
+        } catch (jam::err_not_sorted_or_unique_assurers &) {
+            out.emplace(err_not_sorted_or_unique_assurers {});
+        }
+        expect(fatal(out.has_value())) << path;
+        expect(out == tc.output) << path;
+        expect(new_st == tc.post_state) << path;
     }
 }
 

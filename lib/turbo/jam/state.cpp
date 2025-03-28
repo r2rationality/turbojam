@@ -10,6 +10,8 @@ namespace turbo::jam {
     state_t<CONSTANTS> state_t<CONSTANTS>::apply(const block_info_t &blk) const
     {
         state_t new_st = *this;
+        // assurances must be processed before guarantees
+
         // new_st.beta = this->beta.apply(blk.header_hash, blk.state_root)
 
         // alpha is processed after phi

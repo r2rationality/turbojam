@@ -40,6 +40,14 @@ namespace turbo::jam {
         };
     }
 
+    availability_assignment_t availability_assignment_t::from_json(const boost::json::value &j)
+    {
+        return {
+            decltype(report)::from_json(j.at("report")),
+            boost::json::value_to<decltype(timeout)>(j.at("timeout"))
+        };
+    }
+
     block_info_t block_info_t::from_bytes(codec::decoder &dec)
     {
         return {

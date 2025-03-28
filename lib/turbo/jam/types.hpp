@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <array>
+#include <bitset>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -29,6 +30,7 @@ namespace turbo::jam {
         static constexpr size_t auth_queue_size = 80;
         static constexpr size_t core_assignment_rotation_period = 10;
         static constexpr size_t ticket_attempts = 2;
+        static constexpr size_t max_blob_size = 48 << 10;
     };
 
     struct config_tiny: config_prod {
@@ -152,19 +154,46 @@ namespace turbo::jam {
         using base_type = byte_array<SZ>;
         using base_type::base_type;
 
-        static byte_array_t from_bytes(codec::decoder &dec)
+        template<typename C=byte_array_t>
+        static C from_bytes(codec::decoder &dec)
         {
-            return { dec.next_bytes(SZ) };
+            return C { dec.next_bytes(SZ) };
         }
 
-        static byte_array_t from_json(const boost::json::value &j)
+        template<typename C=byte_array_t>
+        static C from_json(const boost::json::value &j)
         {
             const auto hex = boost::json::value_to<std::string_view>(j);
             if (!hex.starts_with("0x")) [[unlikely]]
                 throw error(fmt::format("expected a hex string but got: {}", hex));
-            byte_array_t res;
+            C res;
             turbo::init_from_hex(res, hex.substr(2));
             return res;
+        }
+    };
+
+    template<size_t SZ>
+    struct bitset_t: byte_array_t<SZ / 8> {
+        using base_type = byte_array_t<SZ / 8>;
+        using base_type::base_type;
+
+        static bitset_t from_bytes(codec::decoder &dec)
+        {
+            return base_type::from_bytes<bitset_t>(dec);
+        }
+
+        static bitset_t from_json(const boost::json::value &j)
+        {
+            return base_type::from_json<bitset_t>(j);
+        }
+
+        bool test(const size_t pos) const
+        {
+            if (pos >= SZ) [[unlikely]]
+                throw error(fmt::format("the requested bit index: {} is out of range: [0;{})", pos, SZ));
+            const auto byte_pos = pos >> 3;
+            const auto bit_pos = pos & 7;
+            return (*this)[byte_pos] & (1 << bit_pos);
         }
     };
 
@@ -227,13 +256,16 @@ namespace turbo::jam {
         uint32_t items;
     };
 
+    using prerequisites_t = sequence_t<opaque_hash_t, 0, 8>;
+
+    // GP 11.1.2: X
     struct refine_context_t {
 	    header_hash_t anchor;
 	    state_root_t state_root;
 	    beefy_root_t beefy_root;
 	    header_hash_t lookup_anchor;
 	    time_slot_t lookup_anchor_slot;
-	    sequence_t<opaque_hash_t> prerequisites;
+	    prerequisites_t prerequisites;
 
         static refine_context_t from_bytes(codec::decoder &dec);
         static refine_context_t from_json(const boost::json::value &);
@@ -444,6 +476,7 @@ namespace turbo::jam {
                 && refine_load == o.refine_load;
         }
     };
+    using work_results_t = sequence_t<work_result_t, 1, 16>;
 
     struct work_package_spec_t {
         work_package_hash_t hash;
@@ -476,7 +509,7 @@ namespace turbo::jam {
         }
     };
 
-    using segment_root_lookup_t = sequence_t<segment_root_lookup_item>;
+    using segment_root_lookup_t = sequence_t<segment_root_lookup_item, 0, 8>;
 
     struct work_report_t {
         work_package_spec_t package_spec;
@@ -485,7 +518,7 @@ namespace turbo::jam {
         opaque_hash_t authorizer_hash;
         byte_sequence_t auth_output;
         segment_root_lookup_t segment_root_lookup;
-        sequence_t<work_result_t, 1, 16> results;
+        work_results_t results;
         gas_t auth_gas_used;
 
         static work_report_t from_bytes(codec::decoder &dec);
@@ -500,6 +533,42 @@ namespace turbo::jam {
         }
     };
     using work_reports_t = sequence_t<work_report_t>;
+
+    template<typename CONSTANTS=config_prod>
+struct avail_assurance_t {
+        opaque_hash_t anchor;
+        bitset_t<CONSTANTS::avail_bitfield_bytes * 8> bitfield;
+        validator_index_t validator_index;
+        ed25519_signature_t signature;
+
+        static avail_assurance_t from_bytes(codec::decoder &dec)
+        {
+            return {
+                dec.decode<decltype(anchor)>(),
+                dec.decode<decltype(bitfield)>(),
+                dec.decode<decltype(validator_index)>(),
+                dec.decode<decltype(signature)>()
+            };
+        }
+
+        static avail_assurance_t from_json(const boost::json::value &j)
+        {
+            return {
+                decltype(anchor)::from_json(j.at("anchor")),
+                decltype(bitfield)::from_json(j.at("bitfield")),
+                boost::json::value_to<decltype(validator_index)>(j.at("validator_index")),
+                decltype(signature)::from_json(j.at("signature"))
+            };
+        }
+
+        bool operator==(const avail_assurance_t &o) const
+        {
+            return anchor == o.anchor && bitfield == o.bitfield && validator_index == o.validator_index && signature == o.signature;
+        }
+    };
+
+    template<typename CONSTANTS=config_prod>
+    using assurances_extrinsic_t = sequence_t<avail_assurance_t<CONSTANTS>, 0, CONSTANTS::validator_count>;
 
     struct availability_assignment_t  {
         work_report_t report;
@@ -519,8 +588,40 @@ namespace turbo::jam {
     template<typename CONSTANT_SET=config_prod>
     using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANT_SET::validator_count>;
 
-    template<typename CONSTANT_SET=config_prod>
-    using availability_assignments_t = fixed_sequence_t<availability_assignments_item_t, CONSTANT_SET::core_count>;
+    struct err_bad_attestation_parent_t: error {
+        using error::error;
+    };
+    struct err_bad_validator_index_t: error {
+        using error::error;
+    };
+    struct err_core_not_engaged_t: error {
+        using error::error;
+    };
+    struct err_bad_signature_t: error {
+        using error::error;
+    };
+    struct err_not_sorted_or_unique_assurers: error {
+        using error::error;
+    };
+
+    template<typename CONSTANTS=config_prod>
+    struct availability_assignments_t: fixed_sequence_t<availability_assignments_item_t, CONSTANTS::core_count> {
+        using base_type = fixed_sequence_t<availability_assignments_item_t, CONSTANTS::core_count>;
+        using base_type::base_type;
+
+        static availability_assignments_t from_bytes(codec::decoder &dec)
+        {
+            return base_type::from_bytes<availability_assignments_t>(dec);
+        }
+
+        static availability_assignments_t from_json(const boost::json::value &j)
+        {
+            return base_type::from_json<availability_assignments_t>(j);
+        }
+
+        availability_assignments_t apply(work_reports_t &out, const validators_data_t<CONSTANTS> &kappa,
+            const time_slot_t tau, const header_hash_t parent, const assurances_extrinsic_t<CONSTANTS> &assurances) const;
+    };
 
     using mmr_peak_t = optional_t<opaque_hash_t>;
 
@@ -759,42 +860,6 @@ namespace turbo::jam {
     };
 
     using preimages_extrinsic_t = sequence_t<preimage_t>;
-
-    template<typename CONSTANTS=config_prod>
-    struct avail_assurance_t {
-        opaque_hash_t anchor;
-        byte_array_t<CONSTANTS::avail_bitfield_bytes> bitfield;
-        validator_index_t validator_index;
-        ed25519_signature_t signature;
-
-        static avail_assurance_t from_bytes(codec::decoder &dec)
-        {
-            return {
-                dec.decode<decltype(anchor)>(),
-                dec.decode<decltype(bitfield)>(),
-                dec.decode<decltype(validator_index)>(),
-                dec.decode<decltype(signature)>()
-            };
-        }
-
-        static avail_assurance_t from_json(const boost::json::value &j)
-        {
-            return {
-                decltype(anchor)::from_json(j.at("anchor")),
-                decltype(bitfield)::from_json(j.at("bitfield")),
-                boost::json::value_to<decltype(validator_index)>(j.at("validator_index")),
-                decltype(signature)::from_json(j.at("signature"))
-            };
-        }
-
-        bool operator==(const avail_assurance_t &o) const
-        {
-            return anchor == o.anchor && bitfield == o.bitfield && validator_index == o.validator_index && signature == o.signature;
-        }
-    };
-
-    template<typename CONSTANTS=config_prod>
-    using assurances_extrinsic_t = sequence_t<avail_assurance_t<CONSTANTS>, 0, CONSTANTS::validator_count>;
 
     struct validator_signature_t {
         validator_index_t validator_index;
