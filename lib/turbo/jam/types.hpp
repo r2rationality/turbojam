@@ -1203,10 +1203,48 @@ struct avail_assurance_t {
     template<typename CONSTANTS=config_prod>
     using activity_records_t = fixed_sequence_t<activity_record_t, CONSTANTS::validator_count>;
 
+    struct core_activity_record_t {
+        gas_t gas_used;
+        uint16_t imports;
+        uint16_t extrinsic_count;
+        uint32_t extrinsic_size;
+        uint16_t exports;
+        uint32_t bundle_size;
+        uint32_t da_load;
+        uint16_t popularity;
+
+        static core_activity_record_t from_bytes(codec::decoder &dec);
+        bool operator==(const core_activity_record_t &o) const;
+    };
+
+    template<typename CONSTANTS>
+    using core_statistics_t = fixed_sequence_t<core_activity_record_t, CONSTANTS::core_count>;
+
+    struct service_activity_record_t {
+        uint16_t provided_count;
+        uint32_t provided_size;
+        uint32_t refinement_count;
+        uint64_t refinement_gas_used;
+        uint32_t imports;
+        uint32_t extrinsic_count;
+        uint32_t extrinsic_size;
+        uint32_t exports;
+        uint32_t accumulate_count;
+        uint64_t accumulate_gas_used;
+        uint32_t on_transfers_count;
+        uint64_t on_transfers_gas_used;
+
+        static service_activity_record_t from_bytes(codec::decoder &dec);
+        bool operator==(const service_activity_record_t &o) const;
+    };
+    using services_statistics_t = sequence_t<service_activity_record_t>;
+
     template<typename CONSTANTS=config_prod>
     struct statistics_t {
         activity_records_t<CONSTANTS> current;
         activity_records_t<CONSTANTS> last;
+        core_statistics_t<CONSTANTS> cores;
+        services_statistics_t services;
 
         static statistics_t from_bytes(codec::decoder &dec);
         bool operator==(const statistics_t &o) const;

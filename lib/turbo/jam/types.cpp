@@ -103,6 +103,41 @@ namespace turbo::jam {
         return from_hex<byte_sequence_t>(hex.substr(2));
     }
 
+    core_activity_record_t core_activity_record_t::from_bytes(codec::decoder &dec)
+    {
+        return {
+            dec.decode<decltype(gas_used)>(),
+            dec.decode<decltype(imports)>(),
+            dec.decode<decltype(extrinsic_count)>(),
+            dec.decode<decltype(extrinsic_size)>(),
+            dec.decode<decltype(exports)>(),
+            dec.decode<decltype(bundle_size)>(),
+            dec.decode<decltype(da_load)>(),
+            dec.decode<decltype(popularity)>()
+        };
+    }
+
+    bool core_activity_record_t::operator==(const core_activity_record_t &o) const
+    {
+        if (gas_used != o.gas_used)
+            return false;
+        if (imports != o.imports)
+            return false;
+        if (extrinsic_count != o.extrinsic_count)
+            return false;
+        if (extrinsic_size != o.extrinsic_size)
+            return false;
+        if (exports != o.exports)
+            return false;
+        if (bundle_size != o.bundle_size)
+            return false;
+        if (da_load != o.da_load)
+            return false;
+        if (popularity != o.popularity)
+            return false;
+        return true;
+    }
+
     core_authorizer_t core_authorizer_t::from_bytes(codec::decoder &dec)
     {
         return {
@@ -365,6 +400,54 @@ namespace turbo::jam {
             decltype(segment_tree_root)::from_json(j.at("segment_tree_root"))
         };
     }
+
+    service_activity_record_t service_activity_record_t::from_bytes(codec::decoder &dec)
+    {
+        return {
+            dec.decode<decltype(provided_count)>(),
+            dec.decode<decltype(provided_size)>(),
+            dec.decode<decltype(refinement_count)>(),
+            dec.decode<decltype(refinement_gas_used)>(),
+            dec.decode<decltype(imports)>(),
+            dec.decode<decltype(extrinsic_count)>(),
+            dec.decode<decltype(extrinsic_size)>(),
+            dec.decode<decltype(exports)>(),
+            dec.decode<decltype(accumulate_count)>(),
+            dec.decode<decltype(accumulate_gas_used)>(),
+            dec.decode<decltype(on_transfers_count)>(),
+            dec.decode<decltype(on_transfers_gas_used)>()
+        };
+    }
+
+    bool service_activity_record_t::operator==(const service_activity_record_t &o) const
+    {
+        if (provided_count != o.provided_count)
+            return false;
+        if (provided_size != o.provided_size)
+            return false;
+        if (refinement_count != o.refinement_count)
+            return false;
+        if (refinement_gas_used != o.refinement_gas_used)
+            return false;
+        if (imports != o.imports)
+            return false;
+        if (extrinsic_count != o.extrinsic_count)
+            return false;
+        if (extrinsic_size != o.extrinsic_size)
+            return false;
+        if (exports != o.exports)
+            return false;
+        if (accumulate_count != o.accumulate_count)
+            return false;
+        if (accumulate_gas_used != o.accumulate_gas_used)
+            return false;
+        if (on_transfers_count != o.on_transfers_count)
+            return false;
+        if (on_transfers_gas_used != o.on_transfers_gas_used)
+            return false;
+        return true;
+    }
+
 
     ticket_body_t ticket_body_t::from_bytes(codec::decoder &dec)
     {

@@ -21,14 +21,23 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     bool state_t<CONSTANTS>::operator==(const state_t &o) const noexcept
     {
-        return alpha == o.alpha
-            && beta == o.beta
-            && delta == o.delta
-            && kappa == o.kappa
-            && pi == o.pi
-            && ro == o.ro
-            && tau == o.tau
-            && phi == o.phi;
+        if (alpha != o.alpha)
+            return false;
+        if (beta != o.beta)
+            return false;
+        if (delta != o.delta)
+            return false;
+        if (kappa != o.kappa)
+            return false;
+        if (pi != o.pi)
+            return false;
+        if (ro != o.ro)
+            return false;
+        if (tau != o.tau)
+            return false;
+        if (phi != o.phi)
+            return false;
+        return true;
     }
 
     template<typename CONSTANTS>

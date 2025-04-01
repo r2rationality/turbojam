@@ -11,14 +11,24 @@ namespace turbo::jam {
     {
         return {
             dec.decode<decltype(current)>(),
-            dec.decode<decltype(last)>()
+            dec.decode<decltype(last)>(),
+            dec.decode<decltype(cores)>(),
+            dec.decode<decltype(services)>()
         };
     }
 
     template<typename CONSTANTS>
     bool statistics_t<CONSTANTS>::operator==(const statistics_t &o) const
     {
-        return current == o.current && last == o.last;
+        if (current != o.current)
+            return false;
+        if (last != o.last)
+            return false;
+        if (cores != o.cores)
+            return false;
+        if (services != o.services)
+            return false;
+        return true;
     }
 
     template struct statistics_t<config_prod>;
