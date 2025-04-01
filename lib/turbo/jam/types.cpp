@@ -202,6 +202,22 @@ namespace turbo::jam {
         };
     }
 
+    lookup_met_map_key_t lookup_met_map_key_t::from_bytes(codec::decoder &dec)
+    {
+        return {
+            dec.decode<decltype(hash)>(),
+            dec.decode<decltype(length)>()
+        };
+    }
+
+    lookup_met_map_key_t lookup_met_map_key_t::from_json(const boost::json::value &j)
+    {
+        return {
+            decltype(hash)::from_json(j.at("hash")),
+            boost::json::value_to<decltype(length)>(j.at("length"))
+        };
+    }
+
     preimage_t preimage_t::from_bytes(codec::decoder &dec)
     {
         return {

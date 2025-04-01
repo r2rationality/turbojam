@@ -13,6 +13,7 @@ namespace turbo::jam {
     struct state_t {
         auth_pools_t<CONSTANTS> alpha {}; // authorizations
         blocks_history_t<CONSTANTS> beta {}; // most recent blocks
+        accounts_t delta {}; // services
         validators_data_t<CONSTANTS> kappa {}; // active validators
         auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
         availability_assignments_t<CONSTANTS> ro {}; // assigned work reports

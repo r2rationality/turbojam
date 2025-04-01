@@ -85,8 +85,13 @@ namespace turbo::jam {
                             sz, MIN, MAX, typeid(sequence_t).name()));
             C res {};
             res.reserve(sz);
-            for (const auto &jv: j_arr)
-                res.emplace_back(T::from_json(jv));
+            for (const auto &jv: j_arr) {
+                if constexpr (std::is_convertible_v<uint64_t, T>) {
+                    res.emplace_back(boost::json::value_to<T>(jv));
+                } else {
+                    res.emplace_back(T::from_json(jv));
+                }
+            }
             return res;
         }
     };
@@ -116,6 +121,48 @@ namespace turbo::jam {
             size_t i = 0;
             for (const auto &jv: j_arr)
                 res[i++] = T::from_json(jv);
+            return res;
+        }
+    };
+
+    template<typename K, typename V>
+    struct map_t: std::map<K, V> {
+        using base_type = std::map<K, V>;
+        using base_type::base_type;
+
+        template<typename C=map_t>
+        static C from_bytes(codec::decoder &dec)
+        {
+            const auto sz = dec.uint_general();
+            C res {};
+            for (size_t i = 0; i < sz; i++) {
+                auto k = dec.decode<K>(); // ensures that k is read before v!
+                const auto [it, created] = res.try_emplace(std::move(k), dec.decode<V>());
+                if (!created) [[unlikely]]
+                    throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
+            }
+            return res;
+        }
+
+        template<typename C=map_t>
+        static C from_json(const boost::json::value &j, const std::string_view key_name, const std::string_view val_name)
+        {
+            const auto &j_arr = j.as_array();
+            const auto sz = j_arr.size();
+            C res {};
+            for (const auto &jv: j_arr) {
+                if constexpr (std::is_constructible_v<uint64_t, K>) {
+                    auto k = boost::json::value_to<K>(jv.at(key_name));
+                    const auto [it, created] = res.try_emplace(std::move(k), V::from_json(jv.at(val_name)));
+                    if (!created) [[unlikely]]
+                        throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
+                } else {
+                    auto k = K::from_json(jv.at(key_name)); // ensures that k is read before v!
+                    const auto [it, created] = res.try_emplace(std::move(k), V::from_json(jv.at(val_name)));
+                    if (!created) [[unlikely]]
+                        throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
+                }
+            }
             return res;
         }
     };
@@ -858,9 +905,16 @@ struct avail_assurance_t {
         static preimage_t from_bytes(codec::decoder &dec);
         static preimage_t from_json(const boost::json::value &json);
 
-        bool operator==(const preimage_t &o) const
+        std::strong_ordering operator<=>(const preimage_t &o) const noexcept
         {
-            return requester == o.requester && blob == o.blob;
+            if (const auto cmp = requester <=> o.requester; cmp != std::strong_ordering::equal)
+                return cmp;
+            return blob <=> o.blob;
+        }
+
+        bool operator==(const preimage_t &o) const noexcept
+        {
+            return (*this <=> o) == std::strong_ordering::equal;
         }
     };
 
@@ -988,6 +1042,44 @@ struct avail_assurance_t {
     using tickets_mark_t = fixed_sequence_t<ticket_body_t, CONSTANTS::epoch_length>;
 
     using offenders_mark_t = sequence_t<ed25519_public_t>;
+
+    using preimages_t = map_t<opaque_hash_t, byte_sequence_t>;
+
+    struct lookup_met_map_key_t {
+        opaque_hash_t hash;
+        uint32_t length;
+
+        static lookup_met_map_key_t from_bytes(codec::decoder &dec);
+        static lookup_met_map_key_t from_json(const boost::json::value &j);
+
+        std::strong_ordering operator<=>(const lookup_met_map_key_t &o) const noexcept
+        {
+            const auto cmp = hash <=> o.hash;
+            if (cmp != std::strong_ordering::equal)
+                return cmp;
+            return length <=> o.length;
+        }
+    };
+
+    using lookup_met_map_val_t = sequence_t<time_slot_t, 0, 3>;
+    using lookup_metas_t = map_t<lookup_met_map_key_t, lookup_met_map_val_t>;
+
+    struct account_t {
+        preimages_t preimages;
+        lookup_metas_t lookup_metas;
+
+        static account_t from_bytes(codec::decoder &dec);
+        static account_t from_json(const boost::json::value &j);
+    };
+
+    struct accounts_t: map_t<service_id_t, account_t> {
+        using base_type = map_t<service_id_t, account_t>;
+        using base_type::base_type;
+
+        static accounts_t from_bytes(codec::decoder &);
+        static accounts_t from_json(const boost::json::value &j);
+        accounts_t apply(time_slot_t, const preimages_extrinsic_t &) const;
+    };
 
     template<typename CONSTANTS=config_prod>
     struct header_t {
