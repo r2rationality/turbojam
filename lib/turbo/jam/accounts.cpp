@@ -25,6 +25,12 @@ namespace turbo::jam {
         };
     }
 
+    bool account_t::operator==(const account_t &o) const
+    {
+        return preimages == o.preimages
+            && lookup_metas == o.lookup_metas;
+    }
+
     accounts_t accounts_t::from_bytes(codec::decoder &dec)
     {
         return base_type::from_bytes<accounts_t>(dec);

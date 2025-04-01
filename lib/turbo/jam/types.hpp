@@ -733,15 +733,9 @@ struct avail_assurance_t {
         uint32_t pre_images_size;
         uint32_t guarantees;
         uint32_t assurances;
-    };
 
-    template<typename CONSTANTS=config_prod>
-    using activity_records_t = fixed_sequence_t<activity_record_t, CONSTANTS::validator_count>;
-
-    template<typename CONSTANTS=config_prod>
-    struct statistics_t {
-        activity_records_t<CONSTANTS> current;
-        activity_records_t<CONSTANTS> last;
+        static activity_record_t from_bytes(codec::decoder &dec);
+        bool operator==(const activity_record_t &) const;
     };
 
     using ticket_id_t = opaque_hash_t;
@@ -1059,6 +1053,11 @@ struct avail_assurance_t {
                 return cmp;
             return length <=> o.length;
         }
+
+        bool operator==(const lookup_met_map_key_t &o) const
+        {
+            return (*this <=> o) == std::strong_ordering::equal;
+        }
     };
 
     using lookup_met_map_val_t = sequence_t<time_slot_t, 0, 3>;
@@ -1070,6 +1069,7 @@ struct avail_assurance_t {
 
         static account_t from_bytes(codec::decoder &dec);
         static account_t from_json(const boost::json::value &j);
+        bool operator==(const account_t &) const;
     };
 
     struct accounts_t: map_t<service_id_t, account_t> {
@@ -1198,6 +1198,18 @@ struct avail_assurance_t {
             return tickets == o.tickets && preimages == o.preimages && guarantees == o.guarantees
                 && assurances == o.assurances && disputes == o.disputes;
         }
+    };
+
+    template<typename CONSTANTS=config_prod>
+    using activity_records_t = fixed_sequence_t<activity_record_t, CONSTANTS::validator_count>;
+
+    template<typename CONSTANTS=config_prod>
+    struct statistics_t {
+        activity_records_t<CONSTANTS> current;
+        activity_records_t<CONSTANTS> last;
+
+        static statistics_t from_bytes(codec::decoder &dec);
+        bool operator==(const statistics_t &o) const;
     };
 
     template<typename CONSTANTS=config_prod>

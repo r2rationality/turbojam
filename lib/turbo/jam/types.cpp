@@ -16,6 +16,27 @@ namespace turbo::jam {
         };
     }
 
+    activity_record_t activity_record_t::from_bytes(codec::decoder &dec) {
+        return {
+            dec.decode<decltype(blocks)>(),
+            dec.decode<decltype(tickets)>(),
+            dec.decode<decltype(pre_images)>(),
+            dec.decode<decltype(pre_images_size)>(),
+            dec.decode<decltype(guarantees)>(),
+            dec.decode<decltype(assurances)>()
+        };
+    }
+
+    bool activity_record_t::operator==(const activity_record_t &o) const
+    {
+        return blocks == o.blocks
+            && tickets == o.tickets
+            && pre_images == o.pre_images
+            && pre_images_size == o.pre_images_size
+            && guarantees == o.guarantees
+            && assurances == o.assurances;
+    }
+
     authorizer_t authorizer_t::from_bytes(codec::decoder &dec)
     {
         return {

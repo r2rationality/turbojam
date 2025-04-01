@@ -121,7 +121,6 @@ namespace {
 
 suite turbo_jam_preimages_suite = [] {
     "turbo::jam::preimages"_test = [] {
-        test_file<config_tiny>("./test/jam-test-vectors/preimages/data/preimages_order_check-1.bin");
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/preimages/data"), ".bin")) {
             test_file<config_tiny>(path);
         }

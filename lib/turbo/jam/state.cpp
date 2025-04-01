@@ -23,7 +23,28 @@ namespace turbo::jam {
     {
         return alpha == o.alpha
             && beta == o.beta
+            && delta == o.delta
+            && kappa == o.kappa
+            && pi == o.pi
+            && ro == o.ro
+            && tau == o.tau
             && phi == o.phi;
+    }
+
+    template<typename CONSTANTS>
+    void state_t<CONSTANTS>::update_statistics(time_slot_t slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic)
+    {
+        if (val_idx >= CONSTANTS::validator_count) [[unlikely]]
+            throw error(fmt::format("validator index too large: {}", val_idx));
+        auto &stats = pi.current.at(val_idx);
+        ++stats.blocks;
+        stats.tickets += extrinsic.tickets.size();
+        stats.pre_images += extrinsic.preimages.size();
+        for (const auto &p: extrinsic.preimages) {
+            stats.pre_images_size += p.blob.size();
+        }
+        stats.guarantees += extrinsic.guarantees.size();
+        stats.assurances += extrinsic.assurances.size();
     }
 
     template struct state_t<config_prod>;
