@@ -13,11 +13,11 @@ namespace turbo::jam {
     struct state_t {
         auth_pools_t<CONSTANTS> alpha {}; // authorizations
         blocks_history_t<CONSTANTS> beta {}; // most recent blocks
-        accounts_t delta {}; // services
+        accounts_t<CONSTANTS> delta {}; // services
         validators_data_t<CONSTANTS> kappa {}; // active validators
         statistics_t<CONSTANTS> pi;
         availability_assignments_t<CONSTANTS> ro {}; // assigned work reports
-        time_slot_t tau;
+        time_slot_t<CONSTANTS> tau;
         auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
 
         // Not implemented
@@ -39,7 +39,7 @@ namespace turbo::jam {
         // recently accumulated work reports
         struct ksi_t {};
 
-        void update_statistics(time_slot_t slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
+        void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
 
         // JAM paper: Kapital upsilon
         void apply(const block_t<CONSTANTS> &)

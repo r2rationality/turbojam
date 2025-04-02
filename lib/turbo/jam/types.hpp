@@ -13,37 +13,17 @@
 #include <vector>
 #include <boost/json.hpp>
 #include <turbo/common/bytes.hpp>
+#include "constants.hpp"
 #include "codec.hpp"
 
 namespace turbo::jam {
-
-    struct config_prod {
-        static constexpr size_t epoch_length = 600;
-        static constexpr size_t core_count = 341;
-        static constexpr size_t validator_count = core_count * 3;
-        static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
-        static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
-        static constexpr size_t max_tickets_per_block = 16;
-        static constexpr size_t tickets_per_validator = 2;
-        static constexpr size_t max_blocks_history = 8;
-        static constexpr size_t auth_pool_max_size = 8;
-        static constexpr size_t auth_queue_size = 80;
-        static constexpr size_t core_assignment_rotation_period = 10;
-        static constexpr size_t ticket_attempts = 2;
-        static constexpr size_t max_blob_size = 48 << 10;
-    };
-
-    struct config_tiny: config_prod {
-        static constexpr size_t core_count = 2;
-        static constexpr size_t validator_count = core_count * 3;
-        static constexpr size_t epoch_length = 12;
-        static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
-        static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
-        static constexpr size_t core_assignment_rotation_period = 4;
-        static constexpr size_t ticket_attempts = 3;
-    };
-
     // jam-types.asn
+
+    template<typename T>
+    concept from_json_c = requires(T t, const boost::json::value &j)
+    {
+        { T::from_json(j) };
+    };
 
     struct byte_sequence_t: uint8_vector {
         using base_type = uint8_vector;
@@ -86,10 +66,12 @@ namespace turbo::jam {
             C res {};
             res.reserve(sz);
             for (const auto &jv: j_arr) {
-                if constexpr (std::is_convertible_v<uint64_t, T>) {
+                if constexpr (from_json_c<T>) {
+                    res.emplace_back(T::from_json(jv));
+                } else if constexpr (std::is_convertible_v<uint64_t, T>) {
                     res.emplace_back(boost::json::value_to<T>(jv));
                 } else {
-                    res.emplace_back(T::from_json(jv));
+                    static_assert(false, "all types must be either convertible to an uint or have from_json static method");
                 }
             }
             return res;
@@ -150,16 +132,18 @@ namespace turbo::jam {
             const auto &j_arr = j.as_array();
             C res {};
             for (const auto &jv: j_arr) {
-                if constexpr (std::is_constructible_v<uint64_t, K>) {
+                if constexpr (from_json_c<K>) {
+                    auto k = K::from_json(jv.at(key_name)); // ensures that k is read before v!
+                    const auto [it, created] = res.try_emplace(std::move(k), V::from_json(jv.at(val_name)));
+                    if (!created) [[unlikely]]
+                                throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
+                } else if constexpr (std::is_constructible_v<uint64_t, K>) {
                     auto k = boost::json::value_to<K>(jv.at(key_name));
                     const auto [it, created] = res.try_emplace(std::move(k), V::from_json(jv.at(val_name)));
                     if (!created) [[unlikely]]
                         throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
                 } else {
-                    auto k = K::from_json(jv.at(key_name)); // ensures that k is read before v!
-                    const auto [it, created] = res.try_emplace(std::move(k), V::from_json(jv.at(val_name)));
-                    if (!created) [[unlikely]]
-                        throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
+                    static_assert(false);
                 }
             }
             return res;
@@ -262,7 +246,48 @@ namespace turbo::jam {
 
     using opaque_hash_t = byte_array_t<32>;
 
-    using time_slot_t = uint32_t;
+    template<typename CONSTANTS>
+    struct time_slot_t {
+        static time_slot_t from_bytes(codec::decoder &dec);
+        static time_slot_t from_json(const boost::json::value &j);
+
+        time_slot_t(const uint32_t slot):
+            _val { slot }
+        {
+        }
+
+        time_slot_t() noexcept =default;
+        time_slot_t(const time_slot_t &) noexcept =default;
+        time_slot_t &operator=(const time_slot_t &) noexcept =default;
+
+        uint32_t slot() const
+        {
+            return _val;
+        }
+
+        uint32_t epoch() const
+        {
+            return _val / CONSTANTS::epoch_length;
+        }
+
+        uint32_t epoch_slot() const
+        {
+            return _val % CONSTANTS::epoch_length;
+        }
+
+        std::strong_ordering operator<=>(const time_slot_t &o) const noexcept
+        {
+            return _val <=> o._val;
+        }
+
+        bool operator==(const time_slot_t &o) const noexcept
+        {
+            return (*this <=> o) == std::strong_ordering::equal;
+        }
+    private:
+        uint32_t _val = 0;
+    };
+
     using validator_index_t = uint16_t;
     using core_index_t = uint16_t;
 
@@ -310,12 +335,13 @@ namespace turbo::jam {
     using prerequisites_t = sequence_t<opaque_hash_t, 0, 8>;
 
     // GP 11.1.2: X
+    template<typename CONSTANTS>
     struct refine_context_t {
 	    header_hash_t anchor;
 	    state_root_t state_root;
 	    beefy_root_t beefy_root;
 	    header_hash_t lookup_anchor;
-	    time_slot_t lookup_anchor_slot;
+	    time_slot_t<CONSTANTS> lookup_anchor_slot;
 	    prerequisites_t prerequisites;
 
         static refine_context_t from_bytes(codec::decoder &dec);
@@ -370,7 +396,7 @@ namespace turbo::jam {
 
         static auth_pools_t from_bytes(codec::decoder &dec);
         static auth_pools_t from_json(const boost::json::value &json);
-        auth_pools_t apply(time_slot_t slot, const core_authorizers_t &cas, const auth_queues_t<CONSTANTS> &phi) const;
+        auth_pools_t apply(const time_slot_t<CONSTANTS> &slot, const core_authorizers_t &cas, const auth_queues_t<CONSTANTS> &phi) const;
     };
 
     struct import_spec_t {
@@ -421,11 +447,12 @@ namespace turbo::jam {
         }
     };
 
+    template<typename CONSTANTS>
     struct work_package_t {
         byte_sequence_t authorization;
         service_id_t auth_code_host;
         authorizer_t authorizer;
-        refine_context_t context;
+        refine_context_t<CONSTANTS> context;
         sequence_t<work_item_t, 1, 16> items;
 
         static work_package_t from_bytes(codec::decoder &dec);
@@ -562,9 +589,10 @@ namespace turbo::jam {
 
     using segment_root_lookup_t = sequence_t<segment_root_lookup_item, 0, 8>;
 
+    template<typename CONSTANTS>
     struct work_report_t {
         work_package_spec_t package_spec;
-        refine_context_t context;
+        refine_context_t<CONSTANTS> context;
         core_index_t core_index;
         opaque_hash_t authorizer_hash;
         byte_sequence_t auth_output;
@@ -583,10 +611,11 @@ namespace turbo::jam {
                 && auth_gas_used == o.auth_gas_used;
         }
     };
-    using work_reports_t = sequence_t<work_report_t>;
+    template<typename CONSTANTS>
+    using work_reports_t = sequence_t<work_report_t<CONSTANTS>>;
 
     template<typename CONSTANTS=config_prod>
-struct avail_assurance_t {
+    struct avail_assurance_t {
         opaque_hash_t anchor;
         bitset_t<CONSTANTS::avail_bitfield_bytes * 8> bitfield;
         validator_index_t validator_index;
@@ -621,8 +650,9 @@ struct avail_assurance_t {
     template<typename CONSTANTS=config_prod>
     using assurances_extrinsic_t = sequence_t<avail_assurance_t<CONSTANTS>, 0, CONSTANTS::validator_count>;
 
+    template<typename CONSTANTS>
     struct availability_assignment_t  {
-        work_report_t report;
+        work_report_t<CONSTANTS> report;
         uint32_t timeout;
 
         static availability_assignment_t from_bytes(codec::decoder &dec);
@@ -634,7 +664,8 @@ struct avail_assurance_t {
         }
     };
 
-    using availability_assignments_item_t = optional_t<availability_assignment_t>;
+    template<typename CONSTANTS>
+    using availability_assignments_item_t = optional_t<availability_assignment_t<CONSTANTS>>;
 
     template<typename CONSTANT_SET=config_prod>
     using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANT_SET::validator_count>;
@@ -656,8 +687,8 @@ struct avail_assurance_t {
     };
 
     template<typename CONSTANTS=config_prod>
-    struct availability_assignments_t: fixed_sequence_t<availability_assignments_item_t, CONSTANTS::core_count> {
-        using base_type = fixed_sequence_t<availability_assignments_item_t, CONSTANTS::core_count>;
+    struct availability_assignments_t: fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::core_count> {
+        using base_type = fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::core_count>;
         using base_type::base_type;
 
         static availability_assignments_t from_bytes(codec::decoder &dec)
@@ -670,8 +701,8 @@ struct avail_assurance_t {
             return base_type::template from_json<availability_assignments_t>(j);
         }
 
-        availability_assignments_t apply(work_reports_t &out, const validators_data_t<CONSTANTS> &kappa,
-            const time_slot_t tau, const header_hash_t parent, const assurances_extrinsic_t<CONSTANTS> &assurances) const;
+        availability_assignments_t apply(work_reports_t<CONSTANTS> &out, const validators_data_t<CONSTANTS> &kappa,
+            const time_slot_t<CONSTANTS> &tau, const header_hash_t parent, const assurances_extrinsic_t<CONSTANTS> &assurances) const;
     };
 
     using mmr_peak_t = optional_t<opaque_hash_t>;
@@ -926,9 +957,10 @@ struct avail_assurance_t {
         }
     };
 
+    template<typename CONSTANTS>
     struct report_guarantee_t {
-        work_report_t report;
-        time_slot_t slot;
+        work_report_t<CONSTANTS> report;
+        time_slot_t<CONSTANTS> slot;
         sequence_t<validator_signature_t> signatures;
 
         static report_guarantee_t from_bytes(codec::decoder &dec);
@@ -941,10 +973,11 @@ struct avail_assurance_t {
     };
 
     template<typename CONSTANTS=config_prod>
-    using guarantees_extrinsic_t = sequence_t<report_guarantee_t, 0, CONSTANTS::core_count>;
+    using guarantees_extrinsic_t = sequence_t<report_guarantee_t<CONSTANTS>, 0, CONSTANTS::core_count>;
 
+    template<typename CONSTANTS>
     struct ready_record_t {
-        work_report_t report;
+        work_report_t<CONSTANTS> report;
         sequence_t<work_package_hash_t> dependencies;
 
         static ready_record_t from_bytes(codec::decoder &dec);
@@ -956,10 +989,11 @@ struct avail_assurance_t {
         }
     };
 
-    using ready_queue_item_t = sequence_t<ready_record_t>;
+    template<typename CONSTANTS>
+    using ready_queue_item_t = sequence_t<ready_record_t<CONSTANTS>>;
 
     template<typename CONSTANTS=config_prod>
-    using ready_queue_t = fixed_sequence_t<ready_queue_item_t, CONSTANTS::ready_queue_count>;
+    using ready_queue_t = fixed_sequence_t<ready_queue_item_t<CONSTANTS>, CONSTANTS::ready_queue_count>;
 
     using accumulated_queue_item_t = sequence_t<work_package_hash_t>;
 
@@ -1059,25 +1093,29 @@ struct avail_assurance_t {
         }
     };
 
-    using lookup_met_map_val_t = sequence_t<time_slot_t, 0, 3>;
-    using lookup_metas_t = map_t<lookup_met_map_key_t, lookup_met_map_val_t>;
+    template<typename CONSTANTS>
+    using lookup_met_map_val_t = sequence_t<time_slot_t<CONSTANTS>, 0, 3>;
+    template<typename CONSTANTS>
+    using lookup_metas_t = map_t<lookup_met_map_key_t, lookup_met_map_val_t<CONSTANTS>>;
 
+    template<typename CONSTANTS>
     struct account_t {
         preimages_t preimages;
-        lookup_metas_t lookup_metas;
+        lookup_metas_t<CONSTANTS> lookup_metas;
 
         static account_t from_bytes(codec::decoder &dec);
         static account_t from_json(const boost::json::value &j);
         bool operator==(const account_t &) const;
     };
 
-    struct accounts_t: map_t<service_id_t, account_t> {
-        using base_type = map_t<service_id_t, account_t>;
+    template<typename CONSTANTS>
+    struct accounts_t: map_t<service_id_t, account_t<CONSTANTS>> {
+        using base_type = map_t<service_id_t, account_t<CONSTANTS>>;
         using base_type::base_type;
 
         static accounts_t from_bytes(codec::decoder &);
         static accounts_t from_json(const boost::json::value &j);
-        accounts_t apply(time_slot_t, const preimages_extrinsic_t &) const;
+        accounts_t apply(const time_slot_t<CONSTANTS> &, const preimages_extrinsic_t &) const;
     };
 
     template<typename CONSTANTS=config_prod>
@@ -1085,7 +1123,7 @@ struct avail_assurance_t {
         header_hash_t parent;
         state_root_t parent_state_root;
         opaque_hash_t extrinsic_hash;
-        time_slot_t slot;
+        time_slot_t<CONSTANTS> slot;
         optional_t<epoch_mark_t<CONSTANTS>> epoch_mark;
         optional_t<tickets_mark_t<CONSTANTS>> tickets_mark;
         offenders_mark_t offenders_mark;
@@ -1115,7 +1153,7 @@ struct avail_assurance_t {
                 decltype(parent)::from_json(j.at("parent")),
                 decltype(parent_state_root)::from_json(j.at("parent_state_root")),
                 decltype(extrinsic_hash)::from_json(j.at("extrinsic_hash")),
-                boost::json::value_to<decltype(slot)>(j.at("slot")),
+                decltype(slot)::from_json(j.at("slot")),
                 decltype(epoch_mark)::from_json(j.at("epoch_mark")),
                 decltype(tickets_mark)::from_json(j.at("tickets_mark")),
                 decltype(offenders_mark)::from_json(j.at("offenders_mark")),
@@ -1203,14 +1241,14 @@ struct avail_assurance_t {
     using activity_records_t = fixed_sequence_t<activity_record_t, CONSTANTS::validator_count>;
 
     struct core_activity_record_t {
-        gas_t gas_used;
-        uint16_t imports;
-        uint16_t extrinsic_count;
-        uint32_t extrinsic_size;
-        uint16_t exports;
-        uint32_t bundle_size;
-        uint32_t da_load;
-        uint16_t popularity;
+        gas_t gas_used = 0;
+        uint16_t imports = 0;
+        uint16_t extrinsic_count = 0;
+        uint32_t extrinsic_size = 0;
+        uint16_t exports = 0;
+        uint32_t bundle_size = 0;
+        uint32_t da_load = 0;
+        uint16_t popularity = 0;
 
         static core_activity_record_t from_bytes(codec::decoder &dec);
         bool operator==(const core_activity_record_t &o) const;
@@ -1220,18 +1258,18 @@ struct avail_assurance_t {
     using core_statistics_t = fixed_sequence_t<core_activity_record_t, CONSTANTS::core_count>;
 
     struct service_activity_record_t {
-        uint16_t provided_count;
-        uint32_t provided_size;
-        uint32_t refinement_count;
-        uint64_t refinement_gas_used;
-        uint32_t imports;
-        uint32_t extrinsic_count;
-        uint32_t extrinsic_size;
-        uint32_t exports;
-        uint32_t accumulate_count;
-        uint64_t accumulate_gas_used;
-        uint32_t on_transfers_count;
-        uint64_t on_transfers_gas_used;
+        uint16_t provided_count = 0;
+        uint32_t provided_size = 0;
+        uint32_t refinement_count = 0;
+        uint64_t refinement_gas_used = 0;
+        uint32_t imports = 0;
+        uint32_t extrinsic_count = 0;
+        uint32_t extrinsic_size = 0;
+        uint32_t exports = 0;
+        uint32_t accumulate_count = 0;
+        uint64_t accumulate_gas_used = 0;
+        uint32_t on_transfers_count = 0;
+        uint64_t on_transfers_gas_used = 0;
 
         static service_activity_record_t from_bytes(codec::decoder &dec);
         bool operator==(const service_activity_record_t &o) const;
@@ -1240,10 +1278,10 @@ struct avail_assurance_t {
 
     template<typename CONSTANTS=config_prod>
     struct statistics_t {
-        activity_records_t<CONSTANTS> current;
-        activity_records_t<CONSTANTS> last;
-        core_statistics_t<CONSTANTS> cores;
-        services_statistics_t services;
+        activity_records_t<CONSTANTS> current {};
+        activity_records_t<CONSTANTS> last {};
+        core_statistics_t<CONSTANTS> cores {};
+        services_statistics_t services {};
 
         static statistics_t from_bytes(codec::decoder &dec);
         bool operator==(const statistics_t &o) const;

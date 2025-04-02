@@ -11,8 +11,9 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
+    template<typename CONSTANTS>
     struct input_t {
-        time_slot_t slot;
+        time_slot_t<CONSTANTS> slot;
         core_authorizers_t auths;
 
         static input_t from_bytes(codec::decoder &dec)
@@ -26,7 +27,7 @@ namespace {
 
     template<typename CONSTANTS=config_prod>
     struct test_case_t {
-        input_t input;
+        input_t<CONSTANTS> input;
         state_t<CONSTANTS> pre_state;
         state_t<CONSTANTS> post_state;
 

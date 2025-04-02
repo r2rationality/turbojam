@@ -53,7 +53,8 @@ namespace turbo::jam {
         };
     }
 
-    availability_assignment_t availability_assignment_t::from_bytes(codec::decoder &dec)
+    template<typename CONSTANTS>
+    availability_assignment_t<CONSTANTS> availability_assignment_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
         return {
             dec.decode<decltype(report)>(),
@@ -61,13 +62,17 @@ namespace turbo::jam {
         };
     }
 
-    availability_assignment_t availability_assignment_t::from_json(const boost::json::value &j)
+    template<typename CONSTANTS>
+    availability_assignment_t<CONSTANTS> availability_assignment_t<CONSTANTS>::from_json(const boost::json::value &j)
     {
         return {
             decltype(report)::from_json(j.at("report")),
             boost::json::value_to<decltype(timeout)>(j.at("timeout"))
         };
     }
+
+    template struct availability_assignment_t<config_prod>;
+    template struct availability_assignment_t<config_tiny>;
 
     block_info_t block_info_t::from_bytes(codec::decoder &dec)
     {
@@ -290,7 +295,8 @@ namespace turbo::jam {
         };
     }
 
-    ready_record_t ready_record_t::from_bytes(codec::decoder &dec)
+    template<typename CONSTANTS>
+    ready_record_t<CONSTANTS> ready_record_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
         return {
             dec.decode<decltype(report)>(),
@@ -298,7 +304,8 @@ namespace turbo::jam {
         };
     }
 
-    refine_context_t refine_context_t::from_bytes(codec::decoder &dec)
+    template<typename CONSTANTS>
+    refine_context_t<CONSTANTS> refine_context_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
         return {
             dec.decode<decltype(anchor)>(),
@@ -310,19 +317,21 @@ namespace turbo::jam {
         };
     }
 
-    refine_context_t refine_context_t::from_json(const boost::json::value &j)
+    template<typename CONSTANTS>
+    refine_context_t<CONSTANTS> refine_context_t<CONSTANTS>::from_json(const boost::json::value &j)
     {
         return {
             decltype(anchor)::from_json(j.at("anchor")),
             decltype(state_root)::from_json(j.at("state_root")),
             decltype(beefy_root)::from_json(j.at("beefy_root")),
             decltype(lookup_anchor)::from_json(j.at("lookup_anchor")),
-            boost::json::value_to<decltype(lookup_anchor_slot)>(j.at("lookup_anchor_slot")),
+            decltype(lookup_anchor_slot)::from_json(j.at("lookup_anchor_slot")),
             decltype(prerequisites)::from_json(j.at("prerequisites"))
         };
     }
 
-    bool refine_context_t::operator==(const refine_context_t &o) const
+    template<typename CONSTANTS>
+    bool refine_context_t<CONSTANTS>::operator==(const refine_context_t &o) const
     {
         return anchor == o.anchor && state_root == o.state_root && beefy_root == o.beefy_root
             && lookup_anchor == o.lookup_anchor && lookup_anchor_slot == o.lookup_anchor_slot
@@ -351,7 +360,8 @@ namespace turbo::jam {
         };
     }
 
-    report_guarantee_t report_guarantee_t::from_bytes(codec::decoder &dec)
+    template<typename CONSTANTS>
+    report_guarantee_t<CONSTANTS> report_guarantee_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
         return {
             dec.decode<decltype(report)>(),
@@ -360,14 +370,18 @@ namespace turbo::jam {
         };
     }
 
-    report_guarantee_t report_guarantee_t::from_json(const boost::json::value &j)
+    template<typename CONSTANTS>
+    report_guarantee_t<CONSTANTS> report_guarantee_t<CONSTANTS>::from_json(const boost::json::value &j)
     {
         return {
             decltype(report)::from_json(j.at("report")),
-            boost::json::value_to<decltype(slot)>(j.at("slot")),
+            decltype(slot)::from_json(j.at("slot")),
             decltype(signatures)::from_json(j.at("signatures"))
         };
     }
+
+    template struct report_guarantee_t<config_prod>;
+    template struct report_guarantee_t<config_tiny>;
 
     reported_work_package_t reported_work_package_t::from_bytes(codec::decoder &dec)
     {
@@ -481,6 +495,21 @@ namespace turbo::jam {
         };
     }
 
+    template<typename CONSTANTS>
+    time_slot_t<CONSTANTS> time_slot_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    {
+        return dec.uint_trivial<decltype(time_slot_t::_val)>(sizeof(decltype(time_slot_t::_val)));
+    }
+
+    template<typename CONSTANTS>
+    time_slot_t<CONSTANTS> time_slot_t<CONSTANTS>::from_json(const boost::json::value &j)
+    {
+        return boost::json::value_to<decltype(time_slot_t::_val)>(j);
+    }
+
+    template struct time_slot_t<config_prod>;
+    template struct time_slot_t<config_tiny>;
+
     validator_data_t validator_data_t::from_bytes(codec::decoder &dec)
     {
         return {
@@ -582,7 +611,8 @@ namespace turbo::jam {
         };
     }
 
-    work_package_t work_package_t::from_bytes(codec::decoder &dec)
+    template<typename CONSTANTS>
+    work_package_t<CONSTANTS> work_package_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
         return {
             dec.decode<decltype(authorization)>(),
@@ -593,7 +623,8 @@ namespace turbo::jam {
         };
     }
 
-    work_package_t work_package_t::from_json(const boost::json::value &j)
+    template<typename CONSTANTS>
+    work_package_t<CONSTANTS> work_package_t<CONSTANTS>::from_json(const boost::json::value &j)
     {
         return {
             decltype(authorization)::from_json(j.at("authorization")),
@@ -603,6 +634,9 @@ namespace turbo::jam {
             decltype(items)::from_json(j.at("items"))
         };
     }
+
+    template struct work_package_t<config_prod>;
+    template struct work_package_t<config_tiny>;
 
     work_package_spec_t work_package_spec_t::from_bytes(codec::decoder &dec)
     {
@@ -626,7 +660,8 @@ namespace turbo::jam {
         };
     }
 
-    work_report_t work_report_t::from_bytes(codec::decoder &dec)
+    template<typename CONSTANTS>
+    work_report_t<CONSTANTS> work_report_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
         return {
             dec.decode<decltype(package_spec)>(),
@@ -640,7 +675,8 @@ namespace turbo::jam {
         };
     }
 
-    work_report_t work_report_t::from_json(const boost::json::value &json)
+    template<typename CONSTANTS>
+    work_report_t<CONSTANTS> work_report_t<CONSTANTS>::from_json(const boost::json::value &json)
     {
         return {
             decltype(package_spec)::from_json(json.at("package_spec")),
@@ -653,6 +689,9 @@ namespace turbo::jam {
             boost::json::value_to<decltype(auth_gas_used)>(json.at("auth_gas_used"))
         };
     }
+
+    template struct work_report_t<config_prod>;
+    template struct work_report_t<config_tiny>;
 
     work_result_t work_result_t::from_bytes(codec::decoder &dec)
     {

@@ -14,7 +14,7 @@ namespace {
     template<typename CONSTANTS>
     struct input_t {
         assurances_extrinsic_t<CONSTANTS> assurances;
-        time_slot_t slot;
+        time_slot_t<CONSTANTS> slot;
         header_hash_t parent;
 
         static input_t from_bytes(codec::decoder &dec)
@@ -27,8 +27,9 @@ namespace {
         }
     };
 
+    template<typename CONSTANTS>
     struct output_data_t {
-        work_reports_t reported;
+        work_reports_t<CONSTANTS> reported;
 
         static output_data_t from_bytes(codec::decoder &dec)
         {
@@ -44,28 +45,28 @@ namespace {
     };
 
     struct err_bad_attestation_parent_t {
-        bool operator==(const err_bad_attestation_parent_t &o) const
+        bool operator==(const err_bad_attestation_parent_t &) const
         {
             return true;
         }
     };
     struct err_bad_validator_index_t {
-        bool operator==(const err_bad_validator_index_t &o) const {
+        bool operator==(const err_bad_validator_index_t &) const {
             return true;
         }
     };
     struct err_core_not_engaged_t {
-        bool operator==(const err_core_not_engaged_t &o) const {
+        bool operator==(const err_core_not_engaged_t &) const {
             return true;
         }
     };
     struct err_bad_signature_t {
-        bool operator==(const err_bad_signature_t &o) const {
+        bool operator==(const err_bad_signature_t &) const {
             return true;
         }
     };
     struct err_not_sorted_or_unique_assurers {
-        bool operator==(const err_not_sorted_or_unique_assurers &o) const {
+        bool operator==(const err_not_sorted_or_unique_assurers &) const {
             return true;
         }
     };
@@ -88,14 +89,15 @@ namespace {
         }
     };
 
-    struct output_t: std::variant<output_data_t, err_code_t> {
-        using base_type = std::variant<output_data_t, err_code_t>;
+    template<typename CONSTANTS>
+    struct output_t: std::variant<output_data_t<CONSTANTS>, err_code_t> {
+        using base_type = std::variant<output_data_t<CONSTANTS>, err_code_t>;
 
         static output_t from_bytes(codec::decoder &dec)
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
-                case 0: return { output_data_t::from_bytes(dec) };
+                case 0: return { output_data_t<CONSTANTS>::from_bytes(dec) };
                 case 1: return { err_code_t::from_bytes(dec) };
                 [[unlikely]] default: throw error(fmt::format("unsupported output_t type: {}", typ));
             }
@@ -106,7 +108,7 @@ namespace {
     struct test_case_t {
         input_t<CONSTANTS> input;
         state_t<CONSTANTS> pre_state;
-        output_t output;
+        output_t<CONSTANTS> output;
         state_t<CONSTANTS> post_state;
 
         static state_t<CONSTANTS> decode_state(codec::decoder &dec)
@@ -136,9 +138,9 @@ namespace {
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
-        std::optional<output_t> out {};
+        std::optional<output_t<CFG>> out {};
         try {
-            output_data_t res {};
+            output_data_t<CFG> res {};
             new_st.ro = tc.pre_state.ro.apply(res.reported, tc.pre_state.kappa, tc.input.slot, tc.input.parent, tc.input.assurances);
             out.emplace(std::move(res));
         } catch (jam::err_bad_attestation_parent_t &) {
@@ -152,9 +154,9 @@ namespace {
         } catch (jam::err_not_sorted_or_unique_assurers &) {
             out.emplace(err_not_sorted_or_unique_assurers {});
         }
-        expect(fatal(out.has_value())) << path;
-        expect(out == tc.output) << path;
-        expect(new_st == tc.post_state) << path;
+        expect(fatal(out.has_value()), loc) << path;
+        expect(out == tc.output, loc) << path;
+        expect(new_st == tc.post_state, loc) << path;
     }
 }
 

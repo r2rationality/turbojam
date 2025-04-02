@@ -12,9 +12,10 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
+    template<typename CONSTANTS>
     struct input_t {
         preimages_extrinsic_t preimages;
-        time_slot_t slot;
+        time_slot_t<CONSTANTS> slot;
 
         static input_t from_bytes(codec::decoder &dec)
         {
@@ -76,7 +77,7 @@ namespace {
 
     template<typename CONSTANTS>
     struct test_case_t {
-        input_t input;
+        input_t<CONSTANTS> input;
         state_t<CONSTANTS> pre_state;
         output_t output;
         state_t<CONSTANTS> post_state;
@@ -84,7 +85,7 @@ namespace {
         static state_t<CONSTANTS> decode_state(codec::decoder &dec)
         {
             return {
-                .delta=dec.decode<accounts_t>()
+                .delta=dec.decode<decltype(state_t<CONSTANTS>::delta)>()
             };
         }
 

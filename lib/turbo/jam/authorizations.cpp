@@ -17,11 +17,11 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::from_json(const boost::json::value &j)
     {
-        return base_type::template from_json<auth_pools_t>(j);
+        return base_type::template  from_json<auth_pools_t>(j);
     }
 
     template<typename CONSTANTS>
-    auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::apply(const time_slot_t slot, const core_authorizers_t &cas, const auth_queues_t<CONSTANTS> &phi) const
+    auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::apply(const time_slot_t<CONSTANTS> &slot, const core_authorizers_t &cas, const auth_queues_t<CONSTANTS> &phi) const
     {
         auto new_pools = *this;
 
@@ -39,7 +39,7 @@ namespace turbo::jam {
             if (pool.size() == pool.max_size)
                 pool.erase(pool.begin());
             const auto &queue = phi.at(core);
-            pool.emplace_back(queue.at(slot % queue.size()));
+            pool.emplace_back(queue.at(slot.slot() % queue.size()));
         }
 
         return new_pools;

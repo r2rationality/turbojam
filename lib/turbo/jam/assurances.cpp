@@ -9,8 +9,8 @@
 
 namespace turbo::jam {
     template<typename CONSTANTS>
-    availability_assignments_t<CONSTANTS> availability_assignments_t<CONSTANTS>::apply(work_reports_t &out, const validators_data_t<CONSTANTS> &kappa,
-            const time_slot_t tau, const header_hash_t parent, const assurances_extrinsic_t<CONSTANTS> &assurances) const
+    availability_assignments_t<CONSTANTS> availability_assignments_t<CONSTANTS>::apply(work_reports_t<CONSTANTS> &out, const validators_data_t<CONSTANTS> &kappa,
+            const time_slot_t<CONSTANTS> &/*tau*/, const header_hash_t parent, const assurances_extrinsic_t<CONSTANTS> &assurances) const
     {
         std::optional<validator_index_t> prev_validator {};
         std::array<size_t, CONSTANTS::core_count> cnts {};

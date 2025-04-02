@@ -7,7 +7,7 @@
 
 namespace turbo::jam {
     template<typename CONSTANTS>
-    state_t<CONSTANTS> state_t<CONSTANTS>::apply(const block_info_t &blk) const
+    state_t<CONSTANTS> state_t<CONSTANTS>::apply(const block_info_t &) const
     {
         state_t new_st = *this;
         // assurances must be processed before guarantees
@@ -41,8 +41,12 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    void state_t<CONSTANTS>::update_statistics(time_slot_t slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic)
+    void state_t<CONSTANTS>::update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic)
     {
+        if (slot.epoch() > tau.epoch()) {
+            pi.last = pi.current;
+            pi.current = decltype(pi.current) {};
+        }
         if (val_idx >= CONSTANTS::validator_count) [[unlikely]]
             throw error(fmt::format("validator index too large: {}", val_idx));
         auto &stats = pi.current.at(val_idx);

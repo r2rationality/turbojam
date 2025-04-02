@@ -9,7 +9,8 @@
 #include "turbo/crypto/blake2b.hpp"
 
 namespace turbo::jam {
-    account_t account_t::from_bytes(codec::decoder &dec)
+    template<typename CONSTANTS>
+    account_t<CONSTANTS> account_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
         return {
             dec.decode<decltype(preimages)>(),
@@ -17,7 +18,8 @@ namespace turbo::jam {
         };
     }
 
-    account_t account_t::from_json(const boost::json::value &j)
+    template<typename CONSTANTS>
+    account_t<CONSTANTS> account_t<CONSTANTS>::from_json(const boost::json::value &j)
     {
         return {
             decltype(preimages)::from_json(j.at("preimages"), "hash", "blob"),
@@ -25,23 +27,30 @@ namespace turbo::jam {
         };
     }
 
-    bool account_t::operator==(const account_t &o) const
+    template<typename CONSTANTS>
+    bool account_t<CONSTANTS>::operator==(const account_t<CONSTANTS> &o) const
     {
         return preimages == o.preimages
             && lookup_metas == o.lookup_metas;
     }
 
-    accounts_t accounts_t::from_bytes(codec::decoder &dec)
+    template struct account_t<config_prod>;
+    template struct account_t<config_tiny>;
+
+    template<typename CONSTANTS>
+    accounts_t<CONSTANTS> accounts_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
-        return base_type::from_bytes<accounts_t>(dec);
+        return base_type::template from_bytes<accounts_t<CONSTANTS>>(dec);
     }
 
-    accounts_t accounts_t::from_json(const boost::json::value &j)
+    template<typename CONSTANTS>
+    accounts_t<CONSTANTS> accounts_t<CONSTANTS>::from_json(const boost::json::value &j)
     {
-        return base_type::from_json<accounts_t>(j, "id", "data");
+        return base_type::template from_json<accounts_t>(j, "id", "data");
     }
 
-    accounts_t accounts_t::apply(time_slot_t slot, const preimages_extrinsic_t &preimages) const
+    template<typename CONSTANTS>
+    accounts_t<CONSTANTS> accounts_t<CONSTANTS>::apply(const time_slot_t<CONSTANTS> &/*slot*/, const preimages_extrinsic_t &preimages) const
     {
         auto new_accounts = *this;
         const preimage_t *prev = nullptr;
@@ -61,4 +70,7 @@ namespace turbo::jam {
         }
         return new_accounts;
     }
+
+    template struct accounts_t<config_prod>;
+    template struct accounts_t<config_tiny>;
 }

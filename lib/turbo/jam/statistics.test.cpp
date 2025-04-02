@@ -14,7 +14,7 @@ namespace {
 
     template<typename CONSTANTS>
     struct input_t {
-        time_slot_t slot;
+        time_slot_t<CONSTANTS> slot;
         validator_index_t author_index;
         extrinsic_t<CONSTANTS> extrinsic;
 
@@ -59,21 +59,21 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
-        std::cout << path << std::endl;
         const auto tc = codec::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre;
         new_st.update_statistics(tc.in.slot, tc.in.author_index, tc.in.extrinsic);
-        expect(new_st == tc.post) << path;
+        expect(new_st == tc.post, loc) << path;
     }
 }
 
 suite turbo_jam_statistics_suite = [] {
     "turbo::jam::statistics"_test = [] {
-        //test_file<config_tiny>("./test/jam-test-vectors/statistics/tiny/stats_with_epoch_change-1.bin");
-        for (const char *set: { "tiny", "full" }) {
-            for (const auto &path: file::files_with_ext(file::install_path(fmt::format("test/jam-test-vectors/statistics/{}", set)), ".bin")) {
-                test_file<config_tiny>(path);
-            }
+        test_file<config_tiny>(file::install_path("test/jam-test-vectors/statistics/tiny/stats_with_epoch_change-1.bin"));
+        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/statistics/tiny"), ".bin")) {
+            test_file<config_tiny>(path);
+        }
+        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/statistics/full"), ".bin")) {
+            test_file<config_prod>(path);
         }
     };
 };

@@ -12,7 +12,8 @@ namespace turbo {
     {
         if constexpr (std::numeric_limits<FROM>::is_signed == std::numeric_limits<TO>::is_signed) {
           if (from > std::numeric_limits<TO>::max()) [[unlikely]]
-            throw error(fmt::format("can't convert {} {} to {}: the value is too big", typeid(FROM).name(), from, typeid(TO).name()));
+            throw error(fmt::format("can't convert {} {} to {}: the value is larger than {}",
+                typeid(FROM).name(), from, typeid(TO).name(), std::numeric_limits<TO>::max()));
           if (from < std::numeric_limits<TO>::min()) [[unlikely]]
               throw error(fmt::format("can't convert {} {} to {}: the value is too small", typeid(FROM).name(), from, typeid(TO).name()));
           return static_cast<TO>(from);
