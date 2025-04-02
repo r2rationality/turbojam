@@ -66,7 +66,7 @@ namespace {
             expect(act_block.reported == exp_block.reported) << path << i;
             expect(act_block == exp_block) << path << i;;
         }
-        expect(new_st == tc.post_state) << path;
+        expect(new_st == tc.post_state, loc) << path;
     }
 }
 

@@ -48,14 +48,14 @@ namespace turbo::jam::codec {
         template<typename T>
         void encode(const T &val)
         {
-            using T = std::decay_t<T>;
-            if constexpr (std::is_same_v<uint64_t, T>) {
+            using DT = std::decay_t<T>;
+            if constexpr (std::is_same_v<uint64_t, DT>) {
                 uint_trivial(8, val);
-            } else if constexpr (std::is_same_v<uint32_t, T>) {
+            } else if constexpr (std::is_same_v<uint32_t, DT>) {
                 uint_trivial(4, val);
-            } else if constexpr (std::is_same_v<uint16_t, T>) {
+            } else if constexpr (std::is_same_v<uint16_t, DT>) {
                 uint_trivial(2, val);
-            } else if constexpr (std::is_same_v<uint8_t, T>) {
+            } else if constexpr (std::is_same_v<uint8_t, DT>) {
                 uint_trivial(1, val);
             } else {
                 val.to_bytes(*this);

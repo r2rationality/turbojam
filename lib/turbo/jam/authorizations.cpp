@@ -11,13 +11,13 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
-        return base_type::from_bytes<auth_pools_t>(dec);
+        return base_type::template from_bytes<auth_pools_t>(dec);
     }
 
     template<typename CONSTANTS>
     auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::from_json(const boost::json::value &j)
     {
-        return base_type::from_json<auth_pools_t>(j);
+        return base_type::template from_json<auth_pools_t>(j);
     }
 
     template<typename CONSTANTS>

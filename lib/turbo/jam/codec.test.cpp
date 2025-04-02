@@ -17,12 +17,12 @@ suite turbo_jam_codec_suite = [] {
             static const auto exp = uint8_vector::from_hex("83FF");
             {
                 encoder enc {};
-                enc.uint_general(1023);
+                enc.uint_general(1023ULL);
                 expect_equal(exp, enc.bytes());
             }
             {
                 decoder dec { exp };
-                expect_equal(1023, dec.uint_general());
+                expect_equal(1023ULL, dec.uint_general());
             }
         };
     };

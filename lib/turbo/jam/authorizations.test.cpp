@@ -53,7 +53,7 @@ namespace {
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
         const auto new_alpha = tc.pre_state.alpha.apply(tc.input.slot, tc.input.auths, tc.pre_state.phi);
-        expect(new_alpha == tc.post_state.alpha) << path;
+        expect(new_alpha == tc.post_state.alpha, loc) << path;
     }
 }
 

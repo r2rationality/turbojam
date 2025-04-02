@@ -148,7 +148,6 @@ namespace turbo::jam {
         static C from_json(const boost::json::value &j, const std::string_view key_name, const std::string_view val_name)
         {
             const auto &j_arr = j.as_array();
-            const auto sz = j_arr.size();
             C res {};
             for (const auto &jv: j_arr) {
                 if constexpr (std::is_constructible_v<uint64_t, K>) {
@@ -231,12 +230,12 @@ namespace turbo::jam {
 
         static bitset_t from_bytes(codec::decoder &dec)
         {
-            return base_type::from_bytes<bitset_t>(dec);
+            return base_type::template from_bytes<bitset_t>(dec);
         }
 
         static bitset_t from_json(const boost::json::value &j)
         {
-            return base_type::from_json<bitset_t>(j);
+            return base_type::template from_json<bitset_t>(j);
         }
 
         bool test(const size_t pos) const
@@ -663,12 +662,12 @@ struct avail_assurance_t {
 
         static availability_assignments_t from_bytes(codec::decoder &dec)
         {
-            return base_type::from_bytes<availability_assignments_t>(dec);
+            return base_type::template from_bytes<availability_assignments_t>(dec);
         }
 
         static availability_assignments_t from_json(const boost::json::value &j)
         {
-            return base_type::from_json<availability_assignments_t>(j);
+            return base_type::template from_json<availability_assignments_t>(j);
         }
 
         availability_assignments_t apply(work_reports_t &out, const validators_data_t<CONSTANTS> &kappa,

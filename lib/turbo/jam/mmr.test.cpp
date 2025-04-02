@@ -16,7 +16,7 @@ suite turbo_jam_mmr_suite = [] {
         "append to empty"_test = [] {
             const mmr_t empty {};
             const auto mmr1 = empty.append(opaque_hash_t {});
-            expect_equal(1, mmr1.size());
+            expect_equal(1ULL, mmr1.size());
             expect_equal(mmr_peak_t { opaque_hash_t {} }, mmr1.at(0));
         };
     };

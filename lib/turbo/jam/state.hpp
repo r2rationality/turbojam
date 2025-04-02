@@ -42,7 +42,7 @@ namespace turbo::jam {
         void update_statistics(time_slot_t slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
 
         // JAM paper: Kapital upsilon
-        void apply(const block_t<CONSTANTS> &blk)
+        void apply(const block_t<CONSTANTS> &)
         {
             // for performance this function operates on the same set
             // this means that extra care must be taken when handling errors

@@ -33,13 +33,13 @@ namespace {
     };
 
     struct err_preimage_unneeded_t {
-        bool operator==(const err_preimage_unneeded_t &o) const
+        bool operator==(const err_preimage_unneeded_t &) const
         {
             return true;
         }
     };
     struct err_preimages_not_sorted_or_unique_t {
-        bool operator==(const err_preimages_not_sorted_or_unique_t &o) const {
+        bool operator==(const err_preimages_not_sorted_or_unique_t &) const {
             return true;
         }
     };
@@ -113,9 +113,9 @@ namespace {
         } catch (jam::err_preimages_not_sorted_or_unique_t &) {
             out.emplace(err_preimages_not_sorted_or_unique_t {});
         }
-        expect(fatal(out.has_value())) << path;
-        expect(out == tc.output) << path;
-        expect(new_st == tc.post_state) << path;
+        expect(fatal(out.has_value()), loc) << path;
+        expect(out == tc.output, loc) << path;
+        expect(new_st == tc.post_state, loc) << path;
     }
 }
 
