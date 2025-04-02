@@ -56,8 +56,14 @@ namespace turbo::jam {
         for (const auto &p: extrinsic.preimages) {
             stats.pre_images_size += p.blob.size();
         }
-        stats.guarantees += extrinsic.guarantees.size();
-        stats.assurances += extrinsic.assurances.size();
+        for (const auto &g: extrinsic.guarantees) {
+            for (const auto &s: g.signatures) {
+                ++pi.current.at(s.validator_index).guarantees;
+            }
+        }
+        for (const auto &a: extrinsic.assurances) {
+            ++pi.current.at(a.validator_index).assurances;
+        }
     }
 
     template struct state_t<config_prod>;
