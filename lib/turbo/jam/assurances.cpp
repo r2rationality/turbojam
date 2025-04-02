@@ -10,7 +10,7 @@
 namespace turbo::jam {
     template<typename CONSTANTS>
     availability_assignments_t<CONSTANTS> availability_assignments_t<CONSTANTS>::apply(work_reports_t<CONSTANTS> &out, const validators_data_t<CONSTANTS> &kappa,
-            const time_slot_t<CONSTANTS> &/*tau*/, const header_hash_t parent, const assurances_extrinsic_t<CONSTANTS> &assurances) const
+            const time_slot_t<CONSTANTS> &slot, const header_hash_t parent, const assurances_extrinsic_t<CONSTANTS> &assurances) const
     {
         std::optional<validator_index_t> prev_validator {};
         std::array<size_t, CONSTANTS::core_count> cnts {};
@@ -44,9 +44,13 @@ namespace turbo::jam {
         }
         auto new_avail = *this;
         for (size_t ci = 0; ci < CONSTANTS::core_count; ++ci) {
-            if (cnts[ci] >= CONSTANTS::validator_super_majority) {
-                out.emplace_back(std::move(new_avail[ci]->report));
-                new_avail[ci].reset();
+            if (new_avail[ci]) {
+                if (cnts[ci] >= CONSTANTS::validator_super_majority) {
+                    out.emplace_back(std::move(new_avail[ci]->report));
+                    new_avail[ci].reset();
+                } else if (slot >= new_avail[ci]->timeout + CONSTANTS::reported_work_timeout) {
+                    new_avail[ci].reset();
+                }
             }
         }
         return new_avail;

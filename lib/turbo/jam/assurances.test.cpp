@@ -134,7 +134,7 @@ namespace {
     };
 
     template<typename CFG>
-    void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
+    void test_file(const std::string &path)
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
@@ -154,14 +154,15 @@ namespace {
         } catch (jam::err_not_sorted_or_unique_assurers &) {
             out.emplace(err_not_sorted_or_unique_assurers {});
         }
-        expect(fatal(out.has_value()), loc) << path;
-        expect(out == tc.output, loc) << path;
-        expect(new_st == tc.post_state, loc) << path;
+        expect(fatal(out.has_value())) << path;
+        expect(out == tc.output) << path;
+        expect(new_st == tc.post_state) << path;
     }
 }
 
 suite turbo_jam_assurances_suite = [] {
     "turbo::jam::assurances"_test = [] {
+        test_file<config_prod>(file::install_path("test/jam-test-vectors/assurances/full/no_assurances_with_stale_report-1.bin"));
         "tiny"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/assurances/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
