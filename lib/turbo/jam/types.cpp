@@ -106,14 +106,14 @@ namespace turbo::jam {
     core_activity_record_t core_activity_record_t::from_bytes(codec::decoder &dec)
     {
         return {
-            dec.decode<decltype(gas_used)>(),
-            dec.decode<decltype(imports)>(),
-            dec.decode<decltype(extrinsic_count)>(),
-            dec.decode<decltype(extrinsic_size)>(),
-            dec.decode<decltype(exports)>(),
-            dec.decode<decltype(bundle_size)>(),
-            dec.decode<decltype(da_load)>(),
-            dec.decode<decltype(popularity)>()
+            dec.uint_general<decltype(gas_used)>(),
+            dec.uint_general<decltype(imports)>(),
+            dec.uint_general<decltype(extrinsic_count)>(),
+            dec.uint_general<decltype(extrinsic_size)>(),
+            dec.uint_general<decltype(exports)>(),
+            dec.uint_general<decltype(bundle_size)>(),
+            dec.uint_general<decltype(da_load)>(),
+            dec.uint_general<decltype(popularity)>()
         };
     }
 
@@ -404,18 +404,18 @@ namespace turbo::jam {
     service_activity_record_t service_activity_record_t::from_bytes(codec::decoder &dec)
     {
         return {
-            dec.decode<decltype(provided_count)>(),
-            dec.decode<decltype(provided_size)>(),
-            dec.decode<decltype(refinement_count)>(),
-            dec.decode<decltype(refinement_gas_used)>(),
-            dec.decode<decltype(imports)>(),
-            dec.decode<decltype(extrinsic_count)>(),
-            dec.decode<decltype(extrinsic_size)>(),
-            dec.decode<decltype(exports)>(),
-            dec.decode<decltype(accumulate_count)>(),
-            dec.decode<decltype(accumulate_gas_used)>(),
-            dec.decode<decltype(on_transfers_count)>(),
-            dec.decode<decltype(on_transfers_gas_used)>()
+            dec.uint_general<decltype(provided_count)>(),
+            dec.uint_general<decltype(provided_size)>(),
+            dec.uint_general<decltype(refinement_count)>(),
+            dec.uint_general<decltype(refinement_gas_used)>(),
+            dec.uint_general<decltype(imports)>(),
+            dec.uint_general<decltype(extrinsic_count)>(),
+            dec.uint_general<decltype(extrinsic_size)>(),
+            dec.uint_general<decltype(exports)>(),
+            dec.uint_general<decltype(accumulate_count)>(),
+            dec.uint_general<decltype(accumulate_gas_used)>(),
+            dec.uint_general<decltype(on_transfers_count)>(),
+            dec.uint_general<decltype(on_transfers_gas_used)>()
         };
     }
 

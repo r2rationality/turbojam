@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <turbo/common/bytes.hpp>
 #include <turbo/common/file.hpp>
+#include <turbo/common/numeric-cast.hpp>
 
 namespace turbo::jam::codec {
     struct encoder {
@@ -97,7 +98,7 @@ namespace turbo::jam::codec {
             }
             uint64_t res = prefix << (l << 3);
             res |= uint_trivial<uint64_t>(l);
-            return static_cast<T>(res);
+            return numeric_cast<T>(res);
         }
 
         template<typename T>
