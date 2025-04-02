@@ -101,7 +101,7 @@ namespace {
     };
 
     template<typename CFG>
-    void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
+    void test_file(const std::string &path)
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
@@ -114,14 +114,15 @@ namespace {
         } catch (jam::err_preimages_not_sorted_or_unique_t &) {
             out.emplace(err_preimages_not_sorted_or_unique_t {});
         }
-        expect(fatal(out.has_value()), loc) << path;
-        expect(out == tc.output, loc) << path;
-        expect(new_st == tc.post_state, loc) << path;
+        expect(fatal(out.has_value())) << path;
+        expect(out == tc.output) << path;
+        expect(new_st == tc.post_state) << path;
     }
 }
 
 suite turbo_jam_preimages_suite = [] {
     "turbo::jam::preimages"_test = [] {
+        test_file<config_tiny>(file::install_path("test/jam-test-vectors/preimages/data/preimage_needed-2.bin"));
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/preimages/data"), ".bin")) {
             test_file<config_tiny>(path);
         }

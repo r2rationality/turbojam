@@ -50,7 +50,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    accounts_t<CONSTANTS> accounts_t<CONSTANTS>::apply(const time_slot_t<CONSTANTS> &/*slot*/, const preimages_extrinsic_t &preimages) const
+    accounts_t<CONSTANTS> accounts_t<CONSTANTS>::apply(const time_slot_t<CONSTANTS> &slot, const preimages_extrinsic_t &preimages) const
     {
         auto new_accounts = *this;
         const preimage_t *prev = nullptr;
@@ -62,11 +62,13 @@ namespace turbo::jam {
             lookup_met_map_key_t key { .length=numeric_cast<decltype(lookup_met_map_key_t::length)>(p.blob.size()) };
             static_assert(sizeof(key.hash) == sizeof(crypto::blake2b::hash_t));
             crypto::blake2b::digest(*reinterpret_cast<crypto::blake2b::hash_t *>(&key.hash), p.blob);
-            if (const auto it = acc.lookup_metas.find(key); it == acc.lookup_metas.end()) [[unlikely]]
+            const auto meta_it = acc.lookup_metas.find(key);
+            if (meta_it == acc.lookup_metas.end()) [[unlikely]]
                 throw err_preimage_unneeded_t(fmt::format("a preimage for an unexpected hash {} and length {}", key.hash, key.length));
             const auto [it, created] = acc.preimages.try_emplace(key.hash, p.blob);
             if (!created) [[unlikely]]
                 throw err_preimage_unneeded_t(fmt::format("a duplicate preimage for hash {} and length {}", key.hash, key.length));
+            meta_it->second.emplace_back(slot);
         }
         return new_accounts;
     }
