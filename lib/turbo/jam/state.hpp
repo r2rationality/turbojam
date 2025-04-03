@@ -22,22 +22,14 @@ namespace turbo::jam {
 
         // Not implemented
 
-        // validator-selection state
-        struct gamma_t {};
-        // entropy
-        struct eta_t {};
-        // scheduled validators
-        struct iota_t {};
-        // archive validators
-        struct lambda_t {};
-        // privileged services
-        struct chi_t {};
-        // judgements
-        struct psi_t {};
-        // work reports ready to be accumulated
-        struct nu_t {};
-        // recently accumulated work reports
-        struct ksi_t {};
+        struct gamma_t {}; // validator-selection state
+        struct eta_t {}; // entropy
+        struct iota_t {}; // scheduled validators
+        struct lambda_t {}; // archive validators
+        struct chi_t {}; // privileged services
+        struct psi_t {}; // judgements
+        struct nu_t {}; // work reports ready to be accumulated
+        struct ksi_t {}; // recently accumulated work reports
 
         void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
 

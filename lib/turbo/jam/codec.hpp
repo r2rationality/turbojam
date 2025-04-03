@@ -80,9 +80,11 @@ namespace turbo::jam::codec {
         template<typename T>
         T uint_trivial(const size_t num_bytes)
         {
+            if (num_bytes > 8) [[unlikely]]
+                throw error("uint_trivial supports 8-bytes values at most!");
             T x = 0;
             for (size_t i = 0; i < num_bytes; ++i) {
-                x |= next() << (i * 8);
+                x |= static_cast<T>(next()) << (i * 8);
             }
             return x;
         }

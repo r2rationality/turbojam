@@ -46,9 +46,11 @@ namespace
   };
 
   /// rotate left and wrap around to the right
-  inline uint64_t rotateLeft(uint64_t x, uint8_t numBits)
+  inline uint64_t rotateLeft(uint64_t x, uint8_t numBits) __attribute__((no_sanitize("integer")))
   {
-    return (x << numBits) | (x >> (64 - numBits));
+    uint64_t res = x << static_cast<uint64_t>(numBits);
+    res |=  x >> (uint64_t { 64 } - static_cast<uint64_t>(numBits));
+    return res;
   }
 
   /// return x % 5 for 0 <= x <= 9
