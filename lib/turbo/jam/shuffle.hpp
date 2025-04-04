@@ -19,11 +19,15 @@ namespace turbo::jam::shuffle {
         static constexpr size_t segment_sz = entropy_size / uint_sz;
         byte_array<entropy_size + uint_sz> preimage;
         memcpy(preimage.data(), entropy.data(), entropy.size());
-        const auto seg_idx = i / segment_sz;
+        const uint32_t seg_idx = i / segment_sz;
         memcpy(preimage.data() + entropy.size(), &seg_idx, sizeof(seg_idx));
-        const auto entropy_i alignas(4) = crypto::blake2b::digest(preimage);
-        const auto res_buf = static_cast<buffer>(entropy_i).subbuf((i * uint_sz) % entropy.size(), uint_sz);
-        return res_buf.to<uint32_t>();
+        const auto entropy_i = crypto::blake2b::digest(preimage);
+        uint32_t res = 0;
+        const size_t base = (i * uint_sz) % entropy_i.size();
+        for (size_t j = 0; j < uint_sz; ++j) {
+            res |= static_cast<uint32_t>(entropy_i[base + j]) << (j * 8U);
+        }
+        return res;
     }
 
     template<typename T>
@@ -31,8 +35,15 @@ namespace turbo::jam::shuffle {
     {
         T out { in };
         for (size_t i = 0; i < out.size(); ++i) {
-            const auto next_idx = uint32_from_entropy(entropy, i) % (out.size() - i);
-            std::swap(out[i], out[i + next_idx]);
+            const auto tail_sz = out.size() - i;
+            const auto next_idx = uint32_from_entropy(entropy, i) % tail_sz;
+            const auto val = out[i + next_idx];
+            std::swap(out[i + next_idx], out.back());
+            // why the in-place variant of Fisher-Yates has not been chosen?
+            for (size_t j = 0; j < out.size() - (i + 1); ++j) {
+                out[out.size() - (j + 1)] = out[out.size() - (j + 2)];
+            }
+            out[i] = val;
         }
         return out;
     }

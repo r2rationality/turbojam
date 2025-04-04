@@ -18,8 +18,20 @@ suite turbo_jam_shuffle_suite = [] {
     "turbo::jam::shuffle"_test = [] {
         "uint32_from_entropy"_test = [] {
             const auto entropy = jam::opaque_hash_t::from_hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-            expect_equal(0U, jam::shuffle::uint32_from_entropy(entropy, 0));
-            expect_equal(0U, jam::shuffle::uint32_from_entropy(entropy, 1));
+            expect_equal(3180133873U, jam::shuffle::uint32_from_entropy(entropy, 0));
+            expect_equal(2874123541U, jam::shuffle::uint32_from_entropy(entropy, 1));
+            expect_equal(1702679006U, jam::shuffle::uint32_from_entropy(entropy, 2));
+            expect_equal(3779386820U, jam::shuffle::uint32_from_entropy(entropy, 3));
+            expect_equal(313342713U, jam::shuffle::uint32_from_entropy(entropy, 4));
+            expect_equal(1075366959U, jam::shuffle::uint32_from_entropy(entropy, 5));
+            expect_equal(2867850673U, jam::shuffle::uint32_from_entropy(entropy, 6));
+            expect_equal(573291173U, jam::shuffle::uint32_from_entropy(entropy, 7));
+        };
+        "shuffle empty"_test = [] {
+            const auto entropy = jam::opaque_hash_t::from_hex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+            const std::vector<size_t> seq {};
+            const auto res = jam::shuffle::with_entropy(seq, entropy);
+            expect_equal(seq, res);
         };
         "test vectors"_test = [] {
             const auto test_vectors = json::load(file::install_path("test/jam-test-vectors/shuffle/shuffle_tests.json"));
