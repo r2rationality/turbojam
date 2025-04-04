@@ -496,6 +496,19 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
+    tickets_or_keys_t<CONSTANTS> tickets_or_keys_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    {
+        switch (const auto typ = dec.decode<uint8_t>(); typ) {
+            case 0: return { tickets_t<CONSTANTS>::from_bytes(dec) };
+            case 1: return { keys_t<CONSTANTS>::from_bytes(dec) };
+            [[unlikely]] default: throw error(fmt::format("unsupported tickets_or_keys_t type: {}", typ));
+        }
+    }
+
+    template struct tickets_or_keys_t<config_prod>;
+    template struct tickets_or_keys_t<config_tiny>;
+
+    template<typename CONSTANTS>
     time_slot_t<CONSTANTS> time_slot_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
         return dec.uint_trivial<decltype(time_slot_t::_val)>(sizeof(decltype(time_slot_t::_val)));

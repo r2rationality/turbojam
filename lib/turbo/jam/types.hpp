@@ -302,7 +302,7 @@ namespace turbo::jam {
     using gas_t = uint64_t;
 
     using entropy_t = opaque_hash_t;
-    using entropy_buffer = fixed_sequence_t<entropy_t, 4>;
+    using entropy_buffer_t = fixed_sequence_t<entropy_t, 4>;
 
     using validator_metadata_t = byte_array_t<128>;
 
@@ -807,7 +807,12 @@ namespace turbo::jam {
     using keys_t = fixed_sequence_t<bandersnatch_public_t, CONSTANTS::epoch_length>;
 
     template<typename CONSTANTS=config_prod>
-    using tickets_or_keys_t = std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>>;
+    struct tickets_or_keys_t: std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>> {
+        using base_type = std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>>;
+        using base_type::base_type;
+
+        static tickets_or_keys_t from_bytes(codec::decoder &dec);
+    };
 
     template<typename CONSTANTS=config_prod>
     using tickets_extrinsic_t = sequence_t<ticket_envelope_t, 0, CONSTANTS::max_tickets_per_block>;

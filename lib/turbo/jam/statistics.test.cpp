@@ -68,7 +68,6 @@ namespace {
 
 suite turbo_jam_statistics_suite = [] {
     "turbo::jam::statistics"_test = [] {
-        test_file<config_tiny>(file::install_path("test/jam-test-vectors/statistics/tiny/stats_with_epoch_change-1.bin"));
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/statistics/tiny"), ".bin")) {
             test_file<config_tiny>(path);
         }
