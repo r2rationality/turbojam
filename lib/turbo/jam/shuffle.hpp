@@ -37,14 +37,9 @@ namespace turbo::jam::shuffle {
         for (size_t i = 0; i < out.size(); ++i) {
             const auto tail_sz = out.size() - i;
             const auto next_idx = uint32_from_entropy(entropy, i) % tail_sz;
-            const auto val = out[i + next_idx];
-            std::swap(out[i + next_idx], out.back());
-            // why the in-place variant of Fisher-Yates has not been chosen?
-            for (size_t j = 0; j < out.size() - (i + 1); ++j) {
-                out[out.size() - (j + 1)] = out[out.size() - (j + 2)];
-            }
-            out[i] = val;
+            std::swap(out[next_idx], out[tail_sz - 1]);
         }
+        std::reverse(out.begin(), out.end());
         return out;
     }
 }
