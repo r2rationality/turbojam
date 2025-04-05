@@ -71,7 +71,7 @@ namespace turbo::jam {
                 } else if constexpr (std::is_convertible_v<uint64_t, T>) {
                     res.emplace_back(boost::json::value_to<T>(jv));
                 } else {
-                    static_assert(false, "all types must be either convertible to an uint or have from_json static method");
+                    throw error(fmt::format("{} type must have from_json static method!", typeid(T).name()));
                 }
             }
             return res;
@@ -143,7 +143,7 @@ namespace turbo::jam {
                     if (!created) [[unlikely]]
                         throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
                 } else {
-                    static_assert(false);
+                    throw error(fmt::format("{} type must have from_json static method!", typeid(K).name()));
                 }
             }
             return res;

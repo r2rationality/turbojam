@@ -46,7 +46,10 @@ namespace
   };
 
   /// rotate left and wrap around to the right
-  inline uint64_t rotateLeft(uint64_t x, uint8_t numBits) __attribute__((no_sanitize("integer")))
+#if defined(__clang__)
+  __attribute__((no_sanitize("integer")))
+#endif
+  inline uint64_t rotateLeft(uint64_t x, uint8_t numBits)
   {
     uint64_t res = x << static_cast<uint64_t>(numBits);
     res |=  x >> (uint64_t { 64 } - static_cast<uint64_t>(numBits));
