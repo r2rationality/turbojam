@@ -21,9 +21,9 @@ namespace {
         static input_t from_bytes(codec::decoder &dec)
         {
             return {
-                    dec.decode<decltype(slot)>(),
-                    dec.decode<decltype(entropy)>(),
-                    dec.decode<decltype(extrinsic)>()
+                dec.decode<decltype(slot)>(),
+                dec.decode<decltype(entropy)>(),
+                dec.decode<decltype(extrinsic)>()
             };
         }
     };
@@ -133,26 +133,26 @@ namespace {
             auto gamma_z = dec.decode<decltype(pre.gamma_z)>();
             auto psi_o_post = dec.decode<decltype(pre.psi_o_post)>();
             return {
-                    .gamma_a = std::move(gamma_a),
-                    .gamma_k = std::move(gamma_k),
-                    .gamma_s = std::move(gamma_s),
-                    .gamma_z = std::move(gamma_z),
-                    .eta = std::move(eta),
-                    .iota = std::move(iota),
-                    .kappa = std::move(kappa),
-                    .lambda = std::move(lambda),
-                    .tau = std::move(tau),
-                    .psi_o_post = std::move(psi_o_post)
+                .gamma_a = std::move(gamma_a),
+                .gamma_k = std::move(gamma_k),
+                .gamma_s = std::move(gamma_s),
+                .gamma_z = std::move(gamma_z),
+                .eta = std::move(eta),
+                .iota = std::move(iota),
+                .kappa = std::move(kappa),
+                .lambda = std::move(lambda),
+                .tau = std::move(tau),
+                .psi_o_post = std::move(psi_o_post)
             };
         }
 
         static test_case_t from_bytes(codec::decoder &dec)
         {
             return {
-                    dec.decode<decltype(in)>(),
-                    decode_state(dec),
-                    dec.decode<decltype(out)>(),
-                    decode_state(dec)
+                dec.decode<decltype(in)>(),
+                decode_state(dec),
+                dec.decode<decltype(out)>(),
+                decode_state(dec)
             };
         }
     };
@@ -161,17 +161,21 @@ namespace {
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
+        auto new_st = tc.pre;
+        new_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic);
         expect(false, loc) << path;
     }
 }
 
 suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/tiny"), ".bin")) {
-            test_file<config_tiny>(path);
-        }
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/full"), ".bin")) {
-            test_file<config_prod>(path);
-        }
+        "conformance test vectors"_test = [] {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/tiny"), ".bin")) {
+                test_file<config_tiny>(path);
+            }
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/full"), ".bin")) {
+                test_file<config_prod>(path);
+            }
+        };
     };
 };

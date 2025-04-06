@@ -36,6 +36,7 @@ namespace turbo::jam {
         struct nu_t {}; // work reports ready to be accumulated
         struct ksi_t {}; // recently accumulated work reports
 
+        void update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic);
         void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
 
         // JAM paper: Kapital upsilon
@@ -48,5 +49,9 @@ namespace turbo::jam {
 
         state_t apply(const block_info_t &) const;
         bool operator==(const state_t &o) const noexcept;
+
+    private:
+        static validators_data_t<CONSTANTS> _capital_phi(const validators_data_t<CONSTANTS> &iota, const offenders_mark_t &psi_o);
+        static keys_t<CONSTANTS> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CONSTANTS> &kappa);
     };
 }

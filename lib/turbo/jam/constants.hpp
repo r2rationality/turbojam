@@ -13,6 +13,8 @@ namespace turbo::jam {
     struct config_prod {
         // JAM I.4.4: E
         static constexpr size_t epoch_length = 600;
+        // JAM I.4.4: Y
+        static constexpr size_t ticket_submission_end = epoch_length * 5 / 6;
 
         static constexpr size_t core_count = 341;
         // JAM I.4.4: V
@@ -38,9 +40,10 @@ namespace turbo::jam {
     };
 
     struct config_tiny: config_prod {
+        static constexpr size_t epoch_length = 12;
+        static constexpr size_t ticket_submission_end = epoch_length * 5 / 6;
         static constexpr size_t core_count = 2;
         static constexpr size_t validator_count = core_count * 3;
-        static constexpr size_t epoch_length = 12;
         static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
         static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
         static constexpr size_t core_assignment_rotation_period = 4;

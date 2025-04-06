@@ -320,6 +320,7 @@ namespace turbo::jam {
             return bandersnatch == o.bandersnatch && ed25519 == o.ed25519 && bls == o.bls && metadata == o.metadata;
         }
     };
+    static_assert(sizeof(validator_data_t) == 336); // JAM paper (6.8)
 
     using service_id_t = uint32_t;
 
@@ -791,9 +792,16 @@ namespace turbo::jam {
         static ticket_body_t from_bytes(codec::decoder &dec);
         static ticket_body_t from_json(const boost::json::value &json);
 
+        std::strong_ordering operator<=>(const ticket_body_t &o) const
+        {
+            if (const auto cmp = id <=> o.id; cmp != std::strong_ordering::equal)
+                return cmp;
+            return attempt <=> o.attempt;
+        }
+
         bool operator==(const ticket_body_t &o) const
         {
-            return id == o.id && attempt == o.attempt;
+            return (*this <=> o) == std::strong_ordering::equal;
         }
     };
 
@@ -890,11 +898,13 @@ namespace turbo::jam {
         }
     };
 
+    using ed25519_keys_t = sequence_t<ed25519_public_t>;
+
     struct disputes_records_t {
         sequence_t<work_report_hash_t> good;
         sequence_t<work_report_hash_t> bad;
         sequence_t<work_report_hash_t> wonky;
-        sequence_t<ed25519_public_t> offenders;
+        ed25519_keys_t offenders;
     };
 
     template<typename CONSTANTS=config_prod>
@@ -1073,7 +1083,7 @@ namespace turbo::jam {
     template<typename CONSTANTS=config_prod>
     using tickets_mark_t = fixed_sequence_t<ticket_body_t, CONSTANTS::epoch_length>;
 
-    using offenders_mark_t = sequence_t<ed25519_public_t>;
+    using offenders_mark_t = ed25519_keys_t;
 
     using preimages_t = map_t<opaque_hash_t, byte_sequence_t>;
 

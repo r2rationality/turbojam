@@ -12,7 +12,7 @@ namespace turbo::jam::shuffle {
     static constexpr size_t entropy_size = 32;
     using entropy_t = std::span<const uint8_t, entropy_size>;
 
-    uint32_t uint32_from_entropy(const entropy_t &entropy, const uint32_t i)
+    inline uint32_t uint32_from_entropy(const entropy_t &entropy, const uint32_t i)
     {
         static_assert(std::endian::native == std::endian::little);
         static constexpr size_t uint_sz = sizeof(i);
