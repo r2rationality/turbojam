@@ -687,6 +687,29 @@ namespace turbo::jam {
         using error::error;
     };
 
+    // Safrole errors
+    struct err_bad_slot_t: error {
+        using error::error;
+    };
+    struct err_unexpected_ticket_t: error {
+        using error::error;
+    };
+    struct err_bad_ticket_order_t: error {
+        using error::error;
+    };
+    struct err_bad_ticket_proof_t: error {
+        using error::error;
+    };
+    struct err_bad_ticket_attempt_t: error {
+        using error::error;
+    };
+    struct err_reserved_t: error {
+        using error::error;
+    };
+    struct err_duplicate_ticket_t: error {
+        using error::error;
+    };
+
     template<typename CONSTANTS=config_prod>
     struct availability_assignments_t: fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::core_count> {
         using base_type = fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::core_count>;

@@ -9,6 +9,23 @@
 
 namespace turbo::jam {
     template<typename CONSTANTS>
+    bool safrole_state_t<CONSTANTS>::operator==(const safrole_state_t &o) const noexcept
+    {
+        if (a != o.a)
+            return false;
+        if (k != o.k)
+            return false;
+        if (s != o.s)
+            return false;
+        if (z != o.z)
+            return false;
+        return true;
+    }
+
+    template struct safrole_state_t<config_prod>;
+    template struct safrole_state_t<config_tiny>;
+
+    template<typename CONSTANTS>
     state_t<CONSTANTS> state_t<CONSTANTS>::apply(const block_info_t &) const
     {
         state_t new_st = *this;
@@ -27,9 +44,17 @@ namespace turbo::jam {
             return false;
         if (beta != o.beta)
             return false;
+        if (gamma != o.gamma)
+            return false;
         if (delta != o.delta)
             return false;
+        if (eta != o.eta)
+            return false;
+        if (iota != o.iota)
+            return false;
         if (kappa != o.kappa)
+            return false;
+        if (lambda != o.lambda)
             return false;
         if (pi != o.pi)
             return false;
@@ -38,6 +63,8 @@ namespace turbo::jam {
         if (tau != o.tau)
             return false;
         if (phi != o.phi)
+            return false;
+        if (psi_o_post != o.psi_o_post)
             return false;
         return true;
     }
@@ -73,16 +100,18 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     void state_t<CONSTANTS>::update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic)
     {
+        if (slot <= tau) [[unlikely]]
+            throw err_bad_slot_t(fmt::format("slot {} after {} is not allowed!", slot.slot(), tau.slot()));
         if (slot.epoch() > tau.epoch()) {
             // JAM Paper (6.13)
-            gamma_k = _capital_phi(iota, psi_o_post);
+            gamma.k = _capital_phi(iota, psi_o_post);
             lambda = kappa;
-            kappa = gamma_k;
+            kappa = gamma.k;
             // compute the bandersnatch ring root
             // gamma_z = capital_omega(gamma_k);
 
             // JAM Paper (6.34)
-            gamma_a.clear();
+            gamma.a.clear();
 
             // JAM Paper (6.23)
             eta[3] = eta[2];
@@ -90,21 +119,21 @@ namespace turbo::jam {
             eta[1] = eta[0];
 
             // JAM Paper (6.24)
-            if (slot.epoch() == tau.epoch() + 1 && slot.epoch_slot() >= CONSTANTS::ticket_submission_end && gamma_a.size() == CONSTANTS::epoch_length) {
+            if (slot.epoch() == tau.epoch() + 1 && slot.epoch_slot() >= CONSTANTS::ticket_submission_end && gamma.a.size() == CONSTANTS::epoch_length) {
                 // JAM Paper (6.25)
-                gamma_s.emplace<tickets_t<CONSTANTS>>();
-                auto &tickets = std::get<tickets_t<CONSTANTS>>(gamma_s);
+                gamma.s.emplace<tickets_t<CONSTANTS>>();
+                auto &tickets = std::get<tickets_t<CONSTANTS>>(gamma.s);
                 for (size_t i = 0; i < tickets.size(); ++i) {
                     const auto j = i / 2;
                     if (i % 0 == 0) {
-                        tickets[i] = gamma_a[j];
+                        tickets[i] = gamma.a[j];
                     } else {
-                        tickets[i] = gamma_a[gamma_a.size() - (j + 1)];
+                        tickets[i] = gamma.a[gamma.a.size() - (j + 1)];
                     }
                 }
             } else {
                 // JAM Paper (6.26)
-                gamma_s = _fallback_key_sequence(eta[2], kappa);
+                gamma.s = _fallback_key_sequence(eta[2], kappa);
             }
         }
 
@@ -118,9 +147,11 @@ namespace turbo::jam {
         // JAM Paper (6.34)
         for (const auto &t: extrinsic) {
             ticket_body_t tb;
-            const auto it = std::lower_bound(gamma_a.begin(), gamma_a.end(), tb);
-            gamma_a.insert(it, std::move(tb));
+            const auto it = std::lower_bound(gamma.a.begin(), gamma.a.end(), tb);
+            gamma.a.insert(it, std::move(tb));
         }
+
+        tau = slot;
     }
 
     template<typename CONSTANTS>

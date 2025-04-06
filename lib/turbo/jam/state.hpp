@@ -7,16 +7,22 @@
 #include "types.hpp"
 
 namespace turbo::jam {
+    template<typename CONSTANTS=config_prod>
+    struct safrole_state_t {
+        tickets_accumulator_t<CONSTANTS> a {}; // prior sealing key ticket accumulator
+        validators_data_t<CONSTANTS> k {}; // prior next epoch validator keys and metadata
+        tickets_or_keys_t<CONSTANTS> s {}; // prior sealing key series
+        bandersnatch_ring_commitment_t z {}; // prior bandersnatch ring commitment
+
+        bool operator==(const safrole_state_t &o) const noexcept;
+    };
 
     // lower-case sigma in terms of the JAM paper
     template<typename CONSTANTS=config_prod>
     struct state_t {
         auth_pools_t<CONSTANTS> alpha {}; // authorizations
         blocks_history_t<CONSTANTS> beta {}; // most recent blocks
-        tickets_accumulator_t<CONSTANTS> gamma_a {}; // prior sealing key ticket accumulator
-        validators_data_t<CONSTANTS> gamma_k {}; // prior next epoch validator keys and metadata
-        tickets_or_keys_t<CONSTANTS> gamma_s {}; // prior sealing key series
-        bandersnatch_ring_commitment_t gamma_z {}; // prior bandersnatch ring commitment
+        safrole_state_t<CONSTANTS> gamma {};
         accounts_t<CONSTANTS> delta {}; // services
         entropy_buffer_t eta {};
         validators_data_t<CONSTANTS> iota {}; // next validators

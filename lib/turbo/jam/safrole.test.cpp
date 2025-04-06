@@ -40,6 +40,15 @@ namespace {
                 dec.decode<decltype(tickets_mark)>()
             };
         }
+
+        bool operator==(const output_data_t &o) const
+        {
+            if (epoch_mark != o.epoch_mark)
+                return false;
+            if (tickets_mark != o.tickets_mark)
+                return false;
+            return true;
+        }
     };
 
     struct err_bad_slot_t {
@@ -126,17 +135,19 @@ namespace {
             auto eta = dec.decode<decltype(pre.eta)>();
             auto lambda = dec.decode<decltype(pre.lambda)>();
             auto kappa = dec.decode<decltype(pre.kappa)>();
-            auto gamma_k = dec.decode<decltype(pre.gamma_k)>();
+            auto gamma_k = dec.decode<decltype(pre.gamma.k)>();
             auto iota = dec.decode<decltype(pre.iota)>();
-            auto gamma_a = dec.decode<decltype(pre.gamma_a)>();
-            auto gamma_s = dec.decode<decltype(pre.gamma_s)>();
-            auto gamma_z = dec.decode<decltype(pre.gamma_z)>();
+            auto gamma_a = dec.decode<decltype(pre.gamma.a)>();
+            auto gamma_s = dec.decode<decltype(pre.gamma.s)>();
+            auto gamma_z = dec.decode<decltype(pre.gamma.z)>();
             auto psi_o_post = dec.decode<decltype(pre.psi_o_post)>();
             return {
-                .gamma_a = std::move(gamma_a),
-                .gamma_k = std::move(gamma_k),
-                .gamma_s = std::move(gamma_s),
-                .gamma_z = std::move(gamma_z),
+                .gamma {
+                    .a = std::move(gamma_a),
+                    .k = std::move(gamma_k),
+                    .s = std::move(gamma_s),
+                    .z = std::move(gamma_z)
+                },
                 .eta = std::move(eta),
                 .iota = std::move(iota),
                 .kappa = std::move(kappa),
@@ -162,14 +173,36 @@ namespace {
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre;
-        new_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic);
-        expect(false, loc) << path;
+        std::optional<output_t<CFG>> out {};
+        try {
+            output_data_t<CFG> res {};
+            new_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic);
+            out.emplace(std::move(res));
+        } catch (jam::err_bad_slot_t &) {
+            out.emplace(err_bad_slot_t {});
+        } catch (jam::err_unexpected_ticket_t &) {
+            out.emplace(err_unexpected_ticket_t {});
+        } catch (jam::err_bad_ticket_order_t &) {
+            out.emplace(err_bad_ticket_order_t {});
+        } catch (jam::err_bad_ticket_proof_t &) {
+            out.emplace(err_bad_ticket_proof_t {});
+        } catch (jam::err_bad_ticket_attempt_t &) {
+            out.emplace(err_bad_ticket_attempt_t {});
+        } catch (jam::err_reserved_t &) {
+            out.emplace(err_reserved_t {});
+        } catch (jam::err_duplicate_ticket_t &) {
+            out.emplace(err_duplicate_ticket_t {});
+        }
+        expect(fatal(out.has_value())) << path;
+        expect(out == tc.out) << path;
+        expect(new_st == tc.post) << path;
     }
 }
 
 suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         "conformance test vectors"_test = [] {
+            test_file<config_tiny>(file::install_path("test/jam-test-vectors/safrole/tiny/enact-epoch-change-with-no-tickets-4.bin"));
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
             }
