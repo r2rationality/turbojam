@@ -91,13 +91,15 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     bandersnatch_ring_commitment_t state_t<CONSTANTS>::_ring_commitment(const validators_data_t<CONSTANTS> &gamma_k)
     {
+        static auto params_path = file::install_path("data/zcash-srs-2-11-uncompressed.bin");
+        if (ark_vrf_cpp::init(params_path.data(), params_path.size()) != 0) [[unlikely]]
+            throw error("ark_vrf_cpp::init() failed");
         std::array<bandersnatch_public_t, CONSTANTS::validator_count> vkeys;
         for (size_t i = 0; i < vkeys.size(); ++i) {
             vkeys[i] = gamma_k[i].bandersnatch;
         }
         bandersnatch_ring_commitment_t res;
-        static auto params_path = file::install_path("data/zcash-srs-2-11-uncompressed.bin");
-        if (ark_vrf_cpp::ring_commitment(&res, vkeys.data(), sizeof(vkeys), params_path.data(), params_path.size()) != 0) [[unlikely]]
+        if (ark_vrf_cpp::ring_commitment(&res, vkeys.data(), sizeof(vkeys)) != 0) [[unlikely]]
             throw error("failed to generate a ring commitment!");
         return res;
     }
@@ -175,14 +177,24 @@ namespace turbo::jam {
             crypto::blake2b::digest(eta[0], eta_preimage);
         }
 
+        const auto ring_comm = _ring_commitment(gamma.k);
         std::optional<ticket_body_t> prev_ticket {};
         // JAM Paper (6.34)
         for (const auto &t: extrinsic) {
             if (t.attempt >= CONSTANTS::ticket_attempts) [[unlikely]]
                 throw err_bad_ticket_attempt_t(fmt::format("ticket attempt {} is larger than the max allowed: {}", t.attempt, CONSTANTS::ticket_attempts));
+
+            uint8_vector aux {};
+
+            uint8_vector input {};
+            input<< std::string_view { "$jam_ticket_seal" };
+            input << eta[2];
+            input << t.attempt;
+
             ticket_body_t tb { .attempt = t.attempt };
-            if (ark_vrf_cpp::vrf_output(tb.id.data(), t.signature.data()) != 0) [[unlikely]]
-                throw error("failed to extract the VRF output from a signature!");
+            if (ark_vrf_cpp::vrf_verify(tb.id.data(), CONSTANTS::validator_count, ring_comm.data(), t.signature.data(),
+                    input.data(), input.size(), aux.data(), aux.size()) != 0) [[unlikely]]
+                throw err_bad_ticket_proof_t("failed verify ticket proof!");
             if (prev_ticket && *prev_ticket >= tb)
                 throw err_bad_ticket_order_t(fmt::format("bad ticket order"));
             prev_ticket = tb;
