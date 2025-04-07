@@ -28,29 +28,6 @@ namespace {
         }
     };
 
-    template<typename CONSTANTS>
-    struct output_data_t {
-        optional_t<epoch_mark_t<CONSTANTS>> epoch_mark;
-        optional_t<tickets_mark_t<CONSTANTS>> tickets_mark;
-
-        static output_data_t from_bytes(codec::decoder &dec)
-        {
-            return {
-                dec.decode<decltype(epoch_mark)>(),
-                dec.decode<decltype(tickets_mark)>()
-            };
-        }
-
-        bool operator==(const output_data_t &o) const
-        {
-            if (epoch_mark != o.epoch_mark)
-                return false;
-            if (tickets_mark != o.tickets_mark)
-                return false;
-            return true;
-        }
-    };
-
     struct err_bad_slot_t {
         bool operator==(const err_bad_slot_t &) const {
             return true;
@@ -107,20 +84,19 @@ namespace {
     };
 
     template<typename CONSTANTS>
-    struct output_t: std::variant<output_data_t<CONSTANTS>, err_code_t> {
-        using base_type = std::variant<output_data_t<CONSTANTS>, err_code_t>;
+    struct output_t: std::variant<safrole_output_data_t<CONSTANTS>, err_code_t> {
+        using base_type = std::variant<safrole_output_data_t<CONSTANTS>, err_code_t>;
 
         static output_t from_bytes(codec::decoder &dec)
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
-                case 0: return { output_data_t<CONSTANTS>::from_bytes(dec) };
+                case 0: return { safrole_output_data_t<CONSTANTS>::from_bytes(dec) };
                 case 1: return { err_code_t::from_bytes(dec) };
                     [[unlikely]] default: throw error(fmt::format("unsupported output_t type: {}", typ));
             }
         }
     };
-
 
     template<typename CONSTANTS>
     struct test_case_t {
@@ -172,12 +148,12 @@ namespace {
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
-        auto new_st = tc.pre;
+        state_t<CFG> res_st = tc.pre;
         std::optional<output_t<CFG>> out {};
         try {
-            output_data_t<CFG> res {};
-            new_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic);
-            out.emplace(std::move(res));
+            auto tmp_st = tc.pre;
+            out.emplace(tmp_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic));
+            res_st = std::move(tmp_st);
         } catch (jam::err_bad_slot_t &) {
             out.emplace(err_bad_slot_t {});
         } catch (jam::err_unexpected_ticket_t &) {
@@ -195,14 +171,14 @@ namespace {
         }
         expect(fatal(out.has_value())) << path;
         expect(out == tc.out) << path;
-        expect(new_st == tc.post) << path;
+        expect(res_st == tc.post) << path;
     }
 }
 
 suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         "conformance test vectors"_test = [] {
-            test_file<config_tiny>(file::install_path("test/jam-test-vectors/safrole/tiny/enact-epoch-change-with-no-tickets-4.bin"));
+            test_file<config_tiny>(file::install_path("test/jam-test-vectors/safrole/tiny/publish-tickets-no-mark-1.bin"));
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
             }

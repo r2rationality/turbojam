@@ -17,6 +17,29 @@ namespace turbo::jam {
         bool operator==(const safrole_state_t &o) const noexcept;
     };
 
+    template<typename CONSTANTS>
+    struct safrole_output_data_t {
+        optional_t<epoch_mark_t<CONSTANTS>> epoch_mark;
+        optional_t<tickets_mark_t<CONSTANTS>> tickets_mark;
+
+        static safrole_output_data_t from_bytes(codec::decoder &dec)
+        {
+            return {
+                dec.decode<decltype(epoch_mark)>(),
+                dec.decode<decltype(tickets_mark)>()
+            };
+        }
+
+        bool operator==(const safrole_output_data_t &o) const
+        {
+            if (epoch_mark != o.epoch_mark)
+                return false;
+            if (tickets_mark != o.tickets_mark)
+                return false;
+            return true;
+        }
+    };
+
     // lower-case sigma in terms of the JAM paper
     template<typename CONSTANTS=config_prod>
     struct state_t {
@@ -42,7 +65,7 @@ namespace turbo::jam {
         struct nu_t {}; // work reports ready to be accumulated
         struct ksi_t {}; // recently accumulated work reports
 
-        void update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic);
+        safrole_output_data_t<CONSTANTS> update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic);
         void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
 
         // JAM paper: Kapital upsilon

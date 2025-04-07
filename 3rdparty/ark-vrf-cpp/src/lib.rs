@@ -1,9 +1,18 @@
 use std::ptr;
 use ark_vrf::reexports::{
-    ark_serialize::{CanonicalDeserialize, CanonicalSerialize},
+    ark_serialize::{self, CanonicalDeserialize, CanonicalSerialize},
 };
 use ark_vrf::{suites::bandersnatch};
-use bandersnatch::{RingProofParams, PcsParams};
+use bandersnatch::{RingProofParams, PcsParams, Output, RingProof};
+
+// This is the IETF `Prove` procedure output as described in section 4.2
+// of the Bandersnatch VRF specification
+#[derive(CanonicalSerialize, CanonicalDeserialize)]
+struct RingVrfSignature {
+    output: Output,
+    // This contains both the Pedersen proof and actual ring proof.
+    proof: RingProof,
+}
 
 fn base_ring_proof_params(path: &str) -> &'static PcsParams {
     use std::sync::OnceLock;
@@ -72,4 +81,21 @@ pub extern "C" fn ring_commitment(out_ptr: *mut u8, vkeys_ptr: *const u8, vkeys_
             -1
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn vrf_output(out_ptr: *mut u8, sig_ptr: *const u8) -> i32 {
+    const SIG_SZ: usize = 784;
+    const HASH_SZ: usize = 32;
+    let sig_buf = unsafe { std::slice::from_raw_parts(sig_ptr, SIG_SZ) };
+    let sig = RingVrfSignature::deserialize_compressed(sig_buf);
+    if sig.is_err() {
+        return -1;
+    }
+    let out_hash = sig.unwrap().output.hash();
+    if out_hash.len() < HASH_SZ {
+        return -2;
+    }
+    unsafe { ptr::copy_nonoverlapping(out_hash.as_ptr(), out_ptr, HASH_SZ) };
+    return 0;
 }

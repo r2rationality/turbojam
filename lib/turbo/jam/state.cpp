@@ -121,10 +121,11 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    void state_t<CONSTANTS>::update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic)
+    safrole_output_data_t<CONSTANTS> state_t<CONSTANTS>::update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic)
     {
         if (slot <= tau) [[unlikely]]
             throw err_bad_slot_t(fmt::format("slot {} after {} is not allowed!", slot.slot(), tau.slot()));
+        safrole_output_data_t<CONSTANTS> res {};
         if (slot.epoch() > tau.epoch()) {
             // JAM Paper (6.13)
             lambda = kappa;
@@ -153,7 +154,12 @@ namespace turbo::jam {
                         tickets[i] = gamma.a[gamma.a.size() - (j + 1)];
                     }
                 }
+                res.tickets_mark.emplace(tickets);
             } else {
+                res.epoch_mark.emplace(eta[0], eta[2]);
+                for (size_t ki = 0; ki < gamma.k.size(); ++ki) {
+                    res.epoch_mark->validators[ki] = { gamma.k[ki].bandersnatch, gamma.k[ki].ed25519 };
+                }
                 // JAM Paper (6.26)
                 // since the update operates on a copy of the state
                 // eta[2] and kappa are the updated "prime" values
@@ -169,14 +175,25 @@ namespace turbo::jam {
             crypto::blake2b::digest(eta[0], eta_preimage);
         }
 
+        std::optional<ticket_body_t> prev_ticket {};
         // JAM Paper (6.34)
         for (const auto &t: extrinsic) {
-            ticket_body_t tb;
+            if (t.attempt >= CONSTANTS::ticket_attempts) [[unlikely]]
+                throw err_bad_ticket_attempt_t(fmt::format("ticket attempt {} is larger than the max allowed: {}", t.attempt, CONSTANTS::ticket_attempts));
+            ticket_body_t tb { .attempt = t.attempt };
+            if (ark_vrf_cpp::vrf_output(tb.id.data(), t.signature.data()) != 0) [[unlikely]]
+                throw error("failed to extract the VRF output from a signature!");
+            if (prev_ticket && *prev_ticket >= tb)
+                throw err_bad_ticket_order_t(fmt::format("bad ticket order"));
+            prev_ticket = tb;
             const auto it = std::lower_bound(gamma.a.begin(), gamma.a.end(), tb);
+            if (it != gamma.a.end() && *it == tb) [[unlikely]]
+                throw err_duplicate_ticket_t("a duplicate ticket detected");
             gamma.a.insert(it, std::move(tb));
         }
 
         tau = slot;
+        return res;
     }
 
     template<typename CONSTANTS>
