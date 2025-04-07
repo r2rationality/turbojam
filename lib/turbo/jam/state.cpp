@@ -4,6 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/crypto/blake2b.hpp>
+#include "merkle.hpp"
 #include "state.hpp"
 #include "shuffle.hpp"
 
@@ -90,8 +91,14 @@ namespace turbo::jam {
     keys_t<CONSTANTS> state_t<CONSTANTS>::_fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CONSTANTS> &kappa)
     {
         keys_t<CONSTANTS> res;
-        for (size_t i = 0; i < res.size(); ++i) {
-            const auto next_k = shuffle::uint32_from_entropy(entropy, i) % kappa.size();
+        for (uint32_t i = 0; i < res.size(); ++i) {
+            static_assert(std::endian::native == std::endian::little);
+            static_assert(sizeof(i) == sizeof(uint32_t));
+            byte_array<sizeof(entropy) + sizeof(uint32_t)> preimage;
+            memcpy(preimage.data(), entropy.data(), entropy.size());
+            memcpy(preimage.data() + entropy.size(), &i, sizeof(uint32_t));
+            const auto h = crypto::blake2b::digest(preimage);
+            const auto next_k = *reinterpret_cast<const uint32_t *>(h.data()) % kappa.size();
             res[i] = kappa[next_k].bandersnatch;
         }
         return res;
@@ -104,9 +111,9 @@ namespace turbo::jam {
             throw err_bad_slot_t(fmt::format("slot {} after {} is not allowed!", slot.slot(), tau.slot()));
         if (slot.epoch() > tau.epoch()) {
             // JAM Paper (6.13)
-            gamma.k = _capital_phi(iota, psi_o_post);
             lambda = kappa;
             kappa = gamma.k;
+            gamma.k = _capital_phi(iota, psi_o_post);
             // compute the bandersnatch ring root
             // gamma_z = capital_omega(gamma_k);
 
@@ -133,10 +140,13 @@ namespace turbo::jam {
                 }
             } else {
                 // JAM Paper (6.26)
+                // since the update operates on a copy of the state
+                // eta[2] and kappa are the updated "prime" values
                 gamma.s = _fallback_key_sequence(eta[2], kappa);
             }
         }
 
+        // JAM Paper (6.22)
         {
             byte_array<sizeof(eta[0]) + sizeof(entropy)> eta_preimage;
             memcpy(eta_preimage.data(), eta[0].data(), eta[0].size());
