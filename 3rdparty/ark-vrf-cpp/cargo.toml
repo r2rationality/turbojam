@@ -1,0 +1,12 @@
+[package]
+name = "ark-vrf-cpp"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+hex = "0.4"
+ark-vrf = { git = "https://github.com/davxy/ark-vrf", rev = "bf2d1cf8ec648cf57b0eb1252639798481e05a29", features = ["bandersnatch", "ring"] }
+
+[lib]
+crate-type = ["staticlib"]

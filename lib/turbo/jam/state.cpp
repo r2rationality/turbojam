@@ -3,10 +3,12 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <ark-vrf-cpp.hpp>
 #include <turbo/crypto/blake2b.hpp>
 #include "merkle.hpp"
 #include "state.hpp"
 #include "shuffle.hpp"
+#include "ark-vrf-cpp/include/ark-vrf-cpp.hpp"
 
 namespace turbo::jam {
     template<typename CONSTANTS>
@@ -86,6 +88,20 @@ namespace turbo::jam {
         return res;
     }
 
+    template<typename CONSTANTS>
+    bandersnatch_ring_commitment_t state_t<CONSTANTS>::_ring_commitment(const validators_data_t<CONSTANTS> &gamma_k)
+    {
+        std::array<bandersnatch_public_t, CONSTANTS::validator_count> vkeys;
+        for (size_t i = 0; i < vkeys.size(); ++i) {
+            vkeys[i] = gamma_k[i].bandersnatch;
+        }
+        bandersnatch_ring_commitment_t res;
+        static auto params_path = file::install_path("data/zcash-srs-2-11-uncompressed.bin");
+        if (ark_vrf_cpp::ring_commitment(&res, vkeys.data(), sizeof(vkeys), params_path.data(), params_path.size()) != 0) [[unlikely]]
+            throw error("failed to generate a ring commitment!");
+        return res;
+    }
+
     // JAM paper (6.26)
     template<typename CONSTANTS>
     keys_t<CONSTANTS> state_t<CONSTANTS>::_fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CONSTANTS> &kappa)
@@ -114,8 +130,7 @@ namespace turbo::jam {
             lambda = kappa;
             kappa = gamma.k;
             gamma.k = _capital_phi(iota, psi_o_post);
-            // compute the bandersnatch ring root
-            // gamma_z = capital_omega(gamma_k);
+            gamma.z = _ring_commitment(gamma.k);
 
             // JAM Paper (6.34)
             gamma.a.clear();
