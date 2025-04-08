@@ -7,13 +7,12 @@ if (MSVC)
 else()
     set(ARK_VRF_CPP_PATH "${CMAKE_CURRENT_LIST_DIR}/ark-vrf-cpp/target/release/libark_vrf_cpp.a")
 endif()
-add_custom_command(
-    OUTPUT ${ARK_VRF_CPP_PATH}
-    COMMAND "${CARGO} build --release"
+add_custom_target(
+    ark_vrf_cpp_lib ${CARGO} build --release
+    BYPRODUCTS ${ARK_VRF_CPP_PATH}
     WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/ark-vrf-cpp"
-    COMMENT "build ark-vrf-cpp"
 )
-add_dependencies(ark_vrf_cpp DEPENDS ${ARK_VRF_CPP_PATH})
+add_dependencies(ark_vrf_cpp DEPENDS ark_vrf_cpp_lib)
 set_target_properties(ark_vrf_cpp PROPERTIES IMPORTED_LOCATION ${ARK_VRF_CPP_PATH})
 
 add_library(3rdparty OBJECT hash-library/keccak.cpp nanobench.cpp)
