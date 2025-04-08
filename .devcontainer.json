@@ -1,0 +1,10 @@
+{
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "dev",
+    "workspaceFolder": "/home/dev",
+    "extensions": [
+        "ms-vscode.cpptools",
+        "streetsidesoftware.code-spell-checker"
+    ],
+    "remoteUser": "dev"
+}

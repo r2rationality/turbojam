@@ -1,0 +1,7 @@
+services:
+  dev:
+    image: r2rationality/turbojam
+    restart: "no"
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
