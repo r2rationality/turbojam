@@ -83,5 +83,6 @@ namespace turbo::jam {
         static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CONSTANTS> &);
         static validators_data_t<CONSTANTS> _capital_phi(const validators_data_t<CONSTANTS> &iota, const offenders_mark_t &psi_o);
         static keys_t<CONSTANTS> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CONSTANTS> &kappa);
+        static tickets_t<CONSTANTS> _permute_tickets(const tickets_accumulator_t<CONSTANTS> &gamma_a);
     };
 }

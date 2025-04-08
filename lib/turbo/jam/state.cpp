@@ -122,6 +122,22 @@ namespace turbo::jam {
         return res;
     }
 
+    // JAM Paper (6.25): Z
+    template<typename CONSTANTS>
+    tickets_t<CONSTANTS> state_t<CONSTANTS>::_permute_tickets(const tickets_accumulator_t<CONSTANTS> &gamma_a)
+    {
+        tickets_t<CONSTANTS> tickets;
+        for (size_t i = 0; i < tickets.size(); ++i) {
+            const auto j = i / 2;
+            if (i % 2 == 0) {
+                tickets[i] = gamma_a[j];
+            } else {
+                tickets[i] = gamma_a[gamma_a.size() - (j + 1)];
+            }
+        }
+        return tickets;
+    }
+
     template<typename CONSTANTS>
     safrole_output_data_t<CONSTANTS> state_t<CONSTANTS>::update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic)
     {
@@ -137,38 +153,35 @@ namespace turbo::jam {
             gamma.k = _capital_phi(iota, psi_o_post);
             gamma.z = _ring_commitment(gamma.k);
 
-            // JAM Paper (6.34)
-            gamma.a.clear();
-
             // JAM Paper (6.23)
             eta[3] = eta[2];
             eta[2] = eta[1];
             eta[1] = eta[0];
 
             // JAM Paper (6.24)
-            if (slot.epoch() == tau.epoch() + 1 && slot.epoch_slot() >= CONSTANTS::ticket_submission_end && gamma.a.size() == CONSTANTS::epoch_length) {
-                // JAM Paper (6.25)
-                gamma.s.emplace<tickets_t<CONSTANTS>>();
-                auto &tickets = std::get<tickets_t<CONSTANTS>>(gamma.s);
-                for (size_t i = 0; i < tickets.size(); ++i) {
-                    const auto j = i / 2;
-                    if (i % 0 == 0) {
-                        tickets[i] = gamma.a[j];
-                    } else {
-                        tickets[i] = gamma.a[gamma.a.size() - (j + 1)];
-                    }
-                }
-                res.tickets_mark.emplace(tickets);
+            if (slot.epoch() == tau.epoch() + 1 && tau.epoch_slot() >= CONSTANTS::ticket_submission_end && gamma.a.size() == CONSTANTS::epoch_length) {
+                gamma.s = _permute_tickets(gamma.a);
             } else {
-                res.epoch_mark.emplace(eta[0], eta[2]);
-                for (size_t ki = 0; ki < gamma.k.size(); ++ki) {
-                    res.epoch_mark->validators[ki] = { gamma.k[ki].bandersnatch, gamma.k[ki].ed25519 };
-                }
                 // JAM Paper (6.26)
                 // since the update operates on a copy of the state
                 // eta[2] and kappa are the updated "prime" values
                 gamma.s = _fallback_key_sequence(eta[2], kappa);
             }
+
+            // JAM Paper (6.34)
+            gamma.a.clear();
+
+            // JAM Paper (6.27) - epoch marker
+            res.epoch_mark.emplace(eta[0], eta[2]);
+            for (size_t ki = 0; ki < gamma.k.size(); ++ki) {
+                res.epoch_mark->validators[ki] = { gamma.k[ki].bandersnatch, gamma.k[ki].ed25519 };
+            }
+        }
+
+        // JAM Paper (6.28) - winning-tickets marker
+        if (slot.epoch() == tau.epoch() &&  tau.epoch_slot() < CONSTANTS::ticket_submission_end
+                && slot.epoch_slot() >= CONSTANTS::ticket_submission_end && gamma.a.size() == CONSTANTS::epoch_length) {
+            res.tickets_mark.emplace(_permute_tickets(gamma.a));
         }
 
         // JAM Paper (6.22)

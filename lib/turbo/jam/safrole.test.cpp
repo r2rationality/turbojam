@@ -185,7 +185,6 @@ namespace {
 suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         "conformance test vectors"_test = [] {
-            //test_file<config_tiny>(file::install_path("test/jam-test-vectors/safrole/tiny/publish-tickets-with-mark-5.bin"));
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
             }
