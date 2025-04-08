@@ -4,6 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
+#include <turbo/codec/json.hpp>
 #include "types.hpp"
 #include "state.hpp"
 #include "preimages.hpp"
@@ -11,6 +12,7 @@
 namespace {
     using namespace turbo;
     using namespace turbo::jam;
+    namespace codec = turbo::jam::codec;
 
     template<typename CONSTANTS>
     struct input_t {
@@ -147,7 +149,12 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
+        //static const std::string_view exp_ext = ".bin";
+        //expect(fatal(path.ends_with(exp_ext))) << path;
+        //const auto json_path = path.substr(0, path.size() - exp_ext.size()) + ".json";
         const auto tc = codec::load<test_case_t<CFG>>(path);
+        //const auto tc_j = test_case_t<CFG>::from_json(turbo::codec::json::load(json_path));
+        //expect(fatal(tc == tc_j)) << path;
         state_t<CFG> res_st = tc.pre;
         std::optional<output_t<CFG>> out {};
         try {
@@ -178,7 +185,7 @@ namespace {
 suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         "conformance test vectors"_test = [] {
-            test_file<config_tiny>(file::install_path("test/jam-test-vectors/safrole/tiny/publish-tickets-no-mark-1.bin"));
+            //test_file<config_tiny>(file::install_path("test/jam-test-vectors/safrole/tiny/publish-tickets-with-mark-5.bin"));
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
             }

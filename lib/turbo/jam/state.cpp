@@ -127,6 +127,8 @@ namespace turbo::jam {
     {
         if (slot <= tau) [[unlikely]]
             throw err_bad_slot_t(fmt::format("slot {} after {} is not allowed!", slot.slot(), tau.slot()));
+        if (slot.epoch_slot() >= CONSTANTS::ticket_submission_end && !extrinsic.empty()) [[unlikely]]
+            throw err_unexpected_ticket_t(fmt::format("tickets must not be reported after epoch_slot: {} but got in :{}", CONSTANTS::ticket_submission_end, slot.epoch_slot()));
         safrole_output_data_t<CONSTANTS> res {};
         if (slot.epoch() > tau.epoch()) {
             // JAM Paper (6.13)
@@ -177,7 +179,6 @@ namespace turbo::jam {
             crypto::blake2b::digest(eta[0], eta_preimage);
         }
 
-        const auto ring_comm = _ring_commitment(gamma.k);
         std::optional<ticket_body_t> prev_ticket {};
         // JAM Paper (6.34)
         for (const auto &t: extrinsic) {
@@ -187,22 +188,26 @@ namespace turbo::jam {
             uint8_vector aux {};
 
             uint8_vector input {};
-            input<< std::string_view { "$jam_ticket_seal" };
+            input<< std::string_view { "jam_ticket_seal" };
             input << eta[2];
             input << t.attempt;
 
             ticket_body_t tb { .attempt = t.attempt };
-            if (ark_vrf_cpp::vrf_verify(tb.id.data(), CONSTANTS::validator_count, ring_comm.data(), t.signature.data(),
-                    input.data(), input.size(), aux.data(), aux.size()) != 0) [[unlikely]]
-                throw err_bad_ticket_proof_t("failed verify ticket proof!");
+            if (ark_vrf_cpp::vrf_output(tb.id.data(), t.signature.data()) != 0) [[unlikely]]
+                throw error("failed to extract the VRF output!");
             if (prev_ticket && *prev_ticket >= tb)
                 throw err_bad_ticket_order_t(fmt::format("bad ticket order"));
             prev_ticket = tb;
             const auto it = std::lower_bound(gamma.a.begin(), gamma.a.end(), tb);
             if (it != gamma.a.end() && *it == tb) [[unlikely]]
                 throw err_duplicate_ticket_t("a duplicate ticket detected");
+            if (ark_vrf_cpp::vrf_verify(CONSTANTS::validator_count, gamma.z.data(), t.signature.data(),
+                    input.data(), input.size(), aux.data(), aux.size()) != 0) [[unlikely]]
+                throw err_bad_ticket_proof_t("failed verify ticket proof!");
             gamma.a.insert(it, std::move(tb));
         }
+        if (gamma.a.size() > gamma.a.max_size)
+            gamma.a.resize(gamma.a.max_size);
 
         tau = slot;
         return res;
