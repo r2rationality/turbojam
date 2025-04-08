@@ -23,11 +23,13 @@ namespace turbo::jam {
     {
         static mmr_t empty_mmr {};
         const mmr_t &prev_mmr = base_type::empty() ? empty_mmr : base_type::at(base_type::size() - 1).mmr;
-        block_info_t bi { hh, prev_mmr.append(ar), sr, wp };
+        block_info_t bi { hh, prev_mmr.append(ar), {}, wp };
         auto new_beta = *this;
+        if (!new_beta.empty()) [[likely]]
+            new_beta.back().state_root = sr;
         if (new_beta.size() == base_type::max_size) {
             for (size_t i = 1; i < new_beta.size(); ++i) {
-                std::exchange(new_beta[i - 1], new_beta[i]);
+                std::swap(new_beta[i - 1], new_beta[i]);
             }
             new_beta[base_type::max_size - 1] = std::move(bi);
         } else {
