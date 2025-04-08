@@ -4,7 +4,6 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
-#include <turbo/codec/json.hpp>
 #include "types.hpp"
 #include "state.hpp"
 #include "preimages.hpp"
@@ -12,7 +11,6 @@
 namespace {
     using namespace turbo;
     using namespace turbo::jam;
-    namespace codec = turbo::jam::codec;
 
     template<typename CONSTANTS>
     struct input_t {
@@ -150,8 +148,8 @@ namespace {
     void test_file(const std::string &path)
     {
         const auto tc = codec::load<test_case_t<CFG>>(path);
-        state_t<CFG> res_st = tc.pre;
         std::optional<output_t<CFG>> out {};
+        state_t<CFG> res_st = tc.pre;
         try {
             auto tmp_st = tc.pre;
             out.emplace(tmp_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic));
@@ -181,11 +179,10 @@ suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         "conformance test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/tiny"), ".bin")) {
+                std::cerr << path << std::endl;
                 test_file<config_tiny>(path);
             }
-            const auto full_tests = file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/full"), ".bin");
-            for (const auto &path: full_tests) {
-                std::cerr << path << std::endl;
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/full"), ".bin")) {
                 test_file<config_prod>(path);
             }
         };

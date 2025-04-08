@@ -59,7 +59,8 @@ namespace turbo::jam {
                 throw err_preimages_not_sorted_or_unique_t("a preimage is out of order or not unique!");
             prev = &p;
             auto &acc = new_accounts.at(p.requester);
-            lookup_met_map_key_t key { .length=numeric_cast<decltype(lookup_met_map_key_t::length)>(p.blob.size()) };
+            lookup_met_map_key_t key;
+            key.length = numeric_cast<decltype(lookup_met_map_key_t::length)>(p.blob.size());
             static_assert(sizeof(key.hash) == sizeof(crypto::blake2b::hash_t));
             crypto::blake2b::digest(*reinterpret_cast<crypto::blake2b::hash_t *>(&key.hash), p.blob);
             const auto meta_it = acc.lookup_metas.find(key);

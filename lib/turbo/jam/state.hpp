@@ -11,7 +11,7 @@ namespace turbo::jam {
     struct safrole_state_t {
         tickets_accumulator_t<CONSTANTS> a {}; // prior sealing key ticket accumulator
         validators_data_t<CONSTANTS> k {}; // prior next epoch validator keys and metadata
-        tickets_or_keys_t<CONSTANTS> s {}; // prior sealing key series
+        tickets_or_keys_t<CONSTANTS> s; // prior sealing key series
         bandersnatch_ring_commitment_t z {}; // prior bandersnatch ring commitment
 
         bool operator==(const safrole_state_t &o) const noexcept;
@@ -51,9 +51,9 @@ namespace turbo::jam {
         validators_data_t<CONSTANTS> iota {}; // next validators
         validators_data_t<CONSTANTS> kappa {}; // active validators
         validators_data_t<CONSTANTS> lambda {}; // prev validators
-        statistics_t<CONSTANTS> pi;
+        statistics_t<CONSTANTS> pi {};
         availability_assignments_t<CONSTANTS> ro {}; // assigned work reports
-        time_slot_t<CONSTANTS> tau;
+        time_slot_t<CONSTANTS> tau {};
         auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
         sequence_t<ed25519_public_t> psi_o_post {}; // offenders posterio
 

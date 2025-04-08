@@ -205,7 +205,8 @@ namespace turbo::jam {
             input << eta[2];
             input << t.attempt;
 
-            ticket_body_t tb { .attempt = t.attempt };
+            ticket_body_t tb;
+            tb.attempt = t.attempt;
             if (ark_vrf_cpp::vrf_output(tb.id.data(), tb.id.size(), t.signature.data(), t.signature.size()) != 0) [[unlikely]]
                 throw error("failed to extract the VRF output!");
             if (prev_ticket && *prev_ticket >= tb)

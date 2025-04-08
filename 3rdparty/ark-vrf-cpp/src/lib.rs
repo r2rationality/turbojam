@@ -124,8 +124,8 @@ pub extern "C" fn ring_commitment(out_ptr: *mut u8, out_len: usize, vkeys_ptr: *
 }
 
 #[no_mangle]
-pub extern "C" fn vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *const u8) -> i32 {
-    let sig_res = RingVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, SIG_SZ) });
+pub extern "C" fn vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *const u8, sig_len: usize) -> i32 {
+    let sig_res = RingVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
     if sig_res.is_err() {
         return -1;
     }

@@ -7,9 +7,7 @@
 #include <cstddef>
 
 namespace turbo::jam {
-
     // JAM paper: I.4.4
-
     struct config_prod {
         // JAM I.4.4: E
         static constexpr size_t epoch_length = 600;

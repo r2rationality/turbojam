@@ -668,8 +668,8 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     using availability_assignments_item_t = optional_t<availability_assignment_t<CONSTANTS>>;
 
-    template<typename CONSTANT_SET=config_prod>
-    using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANT_SET::validator_count>;
+    template<typename CONSTANTS>
+    using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANTS::validator_count>;
 
     struct err_bad_attestation_parent_t: error {
         using error::error;
@@ -837,7 +837,7 @@ namespace turbo::jam {
     template<typename CONSTANTS=config_prod>
     using keys_t = fixed_sequence_t<bandersnatch_public_t, CONSTANTS::epoch_length>;
 
-    template<typename CONSTANTS=config_prod>
+    template<typename CONSTANTS>
     struct tickets_or_keys_t: std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>> {
         using base_type = std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>>;
         using base_type::base_type;
