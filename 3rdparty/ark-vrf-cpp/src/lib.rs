@@ -81,7 +81,7 @@ pub extern "C" fn init(path_ptr: *const u8, path_len: usize) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn ring_commitment(out_ptr: *mut u8, vkeys_ptr: *const u8, vkeys_len: usize) -> i32 {
+pub extern "C" fn ring_commitment(out_ptr: *mut u8, out_len: usize, vkeys_ptr: *const u8, vkeys_len: usize) -> i32 {
     if vkeys_ptr.is_null() || out_ptr.is_null() {
         return -1;
     }
@@ -104,7 +104,7 @@ pub extern "C" fn ring_commitment(out_ptr: *mut u8, vkeys_ptr: *const u8, vkeys_
             let mut buf: Vec<u8> = vec![];
             match commitment.serialize_compressed(&mut buf) {
                 Ok(_val) => {
-                    if buf.len() != COMMIT_SZ {
+                    if buf.len() != out_len {
                         return -4;
                     }
                     unsafe {
@@ -124,7 +124,7 @@ pub extern "C" fn ring_commitment(out_ptr: *mut u8, vkeys_ptr: *const u8, vkeys_
 }
 
 #[no_mangle]
-pub extern "C" fn vrf_output(out_ptr: *mut u8, sig_ptr: *const u8) -> i32 {
+pub extern "C" fn vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *const u8) -> i32 {
     let sig_res = RingVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, SIG_SZ) });
     if sig_res.is_err() {
         return -1;
@@ -132,7 +132,7 @@ pub extern "C" fn vrf_output(out_ptr: *mut u8, sig_ptr: *const u8) -> i32 {
     let sig = sig_res.unwrap();
 
     let out_hash = sig.output.hash();
-    if out_hash.len() < HASH_SZ {
+    if out_hash.len() < HASH_SZ || out_len < HASH_SZ {
         return -1;
     }
     unsafe { ptr::copy_nonoverlapping(out_hash.as_ptr(), out_ptr, HASH_SZ) };
@@ -141,22 +141,26 @@ pub extern "C" fn vrf_output(out_ptr: *mut u8, sig_ptr: *const u8) -> i32 {
 
 
 #[no_mangle]
-pub extern "C" fn vrf_verify(ring_size: usize, comm_ptr: *const u8,
-                            sig_ptr: *const u8, input_ptr: *const u8, input_len: usize,
+pub extern "C" fn vrf_verify(ring_size: usize, comm_ptr: *const u8, comm_len: usize,
+                            sig_ptr: *const u8, sig_len: usize,
+                            input_ptr: *const u8, input_len: usize,
                             aux_ptr: *const u8, aux_len: usize) -> i32 {
+    if comm_len != COMMIT_SZ || sig_len != SIG_SZ {
+        return -1;
+    }
     let params_res = ring_proof_params(ring_size);
     if params_res.is_none() {
         return -1;
     }
     let params = params_res.unwrap();
 
-    let sig_res = RingVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, SIG_SZ) });
+    let sig_res = RingVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
     if sig_res.is_err() {
         return -1;
     }
     let sig = sig_res.unwrap();
 
-    let commitment_res = RingCommitment::deserialize_compressed(unsafe { std::slice::from_raw_parts(comm_ptr, COMMIT_SZ) });
+    let commitment_res = RingCommitment::deserialize_compressed(unsafe { std::slice::from_raw_parts(comm_ptr, comm_len) });
     if commitment_res.is_err() {
         return -1;
     }

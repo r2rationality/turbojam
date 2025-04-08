@@ -147,14 +147,9 @@ namespace {
     };
 
     template<typename CFG>
-    void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
+    void test_file(const std::string &path)
     {
-        //static const std::string_view exp_ext = ".bin";
-        //expect(fatal(path.ends_with(exp_ext))) << path;
-        //const auto json_path = path.substr(0, path.size() - exp_ext.size()) + ".json";
         const auto tc = codec::load<test_case_t<CFG>>(path);
-        //const auto tc_j = test_case_t<CFG>::from_json(turbo::codec::json::load(json_path));
-        //expect(fatal(tc == tc_j)) << path;
         state_t<CFG> res_st = tc.pre;
         std::optional<output_t<CFG>> out {};
         try {
@@ -188,7 +183,9 @@ suite turbo_jam_safrole_suite = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
             }
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/full"), ".bin")) {
+            const auto full_tests = file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/full"), ".bin");
+            for (const auto &path: full_tests) {
+                std::cerr << path << std::endl;
                 test_file<config_prod>(path);
             }
         };

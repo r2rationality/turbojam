@@ -99,7 +99,7 @@ namespace turbo::jam {
             vkeys[i] = gamma_k[i].bandersnatch;
         }
         bandersnatch_ring_commitment_t res;
-        if (ark_vrf_cpp::ring_commitment(&res, vkeys.data(), sizeof(vkeys)) != 0) [[unlikely]]
+        if (ark_vrf_cpp::ring_commitment(res.data(), res.size(), vkeys.data(), sizeof(vkeys)) != 0) [[unlikely]]
             throw error("failed to generate a ring commitment!");
         return res;
     }
@@ -206,7 +206,7 @@ namespace turbo::jam {
             input << t.attempt;
 
             ticket_body_t tb { .attempt = t.attempt };
-            if (ark_vrf_cpp::vrf_output(tb.id.data(), t.signature.data()) != 0) [[unlikely]]
+            if (ark_vrf_cpp::vrf_output(tb.id.data(), tb.id.size(), t.signature.data(), t.signature.size()) != 0) [[unlikely]]
                 throw error("failed to extract the VRF output!");
             if (prev_ticket && *prev_ticket >= tb)
                 throw err_bad_ticket_order_t(fmt::format("bad ticket order"));
@@ -214,7 +214,8 @@ namespace turbo::jam {
             const auto it = std::lower_bound(gamma.a.begin(), gamma.a.end(), tb);
             if (it != gamma.a.end() && *it == tb) [[unlikely]]
                 throw err_duplicate_ticket_t("a duplicate ticket detected");
-            if (ark_vrf_cpp::vrf_verify(CONSTANTS::validator_count, gamma.z.data(), t.signature.data(),
+            if (ark_vrf_cpp::vrf_verify(CONSTANTS::validator_count, gamma.z.data(), gamma.z.size(),
+                    t.signature.data(), t.signature.size(),
                     input.data(), input.size(), aux.data(), aux.size()) != 0) [[unlikely]]
                 throw err_bad_ticket_proof_t("failed verify ticket proof!");
             gamma.a.insert(it, std::move(tb));
