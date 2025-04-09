@@ -33,20 +33,8 @@ namespace {
         }
     };
 
-    struct err_preimage_unneeded_t {
-        bool operator==(const err_preimage_unneeded_t &) const
-        {
-            return true;
-        }
-    };
-    struct err_preimages_not_sorted_or_unique_t {
-        bool operator==(const err_preimages_not_sorted_or_unique_t &) const {
-            return true;
-        }
-    };
-
-    struct err_code_t: std::variant<err_preimage_unneeded_t, err_preimages_not_sorted_or_unique_t> {
-        using base_type = std::variant<err_preimage_unneeded_t, err_preimages_not_sorted_or_unique_t>;
+    struct err_code_t: err_any_t {
+        using base_type = err_any_t;
         using base_type::base_type;
 
         static err_code_t from_bytes(codec::decoder &dec)
@@ -106,14 +94,17 @@ namespace {
         const auto tc = codec::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
         std::optional<output_t> out {};
-        try {
-            new_st.delta = tc.pre_state.delta.apply(tc.input.slot, tc.input.preimages);
-            out.emplace(ok_t {});
-        } catch (jam::err_preimage_unneeded_t &) {
-            out.emplace(err_preimage_unneeded_t {});
-        } catch (jam::err_preimages_not_sorted_or_unique_t &) {
-            out.emplace(err_preimages_not_sorted_or_unique_t {});
-        }
+        err_any_t::catch_into(
+            [&] {
+                new_st.delta = tc.pre_state.delta.apply(tc.input.slot, tc.input.preimages);
+                out.emplace(ok_t {});
+            },
+            [&](err_any_t err) {
+                std::visit([&](auto &&e) {
+                    out.emplace(std::move(e));
+                }, std::move(err));
+            }
+        );
         expect(fatal(out.has_value())) << path;
         expect(out == tc.output) << path;
         expect(new_st == tc.post_state) << path;

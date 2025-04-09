@@ -45,8 +45,8 @@ namespace {
         }
     };
 
-    struct err_code_t: std::variant<err_bad_attestation_parent_t, err_bad_validator_index_t, err_core_not_engaged_t, err_bad_signature_t, err_not_sorted_or_unique_assurers> {
-        using base_type = std::variant<err_bad_attestation_parent_t, err_bad_validator_index_t, err_core_not_engaged_t, err_bad_signature_t, err_not_sorted_or_unique_assurers>;
+    struct err_code_t: err_any_t {
+        using base_type = err_any_t;
         using base_type::base_type;
 
         static err_code_t from_bytes(codec::decoder &dec)
@@ -113,21 +113,18 @@ namespace {
         const auto tc = codec::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
         std::optional<output_t<CFG>> out {};
-        try {
-            output_data_t<CFG> res {};
-            new_st.ro = tc.pre_state.ro.apply(res.reported, tc.pre_state.kappa, tc.input.slot, tc.input.parent, tc.input.assurances);
-            out.emplace(std::move(res));
-        } catch (jam::err_bad_attestation_parent_t &) {
-            out.emplace(err_bad_attestation_parent_t {});
-        } catch (jam::err_bad_validator_index_t &) {
-            out.emplace(err_bad_validator_index_t {});
-        } catch (jam::err_core_not_engaged_t &) {
-            out.emplace(err_core_not_engaged_t {});
-        } catch (jam::err_bad_signature_t &) {
-            out.emplace(err_bad_signature_t {});
-        } catch (jam::err_not_sorted_or_unique_assurers &) {
-            out.emplace(err_not_sorted_or_unique_assurers {});
-        }
+        err_any_t::catch_into(
+            [&] {
+                output_data_t<CFG> res {};
+                new_st.ro = tc.pre_state.ro.apply(res.reported, tc.pre_state.kappa, tc.input.slot, tc.input.parent, tc.input.assurances);
+                out.emplace(std::move(res));
+            },
+            [&](err_any_t err) {
+                std::visit([&](auto &&e) {
+                    out.emplace(std::move(e));
+                }, std::move(err));
+            }
+        );
         expect(fatal(out.has_value())) << path;
         expect(out == tc.output) << path;
         expect(new_st == tc.post_state) << path;

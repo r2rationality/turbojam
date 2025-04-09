@@ -28,44 +28,8 @@ namespace {
         }
     };
 
-    struct err_bad_slot_t {
-        bool operator==(const err_bad_slot_t &) const {
-            return true;
-        }
-    };
-    struct err_unexpected_ticket_t {
-        bool operator==(const err_unexpected_ticket_t &) const {
-            return true;
-        }
-    };
-    struct err_bad_ticket_order_t {
-        bool operator==(const err_bad_ticket_order_t &) const {
-            return true;
-        }
-    };
-    struct err_bad_ticket_proof_t {
-        bool operator==(const err_bad_ticket_proof_t &) const {
-            return true;
-        }
-    };
-    struct err_bad_ticket_attempt_t {
-        bool operator==(const err_bad_ticket_attempt_t &) const {
-            return true;
-        }
-    };
-    struct err_reserved_t {
-        bool operator==(const err_reserved_t &) const {
-            return true;
-        }
-    };
-    struct err_duplicate_ticket_t {
-        bool operator==(const err_duplicate_ticket_t &) const {
-            return true;
-        }
-    };
-
-    struct err_code_t: std::variant<err_bad_slot_t, err_unexpected_ticket_t, err_bad_ticket_order_t, err_bad_ticket_proof_t, err_bad_ticket_attempt_t, err_reserved_t, err_duplicate_ticket_t> {
-        using base_type = std::variant<err_bad_slot_t, err_unexpected_ticket_t, err_bad_ticket_order_t, err_bad_ticket_proof_t, err_bad_ticket_attempt_t, err_reserved_t, err_duplicate_ticket_t>;
+    struct err_code_t: err_any_t {
+        using base_type = err_any_t;
         using base_type::base_type;
 
         static err_code_t from_bytes(codec::decoder &dec)
@@ -150,25 +114,18 @@ namespace {
         const auto tc = codec::load<test_case_t<CFG>>(path);
         std::optional<output_t<CFG>> out {};
         state_t<CFG> res_st = tc.pre;
-        try {
-            auto tmp_st = tc.pre;
-            out.emplace(tmp_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic));
-            res_st = std::move(tmp_st);
-        } catch (jam::err_bad_slot_t &) {
-            out.emplace(err_bad_slot_t {});
-        } catch (jam::err_unexpected_ticket_t &) {
-            out.emplace(err_unexpected_ticket_t {});
-        } catch (jam::err_bad_ticket_order_t &) {
-            out.emplace(err_bad_ticket_order_t {});
-        } catch (jam::err_bad_ticket_proof_t &) {
-            out.emplace(err_bad_ticket_proof_t {});
-        } catch (jam::err_bad_ticket_attempt_t &) {
-            out.emplace(err_bad_ticket_attempt_t {});
-        } catch (jam::err_reserved_t &) {
-            out.emplace(err_reserved_t {});
-        } catch (jam::err_duplicate_ticket_t &) {
-            out.emplace(err_duplicate_ticket_t {});
-        }
+        err_any_t::catch_into(
+            [&] {
+                auto tmp_st = tc.pre;
+                out.emplace(tmp_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic));
+                res_st = std::move(tmp_st);
+            },
+            [&](err_any_t err) {
+                std::visit([&](auto &&e) {
+                    out.emplace(std::move(e));
+                }, std::move(err));
+            }
+        );
         expect(fatal(out.has_value())) << path;
         expect(out == tc.out) << path;
         expect(res_st == tc.post) << path;
