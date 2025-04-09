@@ -4,9 +4,9 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
+#include "errors.hpp"
 #include "types.hpp"
 #include "state.hpp"
-#include "preimages.hpp"
 
 namespace {
     using namespace turbo;

@@ -4,6 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
+#include "errors.hpp"
 #include "types.hpp"
 #include "state.hpp"
 
@@ -41,33 +42,6 @@ namespace {
         bool operator==(const output_data_t &o) const
         {
             return reported == o.reported;
-        }
-    };
-
-    struct err_bad_attestation_parent_t {
-        bool operator==(const err_bad_attestation_parent_t &) const
-        {
-            return true;
-        }
-    };
-    struct err_bad_validator_index_t {
-        bool operator==(const err_bad_validator_index_t &) const {
-            return true;
-        }
-    };
-    struct err_core_not_engaged_t {
-        bool operator==(const err_core_not_engaged_t &) const {
-            return true;
-        }
-    };
-    struct err_bad_signature_t {
-        bool operator==(const err_bad_signature_t &) const {
-            return true;
-        }
-    };
-    struct err_not_sorted_or_unique_assurers {
-        bool operator==(const err_not_sorted_or_unique_assurers &) const {
-            return true;
         }
     };
 

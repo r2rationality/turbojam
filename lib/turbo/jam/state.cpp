@@ -5,10 +5,10 @@
 
 #include <ark-vrf-cpp.hpp>
 #include <turbo/crypto/blake2b.hpp>
+#include "errors.hpp"
 #include "merkle.hpp"
 #include "state.hpp"
 #include "shuffle.hpp"
-#include "ark-vrf-cpp/include/ark-vrf-cpp.hpp"
 
 namespace turbo::jam {
     template<typename CONSTANTS>
@@ -142,9 +142,9 @@ namespace turbo::jam {
     safrole_output_data_t<CONSTANTS> state_t<CONSTANTS>::update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic)
     {
         if (slot <= tau) [[unlikely]]
-            throw err_bad_slot_t(fmt::format("slot {} after {} is not allowed!", slot.slot(), tau.slot()));
+            throw err_bad_slot_t {};
         if (slot.epoch_slot() >= CONSTANTS::ticket_submission_end && !extrinsic.empty()) [[unlikely]]
-            throw err_unexpected_ticket_t(fmt::format("tickets must not be reported after epoch_slot: {} but got in :{}", CONSTANTS::ticket_submission_end, slot.epoch_slot()));
+            throw err_unexpected_ticket_t {};
         safrole_output_data_t<CONSTANTS> res {};
         if (slot.epoch() > tau.epoch()) {
             // JAM Paper (6.13)
@@ -196,7 +196,7 @@ namespace turbo::jam {
         // JAM Paper (6.34)
         for (const auto &t: extrinsic) {
             if (t.attempt >= CONSTANTS::ticket_attempts) [[unlikely]]
-                throw err_bad_ticket_attempt_t(fmt::format("ticket attempt {} is larger than the max allowed: {}", t.attempt, CONSTANTS::ticket_attempts));
+                throw err_bad_ticket_attempt_t {};
 
             uint8_vector aux {};
 
@@ -208,17 +208,17 @@ namespace turbo::jam {
             ticket_body_t tb;
             tb.attempt = t.attempt;
             if (ark_vrf_cpp::vrf_output(tb.id.data(), tb.id.size(), t.signature.data(), t.signature.size()) != 0) [[unlikely]]
-                throw error("failed to extract the VRF output!");
+                throw err_bad_ticket_proof_t {};
             if (prev_ticket && *prev_ticket >= tb)
-                throw err_bad_ticket_order_t(fmt::format("bad ticket order"));
+                throw err_bad_ticket_order_t {};
             prev_ticket = tb;
             const auto it = std::lower_bound(gamma.a.begin(), gamma.a.end(), tb);
             if (it != gamma.a.end() && *it == tb) [[unlikely]]
-                throw err_duplicate_ticket_t("a duplicate ticket detected");
+                throw err_duplicate_ticket_t {};
             if (ark_vrf_cpp::vrf_verify(CONSTANTS::validator_count, gamma.z.data(), gamma.z.size(),
                     t.signature.data(), t.signature.size(),
                     input.data(), input.size(), aux.data(), aux.size()) != 0) [[unlikely]]
-                throw err_bad_ticket_proof_t("failed verify ticket proof!");
+                throw err_bad_ticket_proof_t {};
             gamma.a.insert(it, std::move(tb));
         }
         if (gamma.a.size() > gamma.a.max_size)

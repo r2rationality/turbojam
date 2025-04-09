@@ -325,12 +325,15 @@ namespace turbo::jam {
     using service_id_t = uint32_t;
 
     struct service_info_t {
-        opaque_hash_t code_hash;
-        uint64_t balance;
-        gas_t min_item_gas;
-        gas_t min_memo_gas;
-        uint64_t bytes;
-        uint32_t items;
+        opaque_hash_t code_hash {};
+        uint64_t balance = 0;
+        gas_t min_item_gas = 0;
+        gas_t min_memo_gas = 0;
+        uint64_t bytes = 0;
+        uint32_t items = 0;
+
+        static service_info_t from_bytes(codec::decoder &dec);
+        bool operator==(const service_info_t &o) const noexcept;
     };
 
     using prerequisites_t = sequence_t<opaque_hash_t, 0, 8>;
@@ -670,45 +673,6 @@ namespace turbo::jam {
 
     template<typename CONSTANTS>
     using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANTS::validator_count>;
-
-    struct err_bad_attestation_parent_t: error {
-        using error::error;
-    };
-    struct err_bad_validator_index_t: error {
-        using error::error;
-    };
-    struct err_core_not_engaged_t: error {
-        using error::error;
-    };
-    struct err_bad_signature_t: error {
-        using error::error;
-    };
-    struct err_not_sorted_or_unique_assurers: error {
-        using error::error;
-    };
-
-    // Safrole errors
-    struct err_bad_slot_t: error {
-        using error::error;
-    };
-    struct err_unexpected_ticket_t: error {
-        using error::error;
-    };
-    struct err_bad_ticket_order_t: error {
-        using error::error;
-    };
-    struct err_bad_ticket_proof_t: error {
-        using error::error;
-    };
-    struct err_bad_ticket_attempt_t: error {
-        using error::error;
-    };
-    struct err_reserved_t: error {
-        using error::error;
-    };
-    struct err_duplicate_ticket_t: error {
-        using error::error;
-    };
 
     template<typename CONSTANTS=config_prod>
     struct availability_assignments_t: fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::core_count> {
@@ -1138,8 +1102,9 @@ namespace turbo::jam {
 
     template<typename CONSTANTS>
     struct account_t {
-        preimages_t preimages;
-        lookup_metas_t<CONSTANTS> lookup_metas;
+        preimages_t preimages {};
+        lookup_metas_t<CONSTANTS> lookup_metas {};
+        service_info_t info {};
 
         static account_t from_bytes(codec::decoder &dec);
         static account_t from_json(const boost::json::value &j);

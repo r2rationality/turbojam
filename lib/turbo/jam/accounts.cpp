@@ -4,9 +4,9 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/numeric-cast.hpp>
-#include "preimages.hpp"
-#include "types.hpp"
 #include "turbo/crypto/blake2b.hpp"
+#include "errors.hpp"
+#include "types.hpp"
 
 namespace turbo::jam {
     template<typename CONSTANTS>
@@ -30,8 +30,13 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     bool account_t<CONSTANTS>::operator==(const account_t<CONSTANTS> &o) const
     {
-        return preimages == o.preimages
-            && lookup_metas == o.lookup_metas;
+        if (preimages != o.preimages)
+            return false;
+        if (lookup_metas != o.lookup_metas)
+            return false;
+        if (info != o.info)
+            return false;
+        return true;
     }
 
     template struct account_t<config_prod>;
@@ -56,7 +61,7 @@ namespace turbo::jam {
         const preimage_t *prev = nullptr;
         for (const auto &p: preimages) {
             if (prev && *prev >= p) [[unlikely]]
-                throw err_preimages_not_sorted_or_unique_t("a preimage is out of order or not unique!");
+                throw err_preimages_not_sorted_or_unique_t {};
             prev = &p;
             auto &acc = new_accounts.at(p.requester);
             lookup_met_map_key_t key;
@@ -65,10 +70,10 @@ namespace turbo::jam {
             crypto::blake2b::digest(*reinterpret_cast<crypto::blake2b::hash_t *>(&key.hash), p.blob);
             const auto meta_it = acc.lookup_metas.find(key);
             if (meta_it == acc.lookup_metas.end()) [[unlikely]]
-                throw err_preimage_unneeded_t(fmt::format("a preimage for an unexpected hash {} and length {}", key.hash, key.length));
+                throw err_preimage_unneeded_t {};
             const auto [it, created] = acc.preimages.try_emplace(key.hash, p.blob);
             if (!created) [[unlikely]]
-                throw err_preimage_unneeded_t(fmt::format("a duplicate preimage for hash {} and length {}", key.hash, key.length));
+                throw err_preimage_unneeded_t {};
             meta_it->second.emplace_back(slot);
         }
         return new_accounts;

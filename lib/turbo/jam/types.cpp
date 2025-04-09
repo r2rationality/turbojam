@@ -462,6 +462,34 @@ namespace turbo::jam {
         return true;
     }
 
+    service_info_t service_info_t::from_bytes(codec::decoder &dec)
+    {
+        return {
+            dec.decode<decltype(code_hash)>(),
+            dec.decode<decltype(balance)>(),
+            dec.decode<decltype(min_item_gas)>(),
+            dec.decode<decltype(min_memo_gas)>(),
+            dec.decode<decltype(bytes)>(),
+            dec.decode<decltype(items)>(),
+        };
+    }
+
+    bool service_info_t::operator==(const service_info_t &o) const noexcept
+    {
+        if (code_hash != o.code_hash)
+            return false;
+        if (balance != o.balance)
+            return false;
+        if (min_item_gas != o.min_item_gas)
+            return false;
+        if (min_memo_gas != o.min_memo_gas)
+            return false;
+        if (bytes != o.bytes)
+            return false;
+        if (items != o.items)
+            return false;
+        return true;
+    }
 
     ticket_body_t ticket_body_t::from_bytes(codec::decoder &dec)
     {
