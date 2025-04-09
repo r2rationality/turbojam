@@ -40,6 +40,28 @@ namespace turbo::jam {
         }
     };
 
+    struct reports_output_data_t {
+        reported_work_seq_t reported;
+        sequence_t<ed25519_public_t> reporters;
+
+        static reports_output_data_t from_bytes(codec::decoder &dec)
+        {
+            return {
+                dec.decode<decltype(reported)>(),
+                dec.decode<decltype(reporters)>()
+            };
+        }
+
+        bool operator==(const reports_output_data_t &o) const
+        {
+            if (reported != o.reported)
+                return false;
+            if (reporters != o.reporters)
+                return false;
+            return true;
+        }
+    };
+
     // lower-case sigma in terms of the JAM paper
     template<typename CONSTANTS=config_prod>
     struct state_t {
@@ -66,6 +88,7 @@ namespace turbo::jam {
         struct ksi_t {}; // recently accumulated work reports
 
         safrole_output_data_t<CONSTANTS> update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic);
+        reports_output_data_t update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees);
         void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
 
         // JAM paper: Kapital upsilon

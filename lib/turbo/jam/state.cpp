@@ -254,6 +254,42 @@ namespace turbo::jam {
         }
     }
 
+    template<typename CONSTANTS>
+    reports_output_data_t state_t<CONSTANTS>::update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees)
+    {
+        reports_output_data_t res {};
+        for (const auto &g: guarantees) {
+            const auto blk_it = std::find_if(beta.begin(), beta.end(), [&g](const auto &blk) {
+                return blk.header_hash == g.report.context.anchor;
+            });
+            if (blk_it == beta.end()) [[unlikely]]
+                throw err_anchor_not_recent_t {};
+            if (blk_it->state_root != g.report.context.state_root) [[unlikely]]
+                throw err_bad_state_root_t {};
+            if (g.report.core_index >= ro.size()) [[unlikely]]
+                throw err_bad_core_index_t {};
+            if (ro[g.report.core_index])
+                throw err_core_engaged_t {};
+            ro[g.report.core_index].emplace(g.report, slot.slot());
+            res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
+            for (const auto &s: g.signatures) {
+                if (s.validator_index >= kappa.size()) [[unlikely]]
+                    throw err_bad_validator_index_t {};
+                res.reporters.emplace_back(kappa[s.validator_index].ed25519);
+            }
+            pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
+            for (const auto &r: g.report.results) {
+                const auto s_it = delta.find(r.service_id);
+                if (s_it == delta.end()) [[unlikely]]
+                    throw err_bad_service_id_t {};
+                if (s_it->second.info.code_hash != r.code_hash) [[unlikely]]
+                    throw err_bad_code_hash_t {};
+                ++pi.services[r.service_id].refinement_count;
+            }
+        }
+        return res;
+    }
+
     template struct state_t<config_prod>;
     template struct state_t<config_tiny>;
 }

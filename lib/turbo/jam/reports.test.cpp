@@ -48,28 +48,6 @@ namespace {
         }
     };
 
-    struct output_data_t {
-        reported_work_seq_t reported;
-        sequence_t<ed25519_public_t> reporters;
-
-        static output_data_t from_bytes(codec::decoder &dec)
-        {
-            return {
-                dec.decode<decltype(reported)>(),
-                dec.decode<decltype(reporters)>()
-            };
-        }
-
-        bool operator==(const output_data_t &o) const
-        {
-            if (reported != o.reported)
-                return false;
-            if (reporters != o.reporters)
-                return false;
-            return true;
-        }
-    };
-
     struct err_code_t: err_any_t {
         using base_type = err_any_t;
         using base_type::base_type;
@@ -112,7 +90,7 @@ namespace {
         }
     };
 
-    using output_base_t = std::variant<output_data_t, err_code_t>;
+    using output_base_t = std::variant<reports_output_data_t, err_code_t>;
     struct output_t: output_base_t {
         using base_type = output_base_t;
         using base_type::base_type;
@@ -121,7 +99,7 @@ namespace {
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
-                case 0: return { output_data_t::from_bytes(dec) };
+                case 0: return { reports_output_data_t::from_bytes(dec) };
                 case 1: return { err_code_t::from_bytes(dec) };
                 [[unlikely]] default: throw error(fmt::format("unsupported output_t type: {}", typ));
             }
@@ -187,32 +165,32 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        test("test_file") = [path] {
-            std::cerr << fmt::format("{}\n", path);
-            const auto tc = codec::load<test_case_t<CFG>>(path);
-            std::optional<output_t> out {};
-            state_t<CFG> res_st = tc.pre;
-            err_any_t::catch_into(
-                [&] {
-                    auto tmp_st = tc.pre;
-                    //out.emplace(tmp_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic));
-                    res_st = std::move(tmp_st);
-                },
-                [&](err_any_t err) {
-                    out.emplace(err_code_t::from_err_any(std::move(err)));
-                }
-            );
-            expect(fatal(out.has_value())) << path;
+        const auto tc = codec::load<test_case_t<CFG>>(path);
+        std::optional<output_t> out {};
+        state_t<CFG> res_st = tc.pre;
+        err_any_t::catch_into(
+            [&] {
+                auto tmp_st = tc.pre;
+                out.emplace(tmp_st.update_reports(tc.in.slot, tc.in.guarantees));
+                res_st = std::move(tmp_st);
+            },
+            [&](err_any_t err) {
+                out.emplace(err_code_t::from_err_any(std::move(err)));
+            }
+        );
+        if (out.has_value()) {
             expect(out == tc.out) << path;
             expect(res_st == tc.post) << path;
-        };
+        } else {
+            expect(false) << path;
+        }
     }
 }
 
 suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
         "conformance test vectors"_test = [] {
-            //test_file<config_tiny>(file::install_path("test/jam-test-vectors/reports/tiny/many_dependencies-1.bin"));
+            //test_file<config_tiny>(file::install_path("test/jam-test-vectors/reports/tiny/report_curr_rotation-1.bin"));
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
             }

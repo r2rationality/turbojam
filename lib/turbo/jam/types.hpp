@@ -1277,7 +1277,7 @@ namespace turbo::jam {
         static service_activity_record_t from_bytes(codec::decoder &dec);
         bool operator==(const service_activity_record_t &o) const;
     };
-    using services_statistics_t = sequence_t<service_activity_record_t>;
+    using services_statistics_t = map_t<service_id_t, service_activity_record_t>;
 
     template<typename CONSTANTS=config_prod>
     struct statistics_t {
