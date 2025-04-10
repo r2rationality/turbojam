@@ -15,10 +15,14 @@ namespace turbo::jam {
         static constexpr size_t ticket_submission_end = epoch_length * 5 / 6;
 
         static constexpr size_t core_count = 341;
+        static constexpr size_t validator_multiple = 3;
+        static constexpr size_t min_guarantors = validator_multiple - 1;
         // JAM I.4.4: V
-        static constexpr size_t validator_count = core_count * 3;
+        static constexpr size_t validator_count = core_count * validator_multiple;
         static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
         static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
+        // JAM I.4.4: L
+        static constexpr size_t max_lookup_anchor_age = 400;
         // JAM I.4.4: K
         static constexpr size_t max_tickets_per_block = 16;
         // JAM I.4.4: N
@@ -42,9 +46,10 @@ namespace turbo::jam {
         static constexpr size_t epoch_length = 12;
         static constexpr size_t ticket_submission_end = epoch_length * 5 / 6;
         static constexpr size_t core_count = 2;
-        static constexpr size_t validator_count = core_count * 3;
+        static constexpr size_t validator_count = core_count * validator_multiple;
         static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
         static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
+        static constexpr size_t max_lookup_anchor_age = 14;
         static constexpr size_t core_assignment_rotation_period = 4;
         static constexpr size_t ticket_attempts = 3;
     };

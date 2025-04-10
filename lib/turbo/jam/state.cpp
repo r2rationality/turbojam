@@ -259,7 +259,15 @@ namespace turbo::jam {
     reports_output_data_t state_t<CONSTANTS>::update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees)
     {
         reports_output_data_t res {};
+        std::set<opaque_hash_t> known_packages {};
+        for (const auto &blk: beta) {
+            for (const auto &wr: blk.reported) {
+                known_packages.insert(wr.hash);
+            }
+        }
+        std::set<opaque_hash_t> wp_hashes {};
         for (const auto &g: guarantees) {
+            // JAM Paper (11.33)
             const auto blk_it = std::find_if(beta.begin(), beta.end(), [&g](const auto &blk) {
                 return blk.header_hash == g.report.context.anchor;
             });
@@ -273,6 +281,29 @@ namespace turbo::jam {
                 throw err_bad_core_index_t {};
             if (g.slot > slot) [[unlikely]]
                 throw err_future_report_slot_t {};
+            // JAM Paper (11.34)
+            if (g.report.context.lookup_anchor_slot.slot() + CONSTANTS::max_lookup_anchor_age < slot) [[unlikely]]
+                throw err_segment_root_lookup_invalid_t {};
+
+            // JAM Paper (11.35)
+            const auto lblk_it = std::find_if(beta.begin(), beta.end(), [&g](const auto &blk) {
+                return blk.header_hash == g.report.context.lookup_anchor;
+            });
+            if (lblk_it == beta.end()) [[unlikely]]
+                throw err_segment_root_lookup_invalid_t {};
+
+            // JAM Paper (11.38)
+            if (known_packages.contains(g.report.package_spec.hash)) [[unlikely]]
+                throw err_duplicate_package_t {};
+            // + add a check that the package is not in the accumulation queue
+            // + add a check that the package is not in the accumulation history
+
+            for (const auto &pr: g.report.context.prerequisites) {
+                if (!known_packages.contains(pr) && !wp_hashes.contains(pr)) [[unlikely]]
+                    throw err_dependency_missing_t {};
+            }
+
+            wp_hashes.emplace(g.report.package_spec.hash);
 
             // JAM Paper: (11.29)
             {
@@ -307,6 +338,9 @@ namespace turbo::jam {
                     throw err_bad_signature_t {};
                 res.reporters.emplace_back(vk);
             }
+            if (g.signatures.size() < CONSTANTS::min_guarantors) [[unlikely]]
+                throw err_insufficient_guarantees_t {};
+
             pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
             size_t blobs_size = g.report.auth_output.size();
             for (const auto &r: g.report.results) {
@@ -324,6 +358,9 @@ namespace turbo::jam {
             if (blobs_size > CONSTANTS::max_blobs_size) [[unlikely]]
                 throw err_work_report_too_big_t {};
         }
+        // Jam Paper (11.32)
+        if (guarantees.size() != wp_hashes.size()) [[unlikely]]
+            throw err_duplicate_package_t {};
         return res;
     }
 
