@@ -3,7 +3,6 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <iostream>
 #include "types.hpp"
 #include "turbo/codec/json.hpp"
 
@@ -106,6 +105,12 @@ namespace turbo::jam {
         if (!hex.starts_with("0x")) [[unlikely]]
             throw error(fmt::format("expected a string begining with 0x but got: {}", hex));
         return from_hex<byte_sequence_t>(hex.substr(2));
+    }
+
+    void byte_sequence_t::to_bytes(codec::encoder &enc) const
+    {
+        enc.uint_general(base_type::size());
+        enc.bytes() << *this;
     }
 
     core_activity_record_t core_activity_record_t::from_bytes(codec::decoder &dec)
@@ -331,6 +336,18 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
+    void refine_context_t<CONSTANTS>::to_bytes(codec::encoder &enc) const
+    {
+        anchor.to_bytes(enc);
+        state_root.to_bytes(enc);
+        beefy_root.to_bytes(enc);
+        lookup_anchor.to_bytes(enc);
+        lookup_anchor_slot.to_bytes(enc);
+        prerequisites.to_bytes(enc);
+    }
+
+
+    template<typename CONSTANTS>
     bool refine_context_t<CONSTANTS>::operator==(const refine_context_t &o) const
     {
         return anchor == o.anchor && state_root == o.state_root && beefy_root == o.beefy_root
@@ -358,6 +375,15 @@ namespace turbo::jam {
             boost::json::value_to<decltype(extrinsic_size)>(j.at("extrinsic_size")),
             boost::json::value_to<decltype(exports)>(j.at("exports"))
         };
+    }
+
+    void refine_load_t::to_bytes(codec::encoder &enc) const
+    {
+        enc.uint_general(gas_used);
+        enc.uint_general(imports);
+        enc.uint_general(extrinsic_count);
+        enc.uint_general(extrinsic_size);
+        enc.uint_general(exports);
     }
 
     template<typename CONSTANTS>
@@ -413,6 +439,12 @@ namespace turbo::jam {
             decltype(work_package_hash)::from_json(j.at("work_package_hash")),
             decltype(segment_tree_root)::from_json(j.at("segment_tree_root"))
         };
+    }
+
+    void segment_root_lookup_item::to_bytes(codec::encoder &enc) const
+    {
+        work_package_hash.to_bytes(enc);
+        segment_tree_root.to_bytes(enc);
     }
 
     service_activity_record_t service_activity_record_t::from_bytes(codec::decoder &dec)
@@ -539,13 +571,19 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     time_slot_t<CONSTANTS> time_slot_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
-        return dec.uint_trivial<decltype(time_slot_t::_val)>(sizeof(decltype(time_slot_t::_val)));
+        return dec.uint_trivial<decltype(_val)>(sizeof(decltype(_val)));
     }
 
     template<typename CONSTANTS>
     time_slot_t<CONSTANTS> time_slot_t<CONSTANTS>::from_json(const boost::json::value &j)
     {
-        return boost::json::value_to<decltype(time_slot_t::_val)>(j);
+        return boost::json::value_to<decltype(_val)>(j);
+    }
+
+    template<typename CONSTANTS>
+    void time_slot_t<CONSTANTS>::to_bytes(codec::encoder &enc) const
+    {
+        enc.uint_trivial(sizeof(_val), _val);
     }
 
     template struct time_slot_t<config_prod>;
@@ -589,6 +627,11 @@ namespace turbo::jam {
         return { decltype(data)::from_json(j) };
     }
 
+    void work_result_ok_t::to_bytes(codec::encoder &enc) const
+    {
+        data.to_bytes(enc);
+    }
+
     work_exec_result_t work_exec_result_t::from_bytes(codec::decoder &dec)
     {
         const auto typ = dec.decode<uint8_t>();
@@ -622,6 +665,29 @@ namespace turbo::jam {
         if (name == "code_oversize")
             return { work_result_code_oversize_t {} };
         throw error(fmt::format("unexpected work_exec_result_t key {}", name));
+    }
+
+    void work_exec_result_t::to_bytes(codec::encoder &enc) const
+    {
+        std::visit([&](const auto &cv) {
+            using T = std::decay_t<decltype(cv)>;
+            if constexpr (std::is_same_v<T, work_result_ok_t>) {
+                enc.uint_trivial(1, 0);
+                cv.to_bytes(enc);
+            } else if constexpr (std::is_same_v<T, work_result_out_of_gas_t>) {
+                enc.uint_trivial(1, 1);
+            } else if constexpr (std::is_same_v<T, work_result_panic_t>) {
+                enc.uint_trivial(1, 2);
+            } else if constexpr (std::is_same_v<T, work_result_bad_exports_t>) {
+                enc.uint_trivial(1, 3);
+            } else if constexpr (std::is_same_v<T, work_result_bad_code_t>) {
+                enc.uint_trivial(1, 4);
+            } else if constexpr (std::is_same_v<T, work_result_code_oversize_t>) {
+                enc.uint_trivial(1, 5);
+            } else {
+                throw error(fmt::format("unsupported work_exec_result_t type: {}", typeid(T).name()));
+            }
+        }, *this);
     }
 
     work_item_t work_item_t::from_bytes(codec::decoder &dec)
@@ -701,6 +767,15 @@ namespace turbo::jam {
         };
     }
 
+    void work_package_spec_t::to_bytes(codec::encoder &enc) const
+    {
+        hash.to_bytes(enc);
+        enc.uint_trivial(sizeof(length), length);
+        erasure_root.to_bytes(enc);
+        exports_root.to_bytes(enc);
+        enc.uint_trivial(sizeof(exports_count), exports_count);
+    }
+
     template<typename CONSTANTS>
     work_report_t<CONSTANTS> work_report_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
@@ -731,6 +806,19 @@ namespace turbo::jam {
         };
     }
 
+    template<typename CONSTANTS>
+    void work_report_t<CONSTANTS>::to_bytes(codec::encoder &enc) const
+    {
+        package_spec.to_bytes(enc);
+        context.to_bytes(enc);
+        enc.uint_trivial(sizeof(core_index), core_index);
+        authorizer_hash.to_bytes(enc);
+        auth_output.to_bytes(enc);
+        segment_root_lookup.to_bytes(enc);
+        results.to_bytes(enc);
+        enc.uint_general(auth_gas_used);
+    }
+
     template struct work_report_t<config_prod>;
     template struct work_report_t<config_tiny>;
 
@@ -756,5 +844,15 @@ namespace turbo::jam {
             decltype(result)::from_json(j.at("result")),
             decltype(refine_load)::from_json(j.at("refine_load"))
         };
+    }
+
+    void work_result_t::to_bytes(codec::encoder &enc) const
+    {
+        enc.uint_trivial(sizeof(service_id), service_id);
+        code_hash.to_bytes(enc);
+        payload_hash.to_bytes(enc);
+        enc.uint_trivial(sizeof(accumulate_gas), accumulate_gas);
+        result.to_bytes(enc);
+        refine_load.to_bytes(enc);
     }
 }

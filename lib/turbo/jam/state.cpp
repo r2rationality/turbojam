@@ -5,6 +5,7 @@
 
 #include <ark-vrf-cpp.hpp>
 #include <turbo/crypto/blake2b.hpp>
+#include <turbo/crypto/ed25519.hpp>
 #include "errors.hpp"
 #include "merkle.hpp"
 #include "state.hpp"
@@ -270,15 +271,32 @@ namespace turbo::jam {
                 throw err_bad_core_index_t {};
             if (ro[g.report.core_index])
                 throw err_core_engaged_t {};
+
+
             ro[g.report.core_index].emplace(g.report, slot.slot());
             res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
+
+            uint8_vector msg {};
+            msg << std::string_view { "jam_guarantee" };
+            {
+                codec::encoder enc {};
+                g.report.to_bytes(enc);
+                msg << crypto::blake2b::digest(enc.bytes());
+            }
             for (const auto &s: g.signatures) {
                 if (s.validator_index >= kappa.size()) [[unlikely]]
                     throw err_bad_validator_index_t {};
-                res.reporters.emplace_back(kappa[s.validator_index].ed25519);
+                const auto &vk = kappa[s.validator_index].ed25519;
+                if (!crypto::ed25519::verify(s.signature, msg, vk)) [[unlikely]]
+                    throw err_bad_signature_t {};
+                res.reporters.emplace_back(vk);
             }
             pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
+            size_t blobs_size = g.report.auth_output.size();
             for (const auto &r: g.report.results) {
+                if (std::holds_alternative<work_result_ok_t>(r.result)) {
+                    blobs_size += std::get<work_result_ok_t>(r.result).data.size();
+                }
                 const auto s_it = delta.find(r.service_id);
                 if (s_it == delta.end()) [[unlikely]]
                     throw err_bad_service_id_t {};
@@ -286,6 +304,9 @@ namespace turbo::jam {
                     throw err_bad_code_hash_t {};
                 ++pi.services[r.service_id].refinement_count;
             }
+            // JAM Paper (11.8)
+            if (blobs_size > CONSTANTS::max_blobs_size) [[unlikely]]
+                throw err_work_report_too_big_t {};
         }
         return res;
     }

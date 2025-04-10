@@ -31,6 +31,7 @@ namespace turbo::jam {
 
         static byte_sequence_t from_bytes(codec::decoder &dec);
         static byte_sequence_t from_json(const boost::json::value &);
+        void to_bytes(codec::encoder &) const;
     };
 
     template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
@@ -75,6 +76,13 @@ namespace turbo::jam {
                 }
             }
             return res;
+        }
+
+        void to_bytes(codec::encoder &enc) const
+        {
+            enc.uint_general(base_type::size());
+            for (const auto &item: *this)
+                item.to_bytes(enc);
         }
     };
 
@@ -260,6 +268,8 @@ namespace turbo::jam {
         time_slot_t(const time_slot_t &) noexcept =default;
         time_slot_t &operator=(const time_slot_t &) noexcept =default;
 
+        void to_bytes(codec::encoder &enc) const;
+
         uint32_t slot() const
         {
             return _val;
@@ -350,6 +360,7 @@ namespace turbo::jam {
 
         static refine_context_t from_bytes(codec::decoder &dec);
         static refine_context_t from_json(const boost::json::value &);
+        void to_bytes(codec::encoder &enc) const;
         bool operator==(const refine_context_t &o) const;
     };
 
@@ -475,6 +486,7 @@ namespace turbo::jam {
 
         static work_result_ok_t from_bytes(codec::decoder &dec);
         static work_result_ok_t from_json(const boost::json::value &json);
+        void to_bytes(codec::encoder &enc) const;
 
         bool operator==(const work_result_ok_t &o) const
         {
@@ -521,6 +533,7 @@ namespace turbo::jam {
                                             work_result_bad_code_t, work_result_code_oversize_t> {
         static work_exec_result_t from_bytes(codec::decoder &dec);
         static work_exec_result_t from_json(const boost::json::value &json);
+        void to_bytes(codec::encoder &enc) const;
     };
 
     struct refine_load_t {
@@ -532,6 +545,7 @@ namespace turbo::jam {
 
         static refine_load_t from_bytes(codec::decoder &dec);
         static refine_load_t from_json(const boost::json::value &json);
+        void to_bytes(codec::encoder &enc) const;
 
         bool operator==(const refine_load_t &o) const
         {
@@ -550,6 +564,7 @@ namespace turbo::jam {
 
         static work_result_t from_bytes(codec::decoder &dec);
         static work_result_t from_json(const boost::json::value &json);
+        void to_bytes(codec::encoder &enc) const;
 
         bool operator==(const work_result_t &o) const
         {
@@ -569,6 +584,7 @@ namespace turbo::jam {
 
         static work_package_spec_t from_bytes(codec::decoder &dec);
         static work_package_spec_t from_json(const boost::json::value &json);
+        void to_bytes(codec::encoder &enc) const;
 
         bool operator==(const work_package_spec_t &o) const
         {
@@ -584,6 +600,7 @@ namespace turbo::jam {
 
         static segment_root_lookup_item from_bytes(codec::decoder &dec);
         static segment_root_lookup_item from_json(const boost::json::value &json);
+        void to_bytes(codec::encoder &enc) const;
 
         bool operator==(const segment_root_lookup_item &o) const
         {
@@ -606,6 +623,7 @@ namespace turbo::jam {
 
         static work_report_t from_bytes(codec::decoder &dec);
         static work_report_t from_json(const boost::json::value &json);
+        void to_bytes(codec::encoder &enc) const;
 
         bool operator==(const work_report_t &o) const
         {

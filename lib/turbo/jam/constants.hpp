@@ -32,7 +32,8 @@ namespace turbo::jam {
         // JAM I.4.4: R
         static constexpr size_t core_assignment_rotation_period = 10;
         static constexpr size_t ticket_attempts = 2;
-        static constexpr size_t max_blob_size = 48 << 10;
+        // JAM (11.9)
+        static constexpr size_t max_blobs_size = 48 << 10;
         // JAM I.4.4: U
         static constexpr size_t reported_work_timeout = 5;
     };
