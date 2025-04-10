@@ -267,11 +267,22 @@ namespace turbo::jam {
                 throw err_anchor_not_recent_t {};
             if (blk_it->state_root != g.report.context.state_root) [[unlikely]]
                 throw err_bad_state_root_t {};
+            if (blk_it->mmr.root() != g.report.context.beefy_root) [[unlikely]]
+                throw err_bad_beefy_mmr_root_t {};
             if (g.report.core_index >= ro.size()) [[unlikely]]
                 throw err_bad_core_index_t {};
-            if (ro[g.report.core_index])
-                throw err_core_engaged_t {};
+            if (g.slot > slot) [[unlikely]]
+                throw err_future_report_slot_t {};
 
+            // JAM Paper: (11.29)
+            {
+                if (ro[g.report.core_index])
+                    throw err_core_engaged_t {};
+                const auto &auth_pool = alpha[g.report.core_index];
+                const auto auth_it = std::find(auth_pool.begin(), auth_pool.end(), g.report.authorizer_hash);
+                if (auth_it == auth_pool.end()) [[unlikely]]
+                    throw err_core_unauthorized_t {};
+            }
 
             ro[g.report.core_index].emplace(g.report, slot.slot());
             res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
@@ -283,9 +294,14 @@ namespace turbo::jam {
                 g.report.to_bytes(enc);
                 msg << crypto::blake2b::digest(enc.bytes());
             }
+            std::optional<validator_index_t> prev_validator {};
             for (const auto &s: g.signatures) {
                 if (s.validator_index >= kappa.size()) [[unlikely]]
                     throw err_bad_validator_index_t {};
+                // JAM Paper (11.25)
+                if (prev_validator && *prev_validator >= s.validator_index) [[unlikely]]
+                    throw err_not_sorted_or_unique_guarantors_t {};
+                prev_validator = s.validator_index;
                 const auto &vk = kappa[s.validator_index].ed25519;
                 if (!crypto::ed25519::verify(s.signature, msg, vk)) [[unlikely]]
                     throw err_bad_signature_t {};

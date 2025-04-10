@@ -51,4 +51,35 @@ namespace turbo::jam {
     {
         return place(*this, l, 0);
     }
+
+    static opaque_hash_t _subroot(const std::vector<opaque_hash_t> &peaks, const size_t sz)
+    {
+        if (sz == 0)
+            return {};
+        if (sz == 1)
+            return peaks[0];
+        byte_array<4 + 2 * sizeof(opaque_hash_t)> msg;
+        memcpy(msg.data(), "peak", 4);
+        const auto sh = _subroot(peaks, sz - 1);
+        static_assert(sizeof(sh) == sizeof(opaque_hash_t));
+        memcpy(msg.data() + 4, sh.data(), sh.size());
+        const auto &lh = peaks[sz - 1];
+        static_assert(sizeof(lh) == sizeof(opaque_hash_t));
+        memcpy(msg.data() + 4 + sh.size(), lh.data(), lh.size());
+        opaque_hash_t res;
+        crypto::keccak::digest(res, msg);
+        return res;
+    }
+
+    // JAM Paper (E.10)
+    opaque_hash_t mmr_t::root() const
+    {
+        std::vector<opaque_hash_t> peaks {};
+        peaks.reserve(size());
+        for (const auto &p: *this) {
+            if (p)
+                peaks.emplace_back(*p);
+        }
+        return _subroot(peaks, peaks.size());
+    }
 }

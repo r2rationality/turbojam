@@ -720,6 +720,7 @@ namespace turbo::jam {
         static mmr_t from_bytes(codec::decoder &dec);
         static mmr_t from_json(const boost::json::value &json);
         mmr_t append(const opaque_hash_t &l) const;
+        opaque_hash_t root() const;
     };
 
     struct reported_work_package_t {
