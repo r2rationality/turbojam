@@ -274,16 +274,22 @@ namespace turbo::jam {
     reports_output_data_t state_t<CONSTANTS>::update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees)
     {
         reports_output_data_t res {};
+
         std::set<opaque_hash_t> known_packages {};
+        std::set<opaque_hash_t> known_segment_roots {};
         for (const auto &blk: beta) {
             for (const auto &wr: blk.reported) {
                 known_packages.insert(wr.hash);
+                known_segment_roots.insert(wr.exports_root);
             }
         }
+
         std::set<opaque_hash_t> wp_hashes {};
         for (const auto &g: guarantees) {
             wp_hashes.emplace(g.report.package_spec.hash);
+            known_segment_roots.insert(g.report.package_spec.exports_root);
         }
+
         std::optional<core_index_t> prev_core {};
         const auto current_guarantors = _guarantor_assignments(eta[2], slot);
         const auto current_guarantor_sigs = _capital_phi(kappa, psi_o_post);
@@ -343,6 +349,13 @@ namespace turbo::jam {
             for (const auto &pr: g.report.context.prerequisites) {
                 if (!known_packages.contains(pr) && !wp_hashes.contains(pr)) [[unlikely]]
                     throw err_dependency_missing_t {};
+            }
+
+            for (const auto &s: g.report.segment_root_lookup) {
+                if (!known_packages.contains(s.work_package_hash) && !wp_hashes.contains(s.work_package_hash)) [[unlikely]]
+                    throw err_segment_root_lookup_invalid_t {};
+                if (!known_segment_roots.contains(s.segment_tree_root)) [[unlikely]]
+                    throw err_segment_root_lookup_invalid_t {};
             }
 
             // JAM Paper: (11.29)
