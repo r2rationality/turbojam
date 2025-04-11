@@ -281,6 +281,9 @@ namespace turbo::jam {
             }
         }
         std::set<opaque_hash_t> wp_hashes {};
+        for (const auto &g: guarantees) {
+            wp_hashes.emplace(g.report.package_spec.hash);
+        }
         std::optional<core_index_t> prev_core {};
         const auto current_guarantors = _guarantor_assignments(eta[2], slot);
         const auto current_guarantor_sigs = _capital_phi(kappa, psi_o_post);
@@ -332,12 +335,15 @@ namespace turbo::jam {
             // + add a check that the package is not in the accumulation queue
             // + add a check that the package is not in the accumulation history
 
+            // JAM Paper (11.3)
+            if (g.report.context.prerequisites.size() + g.report.segment_root_lookup.size() > CONSTANTS::max_report_dependencies) [[unlikely]]
+                throw err_too_many_dependencies_t {};
+
+            // circular dependencies are allowed
             for (const auto &pr: g.report.context.prerequisites) {
                 if (!known_packages.contains(pr) && !wp_hashes.contains(pr)) [[unlikely]]
                     throw err_dependency_missing_t {};
             }
-
-            wp_hashes.emplace(g.report.package_spec.hash);
 
             // JAM Paper: (11.29)
             {
