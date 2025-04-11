@@ -190,7 +190,7 @@ namespace {
 suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
         "conformance test vectors"_test = [] {
-            //test_file<config_tiny>(file::install_path("test/jam-test-vectors/reports/tiny/bad_beefy_mmr-1.bin"));
+            //test_file<config_tiny>(file::install_path("test/jam-test-vectors/reports/tiny/high_work_report_gas-1.bin"));
             "tiny"_test = [] {
                 for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/tiny"), ".bin")) {
                     test_file<config_tiny>(path);

@@ -256,6 +256,21 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
+    state_t<CONSTANTS>::guarantor_assignments_t state_t<CONSTANTS>::_guarantor_assignments(const entropy_t &e, const time_slot_t<CONSTANTS> &slot)
+    {
+        guarantor_assignments_t in;
+        for (size_t vi = 0; vi < in.size(); ++vi) {
+            in[vi] = CONSTANTS::core_count * vi / CONSTANTS::validator_count;
+        }
+        auto res = shuffle::with_entropy(in, e);
+        const auto shift = (slot.slot() % CONSTANTS::epoch_length) / CONSTANTS::core_assignment_rotation_period;
+        for (size_t vi = 0; vi < res.size(); ++vi) {
+            res[vi] = (res[vi] + shift) % CONSTANTS::core_count;
+        }
+        return res;
+    }
+
+    template<typename CONSTANTS>
     reports_output_data_t state_t<CONSTANTS>::update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees)
     {
         reports_output_data_t res {};
@@ -343,6 +358,7 @@ namespace turbo::jam {
 
             pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
             size_t blobs_size = g.report.auth_output.size();
+            gas_t total_accumulate_gas = 0;
             for (const auto &r: g.report.results) {
                 if (std::holds_alternative<work_result_ok_t>(r.result)) {
                     blobs_size += std::get<work_result_ok_t>(r.result).data.size();
@@ -352,8 +368,18 @@ namespace turbo::jam {
                     throw err_bad_service_id_t {};
                 if (s_it->second.info.code_hash != r.code_hash) [[unlikely]]
                     throw err_bad_code_hash_t {};
+
+                // JAM (11.30) part 1
+                if (r.accumulate_gas < s_it->second.info.min_item_gas) [[unlikely]]
+                    throw err_service_item_gas_too_low_t {};
+                total_accumulate_gas += r.accumulate_gas;
+
                 ++pi.services[r.service_id].refinement_count;
             }
+            // JAM (11.30) part 2
+            if (total_accumulate_gas > CONSTANTS::max_accumulate_gas) [[unlikely]]
+                throw err_work_report_gas_too_high_t {};
+
             // JAM Paper (11.8)
             if (blobs_size > CONSTANTS::max_blobs_size) [[unlikely]]
                 throw err_work_report_too_big_t {};
@@ -361,6 +387,8 @@ namespace turbo::jam {
         // Jam Paper (11.32)
         if (guarantees.size() != wp_hashes.size()) [[unlikely]]
             throw err_duplicate_package_t {};
+        std::sort(res.reported.begin(), res.reported.end());
+        std::sort(res.reporters.begin(), res.reporters.end());
         return res;
     }
 

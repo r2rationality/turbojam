@@ -40,6 +40,14 @@ namespace turbo::jam {
         static constexpr size_t max_blobs_size = 48 << 10;
         // JAM I.4.4: U
         static constexpr size_t reported_work_timeout = 5;
+        // JAM I.4.4: G_A
+        static constexpr size_t max_accumulate_gas = 10'000'000;
+        // JAM I.4.4: G_I
+        static constexpr size_t max_is_authorized_gas = 50'000'000;
+        // JAM I.4.4: G_R
+        static constexpr size_t max_refine_gas = 5'000'000'000;
+        // JAM I.4.4: G_T
+        static constexpr size_t max_total_accumulation_gas = 3'500'000'000;
     };
 
     struct config_tiny: config_prod {

@@ -103,9 +103,12 @@ namespace turbo::jam {
         bool operator==(const state_t &o) const noexcept;
 
     private:
+        using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONSTANTS::validator_count>;
+
         static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CONSTANTS> &);
         static validators_data_t<CONSTANTS> _capital_phi(const validators_data_t<CONSTANTS> &iota, const offenders_mark_t &psi_o);
         static keys_t<CONSTANTS> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CONSTANTS> &kappa);
         static tickets_t<CONSTANTS> _permute_tickets(const tickets_accumulator_t<CONSTANTS> &gamma_a);
+        static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CONSTANTS> &slot);
     };
 }

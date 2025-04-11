@@ -730,6 +730,11 @@ namespace turbo::jam {
         static reported_work_package_t from_bytes(codec::decoder &dec);
         static reported_work_package_t from_json(const boost::json::value &json);
 
+        std::strong_ordering operator<=>(const reported_work_package_t &o) const
+        {
+            return hash <=> o.hash;
+        }
+
         bool operator==(const reported_work_package_t &o) const noexcept
         {
             return hash == o.hash && exports_root == o.exports_root;
