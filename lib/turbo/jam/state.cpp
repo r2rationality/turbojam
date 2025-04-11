@@ -263,7 +263,7 @@ namespace turbo::jam {
             in[vi] = CONSTANTS::core_count * vi / CONSTANTS::validator_count;
         }
         auto res = shuffle::with_entropy(in, e);
-        const auto shift = (slot.slot() % CONSTANTS::epoch_length) / CONSTANTS::core_assignment_rotation_period;
+        const auto shift = slot.epoch_slot() / CONSTANTS::core_assignment_rotation_period;
         for (size_t vi = 0; vi < res.size(); ++vi) {
             res[vi] = (res[vi] + shift) % CONSTANTS::core_count;
         }
@@ -281,6 +281,11 @@ namespace turbo::jam {
             }
         }
         std::set<opaque_hash_t> wp_hashes {};
+        std::optional<core_index_t> prev_core {};
+        const auto current_guarantors = _guarantor_assignments(eta[2], slot);
+        const auto current_guarantor_sigs = _capital_phi(kappa, psi_o_post);
+        const auto prev_guarantors = _guarantor_assignments(eta[3], slot.slot() - CONSTANTS::core_assignment_rotation_period);
+        const auto prev_guarantor_sigs = _capital_phi(lambda, psi_o_post);
         for (const auto &g: guarantees) {
             // JAM Paper (11.33)
             const auto blk_it = std::find_if(beta.begin(), beta.end(), [&g](const auto &blk) {
@@ -294,8 +299,22 @@ namespace turbo::jam {
                 throw err_bad_beefy_mmr_root_t {};
             if (g.report.core_index >= ro.size()) [[unlikely]]
                 throw err_bad_core_index_t {};
+            if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
+                throw err_out_of_order_guarantee_t {};
+            prev_core = g.report.core_index;
             if (g.slot > slot) [[unlikely]]
                 throw err_future_report_slot_t {};
+            {
+                static_assert(CONSTANTS::epoch_length % CONSTANTS::core_assignment_rotation_period == 0);
+                const auto current_rotation = slot.slot() / CONSTANTS::core_assignment_rotation_period;
+                const auto report_rotation = g.slot.slot() / CONSTANTS::core_assignment_rotation_period;
+                if (current_rotation - report_rotation >= 2) [[unlikely]]
+                    throw err_report_epoch_before_last_t {};
+            }
+            const auto same_rotation = g.slot.epoch_slot() / CONSTANTS::core_assignment_rotation_period == slot.epoch_slot() / CONSTANTS::core_assignment_rotation_period;
+            const auto &guarantors = same_rotation ? current_guarantors : prev_guarantors;
+            const auto &guarantor_sigs = same_rotation ? current_guarantor_sigs : prev_guarantor_sigs;
+
             // JAM Paper (11.34)
             if (g.report.context.lookup_anchor_slot.slot() + CONSTANTS::max_lookup_anchor_age < slot) [[unlikely]]
                 throw err_segment_root_lookup_invalid_t {};
@@ -344,11 +363,16 @@ namespace turbo::jam {
             for (const auto &s: g.signatures) {
                 if (s.validator_index >= kappa.size()) [[unlikely]]
                     throw err_bad_validator_index_t {};
+
                 // JAM Paper (11.25)
                 if (prev_validator && *prev_validator >= s.validator_index) [[unlikely]]
                     throw err_not_sorted_or_unique_guarantors_t {};
                 prev_validator = s.validator_index;
-                const auto &vk = kappa[s.validator_index].ed25519;
+
+                if (guarantors[s.validator_index] != g.report.core_index) [[unlikely]]
+                    throw err_wrong_assignment_t {};
+
+                const auto &vk = guarantor_sigs[s.validator_index].ed25519;
                 if (!crypto::ed25519::verify(s.signature, msg, vk)) [[unlikely]]
                     throw err_bad_signature_t {};
                 res.reporters.emplace_back(vk);
