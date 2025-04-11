@@ -60,6 +60,10 @@ namespace turbo::jam {
             return false;
         if (lambda != o.lambda)
             return false;
+        if (nu != o.nu)
+            return false;
+        if (ksi != o.ksi)
+            return false;
         if (pi != o.pi)
             return false;
         if (ro != o.ro)
@@ -67,6 +71,8 @@ namespace turbo::jam {
         if (tau != o.tau)
             return false;
         if (phi != o.phi)
+            return false;
+        if (chi != o.chi)
             return false;
         if (psi_o_post != o.psi_o_post)
             return false;

@@ -11,6 +11,7 @@
 #include <optional>
 #include <variant>
 #include <vector>
+#include <boost/container/flat_set.hpp>
 #include <boost/json.hpp>
 #include <turbo/common/bytes.hpp>
 #include "constants.hpp"
@@ -1018,12 +1019,12 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     using ready_queue_item_t = sequence_t<ready_record_t<CONSTANTS>>;
 
-    template<typename CONSTANTS=config_prod>
-    using ready_queue_t = fixed_sequence_t<ready_queue_item_t<CONSTANTS>, CONSTANTS::ready_queue_count>;
+    template<typename CONSTANTS>
+    using ready_queue_t = fixed_sequence_t<ready_queue_item_t<CONSTANTS>, CONSTANTS::epoch_length>;
 
     using accumulated_queue_item_t = sequence_t<work_package_hash_t>;
 
-    template<typename CONSTANTS=config_prod>
+    template<typename CONSTANTS>
     using accumulated_queue_t = fixed_sequence_t<accumulated_queue_item_t, CONSTANTS::epoch_length>;
 
     struct always_accumulate_map_item_t {
@@ -1044,6 +1045,9 @@ namespace turbo::jam {
         service_id_t assign;
         service_id_t designate;
         sequence_t<always_accumulate_map_item_t> always_acc;
+
+        static privileges_t from_bytes(codec::decoder &dec);
+        bool operator==(const privileges_t &o) const;
     };
 
     using accumulate_root_t = opaque_hash_t;

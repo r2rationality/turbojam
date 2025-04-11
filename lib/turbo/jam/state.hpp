@@ -73,19 +73,17 @@ namespace turbo::jam {
         validators_data_t<CONSTANTS> iota {}; // next validators
         validators_data_t<CONSTANTS> kappa {}; // active validators
         validators_data_t<CONSTANTS> lambda {}; // prev validators
+        ready_queue_t<CONSTANTS> nu {}; // work reports ready to be accumulated
+        accumulated_queue_t<CONSTANTS> ksi {}; // recently accumulated reports
         statistics_t<CONSTANTS> pi {};
         availability_assignments_t<CONSTANTS> ro {}; // assigned work reports
         time_slot_t<CONSTANTS> tau {};
         auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
-        sequence_t<ed25519_public_t> psi_o_post {}; // offenders posterio
+        privileges_t chi {};
+        sequence_t<ed25519_public_t> psi_o_post {}; // offenders posterior
 
         // Not implemented
-
-        struct gamma_t {}; // validator-selection state
-        struct chi_t {}; // privileged services
         struct psi_t {}; // judgements
-        struct nu_t {}; // work reports ready to be accumulated
-        struct ksi_t {}; // recently accumulated work reports
 
         safrole_output_data_t<CONSTANTS> update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic);
         reports_output_data_t update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees);

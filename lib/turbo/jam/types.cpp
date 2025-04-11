@@ -300,6 +300,29 @@ namespace turbo::jam {
         };
     }
 
+    privileges_t privileges_t::from_bytes(codec::decoder &dec)
+    {
+        return {
+            dec.decode<decltype(bless)>(),
+            dec.decode<decltype(assign)>(),
+            dec.decode<decltype(designate)>(),
+            dec.decode<decltype(always_acc)>()
+        };
+    }
+
+    bool privileges_t::operator==(const privileges_t &o) const
+    {
+        if (bless != o.bless)
+            return false;
+        if (assign != o.assign)
+            return false;
+        if (designate != o.designate)
+            return false;
+        if (always_acc != o.always_acc)
+            return false;
+        return true;
+    }
+
     template<typename CONSTANTS>
     ready_record_t<CONSTANTS> ready_record_t<CONSTANTS>::from_bytes(codec::decoder &dec)
     {
@@ -308,6 +331,18 @@ namespace turbo::jam {
             dec.decode<decltype(dependencies)>()
         };
     }
+
+    template<typename CONSTANTS>
+    ready_record_t<CONSTANTS> ready_record_t<CONSTANTS>::from_json(const boost::json::value &j)
+    {
+        return {
+            decltype(report)::from_json(j.at("report")),
+            decltype(dependencies)::from_json(j.at("dependencies"))
+        };
+    }
+
+    template struct ready_record_t<config_prod>;
+    template struct ready_record_t<config_tiny>;
 
     template<typename CONSTANTS>
     refine_context_t<CONSTANTS> refine_context_t<CONSTANTS>::from_bytes(codec::decoder &dec)
