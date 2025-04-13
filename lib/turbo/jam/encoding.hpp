@@ -9,7 +9,7 @@
 #include <turbo/common/file.hpp>
 #include <turbo/common/numeric-cast.hpp>
 
-namespace turbo::jam::codec {
+namespace turbo::jam {
     struct encoder {
         void uint_trivial(const size_t num_bytes, const uint64_t val)
         {
@@ -118,6 +118,24 @@ namespace turbo::jam::codec {
                 return static_cast<T>(uint_trivial<uint8_t>(1));
             } else {
                 return T::from_bytes(*this);
+            }
+        }
+
+        template<typename T>
+        void process(const std::string_view, T &val)
+        {
+            if constexpr (std::is_same_v<uint64_t, T>) {
+                val = uint_trivial<T>(8);
+            } else if constexpr (std::is_same_v<uint32_t, T>) {
+                val =  uint_trivial<T>(4);
+            } else if constexpr (std::is_same_v<uint16_t, T>) {
+                val =  uint_trivial<T>(2);
+            } else if constexpr (std::is_same_v<uint8_t, T>) {
+                val =  uint_trivial<T>(1);
+            } else if constexpr (std::is_same_v<bool, T>) {
+                val =  static_cast<T>(uint_trivial<uint8_t>(1));
+            } else {
+                T::serialize(*this, val);
             }
         }
 

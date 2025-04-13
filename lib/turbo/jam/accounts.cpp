@@ -10,7 +10,7 @@
 
 namespace turbo::jam {
     template<typename CONSTANTS>
-    account_t<CONSTANTS> account_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    account_t<CONSTANTS> account_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(preimages)>(),
@@ -43,7 +43,7 @@ namespace turbo::jam {
     template struct account_t<config_tiny>;
 
     template<typename CONSTANTS>
-    accounts_t<CONSTANTS> accounts_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    accounts_t<CONSTANTS> accounts_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return base_type::template from_bytes<accounts_t<CONSTANTS>>(dec);
     }

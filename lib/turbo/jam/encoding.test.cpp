@@ -4,11 +4,11 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
-#include "codec.hpp"
+#include "encoding.hpp"
 
 namespace {
     using namespace turbo;
-    using namespace turbo::jam::codec;
+    using namespace turbo::jam;
 }
 
 suite turbo_jam_codec_suite = [] {

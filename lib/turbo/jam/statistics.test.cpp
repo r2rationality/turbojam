@@ -17,7 +17,7 @@ namespace {
         validator_index_t author_index;
         extrinsic_t<CONSTANTS> extrinsic;
 
-        static input_t from_bytes(codec::decoder &dec)
+        static input_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(slot)>(),
@@ -33,7 +33,7 @@ namespace {
         state_t<CONSTANTS> pre;
         state_t<CONSTANTS> post;
 
-        static state_t<CONSTANTS> decode_state(codec::decoder &dec)
+        static state_t<CONSTANTS> decode_state(decoder &dec)
         {
             auto pi = dec.decode<decltype(pre.pi)>();
             auto tau = dec.decode<decltype(pre.tau)>();
@@ -45,7 +45,7 @@ namespace {
             };
         }
 
-        static test_case_t from_bytes(codec::decoder &dec)
+        static test_case_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(in)>(),
@@ -58,7 +58,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
-        const auto tc = codec::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre;
         new_st.update_statistics(tc.in.slot, tc.in.author_index, tc.in.extrinsic);
         expect(new_st == tc.post, loc) << path;

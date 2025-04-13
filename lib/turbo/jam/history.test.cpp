@@ -17,7 +17,7 @@ namespace {
         opaque_hash_t accumulate_root;
         reported_work_seq_t reported_work;
 
-        static input_t from_bytes(codec::decoder &dec)
+        static input_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(header_hash)>(),
@@ -34,13 +34,13 @@ namespace {
         state_t<CONSTANTS> pre_state;
         state_t<CONSTANTS> post_state;
 
-        static state_t<CONSTANTS> read_state(codec::decoder &dec)
+        static state_t<CONSTANTS> read_state(decoder &dec)
         {
             auto history = dec.decode<decltype(pre_state.beta)>();
             return { .beta=std::move(history) };
         }
 
-        static test_case_t from_bytes(codec::decoder &dec)
+        static test_case_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(input)>(),
@@ -53,7 +53,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
-        const auto tc = codec::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
         new_st.beta = new_st.beta.apply(tc.input.header_hash, tc.input.state_root, tc.input.accumulate_root, tc.input.reported_work);
         expect(fatal(new_st.beta.size() == tc.post_state.beta.size()));

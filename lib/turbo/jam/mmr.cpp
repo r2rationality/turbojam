@@ -9,7 +9,7 @@
 namespace turbo::jam {
     using hash_t = crypto::keccak::hash_t;
 
-    mmr_t mmr_t::from_bytes(codec::decoder &dec)
+    mmr_t mmr_t::from_bytes(decoder &dec)
     {
         return base_type::from_bytes<mmr_t>(dec);
     }

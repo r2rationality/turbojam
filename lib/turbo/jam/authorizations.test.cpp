@@ -16,7 +16,7 @@ namespace {
         time_slot_t<CONSTANTS> slot;
         core_authorizers_t auths;
 
-        static input_t from_bytes(codec::decoder &dec)
+        static input_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(slot)>(),
@@ -31,7 +31,7 @@ namespace {
         state_t<CONSTANTS> pre_state;
         state_t<CONSTANTS> post_state;
 
-        static state_t<CONSTANTS> decode_state(codec::decoder &dec)
+        static state_t<CONSTANTS> decode_state(decoder &dec)
         {
             return {
                 .alpha = dec.decode<decltype(pre_state.alpha)>(),
@@ -39,7 +39,7 @@ namespace {
             };
         }
 
-        static test_case_t from_bytes(codec::decoder &dec)
+        static test_case_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(input)>(),
@@ -52,7 +52,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
-        const auto tc = codec::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load<test_case_t<CFG>>(path);
         const auto new_alpha = tc.pre_state.alpha.apply(tc.input.slot, tc.input.auths, tc.pre_state.phi);
         expect(new_alpha == tc.post_state.alpha, loc) << path;
     }

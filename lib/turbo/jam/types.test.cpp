@@ -19,7 +19,7 @@ namespace {
         const auto j = turbo::codec::json::load(prefix + ".json");
         const auto j_val = T::from_json(j);
         const auto bytes = file::read(prefix + ".bin");
-        jam::codec::decoder dec { bytes };
+        decoder dec { bytes };
         expect(!dec.empty(), loc);
         const auto val = T::from_bytes(dec);
         expect(dec.empty(), loc) << prefix;

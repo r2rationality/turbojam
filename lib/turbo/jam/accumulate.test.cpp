@@ -16,7 +16,7 @@ namespace {
         service_info_t service;
         preimages_t preimages;
 
-        static tmp_account_t from_bytes(codec::decoder &dec)
+        static tmp_account_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(service)>(),
@@ -32,7 +32,7 @@ namespace {
         time_slot_t<CONSTANTS> slot;
         work_reports_t<CONSTANTS> reports;
 
-        static input_t from_bytes(codec::decoder &dec)
+        static input_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(slot)>(),
@@ -62,7 +62,7 @@ namespace {
         using base_type = output_base_t;
         using base_type::base_type;
 
-        static output_t from_bytes(codec::decoder &dec)
+        static output_t from_bytes(decoder &dec)
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
@@ -80,7 +80,7 @@ namespace {
         output_t out;
         state_t<CONSTANTS> post;
 
-        static accounts_t<CONSTANTS> decode_accounts(codec::decoder &dec)
+        static accounts_t<CONSTANTS> decode_accounts(decoder &dec)
         {
             auto t_accs = dec.decode<tmp_accounts_t>();
             accounts_t<CONSTANTS> delta {};
@@ -90,7 +90,7 @@ namespace {
             return delta;
         }
 
-        static state_t<CONSTANTS> decode_state(codec::decoder &dec)
+        static state_t<CONSTANTS> decode_state(decoder &dec)
         {
             auto tau = dec.decode<decltype(pre.tau)>();
             auto eta0 = dec.decode<entropy_t>();
@@ -109,7 +109,7 @@ namespace {
             };
         }
 
-        static test_case_t from_bytes(codec::decoder &dec)
+        static test_case_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(in)>(),
@@ -123,7 +123,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = codec::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load<test_case_t<CFG>>(path);
         std::optional<output_t> out {};
         state_t<CFG> res_st = tc.pre;
         try {

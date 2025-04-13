@@ -7,7 +7,7 @@
 
 namespace turbo::jam {
     template<typename CONSTANTS>
-    statistics_t<CONSTANTS> statistics_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    statistics_t<CONSTANTS> statistics_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(current)>(),

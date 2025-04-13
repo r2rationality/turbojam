@@ -7,7 +7,7 @@
 #include "turbo/codec/json.hpp"
 
 namespace turbo::jam {
-    always_accumulate_map_item_t always_accumulate_map_item_t::from_bytes(codec::decoder &dec)
+    always_accumulate_map_item_t always_accumulate_map_item_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(id)>(),
@@ -15,7 +15,7 @@ namespace turbo::jam {
         };
     }
 
-    activity_record_t activity_record_t::from_bytes(codec::decoder &dec) {
+    activity_record_t activity_record_t::from_bytes(decoder &dec) {
         return {
             dec.decode<decltype(blocks)>(),
             dec.decode<decltype(tickets)>(),
@@ -36,7 +36,7 @@ namespace turbo::jam {
             && assurances == o.assurances;
     }
 
-    authorizer_t authorizer_t::from_bytes(codec::decoder &dec)
+    authorizer_t authorizer_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(code_hash)>(),
@@ -53,7 +53,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    availability_assignment_t<CONSTANTS> availability_assignment_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    availability_assignment_t<CONSTANTS> availability_assignment_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(report)>(),
@@ -73,7 +73,7 @@ namespace turbo::jam {
     template struct availability_assignment_t<config_prod>;
     template struct availability_assignment_t<config_tiny>;
 
-    block_info_t block_info_t::from_bytes(codec::decoder &dec)
+    block_info_t block_info_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(header_hash)>(),
@@ -93,7 +93,7 @@ namespace turbo::jam {
         };
     }
 
-    byte_sequence_t byte_sequence_t::from_bytes(codec::decoder &dec)
+    byte_sequence_t byte_sequence_t::from_bytes(decoder &dec)
     {
         const auto sz = dec.uint_general();
         return { dec.next_bytes(sz) };
@@ -107,13 +107,13 @@ namespace turbo::jam {
         return from_hex<byte_sequence_t>(hex.substr(2));
     }
 
-    void byte_sequence_t::to_bytes(codec::encoder &enc) const
+    void byte_sequence_t::to_bytes(encoder &enc) const
     {
         enc.uint_general(base_type::size());
         enc.bytes() << *this;
     }
 
-    core_activity_record_t core_activity_record_t::from_bytes(codec::decoder &dec)
+    core_activity_record_t core_activity_record_t::from_bytes(decoder &dec)
     {
         return {
             dec.uint_general<decltype(gas_used)>(),
@@ -148,7 +148,7 @@ namespace turbo::jam {
         return true;
     }
 
-    core_authorizer_t core_authorizer_t::from_bytes(codec::decoder &dec)
+    core_authorizer_t core_authorizer_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(core)>(),
@@ -164,7 +164,7 @@ namespace turbo::jam {
         };
     }
 
-    culprit_t culprit_t::from_bytes(codec::decoder &dec)
+    culprit_t culprit_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(target)>(),
@@ -182,7 +182,7 @@ namespace turbo::jam {
         };
     }
 
-    epoch_mark_validator_keys_t epoch_mark_validator_keys_t::from_bytes(codec::decoder &dec)
+    epoch_mark_validator_keys_t epoch_mark_validator_keys_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(bandersnatch)>(),
@@ -198,7 +198,7 @@ namespace turbo::jam {
         };
     }
 
-    fault_t fault_t::from_bytes(codec::decoder &dec)
+    fault_t fault_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(target)>(),
@@ -218,7 +218,7 @@ namespace turbo::jam {
         };
     }
 
-    judgement_t judgement_t::from_bytes(codec::decoder &dec)
+    judgement_t judgement_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(vote)>(),
@@ -236,7 +236,7 @@ namespace turbo::jam {
         };
     }
 
-    import_spec_t import_spec_t::from_bytes(codec::decoder &dec)
+    import_spec_t import_spec_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(tree_root)>(),
@@ -252,7 +252,7 @@ namespace turbo::jam {
         };
     }
 
-    extrinsic_spec_t extrinsic_spec_t::from_bytes(codec::decoder &dec)
+    extrinsic_spec_t extrinsic_spec_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(hash)>(),
@@ -268,7 +268,7 @@ namespace turbo::jam {
         };
     }
 
-    lookup_met_map_key_t lookup_met_map_key_t::from_bytes(codec::decoder &dec)
+    lookup_met_map_key_t lookup_met_map_key_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(hash)>(),
@@ -284,7 +284,7 @@ namespace turbo::jam {
         };
     }
 
-    preimage_t preimage_t::from_bytes(codec::decoder &dec)
+    preimage_t preimage_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(requester)>(),
@@ -300,7 +300,7 @@ namespace turbo::jam {
         };
     }
 
-    privileges_t privileges_t::from_bytes(codec::decoder &dec)
+    privileges_t privileges_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(bless)>(),
@@ -324,7 +324,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    ready_record_t<CONSTANTS> ready_record_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    ready_record_t<CONSTANTS> ready_record_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(report)>(),
@@ -345,7 +345,7 @@ namespace turbo::jam {
     template struct ready_record_t<config_tiny>;
 
     template<typename CONSTANTS>
-    refine_context_t<CONSTANTS> refine_context_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    refine_context_t<CONSTANTS> refine_context_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(anchor)>(),
@@ -371,7 +371,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    void refine_context_t<CONSTANTS>::to_bytes(codec::encoder &enc) const
+    void refine_context_t<CONSTANTS>::to_bytes(encoder &enc) const
     {
         anchor.to_bytes(enc);
         state_root.to_bytes(enc);
@@ -390,7 +390,7 @@ namespace turbo::jam {
             && prerequisites == o.prerequisites;
     }
 
-    refine_load_t refine_load_t::from_bytes(codec::decoder &dec)
+    refine_load_t refine_load_t::from_bytes(decoder &dec)
     {
         return {
             dec.uint_general<decltype(gas_used)>(),
@@ -412,7 +412,7 @@ namespace turbo::jam {
         };
     }
 
-    void refine_load_t::to_bytes(codec::encoder &enc) const
+    void refine_load_t::to_bytes(encoder &enc) const
     {
         enc.uint_general(gas_used);
         enc.uint_general(imports);
@@ -422,7 +422,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    report_guarantee_t<CONSTANTS> report_guarantee_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    report_guarantee_t<CONSTANTS> report_guarantee_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(report)>(),
@@ -444,7 +444,7 @@ namespace turbo::jam {
     template struct report_guarantee_t<config_prod>;
     template struct report_guarantee_t<config_tiny>;
 
-    reported_work_package_t reported_work_package_t::from_bytes(codec::decoder &dec)
+    reported_work_package_t reported_work_package_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(hash)>(),
@@ -460,7 +460,7 @@ namespace turbo::jam {
         };
     }
 
-    segment_root_lookup_item segment_root_lookup_item::from_bytes(codec::decoder &dec)
+    segment_root_lookup_item segment_root_lookup_item::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(work_package_hash)>(),
@@ -476,13 +476,13 @@ namespace turbo::jam {
         };
     }
 
-    void segment_root_lookup_item::to_bytes(codec::encoder &enc) const
+    void segment_root_lookup_item::to_bytes(encoder &enc) const
     {
         work_package_hash.to_bytes(enc);
         segment_tree_root.to_bytes(enc);
     }
 
-    service_activity_record_t service_activity_record_t::from_bytes(codec::decoder &dec)
+    service_activity_record_t service_activity_record_t::from_bytes(decoder &dec)
     {
         return {
             dec.uint_general<decltype(provided_count)>(),
@@ -529,7 +529,7 @@ namespace turbo::jam {
         return true;
     }
 
-    service_info_t service_info_t::from_bytes(codec::decoder &dec)
+    service_info_t service_info_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(code_hash)>(),
@@ -558,7 +558,7 @@ namespace turbo::jam {
         return true;
     }
 
-    ticket_body_t ticket_body_t::from_bytes(codec::decoder &dec)
+    ticket_body_t ticket_body_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(id)>(),
@@ -574,7 +574,7 @@ namespace turbo::jam {
         };
     }
 
-    ticket_envelope_t ticket_envelope_t::from_bytes(codec::decoder &dec)
+    ticket_envelope_t ticket_envelope_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(attempt)>(),
@@ -591,7 +591,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    tickets_or_keys_t<CONSTANTS> tickets_or_keys_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    tickets_or_keys_t<CONSTANTS> tickets_or_keys_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         switch (const auto typ = dec.decode<uint8_t>(); typ) {
             case 0: return { tickets_t<CONSTANTS>::from_bytes(dec) };
@@ -604,7 +604,7 @@ namespace turbo::jam {
     template struct tickets_or_keys_t<config_tiny>;
 
     template<typename CONSTANTS>
-    time_slot_t<CONSTANTS> time_slot_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    time_slot_t<CONSTANTS> time_slot_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return dec.uint_trivial<decltype(_val)>(sizeof(decltype(_val)));
     }
@@ -616,7 +616,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    void time_slot_t<CONSTANTS>::to_bytes(codec::encoder &enc) const
+    void time_slot_t<CONSTANTS>::to_bytes(encoder &enc) const
     {
         enc.uint_trivial(sizeof(_val), _val);
     }
@@ -624,7 +624,7 @@ namespace turbo::jam {
     template struct time_slot_t<config_prod>;
     template struct time_slot_t<config_tiny>;
 
-    validator_data_t validator_data_t::from_bytes(codec::decoder &dec)
+    validator_data_t validator_data_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(bandersnatch)>(),
@@ -634,7 +634,7 @@ namespace turbo::jam {
         };
     }
 
-    validator_signature_t validator_signature_t::from_bytes(codec::decoder &dec)
+    validator_signature_t validator_signature_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(validator_index)>(),
@@ -650,7 +650,7 @@ namespace turbo::jam {
         };
     }
 
-    work_result_ok_t work_result_ok_t::from_bytes(codec::decoder &dec)
+    work_result_ok_t work_result_ok_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(data)>()
@@ -662,12 +662,12 @@ namespace turbo::jam {
         return { decltype(data)::from_json(j) };
     }
 
-    void work_result_ok_t::to_bytes(codec::encoder &enc) const
+    void work_result_ok_t::to_bytes(encoder &enc) const
     {
         data.to_bytes(enc);
     }
 
-    work_exec_result_t work_exec_result_t::from_bytes(codec::decoder &dec)
+    work_exec_result_t work_exec_result_t::from_bytes(decoder &dec)
     {
         const auto typ = dec.decode<uint8_t>();
         switch (typ) {
@@ -702,7 +702,7 @@ namespace turbo::jam {
         throw error(fmt::format("unexpected work_exec_result_t key {}", name));
     }
 
-    void work_exec_result_t::to_bytes(codec::encoder &enc) const
+    void work_exec_result_t::to_bytes(encoder &enc) const
     {
         std::visit([&](const auto &cv) {
             using T = std::decay_t<decltype(cv)>;
@@ -725,7 +725,7 @@ namespace turbo::jam {
         }, *this);
     }
 
-    work_item_t work_item_t::from_bytes(codec::decoder &dec)
+    work_item_t work_item_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(service)>(),
@@ -754,7 +754,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    work_package_t<CONSTANTS> work_package_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    work_package_t<CONSTANTS> work_package_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(authorization)>(),
@@ -780,7 +780,7 @@ namespace turbo::jam {
     template struct work_package_t<config_prod>;
     template struct work_package_t<config_tiny>;
 
-    work_package_spec_t work_package_spec_t::from_bytes(codec::decoder &dec)
+    work_package_spec_t work_package_spec_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(hash)>(),
@@ -802,7 +802,7 @@ namespace turbo::jam {
         };
     }
 
-    void work_package_spec_t::to_bytes(codec::encoder &enc) const
+    void work_package_spec_t::to_bytes(encoder &enc) const
     {
         hash.to_bytes(enc);
         enc.uint_trivial(sizeof(length), length);
@@ -812,7 +812,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    work_report_t<CONSTANTS> work_report_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    work_report_t<CONSTANTS> work_report_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(package_spec)>(),
@@ -842,7 +842,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    void work_report_t<CONSTANTS>::to_bytes(codec::encoder &enc) const
+    void work_report_t<CONSTANTS>::to_bytes(encoder &enc) const
     {
         package_spec.to_bytes(enc);
         context.to_bytes(enc);
@@ -857,7 +857,7 @@ namespace turbo::jam {
     template struct work_report_t<config_prod>;
     template struct work_report_t<config_tiny>;
 
-    work_result_t work_result_t::from_bytes(codec::decoder &dec)
+    work_result_t work_result_t::from_bytes(decoder &dec)
     {
         return {
             dec.decode<decltype(service_id)>(),
@@ -881,7 +881,7 @@ namespace turbo::jam {
         };
     }
 
-    void work_result_t::to_bytes(codec::encoder &enc) const
+    void work_result_t::to_bytes(encoder &enc) const
     {
         enc.uint_trivial(sizeof(service_id), service_id);
         code_hash.to_bytes(enc);

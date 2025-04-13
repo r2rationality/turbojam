@@ -9,7 +9,7 @@
 namespace turbo::jam {
 
     template<typename CONSTANTS>
-    auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return base_type::template from_bytes<auth_pools_t>(dec);
     }

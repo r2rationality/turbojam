@@ -26,7 +26,7 @@ namespace turbo::jam {
             uint8_vector msg {};
             msg << std::string_view { "jam_available" };
             {
-                codec::encoder enc {};
+                encoder enc {};
                 enc.bytes();
                 parent.to_bytes(enc);
                 a.bitfield.to_bytes(enc);

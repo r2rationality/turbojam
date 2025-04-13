@@ -22,7 +22,7 @@ namespace turbo::jam {
         optional_t<epoch_mark_t<CONSTANTS>> epoch_mark;
         optional_t<tickets_mark_t<CONSTANTS>> tickets_mark;
 
-        static safrole_output_data_t from_bytes(codec::decoder &dec)
+        static safrole_output_data_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(epoch_mark)>(),
@@ -44,7 +44,7 @@ namespace turbo::jam {
         reported_work_seq_t reported;
         sequence_t<ed25519_public_t> reporters;
 
-        static reports_output_data_t from_bytes(codec::decoder &dec)
+        static reports_output_data_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(reported)>(),

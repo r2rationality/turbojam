@@ -380,7 +380,7 @@ namespace turbo::jam {
             uint8_vector msg {};
             msg << std::string_view { "jam_guarantee" };
             {
-                codec::encoder enc {};
+                encoder enc {};
                 g.report.to_bytes(enc);
                 msg << crypto::blake2b::digest(enc.bytes());
             }

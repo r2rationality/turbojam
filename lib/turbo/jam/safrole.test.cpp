@@ -18,7 +18,7 @@ namespace {
         entropy_t entropy;
         tickets_extrinsic_t<CONSTANTS> extrinsic;
 
-        static input_t from_bytes(codec::decoder &dec)
+        static input_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(slot)>(),
@@ -32,7 +32,7 @@ namespace {
         using base_type = err_any_t;
         using base_type::base_type;
 
-        static err_code_t from_bytes(codec::decoder &dec)
+        static err_code_t from_bytes(decoder &dec)
         {
             switch (const auto typ = dec.decode<uint8_t>(); typ) {
                 case 0: return { err_bad_slot_t {} };
@@ -51,7 +51,7 @@ namespace {
     struct output_t: std::variant<safrole_output_data_t<CONSTANTS>, err_code_t> {
         using base_type = std::variant<safrole_output_data_t<CONSTANTS>, err_code_t>;
 
-        static output_t from_bytes(codec::decoder &dec)
+        static output_t from_bytes(decoder &dec)
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
@@ -69,7 +69,7 @@ namespace {
         output_t<CONSTANTS> out;
         state_t<CONSTANTS> post;
 
-        static state_t<CONSTANTS> decode_state(codec::decoder &dec)
+        static state_t<CONSTANTS> decode_state(decoder &dec)
         {
             auto tau = dec.decode<decltype(pre.tau)>();
             auto eta = dec.decode<decltype(pre.eta)>();
@@ -97,7 +97,7 @@ namespace {
             };
         }
 
-        static test_case_t from_bytes(codec::decoder &dec)
+        static test_case_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(in)>(),
@@ -111,7 +111,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = codec::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load<test_case_t<CFG>>(path);
         std::optional<output_t<CFG>> out {};
         state_t<CFG> res_st = tc.pre;
         err_any_t::catch_into(

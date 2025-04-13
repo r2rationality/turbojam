@@ -17,7 +17,7 @@ namespace {
         preimages_extrinsic_t preimages;
         time_slot_t<CONSTANTS> slot;
 
-        static input_t from_bytes(codec::decoder &dec)
+        static input_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(preimages)>(),
@@ -37,7 +37,7 @@ namespace {
         using base_type = err_any_t;
         using base_type::base_type;
 
-        static err_code_t from_bytes(codec::decoder &dec)
+        static err_code_t from_bytes(decoder &dec)
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
@@ -52,7 +52,7 @@ namespace {
         using base_type = std::variant<ok_t, err_code_t>;
         using base_type::base_type;
 
-        static output_t from_bytes(codec::decoder &dec)
+        static output_t from_bytes(decoder &dec)
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
@@ -70,14 +70,14 @@ namespace {
         output_t output;
         state_t<CONSTANTS> post_state;
 
-        static state_t<CONSTANTS> decode_state(codec::decoder &dec)
+        static state_t<CONSTANTS> decode_state(decoder &dec)
         {
             return {
                 .delta=dec.decode<decltype(state_t<CONSTANTS>::delta)>()
             };
         }
 
-        static test_case_t from_bytes(codec::decoder &dec)
+        static test_case_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(input)>(),
@@ -91,7 +91,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = codec::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
         std::optional<output_t> out {};
         err_any_t::catch_into(

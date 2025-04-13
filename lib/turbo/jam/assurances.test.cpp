@@ -18,7 +18,7 @@ namespace {
         time_slot_t<CONSTANTS> slot;
         header_hash_t parent;
 
-        static input_t from_bytes(codec::decoder &dec)
+        static input_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(assurances)>(),
@@ -32,7 +32,7 @@ namespace {
     struct output_data_t {
         work_reports_t<CONSTANTS> reported;
 
-        static output_data_t from_bytes(codec::decoder &dec)
+        static output_data_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(reported)>()
@@ -49,7 +49,7 @@ namespace {
         using base_type = err_any_t;
         using base_type::base_type;
 
-        static err_code_t from_bytes(codec::decoder &dec)
+        static err_code_t from_bytes(decoder &dec)
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
@@ -67,7 +67,7 @@ namespace {
     struct output_t: std::variant<output_data_t<CONSTANTS>, err_code_t> {
         using base_type = std::variant<output_data_t<CONSTANTS>, err_code_t>;
 
-        static output_t from_bytes(codec::decoder &dec)
+        static output_t from_bytes(decoder &dec)
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
@@ -85,7 +85,7 @@ namespace {
         output_t<CONSTANTS> output;
         state_t<CONSTANTS> post_state;
 
-        static state_t<CONSTANTS> decode_state(codec::decoder &dec)
+        static state_t<CONSTANTS> decode_state(decoder &dec)
         {
             // the order of the fields in the test state is different that the one in the regular state
             auto ro = dec.decode<decltype(pre_state.ro)>();
@@ -96,7 +96,7 @@ namespace {
             };
         }
 
-        static test_case_t from_bytes(codec::decoder &dec)
+        static test_case_t from_bytes(decoder &dec)
         {
             return {
                 dec.decode<decltype(input)>(),
@@ -110,7 +110,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = codec::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
         std::optional<output_t<CFG>> out {};
         err_any_t::catch_into(

@@ -7,7 +7,7 @@
 
 namespace turbo::jam {
     template<typename CONSTANTS>
-    blocks_history_t<CONSTANTS> blocks_history_t<CONSTANTS>::from_bytes(codec::decoder &dec)
+    blocks_history_t<CONSTANTS> blocks_history_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         return base_type::template from_bytes<blocks_history_t<CONSTANTS>>(dec);
     }
