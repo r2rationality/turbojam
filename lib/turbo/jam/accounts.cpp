@@ -10,51 +10,6 @@
 
 namespace turbo::jam {
     template<typename CONSTANTS>
-    account_t<CONSTANTS> account_t<CONSTANTS>::from_bytes(decoder &dec)
-    {
-        return {
-            dec.decode<decltype(preimages)>(),
-            dec.decode<decltype(lookup_metas)>()
-        };
-    }
-
-    template<typename CONSTANTS>
-    account_t<CONSTANTS> account_t<CONSTANTS>::from_json(const boost::json::value &j)
-    {
-        return {
-            decltype(preimages)::from_json(j.at("preimages"), "hash", "blob"),
-            decltype(lookup_metas)::from_json(j.at("lookup_metas"), "key", "value")
-        };
-    }
-
-    template<typename CONSTANTS>
-    bool account_t<CONSTANTS>::operator==(const account_t<CONSTANTS> &o) const
-    {
-        if (preimages != o.preimages)
-            return false;
-        if (lookup_metas != o.lookup_metas)
-            return false;
-        if (info != o.info)
-            return false;
-        return true;
-    }
-
-    template struct account_t<config_prod>;
-    template struct account_t<config_tiny>;
-
-    template<typename CONSTANTS>
-    accounts_t<CONSTANTS> accounts_t<CONSTANTS>::from_bytes(decoder &dec)
-    {
-        return base_type::template from_bytes<accounts_t<CONSTANTS>>(dec);
-    }
-
-    template<typename CONSTANTS>
-    accounts_t<CONSTANTS> accounts_t<CONSTANTS>::from_json(const boost::json::value &j)
-    {
-        return base_type::template from_json<accounts_t>(j, "id", "data");
-    }
-
-    template<typename CONSTANTS>
     accounts_t<CONSTANTS> accounts_t<CONSTANTS>::apply(const time_slot_t<CONSTANTS> &slot, const preimages_extrinsic_t &preimages) const
     {
         auto new_accounts = *this;

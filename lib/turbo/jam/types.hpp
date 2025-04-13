@@ -40,22 +40,6 @@ namespace turbo::jam {
             static_assert(std::remove_reference_t<decltype(archive)>::read_only);
             const_cast<byte_sequence_t &>(*this).serialize(archive);
         }
-
-        static byte_sequence_t from_bytes(decoder &dec)
-        {
-            return from(dec);
-        }
-
-        static byte_sequence_t from_json(const boost::json::value &j)
-        {
-            codec::json::decoder dec { j };
-            return from(dec);
-        }
-
-        void to_bytes(encoder &enc) const
-        {
-            enc.process_bytes(*this);
-        }
     };
 
     template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
@@ -75,24 +59,6 @@ namespace turbo::jam {
         {
             static_assert(std::remove_reference_t<decltype(archive)>::read_only);
             const_cast<sequence_t &>(*this).serialize(archive);
-        }
-
-        template<typename C=sequence_t>
-        static C from_bytes(decoder &dec)
-        {
-            return C::template from<C>(dec);
-        }
-
-        template<typename C=sequence_t>
-        static C from_json(const boost::json::value &j)
-        {
-            codec::json::decoder dec { j };
-            return C::template from<C>(dec);
-        }
-
-        void to_bytes(encoder &enc) const
-        {
-            serialize(enc);
         }
     };
 
@@ -114,46 +80,31 @@ namespace turbo::jam {
         }
     };
 
-    template<typename K, typename V>
-    struct map_t: std::map<K, V> {
+    struct map_config_t {
+        std::string key_name = "unknown";
+        std::string val_name = "unknown";
+    };
+
+    template<typename K, typename V, typename CFG>
+    struct map_t: std::map<K, V>, codec::serializable_t<map_t<K, V, CFG>> {
         using base_type = std::map<K, V>;
         using base_type::base_type;
 
-        template<typename C=map_t>
-        static C from_bytes(decoder &dec)
+        static CFG config()
         {
-            const auto sz = dec.uint_varlen();
-            C res {};
-            for (size_t i = 0; i < sz; i++) {
-                auto k = dec.decode<K>(); // ensures that k is read before v!
-                const auto [it, created] = res.try_emplace(std::move(k), dec.decode<V>());
-                if (!created) [[unlikely]]
-                    throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
-            }
-            return res;
+            static CFG cfg;
+            return cfg;
         }
 
-        template<typename C=map_t>
-        static C from_json(const boost::json::value &j, const std::string_view key_name, const std::string_view val_name)
+        void serialize(auto &archive)
         {
-            const auto &j_arr = j.as_array();
-            C res {};
-            for (const auto &jv: j_arr) {
-                if constexpr (from_json_c<K>) {
-                    auto k = K::from_json(jv.at(key_name)); // ensures that k is read before v!
-                    const auto [it, created] = res.try_emplace(std::move(k), V::from_json(jv.at(val_name)));
-                    if (!created) [[unlikely]]
-                                throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
-                } else if constexpr (std::is_constructible_v<uint64_t, K>) {
-                    auto k = boost::json::value_to<K>(jv.at(key_name));
-                    const auto [it, created] = res.try_emplace(std::move(k), V::from_json(jv.at(val_name)));
-                    if (!created) [[unlikely]]
-                        throw error(fmt::format("a duplicate key in the map of type {}", typeid(map_t).name()));
-                } else {
-                    throw error(fmt::format("{} type must have from_json static method!", typeid(K).name()));
-                }
-            }
-            return res;
+            archive.process_map(*this, config().key_name, config().val_name);
+        }
+
+        void serialize(auto &archive) const
+        {
+            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
+            const_cast<map_t &>(*this).serialize(archive);
         }
     };
 
@@ -398,7 +349,7 @@ namespace turbo::jam {
 
     // GP 11.1.2: X
     template<typename CONSTANTS>
-    struct refine_context_t {
+    struct refine_context_t: codec::serializable_t<refine_context_t<CONSTANTS>> {
 	    header_hash_t anchor;
 	    state_root_t state_root;
 	    beefy_root_t beefy_root;
@@ -406,18 +357,57 @@ namespace turbo::jam {
 	    time_slot_t<CONSTANTS> lookup_anchor_slot;
 	    prerequisites_t prerequisites;
 
-        static refine_context_t from_bytes(decoder &dec);
-        static refine_context_t from_json(const boost::json::value &);
-        void to_bytes(encoder &enc) const;
-        bool operator==(const refine_context_t &o) const;
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("anchor"sv, anchor);
+            archive.process("state_root"sv, state_root);
+            archive.process("beefy_root"sv, beefy_root);
+            archive.process("lookup_anchor"sv, lookup_anchor);
+            archive.process("lookup_anchor_slot"sv, lookup_anchor_slot);
+            archive.process("prerequisites"sv, prerequisites);
+        }
+
+        void serialize(auto &archive) const
+        {
+            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
+            const_cast<refine_context_t &>(*this).serialize(archive);
+        }
+
+        bool operator==(const refine_context_t &o) const
+        {
+            if (anchor != o.anchor)
+                return false;
+            if (state_root != o.state_root)
+                return false;
+            if (beefy_root != o.beefy_root)
+                return false;
+            if (lookup_anchor != o.lookup_anchor)
+                return false;
+            if (lookup_anchor_slot != o.lookup_anchor_slot)
+                return false;
+            if (prerequisites != o.prerequisites)
+                return false;
+            return true;
+        }
     };
 
-    struct authorizer_t  {
+    struct authorizer_t: codec::serializable_t<authorizer_t> {
         opaque_hash_t code_hash;
         byte_sequence_t params;
 
-        static authorizer_t from_bytes(decoder &dec);
-        static authorizer_t from_json(const boost::json::value &);
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("code_hash"sv, code_hash);
+            archive.process("params"sv, params);
+        }
+
+        void serialize(auto &archive) const
+        {
+            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
+            const_cast<authorizer_t &>(*this).serialize(archive);
+        }
 
         bool operator==(const authorizer_t &o) const
         {
@@ -557,15 +547,28 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    struct work_package_t {
+    struct work_package_t: codec::serializable_t<work_package_t<CONSTANTS>> {
         byte_sequence_t authorization;
         service_id_t auth_code_host;
         authorizer_t authorizer;
         refine_context_t<CONSTANTS> context;
         sequence_t<work_item_t, 1, 16> items;
 
-        static work_package_t from_bytes(decoder &dec);
-        static work_package_t from_json(const boost::json::value &json);
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("authorization"sv, authorization);
+            archive.process("auth_code_host"sv, auth_code_host);
+            archive.process("authorizer"sv, authorizer);
+            archive.process("context"sv, context);
+            archive.process("items"sv, items);
+        }
+
+        void serialize(auto &archive) const
+        {
+            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
+            const_cast<work_package_t &>(*this).serialize(archive);
+        }
 
         bool operator==(const work_package_t &o) const
         {
@@ -575,12 +578,19 @@ namespace turbo::jam {
         }
     };
 
-    struct work_result_ok_t {
+    struct work_result_ok_t: codec::serializable_t<work_result_ok_t> {
         byte_sequence_t data;
 
-        static work_result_ok_t from_bytes(decoder &dec);
-        static work_result_ok_t from_json(const boost::json::value &json);
-        void to_bytes(encoder &enc) const;
+        void serialize(auto &archive)
+        {
+            archive.process_bytes(data);
+        }
+
+        void serialize(auto &archive) const
+        {
+            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
+            const_cast<work_result_ok_t &>(*this).serialize(archive);
+        }
 
         bool operator==(const work_result_ok_t &o) const
         {
@@ -863,12 +873,11 @@ namespace turbo::jam {
 
     using mmr_peak_t = optional_t<opaque_hash_t>;
 
-    struct mmr_t: sequence_t<mmr_peak_t> {
-        using base_type = sequence_t<mmr_peak_t>;
+    using mmr_base_t = sequence_t<mmr_peak_t>;
+    struct mmr_t: mmr_base_t {
+        using base_type = mmr_base_t;
         using base_type::base_type;
 
-        static mmr_t from_bytes(decoder &dec);
-        static mmr_t from_json(const boost::json::value &json);
         mmr_t append(const opaque_hash_t &l) const;
         opaque_hash_t root() const;
     };
@@ -892,14 +901,26 @@ namespace turbo::jam {
     };
     using reported_work_seq_t = sequence_t<reported_work_package_t>;
 
-    struct block_info_t {
+    struct block_info_t: codec::serializable_t<block_info_t> {
         header_hash_t header_hash;
         mmr_t mmr;
         state_root_t state_root;
         reported_work_seq_t reported;
 
-        static block_info_t from_bytes(decoder &dec);
-        static block_info_t from_json(const boost::json::value &json);
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("header_hash"sv, header_hash);
+            archive.process("mmr"sv, mmr);
+            archive.process("state_root"sv, state_root);
+            archive.process("reported"sv, reported);
+        }
+
+        void serialize(auto &archive) const
+        {
+            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
+            const_cast<block_info_t &>(*this).serialize(archive);
+        }
 
         bool operator==(const block_info_t &o) const noexcept
         {
@@ -913,8 +934,6 @@ namespace turbo::jam {
         using base_type = sequence_t<block_info_t, 0, CONSTANTS::max_blocks_history>;
         using base_type::base_type;
 
-        static blocks_history_t from_bytes(decoder &dec);
-        static blocks_history_t from_json(const boost::json::value &json);
         blocks_history_t apply(const header_hash_t &, const state_root_t &, const opaque_hash_t &, const reported_work_seq_t &) const;
     };
 
@@ -1257,12 +1276,22 @@ namespace turbo::jam {
     using guarantees_extrinsic_t = sequence_t<report_guarantee_t<CONSTANTS>, 0, CONSTANTS::core_count>;
 
     template<typename CONSTANTS>
-    struct ready_record_t {
+    struct ready_record_t: codec::serializable_t<ready_record_t<CONSTANTS>> {
         work_report_t<CONSTANTS> report;
         sequence_t<work_package_hash_t> dependencies;
 
-        static ready_record_t from_bytes(decoder &dec);
-        static ready_record_t from_json(const boost::json::value &json);
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("report"sv, report);
+            archive.process("dependencies"sv, dependencies);
+        }
+
+        void serialize(auto &archive) const
+        {
+            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
+            const_cast<ready_record_t &>(*this).serialize(archive);
+        }
 
         bool operator==(const ready_record_t &o) const
         {
@@ -1360,7 +1389,11 @@ namespace turbo::jam {
 
     using offenders_mark_t = ed25519_keys_t;
 
-    using preimages_t = map_t<opaque_hash_t, byte_sequence_t>;
+    struct preimages_config_t {
+        std::string key_name = "hash";
+        std::string val_name = "blob";
+    };
+    using preimages_t = map_t<opaque_hash_t, byte_sequence_t, preimages_config_t>;
 
     struct lookup_met_map_key_t {
         opaque_hash_t hash;
@@ -1383,29 +1416,57 @@ namespace turbo::jam {
         }
     };
 
+    struct lookup_metas_config_t {
+        std::string key_name = "key";
+        std::string val_name = "value";
+    };
     template<typename CONSTANTS>
     using lookup_met_map_val_t = sequence_t<time_slot_t<CONSTANTS>, 0, 3>;
     template<typename CONSTANTS>
-    using lookup_metas_t = map_t<lookup_met_map_key_t, lookup_met_map_val_t<CONSTANTS>>;
+    using lookup_metas_t = map_t<lookup_met_map_key_t, lookup_met_map_val_t<CONSTANTS>, lookup_metas_config_t>;
 
     template<typename CONSTANTS>
-    struct account_t {
+    struct account_t: codec::serializable_t<account_t<CONSTANTS>> {
         preimages_t preimages {};
         lookup_metas_t<CONSTANTS> lookup_metas {};
         service_info_t info {};
 
-        static account_t from_bytes(decoder &dec);
-        static account_t from_json(const boost::json::value &j);
-        bool operator==(const account_t &) const;
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("preimages", preimages);
+            archive.process("lookup_metas", lookup_metas);
+            archive.process("info", info);
+        }
+
+        void serialize(auto &archive) const
+        {
+            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
+            const_cast<account_t &>(*this).serialize(archive);
+        }
+
+        bool operator==(const account_t &o) const
+        {
+            if (preimages != o.preimages)
+                return false;
+            if (lookup_metas != o.lookup_metas)
+                return false;
+            if (info != o.info)
+                return false;
+            return true;
+        }
+    };
+
+    struct accounts_config_t {
+        std::string key_name = "id";
+        std::string val_name = "data";
     };
 
     template<typename CONSTANTS>
-    struct accounts_t: map_t<service_id_t, account_t<CONSTANTS>> {
-        using base_type = map_t<service_id_t, account_t<CONSTANTS>>;
+    struct accounts_t: map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t> {
+        using base_type = map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t>;
         using base_type::base_type;
 
-        static accounts_t from_bytes(decoder &);
-        static accounts_t from_json(const boost::json::value &j);
         accounts_t apply(const time_slot_t<CONSTANTS> &, const preimages_extrinsic_t &) const;
     };
 
@@ -1469,8 +1530,8 @@ namespace turbo::jam {
         }
     };
 
-    template<typename CONSTANTS=config_prod>
-    struct extrinsic_t {
+    template<typename CONSTANTS>
+    struct extrinsic_t: codec::serializable_t<extrinsic_t<CONSTANTS>> {
         // JAM paper: ET - capital epsilon with a lower index T
         tickets_extrinsic_t<CONSTANTS> tickets;
         // JAM paper: EP - capital epsilon with a lower index P
@@ -1482,36 +1543,20 @@ namespace turbo::jam {
         // JAM paper: EP - capital epsilon with a lower index D
         disputes_extrinsic_t<CONSTANTS> disputes;
 
-        static extrinsic_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(tickets)>(),
-                dec.decode<decltype(preimages)>(),
-                dec.decode<decltype(guarantees)>(),
-                dec.decode<decltype(assurances)>(),
-                dec.decode<decltype(disputes)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("tickets"sv, tickets);
+            archive.process("preimages"sv, preimages);
+            archive.process("guarantees"sv, guarantees);
+            archive.process("assurances"sv, assurances);
+            archive.process("disputes"sv, disputes);
         }
 
-        static extrinsic_t from_json(const boost::json::value &j)
+        void serialize(auto &archive) const
         {
-            codec::json::decoder disputes_dec { j.at("disputes") };
-            return {
-                decltype(tickets)::from_json(j.at("tickets")),
-                decltype(preimages)::from_json(j.at("preimages")),
-                decltype(guarantees)::from_json(j.at("guarantees")),
-                decltype(assurances)::from_json(j.at("assurances")),
-                decltype(disputes)::from(disputes_dec)
-            };
-        }
-
-        void to_bytes(encoder &enc) const
-        {
-            enc << tickets;
-            enc << preimages;
-            enc << guarantees;
-            enc << assurances;
-            enc << disputes;
+            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
+            const_cast<extrinsic_t &>(*this).serialize(archive);
         }
 
         bool operator==(const extrinsic_t &o) const
@@ -1641,7 +1686,12 @@ namespace turbo::jam {
             return true;
         }
     };
-    using services_statistics_t = map_t<service_id_t, service_activity_record_t>;
+
+    struct services_statistics_config_t {
+        std::string key_name = "id";
+        std::string val_name = "service";
+    };
+    using services_statistics_t = map_t<service_id_t, service_activity_record_t, services_statistics_config_t>;
 
     template<typename CONSTANTS>
     struct statistics_t: codec::serializable_t<statistics_t<CONSTANTS>> {

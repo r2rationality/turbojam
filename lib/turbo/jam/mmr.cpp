@@ -9,16 +9,6 @@
 namespace turbo::jam {
     using hash_t = crypto::keccak::hash_t;
 
-    mmr_t mmr_t::from_bytes(decoder &dec)
-    {
-        return base_type::from_bytes<mmr_t>(dec);
-    }
-
-    mmr_t mmr_t::from_json(const boost::json::value &j)
-    {
-        return base_type::from_json<mmr_t>(j);
-    }
-
     static mmr_t replace(const mmr_t &r, size_t i, const mmr_peak_t &v)
     {
         if (i >= r.size()) [[unlikely]]

@@ -25,7 +25,7 @@ namespace {
         }
     };
 
-    using tmp_accounts_t = map_t<service_id_t, tmp_account_t>;
+    using tmp_accounts_t = map_t<service_id_t, tmp_account_t, accounts_config_t>;
 
     template<typename CONSTANTS>
     struct input_t {
@@ -74,49 +74,46 @@ namespace {
     };
 
     template<typename CONSTANTS>
-    struct test_case_t {
+    struct test_case_t: codec::serializable_t<test_case_t<CONSTANTS>> {
         input_t<CONSTANTS> in;
         state_t<CONSTANTS> pre;
         output_t out;
         state_t<CONSTANTS> post;
 
-        static accounts_t<CONSTANTS> decode_accounts(decoder &dec)
+        static void serialize_accounts(auto &archive, const std::string_view name, accounts_t<CONSTANTS> &accs)
         {
-            auto t_accs = dec.decode<tmp_accounts_t>();
-            accounts_t<CONSTANTS> delta {};
-            for (auto &&[id, t_acc]: t_accs) {
-                delta.try_emplace(id, std::move(t_acc.preimages), lookup_metas_t<CONSTANTS> {}, std::move(t_acc.service));
+            tmp_accounts_t taccs;
+            archive.process(name, taccs);
+            accs.clear();
+            for (auto &&[id, tacc]: taccs) {
+                account_t<CONSTANTS> acc {
+                    .preimages=std::move(tacc.preimages),
+                    .info=std::move(tacc.service)
+                };
+                const auto [it, created] = accs.try_emplace(std::move(id), std::move(acc));
+                if (!created) [[unlikely]]
+                    throw error(fmt::format("a duplicate account in the service map!"));
             }
-            return delta;
         }
 
-        static state_t<CONSTANTS> decode_state(decoder &dec)
+        static void serialize_state(auto &archive, const std::string_view, state_t<CONSTANTS> &st)
         {
-            auto tau = dec.decode<decltype(pre.tau)>();
-            auto eta0 = dec.decode<entropy_t>();
-            auto nu = dec.decode<decltype(pre.nu)>();
-            auto ksi = dec.decode<decltype(pre.ksi)>();
-            auto chi = dec.decode<decltype(pre.chi)>();
-            auto delta = decode_accounts(dec);
-
-            return {
-                .delta = std::move(delta),
-                //.eta = std::move(eta),
-                .nu = std::move(nu),
-                .ksi = std::move(ksi),
-                .tau = std::move(tau),
-                .chi = std::move(chi)
-            };
+            using namespace std::string_view_literals;
+            archive.process("slot"sv, st.tau);
+            archive.process("entropy"sv, st.eta[0]);
+            archive.process("ready_queue"sv, st.nu);
+            archive.process("accumulated"sv, st.ksi);
+            archive.process("privileges"sv, st.chi);
+            serialize_accounts(archive, "accounts"sv, st.delta);
         }
 
-        static test_case_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(in)>(),
-                decode_state(dec),
-                dec.decode<decltype(out)>(),
-                decode_state(dec)
-            };
+            using namespace std::string_view_literals;
+            archive.process("input"sv, in);
+            serialize_state(archive, "pre_state"sv, pre);
+            archive.process("output"sv, out);
+            serialize_state(archive, "post_state"sv, post);
         }
     };
 

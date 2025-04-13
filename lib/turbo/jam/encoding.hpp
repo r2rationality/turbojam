@@ -78,6 +78,15 @@ namespace turbo::jam {
                 encode(v);
         }
 
+        void process_map(auto &m)
+        {
+            process_varlen_uint(m.size());
+            for (const auto &[k, v]: m) {
+                process(k);
+                process(v);
+            }
+        }
+
         void process_array_fixed(auto &self)
         {
             for (const auto &v: self)
@@ -234,6 +243,20 @@ namespace turbo::jam {
                     process(*val);
                     break;
                 [[unlikely]] default: throw error(fmt::format("unsupported optional type: {}", typ));
+            }
+        }
+
+        void process_map(auto &m, const std::string_view key_name, const std::string_view val_name)
+        {
+            using T = std::decay_t<decltype(m)>;
+            const auto sz = uint_varlen<size_t>();
+            m.clear();
+            for (size_t i = 0; i < sz; ++i) {
+                auto k = decode<typename T::key_type>();
+                auto v = decode<typename T::mapped_type>();
+                const auto [it, created] = m.try_emplace(std::move(k), std::move(v));
+                if (!created) [[unlikely]]
+                    throw error(fmt::format("a map contains non-unique items: {}", typeid(m).name()));
             }
         }
 

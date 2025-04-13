@@ -51,6 +51,22 @@ namespace turbo::codec::json {
             decode(_jv.at(name), val);
         }
 
+        void process_map(auto &m, const std::string_view key_name, const std::string_view val_name)
+        {
+            using T = std::decay_t<decltype(m)>;
+            const auto &ja = _jv.as_array();
+            m.clear();
+            for (const auto &jv: ja) {
+                typename T::key_type k;
+                process(key_name, k);
+                typename T::mapped_type v;
+                process(val_name, v);
+                const auto [it, created] = m.try_emplace(std::move(k), std::move(v));
+                if (!created) [[unlikely]]
+                    throw error(fmt::format("a map contains non-unique items: {}", typeid(m).name()));
+            }
+        }
+
         void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
         {
             const auto &j_arr = _jv.get_array();

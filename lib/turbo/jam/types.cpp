@@ -36,22 +36,6 @@ namespace turbo::jam {
             && assurances == o.assurances;
     }
 
-    authorizer_t authorizer_t::from_bytes(decoder &dec)
-    {
-        return {
-            dec.decode<decltype(code_hash)>(),
-            dec.decode<decltype(params)>()
-        };
-    }
-
-    authorizer_t authorizer_t::from_json(const boost::json::value &j)
-    {
-        return {
-            decltype(code_hash)::from_json(j.at("code_hash")),
-            decltype(params)::from_json(j.at("params"))
-        };
-    }
-
     template<typename CONSTANTS>
     availability_assignment_t<CONSTANTS> availability_assignment_t<CONSTANTS>::from_bytes(decoder &dec)
     {
@@ -73,26 +57,6 @@ namespace turbo::jam {
 
     template struct availability_assignment_t<config_prod>;
     template struct availability_assignment_t<config_tiny>;
-
-    block_info_t block_info_t::from_bytes(decoder &dec)
-    {
-        return {
-            dec.decode<decltype(header_hash)>(),
-            dec.decode<decltype(mmr)>(),
-            dec.decode<decltype(state_root)>(),
-            dec.decode<decltype(reported)>()
-        };
-    }
-
-    block_info_t block_info_t::from_json(const boost::json::value &j)
-    {
-        return {
-            decltype(header_hash)::from_json(j.at("header_hash")),
-            decltype(mmr)::from_json(j.at("mmr")),
-            decltype(state_root)::from_json(j.at("state_root")),
-            decltype(reported)::from_json(j.at("reported"))
-        };
-    }
 
     core_authorizer_t core_authorizer_t::from_bytes(decoder &dec)
     {
@@ -148,77 +112,6 @@ namespace turbo::jam {
             return false;
         return true;
     }
-
-    template<typename CONSTANTS>
-    ready_record_t<CONSTANTS> ready_record_t<CONSTANTS>::from_bytes(decoder &dec)
-    {
-        return {
-            dec.decode<decltype(report)>(),
-            dec.decode<decltype(dependencies)>()
-        };
-    }
-
-    template<typename CONSTANTS>
-    ready_record_t<CONSTANTS> ready_record_t<CONSTANTS>::from_json(const boost::json::value &j)
-    {
-        codec::json::decoder report_dec { j.at("report") };
-        return {
-            decltype(report)::from(report_dec),
-            decltype(dependencies)::from_json(j.at("dependencies"))
-        };
-    }
-
-    template struct ready_record_t<config_prod>;
-    template struct ready_record_t<config_tiny>;
-
-    template<typename CONSTANTS>
-    refine_context_t<CONSTANTS> refine_context_t<CONSTANTS>::from_bytes(decoder &dec)
-    {
-        return {
-            dec.decode<decltype(anchor)>(),
-            dec.decode<decltype(state_root)>(),
-            dec.decode<decltype(beefy_root)>(),
-            dec.decode<decltype(lookup_anchor)>(),
-            dec.decode<decltype(lookup_anchor_slot)>(),
-            dec.decode<decltype(prerequisites)>()
-        };
-    }
-
-    template<typename CONSTANTS>
-    refine_context_t<CONSTANTS> refine_context_t<CONSTANTS>::from_json(const boost::json::value &j)
-    {
-        codec::json::decoder lookup_anchor_slot_dec { j.at("lookup_anchor_slot") };
-        return {
-            decltype(anchor)::from_json(j.at("anchor")),
-            decltype(state_root)::from_json(j.at("state_root")),
-            decltype(beefy_root)::from_json(j.at("beefy_root")),
-            decltype(lookup_anchor)::from_json(j.at("lookup_anchor")),
-            decltype(lookup_anchor_slot)::from(lookup_anchor_slot_dec),
-            decltype(prerequisites)::from_json(j.at("prerequisites"))
-        };
-    }
-
-    template<typename CONSTANTS>
-    void refine_context_t<CONSTANTS>::to_bytes(encoder &enc) const
-    {
-        anchor.to_bytes(enc);
-        state_root.to_bytes(enc);
-        beefy_root.to_bytes(enc);
-        lookup_anchor.to_bytes(enc);
-        lookup_anchor_slot.serialize(enc);
-        prerequisites.to_bytes(enc);
-    }
-
-    template<typename CONSTANTS>
-    bool refine_context_t<CONSTANTS>::operator==(const refine_context_t &o) const
-    {
-        return anchor == o.anchor && state_root == o.state_root && beefy_root == o.beefy_root
-            && lookup_anchor == o.lookup_anchor && lookup_anchor_slot == o.lookup_anchor_slot
-            && prerequisites == o.prerequisites;
-    }
-
-    template struct refine_context_t<config_prod>;
-    template struct refine_context_t<config_tiny>;
 
     reported_work_package_t reported_work_package_t::from_bytes(decoder &dec)
     {
@@ -313,28 +206,11 @@ namespace turbo::jam {
         };
     }
 
-    work_result_ok_t work_result_ok_t::from_bytes(decoder &dec)
-    {
-        return {
-            dec.decode<decltype(data)>()
-        };
-    }
-
-    work_result_ok_t work_result_ok_t::from_json(const boost::json::value &j)
-    {
-        return { decltype(data)::from_json(j) };
-    }
-
-    void work_result_ok_t::to_bytes(encoder &enc) const
-    {
-        data.to_bytes(enc);
-    }
-
     work_exec_result_t work_exec_result_t::from_bytes(decoder &dec)
     {
         const auto typ = dec.decode<uint8_t>();
         switch (typ) {
-            case 0: return { work_result_ok_t::from_bytes(dec) };
+            case 0: return { work_result_ok_t::from(dec) };
             case 1: return { work_result_out_of_gas_t {} };
             case 2: return { work_result_panic_t {} };
             case 3: return { work_result_bad_exports_t {} };
@@ -350,8 +226,10 @@ namespace turbo::jam {
         if (jobj.size() != 1) [[unlikely]]
             throw error(fmt::format("expected the map to have just one element but got: {}", boost::json::serialize(j)));
         const auto name = jobj.begin()->key();
-        if (name == "ok")
-            return { work_result_ok_t::from_json(jobj.begin()->value()) };
+        if (name == "ok") {
+            codec::json::decoder j_dec { jobj.begin()->value() };
+            return { work_result_ok_t::from(j_dec) };
+        }
         if (name == "out_of_gas")
             return { work_result_out_of_gas_t {} };
         if (name == "panic")
@@ -371,7 +249,7 @@ namespace turbo::jam {
             using T = std::decay_t<decltype(cv)>;
             if constexpr (std::is_same_v<T, work_result_ok_t>) {
                 enc.process_uint<uint8_t>(0);
-                cv.to_bytes(enc);
+                cv.serialize(enc);
             } else if constexpr (std::is_same_v<T, work_result_out_of_gas_t>) {
                 enc.process_uint<uint8_t>(1);
             } else if constexpr (std::is_same_v<T, work_result_panic_t>) {
@@ -387,33 +265,6 @@ namespace turbo::jam {
             }
         }, *this);
     }
-
-    template<typename CONSTANTS>
-    work_package_t<CONSTANTS> work_package_t<CONSTANTS>::from_bytes(decoder &dec)
-    {
-        return {
-            dec.decode<decltype(authorization)>(),
-            dec.decode<decltype(auth_code_host)>(),
-            dec.decode<decltype(authorizer)>(),
-            dec.decode<decltype(context)>(),
-            dec.decode<decltype(items)>()
-        };
-    }
-
-    template<typename CONSTANTS>
-    work_package_t<CONSTANTS> work_package_t<CONSTANTS>::from_json(const boost::json::value &j)
-    {
-        return {
-            decltype(authorization)::from_json(j.at("authorization")),
-            boost::json::value_to<decltype(auth_code_host)>(j.at("auth_code_host")),
-            decltype(authorizer)::from_json(j.at("authorizer")),
-            decltype(context)::from_json(j.at("context")),
-            decltype(items)::from_json(j.at("items"))
-        };
-    }
-
-    template struct work_package_t<config_prod>;
-    template struct work_package_t<config_tiny>;
 
     work_package_spec_t work_package_spec_t::from_bytes(decoder &dec)
     {

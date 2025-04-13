@@ -51,9 +51,21 @@ namespace {
 suite turbo_jam_types_suite = [] {
     "turbo::jam::types"_test = [] {
         "serialization round trip"_test = [] {
-            test_roundtrip<work_item_t>(file::install_path("test/jam-test-vectors/codec/data/work_item"));
+            test_roundtrip<assurances_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/assurances_extrinsic"));
             test_roundtrip<block_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/block"));
+            test_roundtrip<disputes_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/disputes_extrinsic"));
+            test_roundtrip<extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/extrinsic"));
+            test_roundtrip<guarantees_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/guarantees_extrinsic"));
+            test_roundtrip<header_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/header_0"));
+            test_roundtrip<header_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/header_1"));
+            test_roundtrip<preimages_extrinsic_t>(file::install_path("test/jam-test-vectors/codec/data/preimages_extrinsic"));
+            test_roundtrip<refine_context_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/refine_context"));
+            test_roundtrip<tickets_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/tickets_extrinsic"));
+            test_roundtrip<work_item_t>(file::install_path("test/jam-test-vectors/codec/data/work_item"));
+            test_roundtrip<work_package_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/work_package"));
             test_roundtrip<work_report_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/work_report"));
+            test_roundtrip<work_result_t>(file::install_path("test/jam-test-vectors/codec/data/work_result_0"));
+            test_roundtrip<work_result_t>(file::install_path("test/jam-test-vectors/codec/data/work_result_1"));
         };
         "conformance test vectors"_test = [] {
             test_decode<assurances_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/assurances_extrinsic"));

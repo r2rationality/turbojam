@@ -24,7 +24,7 @@ namespace {
         }
     };
 
-    using tmp_accounts_t = map_t<service_id_t, tmp_account_t>;
+    using tmp_accounts_t = map_t<service_id_t, tmp_account_t, accounts_config_t>;
 
     template<typename CONSTANTS>
     struct input_t {
@@ -119,8 +119,11 @@ namespace {
             tmp_accounts_t taccs;
             archive.process(name, taccs);
             self.clear();
-            for (const auto &[id, info]: taccs) {
-                self.try_emplace(id, preimages_t {}, lookup_metas_t<CONSTANTS> {}, info.service);
+            for (auto &&[id, tacc]: taccs) {
+                account_t<CONSTANTS> acc {
+                    .info=std::move(tacc.service)
+                };
+                self.try_emplace(std::move(id), std::move(acc));
             }
         }
 

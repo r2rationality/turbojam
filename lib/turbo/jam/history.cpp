@@ -7,23 +7,15 @@
 
 namespace turbo::jam {
     template<typename CONSTANTS>
-    blocks_history_t<CONSTANTS> blocks_history_t<CONSTANTS>::from_bytes(decoder &dec)
-    {
-        return base_type::template from_bytes<blocks_history_t<CONSTANTS>>(dec);
-    }
-
-    template<typename CONSTANTS>
-    blocks_history_t<CONSTANTS> blocks_history_t<CONSTANTS>::from_json(const boost::json::value &j)
-    {
-        return base_type::template from_json<blocks_history_t<CONSTANTS>>(j);
-    }
-
-    template<typename CONSTANTS>
     blocks_history_t<CONSTANTS> blocks_history_t<CONSTANTS>::apply(const header_hash_t &hh, const state_root_t &sr, const opaque_hash_t &ar, const reported_work_seq_t &wp) const
     {
         static mmr_t empty_mmr {};
         const mmr_t &prev_mmr = base_type::empty() ? empty_mmr : base_type::at(base_type::size() - 1).mmr;
-        block_info_t bi { hh, prev_mmr.append(ar), {}, wp };
+        block_info_t bi {
+            .header_hash=hh,
+            .mmr=prev_mmr.append(ar),
+            .reported=wp
+        };
         auto new_beta = *this;
         if (!new_beta.empty()) [[likely]]
             new_beta.back().state_root = sr;
