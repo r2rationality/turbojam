@@ -20,12 +20,6 @@
 namespace turbo::jam {
     // jam-types.asn
 
-    template<typename T>
-    concept from_json_c = requires(T t, const boost::json::value &j)
-    {
-        { T::from_json(j) };
-    };
-
     struct byte_sequence_t: uint8_vector, codec::serializable_t<byte_sequence_t> {
         using base_type = uint8_vector;
         using base_type::base_type;

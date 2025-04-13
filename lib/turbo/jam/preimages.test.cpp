@@ -13,6 +13,21 @@ namespace {
     using namespace turbo::jam;
 
     template<typename CONSTANTS>
+    struct tmp_account_t: codec::serializable_t<tmp_account_t<CONSTANTS>> {
+        preimages_t preimages;
+        lookup_metas_t<CONSTANTS> lookup_metas;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("preimages"sv, preimages);
+            archive.process("lookup_meta"sv, lookup_metas);
+        }
+    };
+    template<typename CONSTANTS>
+    using tmp_accounts_t = map_t<service_id_t, tmp_account_t<CONSTANTS>, accounts_config_t>;
+
+    template<typename CONSTANTS>
     struct input_t {
         preimages_extrinsic_t preimages;
         time_slot_t<CONSTANTS> slot;
@@ -64,27 +79,29 @@ namespace {
     };
 
     template<typename CONSTANTS>
-    struct test_case_t {
+    struct test_case_t: codec::serializable_t<test_case_t<CONSTANTS>> {
         input_t<CONSTANTS> input;
         state_t<CONSTANTS> pre_state;
         output_t output;
         state_t<CONSTANTS> post_state;
 
-        static state_t<CONSTANTS> decode_state(decoder &dec)
+        static void serialize_state(auto &archive, const std::string_view, state_t<CONSTANTS> &st)
         {
-            return {
-                .delta=dec.decode<decltype(state_t<CONSTANTS>::delta)>()
-            };
+            using namespace std::string_view_literals;
+            tmp_accounts_t<CONSTANTS> taccs;
+            archive.process("accounts"sv, taccs);
+            for (auto &&[id, tacc]: taccs) {
+                st.delta.try_emplace(std::move(id), account_t<CONSTANTS> { .preimages=std::move(tacc.preimages), .lookup_metas=std::move(tacc.lookup_metas) });
+            }
         }
 
-        static test_case_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(input)>(),
-                decode_state(dec),
-                dec.decode<decltype(output)>(),
-                decode_state(dec)
-            };
+            using namespace std::string_view_literals;
+            archive.process("input"sv, input);
+            serialize_state(archive, "pre_state"sv, pre_state);
+            archive.process("output"sv, output);
+            serialize_state(archive, "post_state"sv, post_state);
         }
     };
 
@@ -113,7 +130,6 @@ namespace {
 
 suite turbo_jam_preimages_suite = [] {
     "turbo::jam::preimages"_test = [] {
-        test_file<config_tiny>(file::install_path("test/jam-test-vectors/preimages/data/preimage_needed-2.bin"));
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/preimages/data"), ".bin")) {
             test_file<config_tiny>(path);
         }

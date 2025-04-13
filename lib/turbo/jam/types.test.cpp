@@ -26,7 +26,7 @@ namespace {
             const auto b_val = T::from(dec);
             expect(dec.empty(), loc) << prefix;
             expect(j_val == b_val) << prefix;
-        } else if constexpr (from_json_c<T> && from_bytes_c<T>) {
+        } else if constexpr (from_bytes_c<T>) {
             const auto b_val = T::from_bytes(dec);
             expect(dec.empty(), loc) << prefix;
             const auto j_val = T::from_json(j);
