@@ -377,8 +377,12 @@ namespace turbo::jam {
                     throw err_core_unauthorized_t {};
             }
 
-            ro[g.report.core_index].emplace(g.report, slot.slot());
-            res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
+            ro[g.report.core_index] = availability_assignment_t<CONSTANTS> {
+                .report=g.report, .timeout=slot.slot()
+            };
+            res.reported.emplace_back(reported_work_package_t {
+                .hash=g.report.package_spec.hash, .exports_root=g.report.package_spec.exports_root
+            });
 
             uint8_vector msg {};
             msg << std::string_view { "jam_guarantee" };

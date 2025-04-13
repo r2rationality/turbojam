@@ -66,7 +66,7 @@ namespace {
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
-                case 0: return { accumulate_root_t::from_bytes(dec) };
+                case 0: return { accumulate_root_t::from(dec) };
                 case 1: return { err_code_t {} };
                 [[unlikely]] default: throw error(fmt::format("unsupported output_t type: {}", typ));
             }
