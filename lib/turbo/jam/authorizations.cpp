@@ -7,19 +7,6 @@
 #include "types.hpp"
 
 namespace turbo::jam {
-
-    template<typename CONSTANTS>
-    auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::from_bytes(decoder &dec)
-    {
-        return base_type::template from_bytes<auth_pools_t>(dec);
-    }
-
-    template<typename CONSTANTS>
-    auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::from_json(const boost::json::value &j)
-    {
-        return base_type::template  from_json<auth_pools_t>(j);
-    }
-
     template<typename CONSTANTS>
     auth_pools_t<CONSTANTS> auth_pools_t<CONSTANTS>::apply(const time_slot_t<CONSTANTS> &slot, const core_authorizers_t &cas, const auth_queues_t<CONSTANTS> &phi) const
     {

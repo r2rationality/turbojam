@@ -9,9 +9,21 @@
 #include <turbo/common/file.hpp>
 #include <turbo/common/numeric-cast.hpp>
 
+#include "turbo/codec/serializable.hpp"
+
 namespace turbo::jam {
-    struct encoder {
-        void uint_trivial(const size_t num_bytes, const uint64_t val)
+    struct decoder;
+
+    template<typename T>
+    concept from_bytes_c = requires(T t, decoder &dec)
+    {
+        { T::from_bytes(dec) };
+    };
+
+    struct encoder: codec::archive_t {
+        static constexpr bool read_only = true;
+
+        void uint_fixed(const size_t num_bytes, const uint64_t val)
         {
             auto x = val;
             for (size_t i = 0; i < num_bytes; ++i) {
@@ -22,12 +34,12 @@ namespace turbo::jam {
                 throw error(fmt::format("{} cannot be encoded as a sequence of {} bytes", val, num_bytes));
         }
 
-        void uint_general(const uint64_t x)
+        void uint_varlen(const uint64_t x)
         {
             static constexpr size_t max_uint_val = uint64_t { 1 } << 63;
             if (x >= max_uint_val) [[unlikely]] {
                 _bytes.emplace_back(0xFF);
-                uint_trivial(8, x);
+                uint_fixed(8, x);
                 return;
             }
             if (x == 0) {
@@ -42,24 +54,87 @@ namespace turbo::jam {
             const auto bit_mask = static_cast<uint8_t>(0x100 - (uint8_t { 1 } << (8 - l)));
             const auto high_bits = static_cast<uint8_t>(x >> base);
             _bytes.emplace_back(bit_mask | high_bits);
-            uint_trivial(l, x & ((uint64_t { 1 } << base) - 1));
+            uint_fixed(l, x & ((uint64_t { 1 } << base) - 1));
+        }
+
+        template<typename T>
+        void process_uint(const T &val)
+        {
+            uint_fixed(sizeof(val), val);
+        }
+
+        template<typename T>
+        void process_varlen_uint(const T &val)
+        {
+            uint_varlen(val);
+        }
+
+        void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
+        {
+            if (!(static_cast<int>(self.size() >= min_sz) & static_cast<int>(self.size() <= max_sz))) [[unlikely]]
+                throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", self.size(), min_sz, max_sz));
+            process_varlen_uint(self.size());
+            for (const auto &v: self)
+                encode(v);
+        }
+
+        void process_array_fixed(auto &self)
+        {
+            for (const auto &v: self)
+                encode(v);
+        }
+
+        void process_bytes(const buffer bytes)
+        {
+            process_varlen_uint(bytes.size());
+            _bytes << bytes;
+        }
+
+        void process_bytes_fixed(const buffer bytes)
+        {
+            _bytes << bytes;
+        }
+
+        void process_optional(auto &val)
+        {
+            if (val.has_value()) {
+                uint_fixed(1, 1);
+                process(*val);
+            } else {
+                uint_fixed(1, 0);
+            }
+        }
+
+        template<typename T>
+        void process(const T &val)
+        {
+            if constexpr (std::is_same_v<T, uint64_t>) {
+                uint_fixed(8, val);
+            } else if constexpr (std::is_same_v<T, uint32_t>) {
+                uint_fixed(4, val);
+            } else if constexpr (std::is_same_v<T, uint16_t>) {
+                uint_fixed(2, val);
+            } else if constexpr (std::is_same_v<T, uint8_t>) {
+                uint_fixed(1, val);
+            } else if constexpr (std::is_same_v<T, bool>) {
+                uint_fixed(1, static_cast<uint8_t>(val));
+            } else if constexpr (codec::serializable_c<T>) {
+                val.serialize(*this);
+            } else {
+                val.to_bytes(*this);
+            }
+        }
+
+        template<typename T>
+        void process(const std::string_view, const T &val)
+        {
+            process(val);
         }
 
         template<typename T>
         void encode(const T &val)
         {
-            using DT = std::decay_t<T>;
-            if constexpr (std::is_same_v<uint64_t, DT>) {
-                uint_trivial(8, val);
-            } else if constexpr (std::is_same_v<uint32_t, DT>) {
-                uint_trivial(4, val);
-            } else if constexpr (std::is_same_v<uint16_t, DT>) {
-                uint_trivial(2, val);
-            } else if constexpr (std::is_same_v<uint8_t, DT>) {
-                uint_trivial(1, val);
-            } else {
-                val.to_bytes(*this);
-            }
+            process(val);;
         }
 
         uint8_vector &bytes()
@@ -70,7 +145,9 @@ namespace turbo::jam {
         uint8_vector _bytes {};
     };
 
-    struct decoder {
+    struct decoder: codec::archive_t {
+        static constexpr bool read_only = false;
+
         explicit decoder(const buffer bytes) noexcept:
             _ptr { bytes.data() },
             _end { bytes.data() + bytes.size() }
@@ -78,7 +155,7 @@ namespace turbo::jam {
         }
 
         template<typename T>
-        T uint_trivial(const size_t num_bytes)
+        T uint_fixed(const size_t num_bytes)
         {
             if (num_bytes > 8) [[unlikely]]
                 throw error("uint_trivial supports 8-bytes values at most!");
@@ -90,16 +167,16 @@ namespace turbo::jam {
         }
 
         template<typename T=uint64_t>
-        T uint_general()
+        T uint_varlen()
         {
-            auto prefix = uint_trivial<uint8_t>(1);
+            auto prefix = uint_fixed<uint8_t>(1);
             size_t l = 0;
             while (prefix & (1 << (7 - l))) {
                 prefix &= ~(1 << (7 - l));
                 ++l;
             }
             uint64_t res = prefix << (l << 3);
-            res |= uint_trivial<uint64_t>(l);
+            res |= uint_fixed<uint64_t>(l);
             return numeric_cast<T>(res);
         }
 
@@ -107,36 +184,89 @@ namespace turbo::jam {
         T decode()
         {
             if constexpr (std::is_same_v<uint64_t, T>) {
-                return uint_trivial<T>(8);
+                return uint_fixed<T>(8);
             } else if constexpr (std::is_same_v<uint32_t, T>) {
-                return uint_trivial<T>(4);
+                return uint_fixed<T>(4);
             } else if constexpr (std::is_same_v<uint16_t, T>) {
-                return uint_trivial<T>(2);
+                return uint_fixed<T>(2);
             } else if constexpr (std::is_same_v<uint8_t, T>) {
-                return uint_trivial<T>(1);
+                return uint_fixed<T>(1);
             } else if constexpr (std::is_same_v<bool, T>) {
-                return static_cast<T>(uint_trivial<uint8_t>(1));
+                return static_cast<T>(uint_fixed<uint8_t>(1));
+            } else if constexpr (codec::serializable_c<T>) {
+                return T::template from<T>(*this);
             } else {
                 return T::from_bytes(*this);
             }
         }
 
         template<typename T>
+        void process_varlen_uint(T &val)
+        {
+            val = uint_varlen<T>();
+        }
+
+        template<typename T>
+        void process_uint(T &val)
+        {
+            val = uint_fixed<T>(sizeof(val));
+        }
+
+        template<typename T>
+        void process(T &val)
+        {
+            val = decode<T>();
+        }
+
+        template<typename T>
         void process(const std::string_view, T &val)
         {
-            if constexpr (std::is_same_v<uint64_t, T>) {
-                val = uint_trivial<T>(8);
-            } else if constexpr (std::is_same_v<uint32_t, T>) {
-                val =  uint_trivial<T>(4);
-            } else if constexpr (std::is_same_v<uint16_t, T>) {
-                val =  uint_trivial<T>(2);
-            } else if constexpr (std::is_same_v<uint8_t, T>) {
-                val =  uint_trivial<T>(1);
-            } else if constexpr (std::is_same_v<bool, T>) {
-                val =  static_cast<T>(uint_trivial<uint8_t>(1));
-            } else {
-                T::serialize(*this, val);
+            process(val);
+        }
+
+        void process_optional(auto &val)
+        {
+            val.reset();
+            switch (const auto typ = uint_fixed<uint8_t>(1)) {
+                case 0: break;
+                case 1:
+                    val.emplace();
+                    process(*val);
+                    break;
+                [[unlikely]] default: throw error(fmt::format("unsupported optional type: {}", typ));
             }
+        }
+
+        void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
+        {
+            const auto sz = uint_varlen<size_t>();
+            if (!(static_cast<int>(sz >= min_sz) & static_cast<int>(sz <= max_sz))) [[unlikely]]
+                throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", self.size(), min_sz, max_sz));
+            self.resize(sz);
+            for (size_t i = 0; i < sz; ++i) {
+                process(self[i]);
+            }
+        }
+
+        void process_array_fixed(auto &self)
+        {
+            for (size_t i = 0; i < self.size(); ++i) {
+                process(self[i]);
+            }
+        }
+
+        void process_bytes(std::vector<uint8_t> &bytes)
+        {
+            const auto sz = uint_varlen<size_t>();
+            bytes.reserve(sz);
+            for (size_t i = 0; i < sz; ++i)
+                bytes.emplace_back(next());
+        }
+
+        void process_bytes_fixed(const std::span<uint8_t> bytes)
+        {
+            for (size_t i = 0; i < bytes.size(); ++i)
+                bytes[i] = next();
         }
 
         uint8_t next()
@@ -175,6 +305,10 @@ namespace turbo::jam {
     {
         const auto bytes = file::read(path);
         decoder dec { bytes };
-        return T::from_bytes(dec);
+        if constexpr (codec::serializable_c<T>) {
+            return T::from(dec);
+        } else {
+            return T::from_bytes(dec);
+        }
     }
 }

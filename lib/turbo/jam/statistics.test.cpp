@@ -28,30 +28,25 @@ namespace {
     };
 
     template<typename CONSTANTS>
-    struct test_case_t {
+    struct test_case_t: codec::serializable_t<test_case_t<CONSTANTS>> {
         input_t<CONSTANTS> in;
         state_t<CONSTANTS> pre;
         state_t<CONSTANTS> post;
 
-        static state_t<CONSTANTS> decode_state(decoder &dec)
+        void serialize_state(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
         {
-            auto pi = dec.decode<decltype(pre.pi)>();
-            auto tau = dec.decode<decltype(pre.tau)>();
-            auto kappa = dec.decode<decltype(pre.kappa)>();
-            return {
-                .kappa=std::move(kappa),
-                .pi=std::move(pi),
-                .tau=std::move(tau)
-            };
+            using namespace std::string_view_literals;
+            archive.process("statistics"sv, st.pi);
+            archive.process("slot"sv, st.tau);
+            archive.process("curr_validators"sv, st.kappa);
         }
 
-        static test_case_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(in)>(),
-                decode_state(dec),
-                decode_state(dec)
-            };
+            using namespace std::string_view_literals;
+            archive.process("input"sv, in);
+            serialize_state(archive, "pre_state"sv, pre);
+            serialize_state(archive, "post_state"sv, post);
         }
     };
 

@@ -9,6 +9,7 @@
 #include "state.hpp"
 
 namespace {
+    using namespace std::string_view_literals;
     using namespace turbo;
     using namespace turbo::jam;
 
@@ -107,58 +108,47 @@ namespace {
     };
 
     template<typename CONSTANTS>
-    struct test_case_t {
+    struct test_case_t: codec::serializable_t<test_case_t<CONSTANTS>> {
         input_t<CONSTANTS> in;
         state_t<CONSTANTS> pre;
         output_t out;
         state_t<CONSTANTS> post;
 
-        static accounts_t<CONSTANTS> decode_accounts(decoder &dec)
+        static void serialize_accounts(auto &archive, const std::string_view name, accounts_t<CONSTANTS> &self)
         {
-            auto accs = dec.decode<tmp_accounts_t>();
-            accounts_t<CONSTANTS> delta {};
-            for (const auto &[id, info]: accs) {
-                delta.try_emplace(id, preimages_t {}, lookup_metas_t<CONSTANTS> {}, info.service);
+            tmp_accounts_t taccs;
+            archive.process(name, taccs);
+            self.clear();
+            for (const auto &[id, info]: taccs) {
+                self.try_emplace(id, preimages_t {}, lookup_metas_t<CONSTANTS> {}, info.service);
             }
-            return delta;
         }
 
-        static state_t<CONSTANTS> decode_state(decoder &dec)
+        static void serialize_state(auto &archive, const std::string_view, state_t<CONSTANTS> &self)
         {
-            auto ro = dec.decode<decltype(pre.ro)>();
-            auto kappa = dec.decode<decltype(pre.kappa)>();
-            auto lambda = dec.decode<decltype(pre.lambda)>();
-            auto eta = dec.decode<decltype(pre.eta)>();
-            auto psi_o_post = dec.decode<decltype(pre.psi_o_post)>();
-            auto beta = dec.decode<decltype(pre.beta)>();
-            auto alpha = dec.decode<decltype(pre.alpha)>();
-            auto delta = decode_accounts(dec);
-            auto pi_cores = dec.decode<decltype(pre.pi.cores)>();
-            auto pi_services = dec.decode<decltype(pre.pi.services)>();
-            return {
-                .alpha = std::move(alpha),
-                .beta = std::move(beta),
-                .delta = std::move(delta),
-                .eta = std::move(eta),
-                .kappa = std::move(kappa),
-                .lambda = std::move(lambda),
-                .pi {
-                    .cores = std::move(pi_cores),
-                    .services = std::move(pi_services),
-                },
-                .ro = std::move(ro),
-                .psi_o_post = std::move(psi_o_post)
-            };
+            archive.process("avail_assignments"sv, self.ro);
+            archive.process("curr_validators"sv, self.kappa);
+            archive.process("prev_validators"sv, self.lambda);
+            archive.process("entropy"sv, self.eta);
+            archive.process("offenders"sv, self.psi_o_post);
+            archive.process("recent_blocks"sv, self.beta);
+            archive.process("auth_pools"sv, self.alpha);
+            serialize_accounts(archive, "accounts"sv, self.delta);
+            archive.process("cores_statistics"sv, self.pi.cores);
+            archive.process("services_statistics"sv, self.pi.services);
+        }
+
+        void serialize(auto &archive)
+        {
+            archive.process("input"sv, in);
+            serialize_state(archive, "pre_state"sv, pre);
+            archive.process("output"sv, out);
+            serialize_state(archive, "post_state"sv, post);
         }
 
         static test_case_t from_bytes(decoder &dec)
         {
-            return {
-                dec.decode<decltype(in)>(),
-                decode_state(dec),
-                dec.decode<decltype(out)>(),
-                decode_state(dec)
-            };
+            return test_case_t::from(dec);
         }
     };
 
@@ -189,17 +179,16 @@ namespace {
 
 suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
-        "conformance test vectors"_test = [] {
-            "tiny"_test = [] {
-                for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/tiny"), ".bin")) {
-                    test_file<config_tiny>(path);
-                }
-            };
-            "full"_test = [] {
-                for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/full"), ".bin")) {
-                    test_file<config_prod>(path);
-                }
-            };
+        test_file<config_tiny>(file::install_path("test/jam-test-vectors/reports/tiny/bad_code_hash-1.bin"));
+        "tiny"_test = [] {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/tiny"), ".bin")) {
+                test_file<config_tiny>(path);
+            }
+        };
+        "full"_test = [] {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/full"), ".bin")) {
+                test_file<config_prod>(path);
+            }
         };
     };
 };

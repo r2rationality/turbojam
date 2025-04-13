@@ -16,33 +16,61 @@ namespace {
     template<typename T>
     void test_decode(const std::string &prefix, const std::source_location &loc=std::source_location::current())
     {
-        const auto j = turbo::codec::json::load(prefix + ".json");
-        const auto j_val = T::from_json(j);
         const auto bytes = file::read(prefix + ".bin");
         decoder dec { bytes };
         expect(!dec.empty(), loc);
-        const auto val = T::from_bytes(dec);
-        expect(dec.empty(), loc) << prefix;
-        expect(j_val == val) << prefix;
+        const auto j = codec::json::load(prefix + ".json");
+        if constexpr (codec::serializable_c<T>) {
+            codec::json::decoder j_dec { j };
+            const auto j_val = T::from(j_dec);
+            const auto b_val = T::from(dec);
+            expect(dec.empty(), loc) << prefix;
+            expect(j_val == b_val) << prefix;
+        } else if constexpr (from_json_c<T> && from_bytes_c<T>) {
+            const auto b_val = T::from_bytes(dec);
+            expect(dec.empty(), loc) << prefix;
+            const auto j_val = T::from_json(j);
+            expect(j_val == b_val) << prefix;
+        } else {
+            throw error(fmt::format("serialization to supported for {}", typeid(T).name()));
+        }
+    }
+
+    template<typename T>
+    void test_roundtrip(const std::string &prefix)
+    {
+        const auto bytes = file::read(prefix + ".bin");
+        decoder dec { bytes };
+        const auto b = T::from(dec);
+        encoder enc {};
+        b.serialize(enc);
+        expect(enc.bytes() == bytes) << prefix;
     }
 }
 
 suite turbo_jam_types_suite = [] {
     "turbo::jam::types"_test = [] {
-        test_decode<assurances_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/assurances_extrinsic"));
-        test_decode<block_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/block"));
-        test_decode<disputes_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/disputes_extrinsic"));
-        test_decode<extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/extrinsic"));
-        test_decode<guarantees_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/guarantees_extrinsic"));
-        test_decode<header_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/header_0"));
-        test_decode<header_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/header_1"));
-        test_decode<preimages_extrinsic_t>(file::install_path("test/jam-test-vectors/codec/data/preimages_extrinsic"));
-        test_decode<refine_context_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/refine_context"));
-        test_decode<tickets_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/tickets_extrinsic"));
-        test_decode<work_item_t>(file::install_path("test/jam-test-vectors/codec/data/work_item"));
-        test_decode<work_package_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/work_package"));
-        test_decode<work_report_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/work_report"));
-        test_decode<work_result_t>(file::install_path("test/jam-test-vectors/codec/data/work_result_0"));
-        test_decode<work_result_t>(file::install_path("test/jam-test-vectors/codec/data/work_result_1"));
+        "serialization round trip"_test = [] {
+            test_roundtrip<work_item_t>(file::install_path("test/jam-test-vectors/codec/data/work_item"));
+            test_roundtrip<block_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/block"));
+            test_roundtrip<work_report_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/work_report"));
+        };
+        "conformance test vectors"_test = [] {
+            test_decode<assurances_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/assurances_extrinsic"));
+            test_decode<block_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/block"));
+            test_decode<disputes_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/disputes_extrinsic"));
+            test_decode<extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/extrinsic"));
+            test_decode<guarantees_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/guarantees_extrinsic"));
+            test_decode<header_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/header_0"));
+            test_decode<header_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/header_1"));
+            test_decode<preimages_extrinsic_t>(file::install_path("test/jam-test-vectors/codec/data/preimages_extrinsic"));
+            test_decode<refine_context_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/refine_context"));
+            test_decode<tickets_extrinsic_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/tickets_extrinsic"));
+            test_decode<work_item_t>(file::install_path("test/jam-test-vectors/codec/data/work_item"));
+            test_decode<work_package_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/work_package"));
+            test_decode<work_report_t<config_tiny>>(file::install_path("test/jam-test-vectors/codec/data/work_report"));
+            test_decode<work_result_t>(file::install_path("test/jam-test-vectors/codec/data/work_result_0"));
+            test_decode<work_result_t>(file::install_path("test/jam-test-vectors/codec/data/work_result_1"));
+        };
     };
 };

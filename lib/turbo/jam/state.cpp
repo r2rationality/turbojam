@@ -179,9 +179,12 @@ namespace turbo::jam {
             gamma.a.clear();
 
             // JAM Paper (6.27) - epoch marker
-            res.epoch_mark.emplace(eta[0], eta[2]);
+            res.epoch_mark.emplace();
+            res.epoch_mark->entropy = eta[0];
+            res.epoch_mark->tickets_entropy = eta[2];
             for (size_t ki = 0; ki < gamma.k.size(); ++ki) {
-                res.epoch_mark->validators[ki] = { gamma.k[ki].bandersnatch, gamma.k[ki].ed25519 };
+                res.epoch_mark->validators[ki].bandersnatch = gamma.k[ki].bandersnatch;
+                res.epoch_mark->validators[ki].ed25519 = gamma.k[ki].ed25519;
             }
         }
 
@@ -381,7 +384,7 @@ namespace turbo::jam {
             msg << std::string_view { "jam_guarantee" };
             {
                 encoder enc {};
-                g.report.to_bytes(enc);
+                g.report.serialize(enc);
                 msg << crypto::blake2b::digest(enc.bytes());
             }
             std::optional<validator_index_t> prev_validator {};
