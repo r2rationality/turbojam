@@ -20,6 +20,14 @@ namespace turbo::jam {
         { T::from_bytes(dec) };
     };
 
+    struct encoder;
+
+    template<typename T>
+    concept to_bytes_c = requires(T t, encoder &enc)
+    {
+        { t.to_bytes(enc) };
+    };
+
     struct encoder: codec::archive_t {
         void uint_fixed(const size_t num_bytes, const uint64_t val)
         {
@@ -115,7 +123,13 @@ namespace turbo::jam {
         template<typename T>
         void process(const T &val)
         {
-            if constexpr (std::is_same_v<T, uint64_t>) {
+            if constexpr (to_bytes_c<T>) {
+                val.to_bytes(*this);
+            } else if constexpr (codec::serializable_c<T>) {
+                // since the encoder methods do not update the value, it's safe to const_cast the value
+                // this is needed to not implement a custom cost serialize method in each of the serialized classes
+                const_cast<T &>(val).serialize(*this);
+            } else if constexpr (std::is_same_v<T, uint64_t>) {
                 uint_fixed(8, val);
             } else if constexpr (std::is_same_v<T, uint32_t>) {
                 uint_fixed(4, val);
@@ -125,12 +139,8 @@ namespace turbo::jam {
                 uint_fixed(1, val);
             } else if constexpr (std::is_same_v<T, bool>) {
                 uint_fixed(1, static_cast<uint8_t>(val));
-            } else if constexpr (codec::serializable_c<T>) {
-                // since the encoder methods do not update the value, it's safe to const_cast the value
-                // this is needed to not implement a custom cost serialize method in each of the serialized classes
-                const_cast<T &>(val).serialize(*this);
             } else {
-                val.to_bytes(*this);
+                throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
             }
         }
 
@@ -190,7 +200,11 @@ namespace turbo::jam {
         template<typename T>
         T decode()
         {
-            if constexpr (std::is_same_v<uint64_t, T>) {
+            if constexpr (from_bytes_c<T>) {
+                return T::from_bytes(*this);
+            } else if constexpr (codec::serializable_c<T>) {
+                return T::template from<T>(*this);
+            } else if constexpr (std::is_same_v<uint64_t, T>) {
                 return uint_fixed<T>(8);
             } else if constexpr (std::is_same_v<uint32_t, T>) {
                 return uint_fixed<T>(4);
@@ -200,10 +214,8 @@ namespace turbo::jam {
                 return uint_fixed<T>(1);
             } else if constexpr (std::is_same_v<bool, T>) {
                 return static_cast<T>(uint_fixed<uint8_t>(1));
-            } else if constexpr (codec::serializable_c<T>) {
-                return T::template from<T>(*this);
             } else {
-                return T::from_bytes(*this);
+                throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
             }
         }
 

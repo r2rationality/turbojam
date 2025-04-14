@@ -79,7 +79,4 @@ namespace turbo::jam {
             }
         }, *this);
     }
-
-    template struct work_report_t<config_prod>;
-    template struct work_report_t<config_tiny>;
 }

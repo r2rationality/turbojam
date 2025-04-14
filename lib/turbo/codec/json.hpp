@@ -9,6 +9,12 @@
 namespace turbo::codec::json {
     using namespace boost::json;
 
+    template<typename T>
+    concept from_json_c = requires(T t, boost::json::value jv)
+    {
+        { T::from_json(jv) };
+    };
+
     struct decoder: archive_t {
         decoder(const boost::json::value &jv):
             _jv { jv }
@@ -18,16 +24,20 @@ namespace turbo::codec::json {
         template<typename T>
         static void decode(const boost::json::value &jv, T &val)
         {
-            if constexpr (std::is_same_v<T, uint8_t> || std::is_same_v<T, uint16_t>
-                || std::is_same_v<T, uint32_t> || std::is_same_v<T, uint64_t>) {
-                val = boost::json::value_to<T>(jv);
-            } else if constexpr (std::is_same_v<T, bool>) {
-                val = boost::json::value_to<bool>(jv);
+            if constexpr (from_json_c<T>) {
+                val = T::from_json(jv);
             } else if constexpr (serializable_c<T>) {
                 decoder dec { jv };
                 val.serialize(dec);
+            } else if constexpr (std::is_same_v<T, uint8_t>
+                    || std::is_same_v<T, uint16_t>
+                    || std::is_same_v<T, uint32_t>
+                    || std::is_same_v<T, uint64_t>) {
+                val = boost::json::value_to<T>(jv);
+            } else if constexpr (std::is_same_v<T, bool>) {
+                val = boost::json::value_to<bool>(jv);
             } else {
-                val = T::from_json(jv);
+                throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
             }
         }
 
