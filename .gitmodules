@@ -1,3 +1,6 @@
 [submodule "test/jam-test-vectors"]
 	path = test/jam-test-vectors
 	url = https://github.com/davxy/jam-test-vectors.git
+[submodule "test/pvm-test-vectors"]
+	path = test/pvm-test-vectors
+	url = https://github.com/koute/jamtestvectors.git
