@@ -88,6 +88,7 @@ namespace turbo::jam {
         safrole_output_data_t<CONSTANTS> update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic);
         reports_output_data_t update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees);
         void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
+        accumulate_root_t accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports);
 
         // JAM paper: Kapital upsilon
         void apply(const block_t<CONSTANTS> &)

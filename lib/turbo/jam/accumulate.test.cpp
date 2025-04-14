@@ -12,32 +12,30 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
-    struct tmp_account_t {
+    struct tmp_account_t: codec::serializable_t<tmp_account_t> {
         service_info_t service;
         preimages_t preimages;
 
-        static tmp_account_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(service)>(),
-                dec.decode<decltype(preimages)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("service"sv, service);
+            archive.process("preimages"sv, preimages);
         }
     };
 
     using tmp_accounts_t = map_t<service_id_t, tmp_account_t, accounts_config_t>;
 
     template<typename CONSTANTS>
-    struct input_t {
+    struct input_t: codec::serializable_t<input_t<CONSTANTS>> {
         time_slot_t<CONSTANTS> slot;
         work_reports_t<CONSTANTS> reports;
 
-        static input_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(slot)>(),
-                dec.decode<decltype(reports)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("slot"sv, slot);
+            archive.process("reports"sv, reports);
         }
 
         bool operator==(const input_t &o) const
@@ -125,7 +123,7 @@ namespace {
         state_t<CFG> res_st = tc.pre;
         try {
             auto tmp_st = tc.pre;
-            //out.emplace(tmp_st.update_reports(tc.in.slot, tc.in.guarantees));
+            out.emplace(tmp_st.accumulate(tc.in.slot, tc.in.reports));
             res_st = std::move(tmp_st);
         } catch (const error &) {
             out.emplace(err_code_t {});

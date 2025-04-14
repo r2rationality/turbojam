@@ -8,8 +8,7 @@
 #include <turbo/common/bytes.hpp>
 #include <turbo/common/file.hpp>
 #include <turbo/common/numeric-cast.hpp>
-
-#include "turbo/codec/serializable.hpp"
+#include <turbo/codec/serializable.hpp>
 
 namespace turbo::jam {
     struct decoder;
@@ -272,12 +271,20 @@ namespace turbo::jam {
 
         void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
         {
+            using T = std::decay_t<decltype(self)>;
             const auto sz = uint_varlen<size_t>();
             if (!(static_cast<int>(sz >= min_sz) & static_cast<int>(sz <= max_sz))) [[unlikely]]
                 throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", self.size(), min_sz, max_sz));
-            self.resize(sz);
+            self.clear();
+            self.reserve(sz);
             for (size_t i = 0; i < sz; ++i) {
-                process(self[i]);
+                typename T::value_type v;
+                process(v);
+                if constexpr (codec::has_emplace_c<T>) {
+                    self.emplace_hint_unique(self.end(), std::move(v));
+                } else {
+                    self.emplace_back(std::move(v));
+                }
             }
         }
 

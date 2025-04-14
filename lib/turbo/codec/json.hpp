@@ -77,12 +77,20 @@ namespace turbo::codec::json {
 
         void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
         {
+            using T = std::decay_t<decltype(self)>;
             const auto &j_arr = _jv.get_array();
             if (!(static_cast<int>(j_arr.size() >= min_sz) & static_cast<int>(j_arr.size() <= max_sz))) [[unlikely]]
                 throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", j_arr.size(), min_sz, max_sz));
-            self.resize(j_arr.size());
+            self.clear();
+            self.reserve(j_arr.size());
             for (size_t i = 0; i < j_arr.size(); ++i) {
-                decode(j_arr[i], self[i]);
+                typename T::value_type v;
+                decode(j_arr[i], v);
+                if constexpr (has_emplace_c<T>) {
+                    self.emplace_hint_unique(self.end(), std::move(v));
+                } else {
+                    self.emplace_back(std::move(v));
+                }
             }
         }
 

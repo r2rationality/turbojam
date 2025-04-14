@@ -280,6 +280,36 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
+    accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports)
+    {
+        accumulate_root_t res {};
+        // JAM Paper (12.2)
+        set_t<work_package_hash_t> known_reports {};
+        for (const auto &er: ksi) {
+            known_reports.reserve(known_reports.size() + er.size());
+            known_reports.insert_unique(er.begin(), er.end());
+        }
+        work_reports_t<CONSTANTS> work_immediate {}; // JAM Paper (12.4) W^!
+        work_reports_t<CONSTANTS> work_queued {};    // JAM Paper (12.5) W^Q
+        std::map<work_package_hash_t, set_t<work_package_hash_t>> dependencies {};  // JAM Paper (12.6) D(w)
+        for (const auto &r: reports) {
+            auto &deps = dependencies[r.package_spec.hash];
+            deps.reserve(deps.size() + r.context.prerequisites.size() + r.segment_root_lookup.size());
+            for (const auto &h: r.context.prerequisites) {
+                deps.emplace_hint(deps.end(), h);
+            }
+            for (const auto &l: r.segment_root_lookup) {
+                deps.emplace_hint(deps.end(), l.work_package_hash);
+            }
+            auto &queue = static_cast<int>(r.context.prerequisites.empty()) & static_cast<int>(r.segment_root_lookup.empty())
+                ? work_immediate
+                : work_queued;
+            queue.emplace_back(r);
+        }
+        return res;
+    }
+
+    template<typename CONSTANTS>
     reports_output_data_t state_t<CONSTANTS>::update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees)
     {
         reports_output_data_t res {};

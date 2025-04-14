@@ -15,6 +15,12 @@ namespace turbo::codec {
     };
 
     template<typename T>
+    concept has_emplace_c = requires(T t)
+    {
+        { t.emplace() };
+    };
+
+    template<typename T>
     concept serializable_c = requires(T t, archive_t a)
     {
         { t.serialize(a) };

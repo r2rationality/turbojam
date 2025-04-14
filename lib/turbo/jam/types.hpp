@@ -44,6 +44,20 @@ namespace turbo::jam {
         }
     };
 
+    template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
+    struct set_t: boost::container::flat_set<T>, codec::serializable_t<sequence_t<T, MIN, MAX>> {
+        static constexpr size_t min_size = MIN;
+        static constexpr size_t max_size = MAX;
+        static_assert(MIN < MAX);
+        using base_type = boost::container::flat_set<T>;
+        using base_type::base_type;
+
+        void serialize(auto &archive)
+        {
+            archive.process_array(*this, MIN, MAX);
+        }
+    };
+
     template<typename T, size_t SZ>
     struct fixed_sequence_t: std::array<T, SZ>, codec::serializable_t<fixed_sequence_t<T, SZ>> {
         static_assert(SZ > 0);
@@ -1130,7 +1144,7 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     struct ready_record_t: codec::serializable_t<ready_record_t<CONSTANTS>> {
         work_report_t<CONSTANTS> report;
-        sequence_t<work_package_hash_t> dependencies;
+        set_t<work_package_hash_t> dependencies;
 
         void serialize(auto &archive)
         {
@@ -1141,7 +1155,11 @@ namespace turbo::jam {
 
         bool operator==(const ready_record_t &o) const
         {
-            return report == o.report && dependencies == o.dependencies;
+            if (report != o.report)
+                return false;
+            if (dependencies != o.dependencies)
+                return false;
+            return true;
         }
     };
 
@@ -1151,7 +1169,7 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     using ready_queue_t = fixed_sequence_t<ready_queue_item_t<CONSTANTS>, CONSTANTS::epoch_length>;
 
-    using accumulated_queue_item_t = sequence_t<work_package_hash_t>;
+    using accumulated_queue_item_t = set_t<work_package_hash_t>;
 
     template<typename CONSTANTS>
     using accumulated_queue_t = fixed_sequence_t<accumulated_queue_item_t, CONSTANTS::epoch_length>;
