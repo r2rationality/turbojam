@@ -28,12 +28,6 @@ namespace turbo::jam {
         {
             archive.process_bytes(*this);
         }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<byte_sequence_t &>(*this).serialize(archive);
-        }
     };
 
     template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
@@ -48,12 +42,6 @@ namespace turbo::jam {
         {
             archive.process_array(*this, MIN, MAX);
         }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<sequence_t &>(*this).serialize(archive);
-        }
     };
 
     template<typename T, size_t SZ>
@@ -65,12 +53,6 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             archive.process_array_fixed(*this);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<fixed_sequence_t &>(*this).serialize(archive);
         }
     };
 
@@ -94,12 +76,6 @@ namespace turbo::jam {
         {
             archive.process_map(*this, config().key_name, config().val_name);
         }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<map_t &>(*this).serialize(archive);
-        }
     };
 
     template<typename T>
@@ -110,12 +86,6 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             archive.process_optional(*this);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<optional_t &>(*this).serialize(archive);
         }
 
         bool operator==(const optional_t &o) const noexcept
@@ -132,12 +102,6 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             archive.process_bytes_fixed(*this);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<byte_array_t &>(*this).serialize(archive);
         }
     };
 
@@ -184,12 +148,6 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             archive.process_uint(_val);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<time_slot_t &>(*this).serialize(archive);
         }
 
         uint32_t slot() const
@@ -247,12 +205,6 @@ namespace turbo::jam {
             archive.process_varlen_uint(_val);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            archive.process_varlen_uint(const_cast<varlen_uint_t &>(*this)._val);
-        }
-
         operator T() const
         {
             return _val;
@@ -295,12 +247,6 @@ namespace turbo::jam {
             archive.process("metadata"sv, metadata);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<validator_data_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const validator_data_t &o) const
         {
             return bandersnatch == o.bandersnatch && ed25519 == o.ed25519 && bls == o.bls && metadata == o.metadata;
@@ -328,12 +274,6 @@ namespace turbo::jam {
             archive.process("min_memo_gas"sv, min_memo_gas);
             archive.process("bytes"sv, bytes);
             archive.process("items"sv, items);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<service_info_t &>(*this).serialize(archive);
         }
 
         bool operator==(const service_info_t &o) const noexcept
@@ -377,12 +317,6 @@ namespace turbo::jam {
             archive.process("prerequisites"sv, prerequisites);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<refine_context_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const refine_context_t &o) const
         {
             if (anchor != o.anchor)
@@ -410,12 +344,6 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("code_hash"sv, code_hash);
             archive.process("params"sv, params);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<authorizer_t &>(*this).serialize(archive);
         }
 
         bool operator==(const authorizer_t &o) const
@@ -447,12 +375,6 @@ namespace turbo::jam {
             archive.process("auth_hash"sv, auth_hash);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<core_authorizer_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const core_authorizer_t &o) const
         {
             return core == o.core && auth_hash == o.auth_hash;
@@ -480,12 +402,6 @@ namespace turbo::jam {
             archive.process("index"sv, index);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<import_spec_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const import_spec_t &o) const
         {
             return tree_root == o.tree_root && index == o.index;
@@ -501,12 +417,6 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("hash"sv, hash);
             archive.process("len"sv, len);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<extrinsic_spec_t &>(*this).serialize(archive);
         }
 
         bool operator==(const extrinsic_spec_t &o) const
@@ -539,12 +449,6 @@ namespace turbo::jam {
             archive.process("export_count"sv, export_count);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<work_item_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const work_item_t &o) const
         {
             return service == o.service && code_hash == o.code_hash && payload == o.payload
@@ -572,12 +476,6 @@ namespace turbo::jam {
             archive.process("items"sv, items);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<work_package_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const work_package_t &o) const
         {
             return authorization == o.authorization && auth_code_host == o.auth_code_host
@@ -592,12 +490,6 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             archive.process_bytes(data);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<work_result_ok_t &>(*this).serialize(archive);
         }
 
         bool operator==(const work_result_ok_t &o) const
@@ -666,12 +558,6 @@ namespace turbo::jam {
             archive.process("exports"sv, exports);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<refine_load_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const refine_load_t &o) const
         {
             if (gas_used != o.gas_used)
@@ -706,12 +592,6 @@ namespace turbo::jam {
             archive.process("accumulate_gas"sv, accumulate_gas);
             archive.process("result"sv, result);
             archive.process("refine_load"sv, refine_load);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<work_result_t &>(*this).serialize(archive);
         }
 
         bool operator==(const work_result_t &o) const
@@ -750,12 +630,6 @@ namespace turbo::jam {
             archive.process("exports_count"sv, exports_count);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<work_package_spec_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const work_package_spec_t &o) const
         {
             return hash == o.hash && length == o.length && erasure_root == o.erasure_root
@@ -773,12 +647,6 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("work_package_hash"sv, work_package_hash);
             archive.process("segment_tree_root"sv, segment_tree_root);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<segment_root_lookup_item &>(*this).serialize(archive);
         }
 
         bool operator==(const segment_root_lookup_item &o) const
@@ -813,12 +681,6 @@ namespace turbo::jam {
             archive.process("auth_gas_used"sv, auth_gas_used);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<work_report_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const work_report_t &o) const
         {
             return package_spec == o.package_spec && context == o.context && core_index == o.core_index
@@ -848,12 +710,6 @@ namespace turbo::jam {
             archive.process("signature"sv, signature);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<avail_assurance_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const avail_assurance_t &o) const
         {
             if (anchor != o.anchor)
@@ -881,12 +737,6 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("report"sv, report);
             archive.process("timeout"sv, timeout);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<availability_assignment_t &>(*this).serialize(archive);
         }
 
         bool operator==(const availability_assignment_t &o) const
@@ -932,12 +782,6 @@ namespace turbo::jam {
             archive.process("exports_root"sv, exports_root);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<reported_work_package_t &>(*this).serialize(archive);
-        }
-
         std::strong_ordering operator<=>(const reported_work_package_t &o) const
         {
             return hash <=> o.hash;
@@ -963,12 +807,6 @@ namespace turbo::jam {
             archive.process("mmr"sv, mmr);
             archive.process("state_root"sv, state_root);
             archive.process("reported"sv, reported);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<block_info_t &>(*this).serialize(archive);
         }
 
         bool operator==(const block_info_t &o) const noexcept
@@ -1005,12 +843,6 @@ namespace turbo::jam {
             archive.process("assurances"sv, assurances);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<activity_record_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const activity_record_t &o) const
         {
             if (blocks != o.blocks)
@@ -1043,12 +875,6 @@ namespace turbo::jam {
             archive.process("signature"sv, signature);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<ticket_envelope_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const ticket_envelope_t &o) const
         {
             if (attempt != o.attempt)
@@ -1068,12 +894,6 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("id"sv, id);
             archive.process("attempt"sv, attempt);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<ticket_body_t &>(*this).serialize(archive);
         }
 
         std::strong_ordering operator<=>(const ticket_body_t &o) const
@@ -1122,12 +942,6 @@ namespace turbo::jam {
             archive.process("signature"sv, signature);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<judgement_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const judgement_t &o) const
         {
             return vote == o.vote && index == o.index && signature == o.signature;
@@ -1146,12 +960,6 @@ namespace turbo::jam {
             archive.process("target"sv, target);
             archive.process("age"sv, age);
             archive.process("votes"sv, votes);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<verdict_t &>(*this).serialize(archive);
         }
 
         bool operator==(const verdict_t &o) const
@@ -1179,12 +987,6 @@ namespace turbo::jam {
             archive.process("signature"sv, signature);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<culprit_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const culprit_t &o) const
         {
             if (target != o.target)
@@ -1210,12 +1012,6 @@ namespace turbo::jam {
             archive.process("vote"sv, vote);
             archive.process("key"sv, key);
             archive.process("signature"sv, signature);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<fault_t &>(*this).serialize(archive);
         }
 
         bool operator==(const fault_t &o) const
@@ -1247,12 +1043,6 @@ namespace turbo::jam {
             archive.process("faults"sv, faults);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<disputes_extrinsic_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const disputes_extrinsic_t &o) const
         {
             if (verdicts != o.verdicts)
@@ -1274,12 +1064,6 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("requester"sv, requester);
             archive.process("blob"sv, blob);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<preimage_t &>(*this).serialize(archive);
         }
 
         std::strong_ordering operator<=>(const preimage_t &o) const noexcept
@@ -1308,12 +1092,6 @@ namespace turbo::jam {
             archive.process("signature"sv, signature);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<validator_signature_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const validator_signature_t &o) const
         {
             return validator_index == o.validator_index && signature == o.signature;
@@ -1332,12 +1110,6 @@ namespace turbo::jam {
             archive.process("report"sv, report);
             archive.process("slot"sv, slot);
             archive.process("signatures"sv, signatures);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<report_guarantee_t &>(*this).serialize(archive);
         }
 
         bool operator==(const report_guarantee_t &o) const
@@ -1365,12 +1137,6 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("report"sv, report);
             archive.process("dependencies"sv, dependencies);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<ready_record_t &>(*this).serialize(archive);
         }
 
         bool operator==(const ready_record_t &o) const
@@ -1401,12 +1167,6 @@ namespace turbo::jam {
             archive.process("gas"sv, gas);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<always_accumulate_map_item_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const always_accumulate_map_item_t &o) const
         {
             return id == o.id && gas == o.gas;
@@ -1426,12 +1186,6 @@ namespace turbo::jam {
             archive.process("assign"sv, assign);
             archive.process("designate"sv, designate);
             archive.process("always_acc"sv, always_acc);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<privileges_t &>(*this).serialize(archive);
         }
 
         bool operator==(const privileges_t &o) const
@@ -1461,12 +1215,6 @@ namespace turbo::jam {
             archive.process("ed25519"sv, ed25519);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<epoch_mark_validator_keys_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const epoch_mark_validator_keys_t &o) const
         {
             return bandersnatch == o.bandersnatch && ed25519 == o.ed25519;
@@ -1485,12 +1233,6 @@ namespace turbo::jam {
             archive.process("entropy", entropy);
             archive.process("tickets_entropy", tickets_entropy);
             archive.process("validators", validators);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<epoch_mark_t &>(*this).serialize(archive);
         }
 
         bool operator==(const epoch_mark_t &o) const
@@ -1519,12 +1261,6 @@ namespace turbo::jam {
             using namespace std::placeholders;
             archive.process("hash", hash);
             archive.process("length", length);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<lookup_met_map_key_t &>(*this).serialize(archive);
         }
 
         std::strong_ordering operator<=>(const lookup_met_map_key_t &o) const noexcept
@@ -1562,12 +1298,6 @@ namespace turbo::jam {
             archive.process("preimages", preimages);
             archive.process("lookup_metas", lookup_metas);
             archive.process("info", info);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<account_t &>(*this).serialize(archive);
         }
 
         bool operator==(const account_t &o) const
@@ -1623,12 +1353,6 @@ namespace turbo::jam {
             archive.process("seal"sv, seal);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<header_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const header_t &o) const
         {
             if (parent != o.parent)
@@ -1676,12 +1400,6 @@ namespace turbo::jam {
             archive.process("guarantees"sv, guarantees);
             archive.process("assurances"sv, assurances);
             archive.process("disputes"sv, disputes);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<extrinsic_t &>(*this).serialize(archive);
         }
 
         bool operator==(const extrinsic_t &o) const
@@ -1834,12 +1552,6 @@ namespace turbo::jam {
             archive.process("services"sv, services);
         }
 
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<statistics_t &>(*this).serialize(archive);
-        }
-
         bool operator==(const statistics_t &o) const
         {
             if (current != o.current)
@@ -1866,12 +1578,6 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("header"sv, header);
             archive.process("extrinsic"sv, extrinsic);
-        }
-
-        void serialize(auto &archive) const
-        {
-            static_assert(std::remove_reference_t<decltype(archive)>::read_only);
-            const_cast<block_t &>(*this).serialize(archive);
         }
 
         bool operator==(const block_t &o) const

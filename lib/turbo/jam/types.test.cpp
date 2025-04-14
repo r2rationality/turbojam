@@ -43,7 +43,7 @@ namespace {
         decoder dec { bytes };
         const auto b = T::from(dec);
         encoder enc {};
-        b.serialize(enc);
+        enc.process(b);
         expect(enc.bytes() == bytes) << prefix;
     }
 }

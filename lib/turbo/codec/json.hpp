@@ -10,8 +10,6 @@ namespace turbo::codec::json {
     using namespace boost::json;
 
     struct decoder: archive_t {
-        static constexpr bool read_only = false;
-
         decoder(const boost::json::value &jv):
             _jv { jv }
         {
@@ -116,7 +114,7 @@ namespace turbo::codec::json {
             init_from_hex(bytes, hex.substr(2));
         }
     private:
-        const boost::json::value _jv;
+        const boost::json::value &_jv;
     };
 
     extern object canonical(const object &obj);

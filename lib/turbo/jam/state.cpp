@@ -388,7 +388,7 @@ namespace turbo::jam {
             msg << std::string_view { "jam_guarantee" };
             {
                 encoder enc {};
-                g.report.serialize(enc);
+                enc.process(g.report);
                 msg << crypto::blake2b::digest(enc.bytes());
             }
             std::optional<validator_index_t> prev_validator {};

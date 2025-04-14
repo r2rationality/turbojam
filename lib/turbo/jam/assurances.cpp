@@ -28,8 +28,8 @@ namespace turbo::jam {
             {
                 encoder enc {};
                 enc.bytes();
-                parent.serialize(enc);
-                a.bitfield.serialize(enc);
+                enc.process(parent);
+                enc.process(a.bitfield);
                 msg << crypto::blake2b::digest(enc.bytes());
             }
             const auto &vk = kappa[a.validator_index].ed25519;

@@ -63,7 +63,7 @@ namespace turbo::jam {
             using T = std::decay_t<decltype(cv)>;
             if constexpr (std::is_same_v<T, work_result_ok_t>) {
                 enc.process_uint<uint8_t>(0);
-                cv.serialize(enc);
+                enc.process(cv);
             } else if constexpr (std::is_same_v<T, work_result_out_of_gas_t>) {
                 enc.process_uint<uint8_t>(1);
             } else if constexpr (std::is_same_v<T, work_result_panic_t>) {

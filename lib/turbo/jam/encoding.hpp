@@ -21,8 +21,6 @@ namespace turbo::jam {
     };
 
     struct encoder: codec::archive_t {
-        static constexpr bool read_only = true;
-
         void uint_fixed(const size_t num_bytes, const uint64_t val)
         {
             auto x = val;
@@ -128,7 +126,9 @@ namespace turbo::jam {
             } else if constexpr (std::is_same_v<T, bool>) {
                 uint_fixed(1, static_cast<uint8_t>(val));
             } else if constexpr (codec::serializable_c<T>) {
-                val.serialize(*this);
+                // since the encoder methods do not update the value, it's safe to const_cast the value
+                // this is needed to not implement a custom cost serialize method in each of the serialized classes
+                const_cast<T &>(val).serialize(*this);
             } else {
                 val.to_bytes(*this);
             }
@@ -155,8 +155,6 @@ namespace turbo::jam {
     };
 
     struct decoder: codec::archive_t {
-        static constexpr bool read_only = false;
-
         explicit decoder(const buffer bytes) noexcept:
             _ptr { bytes.data() },
             _end { bytes.data() + bytes.size() }
