@@ -15,6 +15,13 @@ namespace turbo::codec::json {
         { T::from_json(jv) };
     };
 
+    template<typename T>
+    concept optional_c = requires(T t)
+    {
+        { t.reset() };
+        { t.emplace() };
+    };
+
     struct decoder: archive_t {
         decoder(const boost::json::value &jv):
             _jv { jv }
@@ -32,10 +39,12 @@ namespace turbo::codec::json {
             } else if constexpr (std::is_same_v<T, uint8_t>
                     || std::is_same_v<T, uint16_t>
                     || std::is_same_v<T, uint32_t>
-                    || std::is_same_v<T, uint64_t>) {
+                    || std::is_same_v<T, uint64_t>
+                    || std::is_same_v<T, int64_t>
+                    || std::is_same_v<T, bool>) {
                 val = boost::json::value_to<T>(jv);
-            } else if constexpr (std::is_same_v<T, bool>) {
-                val = boost::json::value_to<bool>(jv);
+            } else if constexpr (std::is_same_v<T, std::string>) {
+                val = boost::json::value_to<std::string_view>(jv);
             } else {
                 throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
             }
@@ -56,7 +65,17 @@ namespace turbo::codec::json {
         void process(const std::string_view name, auto &val)
         {
             using T = std::decay_t<decltype(val)>;
-            decode(_jv.at(name), val);
+            const auto &jo = _jv.as_object();
+            const auto it = jo.find(name);
+            if (it != jo.end()) {
+                decode(_jv.at(name), val);
+            } else {
+                if constexpr (optional_c<T>) {
+                    val.reset();
+                } else {
+                    throw error(fmt::format("serialization of missing values not enabled for type {} with key {}", typeid(T).name(), name));
+                }
+            }
         }
 
         void process_map(auto &m, const std::string_view key_name, const std::string_view val_name)

@@ -39,7 +39,7 @@ namespace turbo::jam {
         static constexpr size_t core_assignment_rotation_period = 10;
         static constexpr size_t ticket_attempts = 2;
         // JAM (11.9) W_B
-        static constexpr size_t max_blobs_size = 48 << 10;
+        static constexpr size_t max_blobs_size = 48ULL << 10U;
         // JAM I.4.4: Q
         static constexpr size_t accumulation_queue_size = 1024;
         // JAM I.4.4: U
@@ -52,6 +52,14 @@ namespace turbo::jam {
         static constexpr size_t max_refine_gas = 5'000'000'000;
         // JAM I.4.4: G_T
         static constexpr size_t max_total_accumulation_gas = 3'500'000'000;
+        // JAM I.4.4: Z_A
+        static constexpr size_t pvm_address_alignment_factor = 2;
+        // JAM I.4.4: Z_I
+        static constexpr size_t pvm_input_size = 1ULL << 24U;
+        // JAM I.4.4: Z_P
+        static constexpr size_t pvm_page_size = 1ULL << 12U;
+        // JAM I.4.4: Z_Z
+        static constexpr size_t pvm_init_zone_size = 1ULL << 16U;
     };
 
     struct config_tiny: config_prod {
