@@ -47,7 +47,7 @@ namespace {
         json::decoder jdec { j };
         const auto tc = test_case_t::from(jdec);
         const auto prg = machine::program_t::from_bytes(buffer { tc.program.data(), tc.program.size() });
-        machine::machine_t m { tc.pre, prg };
+        machine::machine_t m { prg, tc.pre, tc.page_map };
         const auto res = m.run();
         expect(tc.post == m.state()) << path;
         expect(tc.status == res) << path;
@@ -56,7 +56,7 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
-        test_program(file::install_path("test/pvm-test-vectors/pvm/programs/riscv_rv64ui_addi.json"));
+        //test_program(file::install_path("test/pvm-test-vectors/pvm/programs/riscv_rv64ua_amoadd_d.json"));
         for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/programs"), ".json")) {
             test_program(path);
         }
