@@ -65,25 +65,25 @@ namespace turbo::jam::machine {
         state_t state() const
         {
             memory_chunks_t mem {};
+            memory_chunk_t chunk {};
+            const auto flush_chunk = [&chunk, &mem](const register_val_t page_base, const size_t off) {
+                if (!chunk.contents.empty()) {
+                    chunk.address = numeric_cast<uint32_t>(page_base + off - chunk.contents.size());
+                    mem.emplace_back(std::move(chunk));
+                    chunk.contents.clear();
+                }
+            };
             for (const auto &[page_id, info]: _pages) {
                 const register_val_t page_base = page_id * config_prod::pvm_page_size;
-                memory_chunk_t chunk {};
                 for (size_t off = 0; off < config_prod::pvm_page_size; ++off) {
                     const auto b = info.data[off];
                     if (b) {
-                        if (chunk.contents.empty())
-                            chunk.address = off;
                         chunk.contents.emplace_back(b);
-                    } else if (!chunk.contents.empty()) {
-                        chunk.address = numeric_cast<uint32_t>(page_base + chunk.address);
-                        mem.emplace_back(std::move(chunk));
-                        chunk.contents.clear();
+                    } else {
+                        flush_chunk(page_base, off);
                     }
                 }
-                if (!chunk.contents.empty()) {
-                    chunk.address = numeric_cast<uint32_t>(page_base + chunk.address);
-                    mem.emplace_back(std::move(chunk));
-                }
+                flush_chunk(page_base, config_prod::pvm_page_size);
             }
             return {
                 _regs,
