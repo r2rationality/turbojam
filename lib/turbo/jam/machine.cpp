@@ -134,10 +134,10 @@ namespace turbo::jam::machine {
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
                 &impl::load_imm64, &impl::trap, &impl::trap, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::trap, &impl::trap, &impl::store_imm_u8, &impl::store_imm_u16,
 
                 // 0x20
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::store_imm_u32, &impl::store_imm_u64, &impl::trap, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
                 &impl::jump, &impl::trap, &impl::trap, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
@@ -150,14 +150,14 @@ namespace turbo::jam::machine {
 
                 // 0x40
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::trap, &impl::trap, &impl::store_imm_ind_u8, &impl::store_imm_ind_u16,
+                &impl::store_imm_ind_u32, &impl::store_imm_ind_u64, &impl::trap, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
 
                 // 0x50
-                &impl::trap, &impl::trap, &impl::branch_ne_imm, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::load_imm_jump, &impl::branch_eq_imm, &impl::branch_ne_imm, &impl::branch_lt_u_imm,
+                &impl::branch_le_u_imm, &impl::branch_ge_u_imm, &impl::branch_gt_u_imm, &impl::branch_lt_s_imm,
+                &impl::branch_le_s_imm, &impl::branch_ge_s_imm, &impl::branch_ge_s_imm, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
 
                 // 0x60
@@ -262,6 +262,17 @@ namespace turbo::jam::machine {
             return std::make_tuple(r_a, nu_x);
         }
 
+        std::tuple<size_t, register_val_t, register_val_t> reg1_imm2(const buffer data)
+        {
+            const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
+            const size_t l_x = std::min(4ULL, (data.at(0ULL) / 16ULL) % 8);
+            const size_t l_y = data.size() > l_x ? std::min(4ULL, data.size() - l_x - 1) : 0;
+            decoder dec { data.subbuf(1) };
+            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
+            return std::make_tuple(r_a, nu_x, nu_y);
+        }
+
         std::tuple<size_t, size_t, register_val_t> reg1_imm1_off1(const buffer data)
         {
             const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
@@ -272,6 +283,16 @@ namespace turbo::jam::machine {
             const auto nu_y_pre = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
             const auto nu_y = static_cast<register_val_t>(static_cast<register_val_signed_t>(_pc) + static_cast<register_val_signed_t>(nu_y_pre));
             return std::make_tuple(r_a, nu_x, nu_y);
+        }
+
+        static std::tuple<register_val_t, register_val_t> imm2(const buffer data)
+        {
+            const size_t l_x = std::min(4ULL, data.at(0ULL) % 8ULL);
+            const size_t l_y = data.empty() ? std::min(4ULL, data.size() - l_x - 1) : 0;
+            decoder dec { data.subbuf(1) };
+            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
+            return std::make_tuple(nu_x, nu_y);
         }
 
         op_res_t load_imm_base(const buffer data, const size_t max_size)
@@ -376,6 +397,34 @@ namespace turbo::jam::machine {
             throw exit_host_call_t { nu_x };
         }
 
+        op_res_t store_imm_u8(const buffer data)
+        {
+            const auto [nu_x, nu_y] = imm2(data);
+            _store_unsigned(nu_x, static_cast<uint8_t>(nu_y));
+            return {};
+        }
+
+        op_res_t store_imm_u16(const buffer data)
+        {
+            const auto [nu_x, nu_y] = imm2(data);
+            _store_unsigned(nu_x, static_cast<uint16_t>(nu_y));
+            return {};
+        }
+
+        op_res_t store_imm_u32(const buffer data)
+        {
+            const auto [nu_x, nu_y] = imm2(data);
+            _store_unsigned(nu_x, static_cast<uint32_t>(nu_y));
+            return {};
+        }
+
+        op_res_t store_imm_u64(const buffer data)
+        {
+            const auto [nu_x, nu_y] = imm2(data);
+            _store_unsigned(nu_x, nu_y);
+            return {};
+        }
+
         op_res_t load_imm(const buffer data)
         {
             if (data.size() > 5) [[unlikely]]
@@ -425,10 +474,71 @@ namespace turbo::jam::machine {
             return {};
         }
 
+        op_res_t load_imm_jump(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            _regs[r_a] = nu_x;
+            return branch_base(nu_y, true);
+        }
+
+        op_res_t branch_eq_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, _regs[r_a] == nu_x);
+        }
+
         op_res_t branch_ne_imm(const buffer data)
         {
             const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
             return branch_base(nu_y, _regs[r_a] != nu_x);
+        }
+
+        op_res_t branch_lt_u_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, _regs[r_a] < nu_x);
+        }
+
+        op_res_t branch_le_u_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, _regs[r_a] <= nu_x);
+        }
+
+        op_res_t branch_ge_u_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, _regs[r_a] >= nu_x);
+        }
+
+        op_res_t branch_gt_u_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, _regs[r_a] > nu_x);
+        }
+
+        op_res_t branch_lt_s_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, static_cast<register_val_signed_t>(_regs[r_a]) < static_cast<register_val_signed_t>(nu_x));
+        }
+
+        op_res_t branch_le_s_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, static_cast<register_val_signed_t>(_regs[r_a]) <= static_cast<register_val_signed_t>(nu_x));
+        }
+
+        op_res_t branch_ge_s_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, static_cast<register_val_signed_t>(_regs[r_a]) >= static_cast<register_val_signed_t>(nu_x));
+        }
+
+        op_res_t branch_gt_s_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, static_cast<register_val_signed_t>(_regs[r_a]) > static_cast<register_val_signed_t>(nu_x));
         }
 
         op_res_t jump(const buffer data)
@@ -523,25 +633,57 @@ namespace turbo::jam::machine {
             return {};
         }
 
-        op_res_t store_ind_u8(const buffer data) {
+        op_res_t store_imm_ind_u8(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm2(data);
+            _store_unsigned(_regs[r_a] + nu_x, static_cast<uint8_t>(nu_y));
+            return {};
+        }
+
+        op_res_t store_imm_ind_u16(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm2(data);
+            _store_unsigned(_regs[r_a] + nu_x, static_cast<uint16_t>(nu_y));
+            return {};
+        }
+
+        op_res_t store_imm_ind_u32(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm2(data);
+            _store_unsigned(_regs[r_a] + nu_x, static_cast<uint32_t>(nu_y));
+            return {};
+        }
+
+        op_res_t store_imm_ind_u64(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm2(data);
+            _store_unsigned(_regs[r_a] + nu_x, nu_y);
+            return {};
+        }
+
+        op_res_t store_ind_u8(const buffer data)
+        {
             const auto [r_a, r_b, nu_x] = reg2_imm1(data);
             _store_unsigned(_regs[r_b] + nu_x, static_cast<uint8_t>(_regs[r_a]));
             return {};
         }
 
-        op_res_t store_ind_u16(const buffer data) {
+        op_res_t store_ind_u16(const buffer data)
+        {
             const auto [r_a, r_b, nu_x] = reg2_imm1(data);
             _store_unsigned(_regs[r_b] + nu_x, static_cast<uint16_t>(_regs[r_a]));
             return {};
         }
 
-        op_res_t store_ind_u32(const buffer data) {
+        op_res_t store_ind_u32(const buffer data)
+        {
             const auto [r_a, r_b, nu_x] = reg2_imm1(data);
             _store_unsigned(_regs[r_b] + nu_x, static_cast<uint32_t>(_regs[r_a]));
             return {};
         }
 
-        op_res_t store_ind_u64(const buffer data) {
+        op_res_t store_ind_u64(const buffer data)
+        {
             const auto [r_a, r_b, nu_x] = reg2_imm1(data);
             _store_unsigned(_regs[r_b] + nu_x, _regs[r_a]);
             return {};
