@@ -109,6 +109,13 @@ namespace turbo {
             return std::strong_ordering::equal == (*this <=> o);
         }
 
+        uint8_t at(const size_t off) const
+        {
+            if (off <= size()) [[likely]]
+                return (*this)[off];
+            throw error(fmt::format("requested offset: {} that behind the end of buffer: {}!", off, size()));
+        }
+
         buffer subbuf(const size_t offset, const size_t sz) const
         {
             if (offset + sz <= size()) [[likely]]

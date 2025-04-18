@@ -3,7 +3,6 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <cstdint>
 #include <turbo/common/test.hpp>
 #include <turbo/codec/json.hpp>
 #include "machine.hpp"
@@ -98,12 +97,16 @@ namespace {
         const auto j = json::load(path);
         json::decoder jdec { j };
         const auto tc = test_case_t::from(jdec);
+        machine::machine_t m {};
+        const auto prg = machine::program_t::from_bytes(buffer { tc.program.data(), tc.program.size() });
+        m.run(prg);
         expect(false) << path;
     }
 }
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
+        test_program(file::install_path("test/pvm-test-vectors/pvm/programs/riscv_rv64ui_addi.json"));
         for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/programs"), ".json")) {
             test_program(path);
         }

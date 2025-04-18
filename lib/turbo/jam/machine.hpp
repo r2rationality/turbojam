@@ -7,11 +7,27 @@
 #include <cstdint>
 #include <variant>
 #include "constants.hpp"
+#include "encoding.hpp"
 
 namespace turbo::jam::machine {
     using register_val_t = uint64_t;
     using address_val_t = uint64_t;
     using gas_remaining_t = int64_t;
+
+    struct bit_buffer_t: buffer {
+        using base_type = buffer;
+        using base_type::base_type;
+
+        bool test(const size_t pos) const
+        {
+            const auto max_pos = size() << 3U;
+            if (pos >= max_pos) [[unlikely]]
+                throw error(fmt::format("the requested bit index: {} is out of range: [0;{})", pos, max_pos));
+            const auto byte_pos = pos >> 3;
+            const auto bit_pos = pos & 7;
+            return (*this)[byte_pos] & (1 << bit_pos);
+        }
+    };
 
     struct exit_halt_t {
         bool operator==(const exit_halt_t &) const {
@@ -45,24 +61,62 @@ namespace turbo::jam::machine {
         using base_type::base_type;
     };
 
-    struct machine {
+    struct program_t {
+        using offset_list = std::vector<uint32_t>;
 
-        void step()
+        offset_list jump_table;
+        buffer code;
+        bit_buffer_t bitmasks;
+
+        static program_t from_bytes(const buffer bytes)
         {
-            ++_ic;
+            decoder dec { bytes };
+            const auto jt_sz = dec.uint_varlen();
+            const auto jt_offset_sz = dec.uint_fixed<uint8_t>(1);
+            const auto code_sz = dec.uint_varlen();
+            offset_list jt {};
+            jt.reserve(jt_sz);
+            while (jt.size() < jt_sz) {
+                jt.emplace_back(dec.uint_fixed<uint32_t>(jt_offset_sz));
+            }
+            const auto code = dec.next_bytes(code_sz);
+            // TODO: JAM (A.4) zero pad the code to ensure the last intruction is valid
+            const bit_buffer_t bitmasks { dec.next_bytes((code_sz + 7) / 8) };
+            if (!dec.empty()) [[unlikely]]
+                throw error("failed to decode all bytes of the program blob");
+            return {
+                std::move(jt),
+                code,
+                bitmasks
+            };
+        }
+    };
+
+    struct machine_t {
+        void run(const program_t &program)
+        {
+            _pc = 0;
+            for (;;) {
+                const uint8_t opcode = program.code.at(_pc);
+                const auto len = _skip_len(_pc, program.bitmasks);
+                const auto data = program.code.subbuf(_pc + 1, len);
+                exec(opcode, data);
+            }
         }
 
     private:
-        register_val_t _ic = 0;
+        std::array<register_val_t, 13> _regs {};
+        register_val_t _pc = 0;
         gas_remaining_t _gas_remaining = 0;
 
-
-        // 1 + skip() returns the distance to the next opcode
-        size_t skip(const uint8_t k)
+        static size_t _skip_len(const register_val_t opcode_pc, const bit_buffer_t &bitmasks)
         {
-            // must not be greater than 16!
-            //return std::min(24, );
-            throw error("not implemented");
+            const auto start_pc = opcode_pc + 1;
+            auto pc = start_pc;
+            while (!bitmasks.test(pc)) {
+                ++pc;
+            }
+            return std::min(24ULL, pc - start_pc);
         }
 
         bool mem_readable(const address_val_t addr)
@@ -298,6 +352,33 @@ namespace turbo::jam::machine {
         }
 
         // execution flow altering opcodes - T
+
+        void exec(const uint8_t opcode, const buffer data)
+        {
+            switch (opcode) {
+                case 51: load_imm(data); break;
+                [[unlikely]] default: throw exit_panic_t {};
+            }
+        }
+
+        static register_val_t _sign_extend(const size_t num_bytes, const register_val_t value)
+        {
+            if (num_bytes > 0) [[likely]] {
+                const register_val_t mask = 1ULL << (num_bytes * 8U - 1ULL);
+                return (value ^ mask) - mask;
+            }
+            return value;
+        }
+
+        void load_imm(const buffer data)
+        {
+            const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
+            const size_t l_x = data.size() > 0 ? std::min(4ULL, data.size() - 1) : 0;
+            decoder dec { data.subbuf(1) };
+            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            _regs[r_a] = nu_x;
+        }
+
         void trap();
         void fallthrough();
         void jump();
