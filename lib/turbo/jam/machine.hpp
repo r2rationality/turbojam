@@ -8,57 +8,145 @@
 #include <variant>
 #include "constants.hpp"
 #include "encoding.hpp"
+#include "types.hpp"
 
 namespace turbo::jam::machine {
     using register_val_t = uint64_t;
-    using address_val_t = uint64_t;
-    using gas_remaining_t = int64_t;
+    using register_val_signed_t = int64_t;
+    using address_val_t = register_val_t;
+    using gas_remaining_t = register_val_signed_t;
+
+    struct memory_chunk_t: codec::serializable_t<memory_chunk_t> {
+        uint32_t address = 0;
+        sequence_t<uint8_t> contents {};
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("address"sv, address);
+            archive.process("contents"sv, contents);
+        }
+
+        bool operator==(const memory_chunk_t &o) const noexcept
+        {
+            if (address != o.address)
+                return false;
+            if (contents != o.contents)
+                return false;
+            return true;
+        }
+    };
+    using memory_chunks_t = sequence_t<memory_chunk_t>;
+
+    struct page_t: codec::serializable_t<page_t> {
+        uint32_t address = 0;
+        uint32_t length = 0;
+        bool is_writable = false;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("address"sv, address);
+            archive.process("length"sv, length);
+            archive.process("is-writable"sv, is_writable);
+        }
+    };
+    using pages_t = sequence_t<page_t>;
+
+    struct state_t {
+        fixed_sequence_t<uint64_t, 13> regs {};
+        uint32_t pc {};
+        memory_chunks_t memory {};
+        int64_t gas = 0;
+
+        bool operator==(const state_t &o) const noexcept
+        {
+            if (regs != o.regs)
+                return false;
+            if (memory != o.memory)
+                return false;
+            if (pc != o.pc)
+                return false;
+            /*if (gas != o.gas)
+                return false;*/
+            return true;
+        }
+    };
 
     struct bit_buffer_t: buffer {
         using base_type = buffer;
-        using base_type::base_type;
+
+        bit_buffer_t(const buffer bytes, const size_t num_bits):
+            buffer { bytes },
+            _bit_size { num_bits }
+        {
+        }
+
+        size_t size() const
+        {
+            return _bit_size;
+        }
 
         bool test(const size_t pos) const
         {
-            const auto max_pos = size() << 3U;
-            if (pos >= max_pos) [[unlikely]]
-                throw error(fmt::format("the requested bit index: {} is out of range: [0;{})", pos, max_pos));
+            if (pos >= _bit_size) [[unlikely]]
+                return true;
             const auto byte_pos = pos >> 3;
             const auto bit_pos = pos & 7;
             return (*this)[byte_pos] & (1 << bit_pos);
         }
+    private:
+        size_t _bit_size;
     };
 
-    struct exit_halt_t {
-        bool operator==(const exit_halt_t &) const {
+    struct exit_halt_t final {
+        bool operator==(const exit_halt_t &) const
+        {
             return true;
         }
     };
-    struct exit_panic_t {
-        bool operator==(const exit_panic_t &) const {
+    struct exit_panic_t final {
+        bool operator==(const exit_panic_t &) const
+        {
             return true;
         }
     };
-    struct exit_out_of_gas_t {
-        bool operator==(const exit_out_of_gas_t &) const {
+    struct exit_out_of_gas_t final {
+        bool operator==(const exit_out_of_gas_t &) const
+        {
             return true;
         }
     };
-    struct exit_page_fault_t {
-        bool operator==(const exit_page_fault_t &) const {
+    struct exit_page_fault_t final {
+        bool operator==(const exit_page_fault_t &) const
+        {
             return true;
         }
     };
-    struct exit_host_call_t {
-        bool operator==(const exit_host_call_t &) const {
+    struct exit_host_call_t final {
+        bool operator==(const exit_host_call_t &) const
+        {
             return true;
         }
     };
 
-    using result_base_t = std::variant<register_val_t, exit_halt_t, exit_panic_t, exit_out_of_gas_t, exit_page_fault_t, exit_host_call_t>;
+    using result_base_t = std::variant<exit_halt_t, exit_panic_t, exit_out_of_gas_t, exit_page_fault_t, exit_host_call_t>;
     struct result_t: result_base_t {
         using base_type = result_base_t;
         using base_type::base_type;
+
+        static result_t from_json(const boost::json::value &j)
+        {
+            using namespace std::string_view_literals;
+            const auto val = boost::json::value_to<std::string_view>(j);
+            if (val == "panic"sv)
+                return { machine::exit_panic_t {} };
+            if (val == "halt"sv)
+                return { machine::exit_halt_t {} };
+            if (val == "page-fault"sv)
+                return { machine::exit_page_fault_t {} };
+            throw error(fmt::format("unsupported machine_status_t value '{}'", val));
+        }
     };
 
     struct program_t {
@@ -81,7 +169,7 @@ namespace turbo::jam::machine {
             }
             const auto code = dec.next_bytes(code_sz);
             // TODO: JAM (A.4) zero pad the code to ensure the last intruction is valid
-            const bit_buffer_t bitmasks { dec.next_bytes((code_sz + 7) / 8) };
+            const bit_buffer_t bitmasks { dec.next_bytes((code_sz + 7) / 8), code_sz };
             if (!dec.empty()) [[unlikely]]
                 throw error("failed to decode all bytes of the program blob");
             return {
@@ -93,21 +181,52 @@ namespace turbo::jam::machine {
     };
 
     struct machine_t {
-        void run(const program_t &program)
+        machine_t(const state_t &init, const program_t &program):
+            _program { program },
+            _state { init }
         {
-            _pc = 0;
-            for (;;) {
-                const uint8_t opcode = program.code.at(_pc);
-                const auto len = _skip_len(_pc, program.bitmasks);
-                const auto data = program.code.subbuf(_pc + 1, len);
-                exec(opcode, data);
+        }
+
+        result_t run()
+        {
+            try {
+                for (;;) {
+                    if (!_program.bitmasks.test(_state.pc)) [[unlikely]]
+                        throw exit_panic_t {};
+                    const uint8_t opcode = _program.code.at(_state.pc);
+                    const auto len = _skip_len(_state.pc, _program.bitmasks);
+                    const auto data = _program.code.subbuf(_state.pc + 1, len);
+                    const auto res = exec(opcode, data);
+                    _state.pc = res.new_pc.value_or(_state.pc + len + 1);
+                    _state.gas -= res.gas_used;
+                }
+            } catch (exit_halt_t &&ex) {
+                return { std::move(ex) };
+            } catch (exit_panic_t &&ex) {
+                return { std::move(ex) };
+            } catch (exit_page_fault_t &&ex) {
+                return { std::move(ex) };
+            } catch (exit_out_of_gas_t &&ex) {
+                return { std::move(ex) };
+            } catch (exit_host_call_t &&ex) {
+                return { std::move(ex) };
+            } catch (...) {
+                return { exit_panic_t {} };
             }
         }
 
+        const state_t &state() const
+        {
+            return _state;
+        }
     private:
-        std::array<register_val_t, 13> _regs {};
-        register_val_t _pc = 0;
-        gas_remaining_t _gas_remaining = 0;
+        const program_t &_program;
+        state_t _state;
+
+        struct op_res_t {
+            std::optional<register_val_t> new_pc {};
+            gas_remaining_t gas_used = 0;
+        };
 
         static size_t _skip_len(const register_val_t opcode_pc, const bit_buffer_t &bitmasks)
         {
@@ -135,230 +254,107 @@ namespace turbo::jam::machine {
 
         }
 
-        void opcodes(const uint8_t i)
+        op_res_t exec(const uint8_t opcode, const buffer data)
         {
-            /*std::vector<void(machine::*)()> ops {};
-            ops.reserve(256);
-            // 0 ... 9
-            ops.emplace_back(trap);
-            ops.emplace_back(fallthrough());
-            while (ops.size() < 10)
-                ops.emplace_back(trap);
-            // 10 ... 19
-            ops.emplace_back(ecalli);
-            while (ops.size() < 20)
-                ops.emplace_back(trap);
-            // 20 ... 29
-            ops.emplace_back(load_imm_64);
-            while (ops.size() < 30)
-                ops.emplace_back(trap);
-            // 30 ... 39
-            ops.emplace_back(store_imm_u8);
-            ops.emplace_back(store_imm_u16);
-            ops.emplace_back(store_imm_u32);
-            ops.emplace_back(store_imm_u33);
-            while (ops.size() < 40)
-                ops.emplace_back(trap);
-            // 40 ... 49
-            ops.emplace_back(jump);
-            while (ops.size() < 50)
-                ops.emplace_back(trap);
-            // 50 ... 59
-            ops.emplace_back(jump_ind);
-            ops.emplace_back(load_imm);
-            ops.emplace_back(load_u8);
-            ops.emplace_back(load_i8);
-            ops.emplace_back(load_u16);
-            ops.emplace_back(load_i16);
-            ops.emplace_back(load_u32);
-            ops.emplace_back(load_i32);
-            ops.emplace_back(load_u64);
-            ops.emplace_back(store_u8);
-            // 60 ... 69
-            ops.emplace_back(store_u16);
-            ops.emplace_back(store_u32);
-            ops.emplace_back(store_u64);
-            while (ops.size() < 70)
-                ops.emplace_back(trap);
+            static std::array<op_res_t(machine_t::*)(buffer), 0x100> ops {
+                // 0x00
+                &machine_t::trap, &machine_t::fallthrough, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 60 ... 79
-            // one register and two immediate
-            ops.emplace_back(store_imm_ind_u8);
-            ops.emplace_back(store_imm_ind_u16);
-            ops.emplace_back(store_imm_ind_u32);
-            ops.emplace_back(store_imm_ind_u64);
-            while (ops.size() < 80)
-                ops.emplace_back(trap);
+                // 0x10
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::load_imm64, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 80 ... 89
-            // one register, one immediate and one offset
-            ops.emplace_back(load_imm_jump);
-            ops.emplace_back(branch_eq_imm);
-            ops.emplace_back(branch_ne_imm);
-            ops.emplace_back(branch_lt_u_imm);
-            ops.emplace_back(branch_le_u_imm);
-            ops.emplace_back(branch_ge_u_imm);
-            ops.emplace_back(branch_gt_u_imm);
-            ops.emplace_back(branch_lt_s_imm);
-            ops.emplace_back(branch_le_s_imm);
-            ops.emplace_back(branch_ge_s_imm);
+                // 0x20
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::jump, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 90 ... 99
-            ops.emplace_back(branch_gt_s_imm);
-            while (ops.size() < 100)
-                ops.emplace_back(trap);
+                // 0x30
+                &machine_t::trap, &machine_t::trap, &machine_t::jump_ind, &machine_t::load_imm,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 100 ... 199
-            // two registers
-            ops.emplace_back(move_reg);
-            ops.emplace_back(sbrk);
-            ops.emplace_back(count_set_bits_64);
-            ops.emplace_back(count_set_bits_32);
-            ops.emplace_back(leading_zero_bits_64);
-            ops.emplace_back(leading_zero_bits_32);
-            ops.emplace_back(trailing_zero_bits_64);
-            ops.emplace_back(trailing_zero_bits_32);
-            ops.emplace_back(sign_extend_8);
-            ops.emplace_back(sign_extend_16);
+                // 0x40
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 110 ... 119
-            ops.emplace_back(zero_extend_16);
-            ops.emplace_back(reverse_bytes);
-            while (ops.size() < 120)
-                ops.emplace_back(trap);
+                // 0x50
+                &machine_t::trap, &machine_t::trap, &machine_t::branch_ne_imm, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 120 ... 129
-            // two registers and an immediate
-            ops.emplace_back(store_ind_u8);
-            ops.emplace_back(store_ind_u16);
-            ops.emplace_back(store_ind_u32);
-            ops.emplace_back(store_ind_u64);
-            ops.emplace_back(load_ind_u8);
-            ops.emplace_back(load_ind_i8);
-            ops.emplace_back(load_ind_u16);
-            ops.emplace_back(load_ind_i16);
-            ops.emplace_back(load_ind_u32);
-            ops.emplace_back(load_ind_i32);
+                // 0x60
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::move_reg, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 130 ... 139
-            ops.emplace_back(load_ind_u64);
-            ops.emplace_back(add_imm_32);
-            ops.emplace_back(add_imm);
-            ops.emplace_back(xor_imm);
-            ops.emplace_back(or_imm);
-            ops.emplace_back(mul_imm_32);
-            ops.emplace_back(set_lt_u_imm);
-            ops.emplace_back(set_lt_s_imm);
-            ops.emplace_back(shlo_l_imm_32);
-            ops.emplace_back(shlo_r_imm_32);
+                // 0x70
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 140 ... 149
-            ops.emplace_back(shar_r_imm_32);
-            ops.emplace_back(neg_add_imm_32);
-            ops.emplace_back(set_gt_u_imm);
-            ops.emplace_back(set_gt_s_imm);
-            ops.emplace_back(shlo_l_imm_alt_32);
-            ops.emplace_back(shlo_r_imm_alt_32);
-            ops.emplace_back(shar_r_imm_alt_32);
-            ops.emplace_back(cmov_iz_imm);
-            ops.emplace_back(cmov_nz_imm);
-            ops.emplace_back(add_imm_64);
+                // 0x80
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::add_imm_32,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 150 ... 159
-            ops.emplace_back(mul_imm_64);
-            ops.emplace_back(shlo_l_imm_64);
-            ops.emplace_back(shlo_r_imm_64);
-            ops.emplace_back(shar_r_imm_64);
-            ops.emplace_back(neg_add_imm_64);
-            ops.emplace_back(shlo_l_imm_alt_64);
-            ops.emplace_back(shlo_r_imm_alt_64);
-            ops.emplace_back(shar_r_imm_alt_64);
-            ops.emplace_back(rot_r_64_imm);
-            ops.emplace_back(rot_r_64_imm_alt);
+                // 0x90
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::add_imm_64, &machine_t::trap, &machine_t::shlo_l_imm_64,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 160 ... 169
-            ops.emplace_back(rot_r_32_imm);
-            ops.emplace_back(rot_r_32_imm_alt);
-            while (ops.size() < 170)
-                ops.emplace_back(trap);
+                // 0xA0
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::branch_ne,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 170 ... 179
-            ops.emplace_back(branch_eq);
-            ops.emplace_back(branch_ne);
-            ops.emplace_back(branch_lt_u);
-            ops.emplace_back(branch_lt_s);
-            ops.emplace_back(branch_ge_u);
-            ops.emplace_back(branch_ge_s);
-            while (ops.size() < 180)
-                ops.emplace_back(trap);
+                // 0xB0
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 180 ... 189
-            ops.emplace_back(load_imm_jump_ind);
-            while (ops.size() < 190)
-                ops.emplace_back(trap);
+                // 0xC0
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 190 ... 199
-            ops.emplace_back(add_32);
-            ops.emplace_back(sub_32);
-            ops.emplace_back(mul_32);
-            ops.emplace_back(div_u_32);
-            ops.emplace_back(div_s_32);
-            ops.emplace_back(rem_u_32);
-            ops.emplace_back(rem_s_32);
-            ops.emplace_back(shlo_l_32);
-            ops.emplace_back(shlo_r_32);
-            ops.emplace_back(shar_r_32);
+                // 0xD0
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 200 ... 209
-            ops.emplace_back(add_64);
-            ops.emplace_back(sub_64);
-            ops.emplace_back(mul_64);
-            ops.emplace_back(div_u_64);
-            ops.emplace_back(div_s_64);
-            ops.emplace_back(rem_u_64);
-            ops.emplace_back(rem_s_64);
-            ops.emplace_back(shlo_l_64);
-            ops.emplace_back(shlo_r_64);
-            ops.emplace_back(shar_r_64);
+                // 0xE0
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
 
-            // 210 ... 219
-            ops.emplace_back(and_);
-            ops.emplace_back(xor_);
-            ops.emplace_back(or_);
-            ops.emplace_back(mul_upper_s_s);
-            ops.emplace_back(mul_upper_u_u);
-            ops.emplace_back(mul_upper_s_u);
-            ops.emplace_back(set_lt_u);
-            ops.emplace_back(set_lt_s);
-            ops.emplace_back(cmov_iz);
-            ops.emplace_back(cmov_nz);
-
-            // 220 ... 229
-            ops.emplace_back(rot_l_64);
-            ops.emplace_back(rot_l_32);
-            ops.emplace_back(rot_r_64;
-            ops.emplace_back(rot_r_32);
-            ops.emplace_back(and_inv);
-            ops.emplace_back(or_inv);
-            ops.emplace_back(xnor);
-            ops.emplace_back(max);
-            ops.emplace_back(max_u);
-            ops.emplace_back(min);
-
-            // 230 ... 239
-            ops.emplace_back(min_u);
-            while (ops.size() < 256)
-                ops.emplace_back(trap);*/
-        }
-
-        // execution flow altering opcodes - T
-
-        void exec(const uint8_t opcode, const buffer data)
-        {
-            switch (opcode) {
-                case 51: load_imm(data); break;
-                [[unlikely]] default: throw exit_panic_t {};
-            }
+                // 0xF0
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap,
+                &machine_t::trap, &machine_t::trap, &machine_t::trap, &machine_t::trap
+            };
+            const auto &op = ops[opcode];
+            return (this->*op)(data);
         }
 
         static register_val_t _sign_extend(const size_t num_bytes, const register_val_t value)
@@ -370,37 +366,166 @@ namespace turbo::jam::machine {
             return value;
         }
 
-        void load_imm(const buffer data)
+        op_res_t trap(const buffer)
         {
-            const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
-            const size_t l_x = data.size() > 0 ? std::min(4ULL, data.size() - 1) : 0;
-            decoder dec { data.subbuf(1) };
-            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
-            _regs[r_a] = nu_x;
+            // no gas consumption
+            throw exit_panic_t {};
         }
 
-        void trap();
-        void fallthrough();
-        void jump();
-        void jump_ind();
-        void load_imm_jump();
-        void load_imm_jump_ind();
-        void branch_eq();
-        void branch_ne();
-        void branch_ge_u();
-        void branch_ge_s();
-        void branch_lt_u();
-        void branch_lt_s();
-        void branch_eq_imm();
-        void branch_ne_imm();
-        void branch_lt_u_imm();
-        void branch_lt_s_imm();
-        void branch_le_u_imm();
-        void branch_le_s_imm();
-        void branch_ge_u_imm();
-        void branch_ge_s_imm();
-        void branch_gt_u_imm();
-        void branch_gt_s_imm();
+        op_res_t fallthrough(const buffer)
+        {
+            // no gas consumption
+            // do nothing
+            return {};
+        }
 
+        op_res_t ecalli(const buffer data)
+        {
+            // no gas consumption
+            const size_t l_x = std::min(4ULL, data.size());
+            decoder dec { data };
+            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            throw error { "ecalli not implemented" };
+        }
+
+        op_res_t load_imm_base(const buffer data, const size_t max_size)
+        {
+            const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
+            const size_t l_x = !data.empty() ? std::min(max_size, data.size() - 1) : 0;
+            decoder dec { data.subbuf(1) };
+            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            _state.regs[r_a] = nu_x;
+            return {};
+        }
+
+        op_res_t load_imm(const buffer data)
+        {
+            if (data.size() > 5) [[unlikely]]
+                throw exit_panic_t {};
+            return load_imm_base(data, 4);
+        }
+
+        op_res_t load_imm64(const buffer data)
+        {
+            if (data.size() != 9) [[unlikely]]
+                throw exit_panic_t {};
+            return load_imm_base(data, 8);
+        }
+
+        op_res_t move_reg(const buffer data)
+        {
+            const size_t r_d = std::min(12ULL, data.at(0ULL) & 0xFULL);
+            const size_t r_a = std::min(12ULL, data.at(0ULL) / 16ULL);
+            _state.regs[r_d] = _state.regs[r_a];
+            return {};
+        }
+
+        op_res_t djump(const register_val_t addr)
+        {
+            if (addr == (1ULL << 32ULL) - (1ULL << 16ULL)) [[unlikely]]
+                throw exit_halt_t {};
+            if (addr == 0) [[unlikely]]
+                throw exit_panic_t {};
+            if (addr > _program.jump_table.size() * config_prod::pvm_address_alignment_factor) [[unlikely]]
+                throw exit_panic_t {};
+            if (addr % config_prod::pvm_address_alignment_factor != 0) [[unlikely]]
+                throw exit_panic_t {};
+            const auto ji = addr / config_prod::pvm_address_alignment_factor;
+            const auto new_pc = _program.jump_table.at(ji - 1);
+            if (!_program.bitmasks.test(new_pc)) [[unlikely]]
+                throw exit_panic_t {};
+            return { new_pc };
+        }
+
+        op_res_t branch_base(const register_val_t new_pc, const bool cond)
+        {
+            if (cond) {
+                if (new_pc >= _program.code.size()) [[unlikely]]
+                    throw exit_panic_t {};
+                if (!_program.bitmasks.test(new_pc)) [[unlikely]]
+                    throw exit_panic_t {};
+                return { new_pc };
+            }
+            return {};
+        }
+
+        static std::tuple<size_t, size_t, register_val_t> reg2_imm1(const buffer data)
+        {
+            const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
+            const size_t r_b = std::min(12ULL, data.at(0ULL) / 16ULL);
+            const size_t l_x = !data.empty() ? std::min(4ULL, data.size() - 1) : 0;
+            decoder dec { data.subbuf(1) };
+            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            return std::make_tuple(r_a, r_b, nu_x);
+        }
+
+        static std::tuple<size_t, register_val_t> reg1_imm1(const buffer data)
+        {
+            const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
+            const size_t l_x = !data.empty() ? std::min(4ULL, data.size() - 1) : 0;
+            decoder dec { data.subbuf(1) };
+            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            return std::make_tuple(r_a, nu_x);
+        }
+
+        std::tuple<size_t, size_t, register_val_t> reg1_imm1_off1(const buffer data)
+        {
+            const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
+            const size_t l_x = std::min(4ULL, (data.at(0ULL) / 16ULL) % 8);
+            const size_t l_y = data.size() > l_x ? std::min(4ULL, data.size() - l_x - 1) : 0;
+            decoder dec { data.subbuf(1) };
+            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_y_pre = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
+            const auto nu_y = static_cast<register_val_t>(static_cast<register_val_signed_t>(_state.pc) + static_cast<register_val_signed_t>(nu_y_pre));
+            return std::make_tuple(r_a, nu_x, nu_y);
+        }
+
+        op_res_t branch_ne(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            const auto new_pc = static_cast<register_val_t>(static_cast<register_val_signed_t>(_state.pc) + static_cast<register_val_signed_t>(nu_x));
+            return branch_base(new_pc, _state.regs[r_a] != _state.regs[r_b]);
+        }
+
+        op_res_t add_imm_32(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _state.regs[r_a] = _sign_extend(4, (_state.regs[r_b] + nu_x) % (1ULL << 32ULL));
+            return {};
+        }
+
+        op_res_t add_imm_64(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _state.regs[r_a] = _state.regs[r_b] + nu_x;
+            return {};
+        }
+
+        op_res_t shlo_l_imm_64(const buffer data) {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _state.regs[r_a] = _state.regs[r_b] << nu_x;
+            return {};
+        }
+
+        op_res_t branch_ne_imm(const buffer data)
+        {
+            const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
+            return branch_base(nu_y, _state.regs[r_a] != nu_x);
+        }
+
+        op_res_t jump(const buffer data)
+        {
+            const size_t l_x = std::min(4ULL, data.size());
+            decoder dec { data };
+            const auto nu_x_pre = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_x = static_cast<register_val_t>(static_cast<register_val_signed_t>(_state.pc) + static_cast<register_val_signed_t>(nu_x_pre));
+            return branch_base(nu_x, true);
+        }
+
+        op_res_t jump_ind(const buffer data)
+        {
+            const auto [r_a, nu_x] = reg1_imm1(data);
+            return djump((_state.regs[r_a] + nu_x) % (1ULL << 32ULL));
+        }
     };
 }

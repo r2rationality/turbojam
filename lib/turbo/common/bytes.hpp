@@ -111,7 +111,7 @@ namespace turbo {
 
         uint8_t at(const size_t off) const
         {
-            if (off <= size()) [[likely]]
+            if (off < size()) [[likely]]
                 return (*this)[off];
             throw error(fmt::format("requested offset: {} that behind the end of buffer: {}!", off, size()));
         }

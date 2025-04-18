@@ -14,64 +14,13 @@ namespace {
     using namespace turbo::codec;
     using namespace turbo::jam;
 
-    struct memory_chunk_t: codec::serializable_t<memory_chunk_t> {
-        uint32_t address;
-        sequence_t<uint8_t> contents;
-
-        void serialize(auto &archive)
-        {
-            archive.process("address"sv, address);
-            archive.process("contents"sv, contents);
-        }
-    };
-    using memory_chunks_t = sequence_t<memory_chunk_t>;
-
-    struct page_t: codec::serializable_t<page_t> {
-        uint32_t address;
-        uint32_t length;
-        bool is_writable;
-
-        void serialize(auto &archive)
-        {
-            archive.process("address"sv, address);
-            archive.process("length"sv, length);
-            archive.process("is-writable"sv, is_writable);
-        }
-    };
-    using pages_t = sequence_t<page_t>;
-
-    using status_base_t = std::variant<machine::exit_panic_t, machine::exit_halt_t, machine::exit_page_fault_t>;
-    struct machine_status_t: status_base_t {
-        using base_type = status_base_t;
-        using base_type::base_type;
-
-        static machine_status_t from_json(const json::value &j)
-        {
-            const auto val = boost::json::value_to<std::string_view>(j);
-            if (val == "panic"sv)
-                return { machine::exit_panic_t {} };
-            if (val == "halt"sv)
-                return { machine::exit_halt_t {} };
-            if (val == "page-fault"sv)
-                return { machine::exit_page_fault_t {} };
-            throw error(fmt::format("unsupported machine_status_t value '{}'", val));
-        }
-    };
-
-    struct machine_state_t {
-        fixed_sequence_t<uint64_t, 13> regs;
-        uint32_t pc;
-        memory_chunks_t memory;
-        int64_t gas;
-    };
-
     struct test_case_t: codec::serializable_t<test_case_t> {
         std::string name;
         sequence_t<uint8_t> program;
-        pages_t page_map;
-        machine_state_t pre;
-        machine_status_t status;
-        machine_state_t post;
+        machine::pages_t page_map;
+        machine::state_t pre;
+        machine::result_t status;
+        machine::state_t post;
         optional_t<uint32_t> page_fault_addr;
 
         void serialize(auto &archive)
@@ -97,10 +46,11 @@ namespace {
         const auto j = json::load(path);
         json::decoder jdec { j };
         const auto tc = test_case_t::from(jdec);
-        machine::machine_t m {};
         const auto prg = machine::program_t::from_bytes(buffer { tc.program.data(), tc.program.size() });
-        m.run(prg);
-        expect(false) << path;
+        machine::machine_t m { tc.pre, prg };
+        const auto res = m.run();
+        expect(tc.post == m.state()) << path;
+        expect(tc.status == res) << path;
     }
 }
 
