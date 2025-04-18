@@ -162,9 +162,9 @@ namespace turbo::jam::machine {
 
                 // 0x60
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::move_reg, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::move_reg, &impl::sbrk, &impl::count_set_bits_64, &impl::count_set_bits_32,
+                &impl::leading_zero_bits_64, &impl::leading_zero_bits_32, &impl::trailing_zero_bits_64, &impl::trailing_zero_bits_32,
+                &impl::sign_extend_8, &impl::sign_extend_16, &impl::zero_extend_16, &impl::reverse_bytes,
 
                 // 0x70
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
@@ -174,18 +174,18 @@ namespace turbo::jam::machine {
 
                 // 0x80
                 &impl::load_ind_u32, &impl::load_ind_i32, &impl::load_ind_u64, &impl::add_imm_32,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::and_imm, &impl::xor_imm, &impl::or_imm, &impl::mul_imm_32,
+                &impl::set_lt_u_imm, &impl::set_lt_s_imm, &impl::shlo_l_imm_32, &impl::shlo_r_imm_32,
+                &impl::shar_r_imm_32, &impl::neg_add_imm_32, &impl::set_gt_u_imm, &impl::set_gt_s_imm,
 
                 // 0x90
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::add_imm_64, &impl::trap, &impl::shlo_l_imm_64,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::shlo_l_imm_alt_32, &impl::shlo_r_imm_alt_32, &impl::shar_r_imm_alt_32, &impl::cmov_iz_imm,
+                &impl::cmov_nz_imm, &impl::add_imm_64, &impl::mul_imm_64, &impl::shlo_l_imm_64,
+                &impl::shlo_r_imm_64, &impl::shar_r_imm_64, &impl::neg_add_imm_64, &impl::shlo_l_imm_alt_64,
+                &impl::shlo_r_imm_alt_64, &impl::shar_r_imm_alt_64, &impl::rot_r_64_imm, &impl::rot_r_64_imm_alt,
 
                 // 0xA0
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::rot_r_32_imm, &impl::rot_r_32_imm_alt, &impl::trap, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::branch_ne,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
@@ -241,6 +241,13 @@ namespace turbo::jam::machine {
             const size_t r_b = std::min(12ULL, data.at(0ULL) / 16ULL);
             const size_t r_d = std::min(12ULL, data.at(1ULL) & 0xFULL);
             return std::make_tuple(r_a, r_b, r_d);
+        }
+
+        static std::tuple<size_t, size_t> reg2(const buffer data)
+        {
+            const size_t r_d = std::min(12ULL, data.at(0ULL) & 0xFULL);
+            const size_t r_a = std::min(12ULL, data.at(0ULL) / 16ULL);
+            return std::make_tuple(r_d, r_a);
         }
 
         static std::tuple<size_t, size_t, register_val_t> reg2_imm1(const buffer data)
@@ -441,9 +448,85 @@ namespace turbo::jam::machine {
 
         op_res_t move_reg(const buffer data)
         {
-            const size_t r_d = std::min(12ULL, data.at(0ULL) & 0xFULL);
-            const size_t r_a = std::min(12ULL, data.at(0ULL) / 16ULL);
+            const auto [r_d, r_a] = reg2(data);
             _regs[r_d] = _regs[r_a];
+            return {};
+        }
+
+        op_res_t sbrk(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            // not implemented yet
+            throw exit_panic_t {};
+        }
+
+        op_res_t count_set_bits_64(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = std::popcount(_regs[r_a]);
+            return {};
+        }
+
+        op_res_t count_set_bits_32(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = std::popcount(static_cast<uint32_t>(_regs[r_a]));
+            return {};
+        }
+
+        op_res_t leading_zero_bits_64(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = std::countl_zero(_regs[r_a]);
+            return {};
+        }
+
+        op_res_t leading_zero_bits_32(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = std::countl_zero(static_cast<uint32_t>(_regs[r_a]));
+            return {};
+        }
+
+        op_res_t trailing_zero_bits_64(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = std::countr_zero(_regs[r_a]);
+            return {};
+        }
+
+        op_res_t trailing_zero_bits_32(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = std::countr_zero(static_cast<uint32_t>(_regs[r_a]));
+            return {};
+        }
+
+        op_res_t sign_extend_8(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = _sign_extend(1, _regs[r_a]);
+            return {};
+        }
+
+        op_res_t sign_extend_16(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = _sign_extend(2, _regs[r_a]);
+            return {};
+        }
+
+        op_res_t zero_extend_16(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = _regs[r_a] & 0xFFFF;
+            return {};
+        }
+
+        op_res_t reverse_bytes(const buffer data)
+        {
+            const auto [r_d, r_a] = reg2(data);
+            _regs[r_d] = std::byteswap(_regs[r_a]);
             return {};
         }
 
@@ -461,6 +544,125 @@ namespace turbo::jam::machine {
             return {};
         }
 
+        op_res_t and_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _regs[r_b] & nu_x;
+            return {};
+        }
+
+        op_res_t xor_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _regs[r_b] ^ nu_x;
+            return {};
+        }
+
+        op_res_t or_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _regs[r_b] | nu_x;
+            return {};
+        }
+
+        op_res_t mul_imm_32(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = (_regs[r_b] * nu_x) % (1ULL << 32ULL);
+            return {};
+        }
+
+        op_res_t set_lt_u_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _regs[r_b] < nu_x;
+            return {};
+        }
+
+        op_res_t set_lt_s_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = static_cast<register_val_signed_t>(_regs[r_b]) < static_cast<register_val_signed_t>(nu_x);
+            return {};
+        }
+
+        op_res_t shlo_l_imm_32(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = (_regs[r_b] << (nu_x % 32U)) % (1ULL << 32ULL);
+            return {};
+        }
+
+        op_res_t shlo_r_imm_32(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = (_regs[r_b] % (1ULL << 32ULL)) >> (nu_x % 32U);
+            return {};
+        }
+
+        op_res_t shar_r_imm_32(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = static_cast<int32_t>(_regs[r_b]) >> (nu_x % 32U);
+            return {};
+        }
+
+        op_res_t neg_add_imm_32(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _sign_extend(4, static_cast<uint32_t>(nu_x + (1ULL << 32ULL) - _regs[r_b]));
+            return {};
+        }
+
+        op_res_t set_gt_u_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _regs[r_b] > nu_x;
+            return {};
+        }
+
+        op_res_t set_gt_s_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = static_cast<register_val_signed_t>(_regs[r_b]) > static_cast<register_val_signed_t>(nu_x);
+            return {};
+        }
+
+        op_res_t shlo_l_imm_alt_32(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = (nu_x << (_regs[r_b] % 32U)) % (1ULL << 32ULL);
+            return {};
+        }
+
+        op_res_t shlo_r_imm_alt_32(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = (nu_x % (1ULL << 32ULL)) >> (_regs[r_b] % 32U);
+            return {};
+        }
+
+        op_res_t shar_r_imm_alt_32(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = static_cast<int32_t>(nu_x) >> (_regs[r_b] % 32U);
+            return {};
+        }
+
+        op_res_t cmov_iz_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _regs[r_b] == 0 ?  nu_x : _regs[r_a];
+            return {};
+        }
+
+        op_res_t cmov_nz_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _regs[r_b] != 0 ?  nu_x : _regs[r_a];
+            return {};
+        }
+
         op_res_t add_imm_64(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = reg2_imm1(data);
@@ -468,9 +670,87 @@ namespace turbo::jam::machine {
             return {};
         }
 
-        op_res_t shlo_l_imm_64(const buffer data) {
+        op_res_t mul_imm_64(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _regs[r_b] * nu_x;
+            return {};
+        }
+
+        op_res_t shlo_l_imm_64(const buffer data)
+        {
             const auto [r_a, r_b, nu_x] = reg2_imm1(data);
             _regs[r_a] = _regs[r_b] << nu_x;
+            return {};
+        }
+
+        op_res_t shlo_r_imm_64(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _regs[r_b] >> nu_x;
+            return {};
+        }
+
+        op_res_t shar_r_imm_64(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = static_cast<register_val_signed_t>(_regs[r_b]) >> static_cast<register_val_signed_t>(nu_x);
+            return {};
+        }
+
+        op_res_t neg_add_imm_64(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = nu_x - _regs[r_b];
+            return {};
+        }
+
+        op_res_t shlo_l_imm_alt_64(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = nu_x << _regs[r_b];
+            return {};
+        }
+
+        op_res_t shlo_r_imm_alt_64(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = nu_x >> _regs[r_b];
+            return {};
+        }
+
+        op_res_t shar_r_imm_alt_64(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = static_cast<register_val_signed_t>(nu_x) >> static_cast<register_val_signed_t>(_regs[r_b]);
+            return {};
+        }
+
+        op_res_t rot_r_64_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = std::rotr(_regs[r_b], nu_x);
+            return {};
+        }
+
+        op_res_t rot_r_64_imm_alt(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = std::rotr(nu_x, _regs[r_b]);
+            return {};
+        }
+
+        op_res_t rot_r_32_imm(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _sign_extend(4, std::rotr(static_cast<uint32_t>(_regs[r_b]), static_cast<uint32_t>(nu_x)));
+            return {};
+        }
+
+        op_res_t rot_r_32_imm_alt(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            _regs[r_a] = _sign_extend(4, std::rotr(static_cast<uint32_t>(nu_x), static_cast<uint32_t>(_regs[r_b])));
             return {};
         }
 
