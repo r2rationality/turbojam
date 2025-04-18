@@ -187,30 +187,30 @@ namespace turbo::jam::machine {
                 // 0xA0
                 &impl::rot_r_32_imm, &impl::rot_r_32_imm_alt, &impl::trap, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::branch_ne,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::trap, &impl::trap, &impl::branch_eq, &impl::branch_ne,
+                &impl::branch_lt_u, &impl::branch_lt_s, &impl::branch_ge_u, &impl::branch_ge_s,
 
                 // 0xB0
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::load_imm_jump_ind, &impl::trap, &impl::trap, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::trap, &impl::trap, &impl::add_32, &impl::sub_32,
 
                 // 0xC0
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::add_64, &impl::sub_64, &impl::mul_64, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::mul_32, &impl::div_u_32, &impl::div_s_32, &impl::rem_u_32,
+                &impl::rem_s_32, &impl::shlo_l_32, &impl::shlo_r_32, &impl::shar_r_32,
+                &impl::add_64, &impl::sub_64, &impl::mul_64, &impl::div_u_64,
+                &impl::div_s_64, &impl::rem_u_64, &impl::rem_s_64, &impl::shlo_l_64,
 
                 // 0xD0
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::shlo_r_64, &impl::shar_r_64, &impl::and_, &impl::xor_,
+                &impl::or_, &impl::mul_upper_s_s, &impl::mul_upper_u_u, &impl::mul_upper_s_u,
+                &impl::set_lt_u, &impl::set_lt_s, &impl::cmov_iz, &impl::cmov_nz,
+                &impl::rot_l_64, &impl::rot_l_32, &impl::rot_r_64, &impl::rot_r_32,
 
                 // 0xE0
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
+                &impl::and_inv, &impl::or_inv, &impl::xnor, &impl::max,
+                &impl::max_u, &impl::min, &impl::min_u, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
                 &impl::trap, &impl::trap, &impl::trap, &impl::trap,
 
@@ -258,6 +258,25 @@ namespace turbo::jam::machine {
             decoder dec { data.subbuf(1) };
             const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             return std::make_tuple(r_a, r_b, nu_x);
+        }
+
+        static std::tuple<size_t, size_t, register_val_t, register_val_t> reg2_imm2(const buffer data)
+        {
+            const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
+            const size_t r_b = std::min(12ULL, data.at(0ULL) / 16ULL);
+            const size_t l_x = std::min(4ULL, data.at(1ULL) % 8ULL);
+            const size_t l_y = data.size() > l_x + 1 ? std::min(4ULL, data.size() - l_x - 2) : 0;
+            decoder dec { data.subbuf(2) };
+            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
+            return std::make_tuple(r_a, r_b, nu_x, nu_y);
+        }
+
+        std::tuple<size_t, size_t, register_val_t> reg2_off1(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
+            const auto new_pc = static_cast<register_val_t>(static_cast<register_val_signed_t>(_pc) + static_cast<register_val_signed_t>(nu_x));
+            return std::make_tuple(r_a, r_b, new_pc);
         }
 
         static std::tuple<size_t, register_val_t> reg1_imm1(const buffer data, const size_t max_size=4ULL)
@@ -530,11 +549,40 @@ namespace turbo::jam::machine {
             return {};
         }
 
+        op_res_t branch_eq(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_off1(data);
+            return branch_base(nu_x, _regs[r_a] == _regs[r_b]);
+        }
+
         op_res_t branch_ne(const buffer data)
         {
-            const auto [r_a, r_b, nu_x] = reg2_imm1(data);
-            const auto new_pc = static_cast<register_val_t>(static_cast<register_val_signed_t>(_pc) + static_cast<register_val_signed_t>(nu_x));
-            return branch_base(new_pc, _regs[r_a] != _regs[r_b]);
+            const auto [r_a, r_b, nu_x] = reg2_off1(data);
+            return branch_base(nu_x, _regs[r_a] != _regs[r_b]);
+        }
+
+        op_res_t branch_lt_u(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_off1(data);
+            return branch_base(nu_x, _regs[r_a] < _regs[r_b]);
+        }
+
+        op_res_t branch_lt_s(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_off1(data);
+            return branch_base(nu_x, static_cast<register_val_signed_t>(_regs[r_a]) < static_cast<register_val_signed_t>(_regs[r_b]));
+        }
+
+        op_res_t branch_ge_u(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_off1(data);
+            return branch_base(nu_x, _regs[r_a] >= _regs[r_b]);
+        }
+
+        op_res_t branch_ge_s(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x] = reg2_off1(data);
+            return branch_base(nu_x, static_cast<register_val_signed_t>(_regs[r_a]) >= static_cast<register_val_signed_t>(_regs[r_b]));
         }
 
         op_res_t add_imm_32(const buffer data)
@@ -759,6 +807,13 @@ namespace turbo::jam::machine {
             const auto [r_a, nu_x, nu_y] = reg1_imm1_off1(data);
             _regs[r_a] = nu_x;
             return branch_base(nu_y, true);
+        }
+
+        op_res_t load_imm_jump_ind(const buffer data)
+        {
+            const auto [r_a, r_b, nu_x, nu_y] = reg2_imm2(data);
+            _regs[r_a] = nu_x;
+            return djump((_regs[r_b] + nu_y) % (1ULL << 32ULL));
         }
 
         op_res_t branch_eq_imm(const buffer data)
@@ -1018,6 +1073,90 @@ namespace turbo::jam::machine {
             return {};
         }
 
+        op_res_t add_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = (_regs[r_a] + _regs[r_b]) % (1ULL << 32);
+            return {};
+        }
+
+        op_res_t sub_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = (_regs[r_a] - _regs[r_b]) % (1ULL << 32);
+            return {};
+        }
+
+        op_res_t mul_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = (_regs[r_a] * _regs[r_b]) % (1ULL << 32);
+            return {};
+        }
+
+        op_res_t div_u_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_b] != 0 ? static_cast<uint32_t>(_regs[r_a] / _regs[r_b]) : std::numeric_limits<uint64_t>::max();
+            return {};
+        }
+
+        op_res_t div_s_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+
+            throw exit_panic_t {};
+            if (_regs[r_b] != 0) {
+                if (static_cast<int32_t>(_regs[r_a]) != std::numeric_limits<int32_t>::min() || static_cast<int32_t>(_regs[r_b]) != -1) {
+                    _regs[r_d] = static_cast<register_val_t>(static_cast<int32_t>(_regs[r_a]) / static_cast<int32_t>(_regs[r_b]));
+                } else {
+                    _regs[r_d] = 1ULL << 31ULL;
+                }
+            } else {
+                _regs[r_d] = std::numeric_limits<uint64_t>::max();
+            }
+            return {};
+        }
+
+        op_res_t rem_u_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_b] != 0 ? static_cast<uint32_t>(_regs[r_a]) % static_cast<uint32_t>(_regs[r_b]) : std::numeric_limits<uint64_t>::max();
+            return {};
+        }
+
+        op_res_t rem_s_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            if (static_cast<int32_t>(_regs[r_a]) != std::numeric_limits<int32_t>::min() || static_cast<int32_t>(_regs[r_b]) != -1)
+                _regs[r_d] = _regs[r_b] != 0 ? static_cast<register_val_t>(static_cast<int32_t>(_regs[r_a]) % static_cast<int32_t>(_regs[r_b])) : std::numeric_limits<uint64_t>::max();
+            else {
+                _regs[r_d] = 0;
+            }
+            return {};
+        }
+
+        op_res_t shlo_l_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _sign_extend(4, static_cast<uint32_t>(_regs[r_a] << static_cast<uint32_t>(_regs[r_b])));
+            return {};
+        }
+
+        op_res_t shlo_r_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _sign_extend(4, static_cast<uint32_t>(_regs[r_a] >> static_cast<uint32_t>(_regs[r_b])));
+            return {};
+        }
+
+        op_res_t shar_r_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _sign_extend(4, static_cast<int32_t>(_regs[r_a] >> static_cast<int32_t>(_regs[r_b])));
+            return {};
+        }
+
         op_res_t add_64(const buffer data)
         {
             const auto [r_a, r_b, r_d] = reg3(data);
@@ -1036,6 +1175,216 @@ namespace turbo::jam::machine {
         {
             const auto [r_a, r_b, r_d] = reg3(data);
             _regs[r_d] = _regs[r_a] * _regs[r_b];
+            return {};
+        }
+
+        op_res_t div_u_64(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_b] != 0 ? _regs[r_a] / _regs[r_b] : std::numeric_limits<uint64_t>::max();
+            return {};
+        }
+
+        op_res_t div_s_64(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+
+            throw exit_panic_t {};
+            if (_regs[r_b] != 0) {
+                if (static_cast<register_val_signed_t>(_regs[r_a]) != std::numeric_limits<register_val_signed_t>::min() || static_cast<register_val_signed_t>(_regs[r_b]) != -1) {
+                    _regs[r_d] = static_cast<register_val_t>(static_cast<register_val_signed_t>(_regs[r_a]) / static_cast<register_val_signed_t>(_regs[r_b]));
+                } else {
+                    _regs[r_d] = 1ULL << 63ULL;
+                }
+            } else {
+                _regs[r_d] = std::numeric_limits<uint64_t>::max();
+            }
+            return {};
+        }
+
+        op_res_t rem_u_64(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_b] != 0 ? _regs[r_a] % _regs[r_b] : std::numeric_limits<uint64_t>::max();
+            return {};
+        }
+
+        op_res_t rem_s_64(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            if (static_cast<register_val_signed_t>(_regs[r_a]) != std::numeric_limits<register_val_signed_t>::min() || static_cast<register_val_signed_t>(_regs[r_b]) != -1)
+                _regs[r_d] = _regs[r_b] != 0 ? static_cast<register_val_t>(static_cast<register_val_signed_t>(_regs[r_a]) % static_cast<register_val_signed_t>(_regs[r_b])) : std::numeric_limits<uint64_t>::max();
+            else {
+                _regs[r_d] = 0;
+            }
+            return {};
+        }
+
+        op_res_t shlo_l_64(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_a] << _regs[r_b];
+            return {};
+        }
+
+        op_res_t shlo_r_64(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_a] >> _regs[r_b];
+            return {};
+        }
+
+        op_res_t shar_r_64(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = static_cast<register_val_signed_t>(_regs[r_a] >> static_cast<register_val_signed_t>(_regs[r_b]));
+            return {};
+        }
+
+        op_res_t and_(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_a] & _regs[r_b];
+            return {};
+        }
+
+        op_res_t xor_(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_a] ^ _regs[r_b];
+            return {};
+        }
+
+        op_res_t or_(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_a] | _regs[r_b];
+            return {};
+        }
+
+        op_res_t mul_upper_s_s(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = static_cast<register_val_t>(static_cast<register_val_signed_t>(_regs[r_a]) * static_cast<register_val_signed_t>(_regs[r_b]));
+            return {};
+        }
+
+        op_res_t mul_upper_u_u(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_a] * _regs[r_b];
+            return {};
+        }
+
+        op_res_t mul_upper_s_u(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = static_cast<register_val_t>(static_cast<register_val_signed_t>(_regs[r_a]) * _regs[r_b]);
+            return {};
+        }
+
+        op_res_t set_lt_u(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_a] < _regs[r_b];
+            return {};
+        }
+
+        op_res_t set_lt_s(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = static_cast<register_val_signed_t>(_regs[r_a]) < static_cast<register_val_signed_t>(_regs[r_b]);
+            return {};
+        }
+
+        op_res_t cmov_iz(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_b] == 0 ? _regs[r_a] : _regs[r_d];
+            return {};
+        }
+
+        op_res_t cmov_nz(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_b] != 0 ? _regs[r_a] : _regs[r_d];
+            return {};
+        }
+
+        op_res_t rot_l_64(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = std::rotl(_regs[r_a], _regs[r_b]);
+            return {};
+        }
+
+        op_res_t rot_l_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = std::rotl(static_cast<uint32_t>(_regs[r_a]), static_cast<uint32_t>(_regs[r_b]));
+            return {};
+        }
+
+        op_res_t rot_r_64(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = std::rotr(_regs[r_a], _regs[r_b]);
+            return {};
+        }
+
+        op_res_t rot_r_32(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = std::rotr(static_cast<uint32_t>(_regs[r_a]), static_cast<uint32_t>(_regs[r_b]));
+            return {};
+        }
+
+        op_res_t and_inv(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_a] & (~_regs[r_b]);
+            return {};
+        }
+
+        op_res_t or_inv(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = _regs[r_a] | (~_regs[r_b]);
+            return {};
+        }
+
+        op_res_t xnor(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = ~(_regs[r_a] ^ _regs[r_b]);
+            return {};
+        }
+
+        op_res_t max(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = static_cast<register_val_t>(std::max(static_cast<register_val_signed_t>(_regs[r_a]), static_cast<register_val_signed_t>(_regs[r_b])));
+            return {};
+        }
+
+        op_res_t max_u(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = std::max(_regs[r_a], _regs[r_b]);
+            return {};
+        }
+
+        op_res_t min(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = static_cast<register_val_t>(std::min(static_cast<register_val_signed_t>(_regs[r_a]), static_cast<register_val_signed_t>(_regs[r_b])));
+            return {};
+        }
+
+        op_res_t min_u(const buffer data)
+        {
+            const auto [r_a, r_b, r_d] = reg3(data);
+            _regs[r_d] = std::min(_regs[r_a], _regs[r_b]);
             return {};
         }
     };
