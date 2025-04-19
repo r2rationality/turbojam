@@ -280,7 +280,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports)
+    accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &/*slot*/, const work_reports_t<CONSTANTS> &reports)
     {
         accumulate_root_t res {};
         // JAM Paper (12.2)

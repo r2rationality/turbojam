@@ -50,15 +50,15 @@ namespace turbo::jam::machine {
                     _pc = res.new_pc.value_or(_pc + len + 1);
                     _gas -= res.gas_used;
                 }
-            } catch (exit_halt_t &&ex) {
+            } catch (exit_halt_t &ex) {
                 return { std::move(ex) };
-            } catch (exit_panic_t &&ex) {
+            } catch (exit_panic_t &ex) {
                 return { std::move(ex) };
-            } catch (exit_page_fault_t &&ex) {
+            } catch (exit_page_fault_t &ex) {
                 return { std::move(ex) };
-            } catch (exit_out_of_gas_t &&ex) {
+            } catch (exit_out_of_gas_t &ex) {
                 return { std::move(ex) };
-            } catch (exit_host_call_t &&ex) {
+            } catch (exit_host_call_t &ex) {
                 return { std::move(ex) };
             } catch (...) {
                 return { exit_panic_t {} };
@@ -121,7 +121,7 @@ namespace turbo::jam::machine {
             while (!bitmasks.test(pc)) {
                 ++pc;
             }
-            return std::min(24ULL, pc - start_pc);
+            return std::min(size_t { 24 }, static_cast<size_t>(pc - start_pc));
         }
 
         op_res_t _exec(const uint8_t opcode, const buffer data)
@@ -258,7 +258,7 @@ namespace turbo::jam::machine {
         {
             const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
             const size_t r_b = std::min(12ULL, data.at(0ULL) / 16ULL);
-            const size_t l_x = !data.empty() ? std::min(4ULL, data.size() - 1) : 0;
+            const size_t l_x = !data.empty() ? std::min(size_t { 4 }, data.size() - 1) : 0;
             decoder dec { data.subbuf(1) };
             const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             return std::make_tuple(r_a, r_b, nu_x);
@@ -269,7 +269,7 @@ namespace turbo::jam::machine {
             const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
             const size_t r_b = std::min(12ULL, data.at(0ULL) / 16ULL);
             const size_t l_x = std::min(4ULL, data.at(1ULL) % 8ULL);
-            const size_t l_y = data.size() > l_x + 1 ? std::min(4ULL, data.size() - l_x - 2) : 0;
+            const size_t l_y = data.size() > l_x + 1 ? std::min(size_t { 4 }, data.size() - l_x - 2) : 0;
             decoder dec { data.subbuf(2) };
             const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
@@ -296,7 +296,7 @@ namespace turbo::jam::machine {
         {
             const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
             const size_t l_x = std::min(4ULL, (data.at(0ULL) / 16ULL) % 8);
-            const size_t l_y = data.size() > l_x ? std::min(4ULL, data.size() - l_x - 1) : 0;
+            const size_t l_y = data.size() > l_x ? std::min(size_t { 4 }, data.size() - l_x - 1) : 0;
             decoder dec { data.subbuf(1) };
             const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
@@ -307,7 +307,7 @@ namespace turbo::jam::machine {
         {
             const size_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
             const size_t l_x = std::min(4ULL, (data.at(0ULL) / 16ULL) % 8);
-            const size_t l_y = data.size() > l_x ? std::min(4ULL, data.size() - l_x - 1) : 0;
+            const size_t l_y = data.size() > l_x ? std::min(size_t { 4 }, data.size() - l_x - 1) : 0;
             decoder dec { data.subbuf(1) };
             const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             const auto nu_y_pre = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
@@ -318,7 +318,7 @@ namespace turbo::jam::machine {
         static std::tuple<register_val_t, register_val_t> imm2(const buffer data)
         {
             const size_t l_x = std::min(4ULL, data.at(0ULL) % 8ULL);
-            const size_t l_y = !data.empty() ? std::min(4ULL, data.size() - l_x - 1) : 0;
+            const size_t l_y = !data.empty() ? std::min(size_t { 4 }, data.size() - l_x - 1) : 0;
             decoder dec { data.subbuf(1) };
             const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
@@ -422,7 +422,7 @@ namespace turbo::jam::machine {
 
         op_res_t ecalli(const buffer data)
         {
-            const size_t l_x = std::min(4ULL, data.size());
+            const size_t l_x = std::min(size_t { 4 }, data.size());
             decoder dec { data };
             const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             throw exit_host_call_t { nu_x };
@@ -884,7 +884,7 @@ namespace turbo::jam::machine {
 
         op_res_t jump(const buffer data)
         {
-            const size_t l_x = std::min(4ULL, data.size());
+            const size_t l_x = std::min(size_t { 4 }, data.size());
             decoder dec { data };
             const auto nu_x_pre = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             const auto nu_x = static_cast<register_val_t>(static_cast<register_val_signed_t>(_pc) + static_cast<register_val_signed_t>(nu_x_pre));
