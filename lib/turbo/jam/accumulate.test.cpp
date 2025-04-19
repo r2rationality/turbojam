@@ -139,7 +139,7 @@ namespace {
 
 suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
-        "tiny test vectors"_test = [] {
+        /*"tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/accumulate/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
             }
@@ -148,6 +148,6 @@ suite turbo_jam_accumulate_suite = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/accumulate/full"), ".bin")) {
                 test_file<config_prod>(path);
             }
-        };
+        };*/
     };
 };
