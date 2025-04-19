@@ -49,14 +49,17 @@ namespace {
         const auto prg = machine::program_t::from_bytes(buffer { tc.program.data(), tc.program.size() });
         machine::machine_t m { prg, tc.pre, tc.page_map };
         const auto res = m.run();
-        expect(tc.post == m.state()) << path;
-        expect(tc.status == res) << path;
+        expect(tc.status == res) << "status" << path;
+        if (tc.page_fault_addr) {
+            expect(std::get<machine::exit_page_fault_t>(res).addr == *tc.page_fault_addr) << "page fault addr" << path;
+        }
+        expect(tc.post == m.state()) << "state" << path;
     }
 }
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
-        //test_program(file::install_path("test/pvm-test-vectors/pvm/programs/riscv_rv64ua_amoadd_d.json"));
+        test_program(file::install_path("test/pvm-test-vectors/pvm/programs/riscv_rv64um_mulh.json"));
         for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/programs"), ".json")) {
             test_program(path);
         }
