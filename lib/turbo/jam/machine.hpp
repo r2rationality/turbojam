@@ -178,7 +178,6 @@ namespace turbo::jam::machine {
                 jt.emplace_back(dec.uint_fixed<uint32_t>(jt_offset_sz));
             }
             const auto code = dec.next_bytes(code_sz);
-            // TODO: JAM (A.4) zero pad the code to ensure the last intruction is valid
             const bit_buffer_t bitmasks { dec.next_bytes((code_sz + 7) / 8), code_sz };
             if (!dec.empty()) [[unlikely]]
                 throw error("failed to decode all bytes of the program blob");

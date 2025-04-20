@@ -49,9 +49,11 @@ namespace turbo::jam::machine {
         {
             try {
                 for (;;) {
+                    if (_pc >= _program.code.size()) [[unlikely]]
+                        throw exit_panic_t {}; // equivalent to executing the trap instruction
                     if (!_program.bitmasks.test(_pc)) [[unlikely]]
                         throw exit_panic_t {};
-                    const uint8_t opcode = _program.code.at(_pc);
+                    const uint8_t opcode = _program.code[_pc];
                     const auto len = _skip_len(_pc, _program.bitmasks);
                     const auto data = _program.code.subbuf(_pc + 1, len);
                     const auto res = _exec(opcode, data);
