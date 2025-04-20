@@ -42,6 +42,7 @@ The code is regularly tested in the following build environments:
 The project uses the following test-vector sets to verify its conformance:
 - [W3F Test Vectors](https://github.com/w3f/jamtestvectors)
 - [Test Vectors by Davide Galassi](https://github.com/davxy/jam-test-vectors/tree/polkajam-vectors)
+- [PVM Test Vectors by Jan Bujak](https://github.com/koute/jamtestvectors/tree/master_pvm_initial)
 
 ## Account IDs
 - DOT: 14Gnp9cpb4mrXrpbCVNQSEPyL3QhoccGB9qpTRxqKWWMWSxn
