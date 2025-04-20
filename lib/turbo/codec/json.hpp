@@ -84,10 +84,11 @@ namespace turbo::codec::json {
             const auto &ja = _jv.as_array();
             m.clear();
             for (const auto &jv: ja) {
+                decoder jv_dec { jv };
                 typename T::key_type k;
-                process(key_name, k);
+                jv_dec.process(key_name, k);
                 typename T::mapped_type v;
-                process(val_name, v);
+                jv_dec.process(val_name, v);
                 const auto [it, created] = m.try_emplace(std::move(k), std::move(v));
                 if (!created) [[unlikely]]
                     throw error(fmt::format("a map contains non-unique items: {}", typeid(m).name()));

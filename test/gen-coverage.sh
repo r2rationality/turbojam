@@ -1,4 +1,7 @@
 TEST_NAME=$1
+if [ -z "$TEST_NAME" ]; then
+  TEST_NAME="*"
+fi
 OUT_DIR=$2
 if [ -z "$OUT_DIR" ]; then
   OUT_DIR="tmp/coverage"

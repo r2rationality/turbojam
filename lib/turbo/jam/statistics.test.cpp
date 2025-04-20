@@ -33,7 +33,7 @@ namespace {
         state_t<CONSTANTS> pre;
         state_t<CONSTANTS> post;
 
-        void serialize_state(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
+        void serialize_state(auto &archive, const std::string_view /*name*/, state_t<CONSTANTS> &st)
         {
             using namespace std::string_view_literals;
             archive.process("statistics"sv, st.pi);

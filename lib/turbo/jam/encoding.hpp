@@ -255,7 +255,7 @@ namespace turbo::jam {
             }
         }
 
-        void process_map(auto &m, const std::string_view key_name, const std::string_view val_name)
+        void process_map(auto &m, const std::string_view /*key_name*/, const std::string_view /*val_name*/)
         {
             using T = std::decay_t<decltype(m)>;
             const auto sz = uint_varlen<size_t>();

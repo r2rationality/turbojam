@@ -171,75 +171,75 @@ namespace turbo::jam {
         {
             try {
                 action();
-            } catch (err_bad_attestation_parent_t &&e) {
+            } catch (err_bad_attestation_parent_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_validator_index_t &&e) {
+            } catch (err_bad_validator_index_t &e) {
                 on_error(std::move(e));
-            } catch (err_core_not_engaged_t &&e) {
+            } catch (err_core_not_engaged_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_signature_t &&e) {
+            } catch (err_bad_signature_t &e) {
                 on_error(std::move(e));
-            } catch (err_not_sorted_or_unique_assurers &&e) {
+            } catch (err_not_sorted_or_unique_assurers &e) {
                 on_error(std::move(e));
-            } catch (err_bad_slot_t &&e) {
+            } catch (err_bad_slot_t &e) {
                 on_error(std::move(e));
-            } catch (err_unexpected_ticket_t &&e) {
+            } catch (err_unexpected_ticket_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_ticket_order_t &&e) {
+            } catch (err_bad_ticket_order_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_ticket_proof_t &&e) {
+            } catch (err_bad_ticket_proof_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_ticket_attempt_t &&e) {
+            } catch (err_bad_ticket_attempt_t &e) {
                 on_error(std::move(e));
-            } catch (err_reserved_t &&e) {
+            } catch (err_reserved_t &e) {
                 on_error(std::move(e));
-            } catch (err_duplicate_ticket_t &&e) {
+            } catch (err_duplicate_ticket_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_core_index_t &&e) {
+            } catch (err_bad_core_index_t &e) {
                 on_error(std::move(e));
-            } catch (err_future_report_slot_t &&e) {
+            } catch (err_future_report_slot_t &e) {
                 on_error(std::move(e));
-            } catch (err_report_epoch_before_last_t &&e) {
+            } catch (err_report_epoch_before_last_t &e) {
                 on_error(std::move(e));
-            } catch (err_insufficient_guarantees_t &&e) {
+            } catch (err_insufficient_guarantees_t &e) {
                 on_error(std::move(e));
-            } catch (err_out_of_order_guarantee_t &&e) {
+            } catch (err_out_of_order_guarantee_t &e) {
                 on_error(std::move(e));
-            } catch (err_not_sorted_or_unique_guarantors_t &&e) {
+            } catch (err_not_sorted_or_unique_guarantors_t &e) {
                 on_error(std::move(e));
-            } catch (err_wrong_assignment_t &&e) {
+            } catch (err_wrong_assignment_t &e) {
                 on_error(std::move(e));
-            } catch (err_core_engaged_t &&e) {
+            } catch (err_core_engaged_t &e) {
                 on_error(std::move(e));
-            } catch (err_anchor_not_recent_t &&e) {
+            } catch (err_anchor_not_recent_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_service_id_t &&e) {
+            } catch (err_bad_service_id_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_code_hash_t &&e) {
+            } catch (err_bad_code_hash_t &e) {
                 on_error(std::move(e));
-            } catch (err_dependency_missing_t &&e) {
+            } catch (err_dependency_missing_t &e) {
                 on_error(std::move(e));
-            } catch (err_duplicate_package_t &&e) {
+            } catch (err_duplicate_package_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_state_root_t &&e) {
+            } catch (err_bad_state_root_t &e) {
                 on_error(std::move(e));
-            } catch (err_bad_beefy_mmr_root_t &&e) {
+            } catch (err_bad_beefy_mmr_root_t &e) {
                 on_error(std::move(e));
-            } catch (err_core_unauthorized_t &&e) {
+            } catch (err_core_unauthorized_t &e) {
                 on_error(std::move(e));
-            } catch (err_work_report_gas_too_high_t &&e) {
+            } catch (err_work_report_gas_too_high_t &e) {
                 on_error(std::move(e));
-            } catch (err_service_item_gas_too_low_t &&e) {
+            } catch (err_service_item_gas_too_low_t &e) {
                 on_error(std::move(e));
-            } catch (err_too_many_dependencies_t &&e) {
+            } catch (err_too_many_dependencies_t &e) {
                 on_error(std::move(e));
-            } catch (err_segment_root_lookup_invalid_t &&e) {
+            } catch (err_segment_root_lookup_invalid_t &e) {
                 on_error(std::move(e));
-            } catch (err_work_report_too_big_t &&e) {
+            } catch (err_work_report_too_big_t &e) {
                 on_error(std::move(e));
-            } catch (err_preimage_unneeded_t &&e) {
+            } catch (err_preimage_unneeded_t &e) {
                 on_error(std::move(e));
-            } catch (err_preimages_not_sorted_or_unique_t &&e) {
+            } catch (err_preimages_not_sorted_or_unique_t &e) {
                 on_error(std::move(e));
             }
         }
