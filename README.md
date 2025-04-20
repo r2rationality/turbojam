@@ -4,11 +4,14 @@ TurboJAM is a C++ implementation of the [JAM paper](https://github.com/gavofyork
 
 ## Build Instructions
 
-The code is regularly tested in the following build environments:
-- The latest Visual C++ on Windows.
-- Clang 18 that comes with Ubuntu Linux 24.04.
-- GCC 13 that comes with Ubuntu Linux 24.04.
-- Clang 17 installed with Homebrew on Mac OS.
+The code is regularly tested in the following build environments for the x86-64 architecture:
+- Microsoft Visual C++ (included with Visual Studio Community 2022 on Windows)
+- Clang 18 on Ubuntu 24.04
+- GCC 13 on Ubuntu 24.04
+
+If you encounter compilation issues in a different environment,
+please check whether the issue also occurs in one of the supported environments above.
+When reporting a problem, include details about your build setup to help with troubleshooting.
 
 ### Ubuntu Linux 24.04 LTS
 1. Configure the build with CMake
