@@ -18,6 +18,17 @@ namespace turbo::jam::machine {
 #   pragma GCC diagnostic pop
 #endif
 
+    static constexpr register_val_t host_res_none = std::numeric_limits<register_val_t>::max();
+    static constexpr register_val_t host_res_what = std::numeric_limits<register_val_t>::max() - 1;
+    static constexpr register_val_t host_res_oob = std::numeric_limits<register_val_t>::max() - 2;
+    static constexpr register_val_t host_res_who = std::numeric_limits<register_val_t>::max() - 3;
+    static constexpr register_val_t host_res_full = std::numeric_limits<register_val_t>::max() - 4;
+    static constexpr register_val_t host_res_core = std::numeric_limits<register_val_t>::max() - 5;
+    static constexpr register_val_t host_res_cash = std::numeric_limits<register_val_t>::max() - 6;
+    static constexpr register_val_t host_res_low = std::numeric_limits<register_val_t>::max() - 7;
+    static constexpr register_val_t host_res_huh = std::numeric_limits<register_val_t>::max() - 8;
+    static constexpr register_val_t host_res_ok = 0;
+
     struct machine_t::impl {
         explicit impl(const program_t &program, const state_t &init, const pages_t &page_map):
             _program { program },

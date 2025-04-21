@@ -28,34 +28,50 @@ namespace {
 
     template<typename CONSTANTS>
     struct input_t: codec::serializable_t<input_t<CONSTANTS>> {
-        time_slot_t<CONSTANTS> slot;
-        work_reports_t<CONSTANTS> reports;
+        disputes_extrinsic_t<CONSTANTS> disputes;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("slot"sv, slot);
-            archive.process("reports"sv, reports);
+            archive.process("disputes"sv, disputes);
         }
 
         bool operator==(const input_t &o) const
         {
-            if (slot != o.slot)
-                return false;
-            if (reports != o.reports)
+            if (disputes != o.disputes)
                 return false;
             return true;
         }
     };
 
-    struct err_code_t {
-        bool operator==(const err_code_t &) const
+    struct err_code_t final: err_any_t {
+        using err_any_t::err_any_t;
+
+        static err_code_t from_bytes(decoder &dec)
         {
-            return true;
+            switch (const auto typ = dec.decode<uint8_t>(); typ) {
+                case 0: return { err_already_judged_t {} };
+                case 1: return { err_bad_vote_split_t {} };
+                case 2: return { err_verdicts_not_sorted_unique_t {} };
+                case 3: return { err_judgements_not_sorted_unique_t {} };
+                case 4: return { err_culprits_not_sorted_unique_t {} };
+                case 5: return { err_faults_not_sorted_unique_t {} };
+                case 6: return { err_not_enough_culprits_t {} };
+                case 7: return { err_not_enough_faults_t {} };
+                case 8: return { err_culprits_verdict_not_bad_t {} };
+                case 9: return { err_fault_verdict_wrong_t {} };
+                case 10: return { err_offender_already_reported_t {} };
+                case 11: return { err_bad_judgement_age_t {} };
+                case 12: return { err_bad_validator_index_t {} };
+                case 13: return { err_bad_signature_t {} };
+                case 14: return { err_bad_guarantor_key_t {} };
+                case 15: return { err_bad_auditor_key_t {} };
+                [[unlikely]] default: throw error(fmt::format("unsupported output_t error type: {}", typ));
+            }
         }
     };
 
-    using output_base_t = std::variant<accumulate_root_t, err_code_t>;
+    using output_base_t = std::variant<offenders_mark_t, err_code_t>;
     struct output_t: output_base_t {
         using base_type = output_base_t;
         using base_type::base_type;
@@ -64,8 +80,8 @@ namespace {
         {
             const auto typ = dec.decode<uint8_t>();
             switch (typ) {
-                case 0: return { accumulate_root_t::from(dec) };
-                case 1: return { err_code_t {} };
+                case 0: return { offenders_mark_t::from(dec) };
+                case 1: return { err_code_t::from_bytes(dec) };
                 [[unlikely]] default: throw error(fmt::format("unsupported output_t type: {}", typ));
             }
         }
@@ -78,31 +94,14 @@ namespace {
         output_t out;
         state_t<CONSTANTS> post;
 
-        static void serialize_accounts(auto &archive, const std::string_view name, accounts_t<CONSTANTS> &accs)
-        {
-            tmp_accounts_t taccs;
-            archive.process(name, taccs);
-            accs.clear();
-            for (auto &&[id, tacc]: taccs) {
-                account_t<CONSTANTS> acc {
-                    .preimages=std::move(tacc.preimages),
-                    .info=std::move(tacc.service)
-                };
-                const auto [it, created] = accs.try_emplace(std::move(id), std::move(acc));
-                if (!created) [[unlikely]]
-                    throw error(fmt::format("a duplicate account in the service map!"));
-            }
-        }
-
         static void serialize_state(auto &archive, const std::string_view, state_t<CONSTANTS> &st)
         {
             using namespace std::string_view_literals;
-            archive.process("slot"sv, st.tau);
-            archive.process("entropy"sv, st.eta[0]);
-            archive.process("ready_queue"sv, st.nu);
-            archive.process("accumulated"sv, st.ksi);
-            archive.process("privileges"sv, st.chi);
-            serialize_accounts(archive, "accounts"sv, st.delta);
+            archive.process("psu"sv, st.psi);
+            archive.process("rho"sv, st.rho);
+            archive.process("tau"sv, st.tau);
+            archive.process("kappa"sv, st.kappa);
+            archive.process("lambda"sv, st.lambda);
         }
 
         void serialize(auto &archive)
@@ -119,7 +118,7 @@ namespace {
     void test_file(const std::string &path)
     {
         const auto tc = jam::load<test_case_t<CFG>>(path);
-        std::optional<output_t> out {};
+        /*std::optional<output_t> out {};
         state_t<CFG> res_st = tc.pre;
         try {
             auto tmp_st = tc.pre;
@@ -133,20 +132,20 @@ namespace {
             expect(res_st == tc.post) << path;
         } else {
             expect(false) << path;
-        }
+        }*/
+        expect(false) << path;
     }
 }
 
-suite turbo_jam_accumulate_suite = [] {
-    "turbo::jam::accumulate"_test = [] {
-        test_file<config_tiny>(file::install_path("test/jam-test-vectors/accumulate/tiny/accumulate_ready_queued_reports-1.bin"));
+suite turbo_jam_disputes_suite = [] {
+    "turbo::jam::disputes"_test = [] {
         "tiny test vectors"_test = [] {
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/accumulate/tiny"), ".bin")) {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/disputes/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
             }
         };
         "full test vectors"_test = [] {
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/accumulate/full"), ".bin")) {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/disputes/full"), ".bin")) {
                 test_file<config_prod>(path);
             }
         };

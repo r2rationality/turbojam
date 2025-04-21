@@ -151,17 +151,80 @@ namespace turbo::jam {
         err_preimages_not_sorted_or_unique_t(): error { "err_preimages_not_sorted_or_unique_t" } {}
         bool operator==(const err_preimages_not_sorted_or_unique_t &) const { return true; }
     };
+    struct err_already_judged_t final: error {
+        err_already_judged_t(): error { "err_already_judged_t" } {}
+        bool operator==(const err_already_judged_t &) const { return true; }
+    };
+    struct err_bad_vote_split_t final: error {
+        err_bad_vote_split_t(): error { "err_bad_vote_split_t" } {}
+        bool operator==(const err_bad_vote_split_t &) const { return true; }
+    };
+    struct err_verdicts_not_sorted_unique_t final: error {
+        err_verdicts_not_sorted_unique_t(): error { "err_verdicts_not_sorted_unique_t" } {}
+        bool operator==(const err_verdicts_not_sorted_unique_t &) const { return true; }
+    };
+    struct err_judgements_not_sorted_unique_t final: error {
+        err_judgements_not_sorted_unique_t(): error { "err_judgements_not_sorted_unique_t" } {}
+        bool operator==(const err_judgements_not_sorted_unique_t &) const { return true; }
+    };
+    struct err_culprits_not_sorted_unique_t final: error {
+        err_culprits_not_sorted_unique_t(): error { "err_culprits_not_sorted_unique_t" } {}
+        bool operator==(const err_culprits_not_sorted_unique_t &) const { return true; }
+    };
+    struct err_faults_not_sorted_unique_t final: error {
+        err_faults_not_sorted_unique_t(): error { "err_faults_not_sorted_unique_t" } {}
+        bool operator==(const err_faults_not_sorted_unique_t &) const { return true; }
+    };
+    struct err_not_enough_culprits_t final: error {
+        err_not_enough_culprits_t(): error { "err_not_enough_culprits_t" } {}
+        bool operator==(const err_not_enough_culprits_t &) const { return true; }
+    };
+    struct err_not_enough_faults_t final: error {
+        err_not_enough_faults_t(): error { "err_not_enough_faults_t" } {}
+        bool operator==(const err_not_enough_faults_t &) const { return true; }
+    };
+    struct err_culprits_verdict_not_bad_t final: error {
+        err_culprits_verdict_not_bad_t(): error { "err_culprits_verdict_not_bad_t" } {}
+        bool operator==(const err_culprits_verdict_not_bad_t &) const { return true; }
+    };
+    struct err_fault_verdict_wrong_t final: error {
+        err_fault_verdict_wrong_t(): error { "err_fault_verdict_wrong_t" } {}
+        bool operator==(const err_fault_verdict_wrong_t &) const { return true; }
+    };
+    struct err_offender_already_reported_t final: error {
+        err_offender_already_reported_t(): error { "err_offender_already_reported_t" } {}
+        bool operator==(const err_offender_already_reported_t &) const { return true; }
+    };
+    struct err_bad_judgement_age_t final: error {
+        err_bad_judgement_age_t(): error { "err_bad_judgement_age_t" } {}
+        bool operator==(const err_bad_judgement_age_t &) const { return true; }
+    };
+    struct err_bad_guarantor_key_t final: error {
+        err_bad_guarantor_key_t(): error { "err_bad_guarantor_key_t" } {}
+        bool operator==(const err_bad_guarantor_key_t &) const { return true; }
+    };
+    struct err_bad_auditor_key_t final: error {
+        err_bad_auditor_key_t(): error { "err_bad_auditor_key_t" } {}
+        bool operator==(const err_bad_auditor_key_t &) const { return true; }
+    };
 
     using err_any_base_t = std::variant<
         err_bad_attestation_parent_t, err_bad_validator_index_t, err_core_not_engaged_t, err_bad_signature_t,
         err_not_sorted_or_unique_assurers, err_bad_slot_t, err_unexpected_ticket_t, err_bad_ticket_order_t,
         err_bad_ticket_proof_t, err_bad_ticket_attempt_t, err_reserved_t, err_duplicate_ticket_t,
         err_bad_core_index_t, err_future_report_slot_t, err_report_epoch_before_last_t, err_insufficient_guarantees_t,
+
         err_out_of_order_guarantee_t, err_not_sorted_or_unique_guarantors_t, err_wrong_assignment_t, err_core_engaged_t,
         err_anchor_not_recent_t, err_bad_service_id_t, err_bad_code_hash_t, err_dependency_missing_t,
         err_duplicate_package_t, err_bad_state_root_t, err_bad_beefy_mmr_root_t, err_core_unauthorized_t,
         err_work_report_gas_too_high_t, err_service_item_gas_too_low_t, err_too_many_dependencies_t, err_segment_root_lookup_invalid_t,
-        err_work_report_too_big_t, err_preimage_unneeded_t, err_preimages_not_sorted_or_unique_t
+
+        err_work_report_too_big_t, err_preimage_unneeded_t, err_preimages_not_sorted_or_unique_t, err_already_judged_t,
+        err_bad_vote_split_t, err_verdicts_not_sorted_unique_t, err_judgements_not_sorted_unique_t, err_culprits_not_sorted_unique_t,
+        err_faults_not_sorted_unique_t, err_not_enough_culprits_t, err_not_enough_faults_t, err_culprits_verdict_not_bad_t,
+        err_fault_verdict_wrong_t, err_offender_already_reported_t, err_bad_judgement_age_t, err_bad_guarantor_key_t,
+
+        err_bad_auditor_key_t
     >;
     struct err_any_t: err_any_base_t {
         using base_type = err_any_base_t;
@@ -240,6 +303,34 @@ namespace turbo::jam {
             } catch (err_preimage_unneeded_t &e) {
                 on_error(std::move(e));
             } catch (err_preimages_not_sorted_or_unique_t &e) {
+                on_error(std::move(e));
+            } catch (err_already_judged_t &e) {
+                on_error(std::move(e));
+            } catch (err_bad_vote_split_t &e) {
+                on_error(std::move(e));
+            } catch (err_verdicts_not_sorted_unique_t &e) {
+                on_error(std::move(e));
+            } catch (err_judgements_not_sorted_unique_t &e) {
+                on_error(std::move(e));
+            } catch (err_culprits_not_sorted_unique_t &e) {
+                on_error(std::move(e));
+            } catch (err_faults_not_sorted_unique_t &e) {
+                on_error(std::move(e));
+            } catch (err_not_enough_culprits_t &e) {
+                on_error(std::move(e));
+            } catch (err_not_enough_faults_t &e) {
+                on_error(std::move(e));
+            } catch (err_culprits_verdict_not_bad_t &e) {
+                on_error(std::move(e));
+            } catch (err_fault_verdict_wrong_t &e) {
+                on_error(std::move(e));
+            } catch (err_offender_already_reported_t &e) {
+                on_error(std::move(e));
+            } catch (err_bad_judgement_age_t &e) {
+                on_error(std::move(e));
+            } catch (err_bad_guarantor_key_t &e) {
+                on_error(std::move(e));
+            } catch (err_bad_auditor_key_t &e) {
                 on_error(std::move(e));
             }
         }

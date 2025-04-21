@@ -1036,11 +1036,33 @@ namespace turbo::jam {
 
     using ed25519_keys_t = sequence_t<ed25519_public_t>;
 
-    struct disputes_records_t {
+    struct disputes_records_t: codec::serializable_t<disputes_records_t> {
         sequence_t<work_report_hash_t> good;
         sequence_t<work_report_hash_t> bad;
         sequence_t<work_report_hash_t> wonky;
         ed25519_keys_t offenders;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("good"sv, good);
+            archive.process("bad"sv, bad);
+            archive.process("wonky"sv, wonky);
+            archive.process("offenders"sv, offenders);
+        }
+
+        bool operator==(const disputes_records_t &o) const
+        {
+            if (good != o.good)
+                return false;
+            if (bad != o.bad)
+                return false;
+            if (wonky != o.wonky)
+                return false;
+            if (offenders != o.offenders)
+                return false;
+            return true;
+        }
     };
 
     template<typename CONSTANTS>

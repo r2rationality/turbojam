@@ -7,6 +7,7 @@
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
 #include "errors.hpp"
+#include "machine.hpp"
 #include "merkle.hpp"
 #include "state.hpp"
 #include "shuffle.hpp"
@@ -66,7 +67,7 @@ namespace turbo::jam {
             return false;
         if (pi != o.pi)
             return false;
-        if (ro != o.ro)
+        if (rho != o.rho)
             return false;
         if (tau != o.tau)
             return false;
@@ -280,6 +281,13 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
+    bool should_accumulate_immediately(const work_report_t<CONSTANTS> &r)
+    {
+
+        return static_cast<int>(r.context.prerequisites.empty()) & static_cast<int>(r.segment_root_lookup.empty());
+    }
+
+    template<typename CONSTANTS>
     accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &/*slot*/, const work_reports_t<CONSTANTS> &reports)
     {
         accumulate_root_t res {};
@@ -301,10 +309,24 @@ namespace turbo::jam {
             for (const auto &l: r.segment_root_lookup) {
                 deps.emplace_hint(deps.end(), l.work_package_hash);
             }
-            auto &queue = static_cast<int>(r.context.prerequisites.empty()) & static_cast<int>(r.segment_root_lookup.empty())
-                ? work_immediate
-                : work_queued;
+            auto &queue = should_accumulate_immediately(r) ? work_immediate : work_queued;
             queue.emplace_back(r);
+        }
+        for (const auto &rl: nu) {
+            for (const auto &r: rl) {
+                auto &queue = should_accumulate_immediately(r.report) ? work_immediate : work_queued;
+                queue.emplace_back(r.report);
+            }
+        }
+        for (const auto &q: { work_immediate, work_queued }) {
+            for (const auto &r: q) {
+                for (const auto &r_res: r.results) {
+                    auto &service = delta.at(r_res.service_id);
+                    const auto &code = service.preimages.at(service.info.code_hash);
+                    decoder dec { code };
+                    const auto inv = machine::invocation_t::from_bytes(dec);
+                }
+            }
         }
         return res;
     }
@@ -345,7 +367,7 @@ namespace turbo::jam {
                 throw err_bad_state_root_t {};
             if (blk_it->mmr.root() != g.report.context.beefy_root) [[unlikely]]
                 throw err_bad_beefy_mmr_root_t {};
-            if (g.report.core_index >= ro.size()) [[unlikely]]
+            if (g.report.core_index >= rho.size()) [[unlikely]]
                 throw err_bad_core_index_t {};
             if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
                 throw err_out_of_order_guarantee_t {};
@@ -399,7 +421,7 @@ namespace turbo::jam {
 
             // JAM Paper: (11.29)
             {
-                if (ro[g.report.core_index])
+                if (rho[g.report.core_index])
                     throw err_core_engaged_t {};
                 const auto &auth_pool = alpha[g.report.core_index];
                 const auto auth_it = std::find(auth_pool.begin(), auth_pool.end(), g.report.authorizer_hash);
@@ -407,7 +429,7 @@ namespace turbo::jam {
                     throw err_core_unauthorized_t {};
             }
 
-            ro[g.report.core_index] = availability_assignment_t<CONSTANTS> {
+            rho[g.report.core_index] = availability_assignment_t<CONSTANTS> {
                 .report=g.report, .timeout=slot.slot()
             };
             res.reported.emplace_back(reported_work_package_t {

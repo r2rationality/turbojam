@@ -166,9 +166,8 @@ namespace turbo::jam::machine {
         buffer code;
         bit_buffer_t bitmasks;
 
-        static program_t from_bytes(const buffer bytes)
+        static program_t from_bytes(decoder &dec)
         {
-            decoder dec { bytes };
             const auto jt_sz = dec.uint_varlen();
             const auto jt_offset_sz = dec.uint_fixed<uint8_t>(1);
             const auto code_sz = dec.uint_varlen();
@@ -186,6 +185,18 @@ namespace turbo::jam::machine {
                 code,
                 bitmasks
             };
+        }
+    };
+
+    struct invocation_t {
+        static invocation_t from_bytes(decoder &dec)
+        {
+            auto prg = program_t::from_bytes(dec);
+            /*const auto ro_sz = dec.uint_fixed<size_t>(3);
+            const auto rw_sz = dec.uint_fixed<size_t>(3);
+            const auto arg_sz = dec.uint_fixed<size_t>(2);
+            const auto stack_sz = dec.uint_fixed<size_t>(3);*/
+            return {};
         }
     };
 

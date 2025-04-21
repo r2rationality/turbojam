@@ -88,11 +88,11 @@ namespace {
         static state_t<CONSTANTS> decode_state(decoder &dec)
         {
             // the order of the fields in the test state is different that the one in the regular state
-            auto ro = dec.decode<decltype(pre_state.ro)>();
+            auto rho = dec.decode<decltype(pre_state.rho)>();
             auto kappa = dec.decode<decltype(pre_state.kappa)>();
             return {
                 .kappa=std::move(kappa),
-                .ro=std::move(ro)
+                .rho=std::move(rho)
             };
         }
 
@@ -116,7 +116,7 @@ namespace {
         err_any_t::catch_into(
             [&] {
                 output_data_t<CFG> res {};
-                new_st.ro = tc.pre_state.ro.apply(res.reported, tc.pre_state.kappa, tc.input.slot, tc.input.parent, tc.input.assurances);
+                new_st.rho = tc.pre_state.rho.apply(res.reported, tc.pre_state.kappa, tc.input.slot, tc.input.parent, tc.input.assurances);
                 out.emplace(std::move(res));
             },
             [&](err_any_t err) {

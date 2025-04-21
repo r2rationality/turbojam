@@ -46,7 +46,8 @@ namespace {
         const auto j = json::load(path);
         json::decoder jdec { j };
         const auto tc = test_case_t::from(jdec);
-        const auto prg = machine::program_t::from_bytes(buffer { tc.program.data(), tc.program.size() });
+        decoder dec { buffer { tc.program.data(), tc.program.size() } };
+        const auto prg = machine::program_t::from_bytes(dec);
         machine::machine_t m { prg, tc.pre, tc.page_map };
         const auto res = m.run();
         expect(tc.status == res) << "status" << path;

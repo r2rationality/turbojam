@@ -129,7 +129,7 @@ namespace {
 
         static void serialize_state(auto &archive, const std::string_view, state_t<CONSTANTS> &self)
         {
-            archive.process("avail_assignments"sv, self.ro);
+            archive.process("avail_assignments"sv, self.rho);
             archive.process("curr_validators"sv, self.kappa);
             archive.process("prev_validators"sv, self.lambda);
             archive.process("entropy"sv, self.eta);
