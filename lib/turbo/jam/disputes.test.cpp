@@ -12,20 +12,6 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
-    struct tmp_account_t: codec::serializable_t<tmp_account_t> {
-        service_info_t service;
-        preimages_t preimages;
-
-        void serialize(auto &archive)
-        {
-            using namespace std::string_view_literals;
-            archive.process("service"sv, service);
-            archive.process("preimages"sv, preimages);
-        }
-    };
-
-    using tmp_accounts_t = map_t<service_id_t, tmp_account_t, accounts_config_t>;
-
     template<typename CONSTANTS>
     struct input_t: codec::serializable_t<input_t<CONSTANTS>> {
         disputes_extrinsic_t<CONSTANTS> disputes;
@@ -118,11 +104,11 @@ namespace {
     void test_file(const std::string &path)
     {
         const auto tc = jam::load<test_case_t<CFG>>(path);
-        /*std::optional<output_t> out {};
+        std::optional<output_t> out {};
         state_t<CFG> res_st = tc.pre;
         try {
             auto tmp_st = tc.pre;
-            out.emplace(tmp_st.accumulate(tc.in.slot, tc.in.reports));
+            out.emplace(tmp_st.update_disputes(tc.in.disputes));
             res_st = std::move(tmp_st);
         } catch (const error &) {
             out.emplace(err_code_t {});
@@ -132,14 +118,14 @@ namespace {
             expect(res_st == tc.post) << path;
         } else {
             expect(false) << path;
-        }*/
-        expect(false) << path;
+        }
     }
 }
 
 suite turbo_jam_disputes_suite = [] {
     "turbo::jam::disputes"_test = [] {
         "tiny test vectors"_test = [] {
+            //test_file<config_tiny>(file::install_path("test/jam-test-vectors/disputes/tiny/progress_with_no_verdicts-1.bin"));
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/disputes/tiny"), ".bin")) {
                 test_file<config_tiny>(path);
             }
