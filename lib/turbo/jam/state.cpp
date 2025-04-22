@@ -75,7 +75,7 @@ namespace turbo::jam {
             return false;
         if (chi != o.chi)
             return false;
-        if (psi_o_post != o.psi_o_post)
+        if (psi != o.psi)
             return false;
         return true;
     }
@@ -158,7 +158,7 @@ namespace turbo::jam {
             // JAM Paper (6.13)
             lambda = kappa;
             kappa = gamma.k;
-            gamma.k = _capital_phi(iota, psi_o_post);
+            gamma.k = _capital_phi(iota, psi.offenders);
             gamma.z = _ring_commitment(gamma.k);
 
             // JAM Paper (6.23)
@@ -353,9 +353,9 @@ namespace turbo::jam {
 
         std::optional<core_index_t> prev_core {};
         const auto current_guarantors = _guarantor_assignments(eta[2], slot);
-        const auto current_guarantor_sigs = _capital_phi(kappa, psi_o_post);
+        const auto current_guarantor_sigs = _capital_phi(kappa, psi.offenders);
         const auto prev_guarantors = _guarantor_assignments(eta[3], slot.slot() - CONSTANTS::core_assignment_rotation_period);
-        const auto prev_guarantor_sigs = _capital_phi(lambda, psi_o_post);
+        const auto prev_guarantor_sigs = _capital_phi(lambda, psi.offenders);
         for (const auto &g: guarantees) {
             // JAM Paper (11.33)
             const auto blk_it = std::find_if(beta.begin(), beta.end(), [&g](const auto &blk) {

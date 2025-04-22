@@ -133,7 +133,7 @@ namespace {
             archive.process("curr_validators"sv, self.kappa);
             archive.process("prev_validators"sv, self.lambda);
             archive.process("entropy"sv, self.eta);
-            archive.process("offenders"sv, self.psi_o_post);
+            archive.process("offenders"sv, self.psi.offenders);
             archive.process("recent_blocks"sv, self.beta);
             archive.process("auth_pools"sv, self.alpha);
             serialize_accounts(archive, "accounts"sv, self.delta);

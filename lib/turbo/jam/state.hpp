@@ -80,7 +80,6 @@ namespace turbo::jam {
         time_slot_t<CONSTANTS> tau {};
         auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
         privileges_t chi {};
-        sequence_t<ed25519_public_t> psi_o_post {}; // offenders posterior
         disputes_records_t psi {}; // judgements
 
         safrole_output_data_t<CONSTANTS> update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic);

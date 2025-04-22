@@ -80,7 +80,7 @@ namespace {
             auto gamma_a = dec.decode<decltype(pre.gamma.a)>();
             auto gamma_s = dec.decode<decltype(pre.gamma.s)>();
             auto gamma_z = dec.decode<decltype(pre.gamma.z)>();
-            auto psi_o_post = dec.decode<decltype(pre.psi_o_post)>();
+            auto psi_offenders = dec.decode<decltype(pre.psi.offenders)>();
             return {
                 .gamma {
                     .a = std::move(gamma_a),
@@ -93,7 +93,9 @@ namespace {
                 .kappa = std::move(kappa),
                 .lambda = std::move(lambda),
                 .tau = std::move(tau),
-                .psi_o_post = std::move(psi_o_post)
+                .psi = {
+                    .offenders = std::move(psi_offenders)
+                }
             };
         }
 
