@@ -53,7 +53,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
-        const auto tc = jam::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load_obj<test_case_t<CFG>>(path);
         auto new_st = tc.pre;
         new_st.update_statistics(tc.in.slot, tc.in.author_index, tc.in.extrinsic);
         expect(new_st == tc.post, loc) << path;

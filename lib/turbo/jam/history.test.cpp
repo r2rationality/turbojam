@@ -53,7 +53,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
-        const auto tc = jam::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load_obj<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
         new_st.beta = new_st.beta.apply(tc.input.header_hash, tc.input.state_root, tc.input.accumulate_root, tc.input.reported_work);
         expect(fatal(new_st.beta.size() == tc.post_state.beta.size()));

@@ -584,8 +584,8 @@ namespace turbo::jam {
                 throw err_faults_not_sorted_unique_t {};
             prev_fault = &f;
             msg.clear();
-            msg.reserve(f.target.size() + CONSTANTS::jam_audit.size());
-            msg << static_cast<buffer>(CONSTANTS::jam_audit);
+            msg.reserve(f.target.size() + CONSTANTS::jam_invalid.size());
+            msg << static_cast<buffer>(CONSTANTS::jam_invalid);
             msg << f.target;
             if (!crypto::ed25519::verify(f.signature, msg, f.key)) [[unlikely]]
                 throw err_bad_signature_t {};
@@ -623,7 +623,6 @@ namespace turbo::jam {
             if (ra) {
                 encoder enc {};
                 enc.process(ra->report);
-                enc.process(tau);
                 work_report_hash_t report_hash;
                 crypto::blake2b::digest(report_hash, enc.bytes());
                 if (const auto ok_it = report_oks.find(report_hash); ok_it != report_oks.end() && ok_it->second < CONSTANTS::validator_super_majority) [[unlikely]]

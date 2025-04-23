@@ -108,7 +108,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = jam::load<test_case_t<CFG>>(path);
+        const auto tc = jam::load_obj<test_case_t<CFG>>(path);
         auto new_st = tc.pre_state;
         std::optional<output_t> out {};
         err_any_t::catch_into(

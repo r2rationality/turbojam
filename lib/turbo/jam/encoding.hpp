@@ -28,6 +28,16 @@ namespace turbo::jam {
     };
 
     struct encoder: codec::archive_t {
+        void push(const std::string_view)
+        {
+            // do nothing
+        }
+
+        void pop()
+        {
+            // do nothing
+        }
+
         void uint_fixed(const size_t num_bytes, const uint64_t val)
         {
             auto x = val;
@@ -170,6 +180,16 @@ namespace turbo::jam {
         {
         }
 
+        void push(const std::string_view)
+        {
+            // do nothing
+        }
+
+        void pop()
+        {
+            // do nothing
+        }
+
         template<typename T>
         T uint_fixed(const size_t num_bytes)
         {
@@ -240,6 +260,13 @@ namespace turbo::jam {
         void process(const std::string_view, T &val)
         {
             process(val);
+        }
+
+        template<typename T>
+        void process_variant(T &val, const codec::variant_names_t<T> &)
+        {
+            const auto typ = uint_fixed<uint8_t>(1);
+            variant_set_type<T, 0>(val, typ, *this);
         }
 
         void process_optional(auto &val)
@@ -341,14 +368,16 @@ namespace turbo::jam {
     }
 
     template<typename T>
-    T load(const std::string &path)
+    T load_obj(const std::string &path)
     {
         const auto bytes = file::read(path);
         decoder dec { bytes };
-        if constexpr (codec::serializable_c<T>) {
+        if constexpr (from_bytes_c<T>) {
+            return T::from_bytes(dec);
+        } else if constexpr (codec::serializable_c<T>) {
             return T::from(dec);
         } else {
-            return T::from_bytes(dec);
+            throw error(fmt::format("binary deserialization not support for type {}", typeid(T).name()));
         }
     }
 }

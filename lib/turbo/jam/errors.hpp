@@ -7,23 +7,26 @@
 #include <functional>
 #include <variant>
 #include <turbo/common/error.hpp>
+#include <turbo/codec/serializable.hpp>
 
 namespace turbo::jam {
     struct err_bad_attestation_parent_t final: error {
         err_bad_attestation_parent_t(): error { "err_bad_attestation_parent_t" } {}
         bool operator==(const err_bad_attestation_parent_t &) const { return true; }
     };
-    struct err_bad_validator_index_t final: error {
+    struct err_bad_validator_index_t final: error, codec::serializable_t<err_bad_validator_index_t> {
         err_bad_validator_index_t(): error { "err_bad_validator_index_t" } {}
         bool operator==(const err_bad_validator_index_t &) const { return true; }
+        void serialize(auto &) {}
     };
     struct err_core_not_engaged_t final: error {
         err_core_not_engaged_t(): error { "err_core_not_engaged_t" } {}
         bool operator==(const err_core_not_engaged_t &) const { return true; }
     };
-    struct err_bad_signature_t final: error {
+    struct err_bad_signature_t final: error, codec::serializable_t<err_bad_signature_t> {
         err_bad_signature_t(): error { "err_bad_signature_t" } {}
         bool operator==(const err_bad_signature_t &) const { return true; }
+        void serialize(auto &) {}
     };
     struct err_not_sorted_or_unique_assurers final: error {
         err_not_sorted_or_unique_assurers(): error { "err_not_sorted_or_unique_assurers" } {}
@@ -151,61 +154,75 @@ namespace turbo::jam {
         err_preimages_not_sorted_or_unique_t(): error { "err_preimages_not_sorted_or_unique_t" } {}
         bool operator==(const err_preimages_not_sorted_or_unique_t &) const { return true; }
     };
-    struct err_already_judged_t final: error {
+    struct err_already_judged_t final: error, codec::serializable_t<err_already_judged_t> {
         err_already_judged_t(): error { "err_already_judged_t" } {}
         bool operator==(const err_already_judged_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_bad_vote_split_t final: error {
+    struct err_bad_vote_split_t final: error, codec::serializable_t<err_bad_vote_split_t> {
         err_bad_vote_split_t(): error { "err_bad_vote_split_t" } {}
         bool operator==(const err_bad_vote_split_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_verdicts_not_sorted_unique_t final: error {
+    struct err_verdicts_not_sorted_unique_t final: error, codec::serializable_t<err_verdicts_not_sorted_unique_t> {
         err_verdicts_not_sorted_unique_t(): error { "err_verdicts_not_sorted_unique_t" } {}
         bool operator==(const err_verdicts_not_sorted_unique_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_judgements_not_sorted_unique_t final: error {
+    struct err_judgements_not_sorted_unique_t final: error, codec::serializable_t<err_judgements_not_sorted_unique_t> {
         err_judgements_not_sorted_unique_t(): error { "err_judgements_not_sorted_unique_t" } {}
         bool operator==(const err_judgements_not_sorted_unique_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_culprits_not_sorted_unique_t final: error {
+    struct err_culprits_not_sorted_unique_t final: error, codec::serializable_t<err_culprits_not_sorted_unique_t> {
         err_culprits_not_sorted_unique_t(): error { "err_culprits_not_sorted_unique_t" } {}
         bool operator==(const err_culprits_not_sorted_unique_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_faults_not_sorted_unique_t final: error {
+    struct err_faults_not_sorted_unique_t final: error, codec::serializable_t<err_faults_not_sorted_unique_t> {
         err_faults_not_sorted_unique_t(): error { "err_faults_not_sorted_unique_t" } {}
         bool operator==(const err_faults_not_sorted_unique_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_not_enough_culprits_t final: error {
+    struct err_not_enough_culprits_t final: error, codec::serializable_t<err_not_enough_culprits_t> {
         err_not_enough_culprits_t(): error { "err_not_enough_culprits_t" } {}
         bool operator==(const err_not_enough_culprits_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_not_enough_faults_t final: error {
+    struct err_not_enough_faults_t final: error, codec::serializable_t<err_not_enough_faults_t> {
         err_not_enough_faults_t(): error { "err_not_enough_faults_t" } {}
         bool operator==(const err_not_enough_faults_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_culprits_verdict_not_bad_t final: error {
+    struct err_culprits_verdict_not_bad_t final: error, codec::serializable_t<err_culprits_verdict_not_bad_t> {
         err_culprits_verdict_not_bad_t(): error { "err_culprits_verdict_not_bad_t" } {}
         bool operator==(const err_culprits_verdict_not_bad_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_fault_verdict_wrong_t final: error {
+    struct err_fault_verdict_wrong_t final: error, codec::serializable_t<err_fault_verdict_wrong_t> {
         err_fault_verdict_wrong_t(): error { "err_fault_verdict_wrong_t" } {}
         bool operator==(const err_fault_verdict_wrong_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_offender_already_reported_t final: error {
+    struct err_offender_already_reported_t final: error, codec::serializable_t<err_offender_already_reported_t> {
         err_offender_already_reported_t(): error { "err_offender_already_reported_t" } {}
         bool operator==(const err_offender_already_reported_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_bad_judgement_age_t final: error {
+    struct err_bad_judgement_age_t final: error, codec::serializable_t<err_bad_judgement_age_t> {
         err_bad_judgement_age_t(): error { "err_bad_judgement_age_t" } {}
         bool operator==(const err_bad_judgement_age_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_bad_guarantor_key_t final: error {
+    struct err_bad_guarantor_key_t final: error, codec::serializable_t<err_bad_guarantor_key_t> {
         err_bad_guarantor_key_t(): error { "err_bad_guarantor_key_t" } {}
         bool operator==(const err_bad_guarantor_key_t &) const { return true; }
+        void serialize(auto &) {}
     };
-    struct err_bad_auditor_key_t final: error {
+    struct err_bad_auditor_key_t final: error, codec::serializable_t<err_bad_auditor_key_t> {
         err_bad_auditor_key_t(): error { "err_bad_auditor_key_t" } {}
         bool operator==(const err_bad_auditor_key_t &) const { return true; }
+        void serialize(auto &) {}
     };
 
     using err_any_base_t = std::variant<
@@ -335,4 +352,9 @@ namespace turbo::jam {
             }
         }
     };
+}
+
+namespace std {
+    template<>
+    struct variant_size<turbo::jam::err_any_t>: std::variant_size<turbo::jam::err_any_base_t> {};
 }

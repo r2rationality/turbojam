@@ -22,10 +22,30 @@ namespace turbo::codec::json {
         { t.emplace() };
     };
 
+    extern object canonical(const object &obj);
+    extern std::string serialize_canon(const object &obj);
+    extern value parse(const buffer &buf);
+    extern value load(const std::string &path);
+    extern void save_pretty(std::ostream& os, value const &jv, std::string *indent = nullptr);
+    extern std::string serialize_pretty(const value &jv);
+    extern void save_pretty(const std::string &path, const value &jv);
+
     struct decoder: archive_t {
-        decoder(const boost::json::value &jv):
-            _jv { jv }
+        decoder(const boost::json::value &jv)
         {
+            _vals.emplace_back(jv);
+        }
+
+        void push(const std::string_view name)
+        {
+            _vals.emplace_back(_top().at(name));
+        }
+
+        void pop()
+        {
+            if (_vals.size() == 1) [[unlikely]]
+                throw error("cannot pop the top element!");
+            _vals.pop_back();
         }
 
         template<typename T>
@@ -46,14 +66,14 @@ namespace turbo::codec::json {
             } else if constexpr (std::is_same_v<T, std::string>) {
                 val = boost::json::value_to<std::string_view>(jv);
             } else {
-                throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
+                throw error(fmt::format("json serialization is not enabled for type {}", typeid(T).name()));
             }
         }
 
         template<typename T>
         void process_varlen_uint(T &val)
         {
-            val = boost::json::value_to<T>(_jv);
+            val = boost::json::value_to<T>(_top());
         }
 
         template<typename T>
@@ -65,15 +85,15 @@ namespace turbo::codec::json {
         void process(const std::string_view name, auto &val)
         {
             using T = std::decay_t<decltype(val)>;
-            const auto &jo = _jv.as_object();
+            const auto &jo = _top().as_object();
             const auto it = jo.find(name);
             if (it != jo.end()) {
-                decode(_jv.at(name), val);
+                decode(_top().at(name), val);
             } else {
                 if constexpr (optional_c<T>) {
                     val.reset();
                 } else {
-                    throw error(fmt::format("serialization of missing values not enabled for type {} with key {}", typeid(T).name(), name));
+                    throw error(fmt::format("an unsupported value for type {}: {}", typeid(T).name(), codec::json::serialize_pretty(jo)));
                 }
             }
         }
@@ -81,7 +101,7 @@ namespace turbo::codec::json {
         void process_map(auto &m, const std::string_view key_name, const std::string_view val_name)
         {
             using T = std::decay_t<decltype(m)>;
-            const auto &ja = _jv.as_array();
+            const auto &ja = _top().as_array();
             m.clear();
             for (const auto &jv: ja) {
                 decoder jv_dec { jv };
@@ -98,7 +118,7 @@ namespace turbo::codec::json {
         void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
         {
             using T = std::decay_t<decltype(self)>;
-            const auto &j_arr = _jv.get_array();
+            const auto &j_arr = _top().get_array();
             if (!(static_cast<int>(j_arr.size() >= min_sz) & static_cast<int>(j_arr.size() <= max_sz))) [[unlikely]]
                 throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", j_arr.size(), min_sz, max_sz));
             self.clear();
@@ -116,7 +136,7 @@ namespace turbo::codec::json {
 
         void process_array_fixed(auto &self)
         {
-            const auto &j_arr = _jv.get_array();
+            const auto &j_arr = _top().get_array();
             if (j_arr.size() != self.size()) [[unlikely]]
                 throw error(fmt::format("fixed array: expected size {} but got {}", self.size(), j_arr.size()));
             for (size_t i = 0; i < j_arr.size(); ++i) {
@@ -128,15 +148,47 @@ namespace turbo::codec::json {
         void process_optional(T &val)
         {
             val.reset();
-            if (!_jv.is_null()) {
+            if (!_top().is_null()) {
                 val.emplace();
-                decode(_jv, *val);
+                decode(_top(), *val);
+            }
+        }
+
+        template<typename T>
+        void process_variant(T &val, const codec::variant_names_t<T> &names)
+        {
+            if (_top().is_object()) {
+                const auto &jo = _top().as_object();
+                size_t idx = 0;
+                for (const auto &name: names) {
+                    if (jo.contains(name)) {
+                        push(name);
+                        variant_set_type<T, 0>(val, idx, *this);
+                        pop();
+                        return;
+                    }
+                    ++idx;
+                }
+                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(_top())));
+            } else if (_top().is_string()) {
+                const auto req_name = json::value_to<std::string_view>(_top());
+                size_t idx = 0;
+                for (const auto &name: names) {
+                    if (name == req_name) {
+                        variant_set_type<T, 0>(val, idx, *this);
+                        return;
+                    }
+                    ++idx;
+                }
+                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(_top())));
+            } else {
+                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(_top())));
             }
         }
 
         void process_bytes(std::vector<uint8_t> &bytes)
         {
-            const auto hex = boost::json::value_to<std::string_view>(_jv);
+            const auto hex = boost::json::value_to<std::string_view>(_top());
             if (!hex.starts_with("0x")) [[unlikely]]
                 throw error(fmt::format("expected a hex string but got: {}", hex));
             const auto hex_data = hex.substr(2);
@@ -146,20 +198,31 @@ namespace turbo::codec::json {
 
         void process_bytes_fixed(std::span<uint8_t> bytes)
         {
-            const auto hex = boost::json::value_to<std::string_view>(_jv);
+            const auto hex = boost::json::value_to<std::string_view>(_top());
             if (!hex.starts_with("0x")) [[unlikely]]
                 throw error(fmt::format("expected a hex string but got: {}", hex));
             init_from_hex(bytes, hex.substr(2));
         }
     private:
-        const boost::json::value &_jv;
+        std::vector<std::reference_wrapper<const boost::json::value>> _vals {};
+
+        const boost::json::value &_top() const
+        {
+            return _vals.back().get();
+        }
     };
 
-    extern object canonical(const object &obj);
-    extern std::string serialize_canon(const object &obj);
-    extern value parse(const buffer &buf);
-    extern value load(const std::string &path);
-    extern void save_pretty(std::ostream& os, value const &jv, std::string *indent = nullptr);
-    extern std::string serialize_pretty(const value &jv);
-    extern void save_pretty(const std::string &path, const value &jv);
+    template<typename T>
+    T load_obj(const std::string &path)
+    {
+        const auto j = load(path);
+        if constexpr (from_json_c<T>) {
+            return T::from_json(j);
+        } else if constexpr (codec::serializable_c<T>) {
+            codec::json::decoder j_dec { j };
+            return T::from(j_dec);
+        } else {
+            throw error(fmt::format("JSON serialization not supported for {}", typeid(T).name()));
+        }
+    }
 }

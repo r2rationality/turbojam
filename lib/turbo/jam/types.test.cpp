@@ -14,26 +14,11 @@ namespace {
     using namespace turbo::jam;
 
     template<typename T>
-    void test_decode(const std::string &prefix, const std::source_location &loc=std::source_location::current())
+    void test_decode(const std::string &prefix)
     {
-        const auto bytes = file::read(prefix + ".bin");
-        decoder dec { bytes };
-        expect(!dec.empty(), loc);
-        const auto j = codec::json::load(prefix + ".json");
-        if constexpr (codec::serializable_c<T>) {
-            codec::json::decoder j_dec { j };
-            const auto j_val = T::from(j_dec);
-            const auto b_val = T::from(dec);
-            expect(dec.empty(), loc) << prefix;
-            expect(j_val == b_val) << prefix;
-        } else if constexpr (from_bytes_c<T>) {
-            const auto b_val = T::from_bytes(dec);
-            expect(dec.empty(), loc) << prefix;
-            const auto j_val = T::from_json(j);
-            expect(j_val == b_val) << prefix;
-        } else {
-            throw error(fmt::format("serialization to supported for {}", typeid(T).name()));
-        }
+        const auto b_val = jam::load_obj<T>(prefix + ".bin");
+        const auto j_val = codec::json::load_obj<T>(prefix + ".json");
+        expect(j_val == b_val) << prefix;
     }
 
     template<typename T>
