@@ -990,6 +990,7 @@ namespace turbo::jam {
 
         std::strong_ordering operator<=>(const verdict_t &o) const
         {
+            // (10.7) ordered by report hash
             if (const auto cmp = target <=> o.target; cmp != std::strong_ordering::equal)
                 return cmp;
             if (const auto cmp = age <=> o.age; cmp != std::strong_ordering::equal)
@@ -1020,9 +1021,10 @@ namespace turbo::jam {
 
         std::strong_ordering operator<=>(const culprit_t &o) const
         {
-            if (const auto cmp = target <=> o.target; cmp != std::strong_ordering::equal)
-                return cmp;
+            // (10.8) ordered by key
             if (const auto cmp = key <=> o.key; cmp != std::strong_ordering::equal)
+                return cmp;
+            if (const auto cmp = target <=> o.target; cmp != std::strong_ordering::equal)
                 return cmp;
             if (const auto cmp = signature <=> o.signature; cmp != std::strong_ordering::equal)
                 return cmp;
@@ -1052,11 +1054,12 @@ namespace turbo::jam {
 
         std::strong_ordering operator<=>(const fault_t &o) const
         {
+            // (10.8) ordered by key
+            if (const auto cmp = key <=> o.key; cmp != std::strong_ordering::equal)
+                return cmp;
             if (const auto cmp = target <=> o.target; cmp != std::strong_ordering::equal)
                 return cmp;
             if (const auto cmp = vote <=> o.vote; cmp != std::strong_ordering::equal)
-                return cmp;
-            if (const auto cmp = key <=> o.key; cmp != std::strong_ordering::equal)
                 return cmp;
             if (const auto cmp = signature <=> o.signature; cmp != std::strong_ordering::equal)
                 return cmp;

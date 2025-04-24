@@ -540,6 +540,8 @@ namespace turbo::jam {
                 msg.reserve(v.target.size() + std::max(CONSTANTS::jam_valid.size(), CONSTANTS::jam_invalid.size()));
                 msg << static_cast<buffer>(j.vote ? CONSTANTS::jam_valid : CONSTANTS::jam_invalid);
                 msg << v.target;
+                if (v.age > cur_epoch || v.age + 1 < cur_epoch) [[unlikely]]
+                    throw err_bad_judgement_age_t {};
                 const auto &validators = v.age == cur_epoch ? kappa : lambda;
                 if (j.index >= validators.size()) [[unlikely]]
                     throw err_bad_validator_index_t {};
@@ -584,8 +586,9 @@ namespace turbo::jam {
                 throw err_faults_not_sorted_unique_t {};
             prev_fault = &f;
             msg.clear();
-            msg.reserve(f.target.size() + CONSTANTS::jam_invalid.size());
-            msg << static_cast<buffer>(CONSTANTS::jam_invalid);
+            const auto &verdict_prefix = f.vote ? CONSTANTS::jam_valid : CONSTANTS::jam_invalid;
+            msg.reserve(f.target.size() + verdict_prefix.size());
+            msg << static_cast<buffer>(verdict_prefix);
             msg << f.target;
             if (!crypto::ed25519::verify(f.signature, msg, f.key)) [[unlikely]]
                 throw err_bad_signature_t {};
@@ -618,6 +621,22 @@ namespace turbo::jam {
             }
         }
 
+        for (const auto &f: disputes.faults) {
+            if (psi.bad.contains(f.target)) {
+                if (!f.vote) [[unlikely]]
+                    throw err_fault_verdict_wrong_t {};
+            }
+            if (psi.good.contains(f.target)) {
+                if (f.vote) [[unlikely]]
+                    throw err_fault_verdict_wrong_t {};
+            }
+        }
+
+        for (const auto &c: disputes.culprits) {
+            if (!psi.bad.contains(c.target)) [[unlikely]]
+                throw err_culprits_verdict_not_bad_t {};
+        }
+
         // JAM (10.15)
         for (auto &ra: rho) {
             if (ra) {
@@ -631,8 +650,11 @@ namespace turbo::jam {
         }
 
         // JAM (10.19)
-        for (const auto &k: new_offenders)
-            psi.offenders.emplace(k);
+        for (const auto &k: new_offenders) {
+            const auto [it, created] = psi.offenders.emplace_unique(k);
+            if (!created) [[unlikely]]
+                throw err_offender_already_reported_t {};
+        }
 
         return new_offenders;
     }

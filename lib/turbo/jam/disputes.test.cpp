@@ -211,7 +211,7 @@ namespace {
 
 suite turbo_jam_disputes_suite = [] {
     "turbo::jam::disputes"_test = [] {
-        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/disputes/tiny/progress_with_bad_signatures-2"));
+        test_file<config_tiny>(file::install_path("test/jam-test-vectors/disputes/tiny/progress_with_faults-7"));
         "tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/disputes/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
