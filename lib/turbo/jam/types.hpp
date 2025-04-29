@@ -14,6 +14,7 @@
 #include <boost/container/flat_set.hpp>
 #include <turbo/codec/json.hpp>
 #include <turbo/common/bytes.hpp>
+#include "errors.hpp"
 #include "constants.hpp"
 #include "encoding.hpp"
 
@@ -308,7 +309,7 @@ namespace turbo::jam {
         }
     };
 
-    using prerequisites_t = sequence_t<opaque_hash_t, 0, 8>;
+    using prerequisites_t = sequence_t<opaque_hash_t>;
 
     // GP 11.1.2: X
     template<typename CONSTANTS>
@@ -669,8 +670,9 @@ namespace turbo::jam {
         }
     };
 
-    using segment_root_lookup_t = sequence_t<segment_root_lookup_item, 0, 8>;
+    using segment_root_lookup_t = sequence_t<segment_root_lookup_item>;
 
+    // JAM (11.2)
     template<typename CONSTANTS>
     struct work_report_t: codec::serializable_t<work_report_t<CONSTANTS>> {
         work_package_spec_t package_spec {};
@@ -693,6 +695,9 @@ namespace turbo::jam {
             archive.process("segment_root_lookup"sv, segment_root_lookup);
             archive.process("results"sv, results);
             archive.process("auth_gas_used"sv, auth_gas_used);
+            // JAM (11.3)
+            if (segment_root_lookup.size() + context.prerequisites.size() >= CONSTANTS::max_report_dependencies) [[unlikely]]
+                throw err_too_many_dependencies_t {};
         }
 
         bool operator==(const work_report_t &o) const
@@ -1610,7 +1615,7 @@ namespace turbo::jam {
 
     struct services_statistics_config_t {
         std::string key_name = "id";
-        std::string val_name = "service";
+        std::string val_name = "record";
     };
     using services_statistics_t = map_t<service_id_t, service_activity_record_t, services_statistics_config_t>;
 

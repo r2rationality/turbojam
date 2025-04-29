@@ -33,6 +33,8 @@ namespace turbo::jam {
         // JAM I.4.4: V
         static constexpr size_t validator_count = core_count * validator_multiple;
         static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
+        // JAM I.4.4: I
+        static constexpr size_t max_work_items = 16;
         static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
         // JAM I.4.4: J
         static constexpr size_t max_report_dependencies = 8;

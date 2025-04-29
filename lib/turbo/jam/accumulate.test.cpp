@@ -48,7 +48,12 @@ namespace {
         }
     };
 
-    struct err_code_t {
+    struct err_code_t: codec::serializable_t<err_code_t> {
+        void serialize(auto &)
+        {
+            // do nothing
+        }
+
         bool operator==(const err_code_t &) const
         {
             return true;
@@ -56,18 +61,18 @@ namespace {
     };
 
     using output_base_t = std::variant<accumulate_root_t, err_code_t>;
-    struct output_t: output_base_t {
+    struct output_t: output_base_t, codec::serializable_t<output_t> {
         using base_type = output_base_t;
         using base_type::base_type;
 
-        static output_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            const auto typ = dec.decode<uint8_t>();
-            switch (typ) {
-                case 0: return { accumulate_root_t::from(dec) };
-                case 1: return { err_code_t {} };
-                [[unlikely]] default: throw error(fmt::format("unsupported output_t type: {}", typ));
-            }
+            using namespace std::string_view_literals;
+            static codec::variant_names_t<base_type> names {
+                "ok"sv,
+                "err"sv
+            };
+            archive.template process_variant<base_type>(*this, names);
         }
     };
 
@@ -94,7 +99,7 @@ namespace {
             }
         }
 
-        static void serialize_state(auto &archive, const std::string_view, state_t<CONSTANTS> &st)
+        static void serialize_state(auto &archive, state_t<CONSTANTS> &st)
         {
             using namespace std::string_view_literals;
             archive.process("slot"sv, st.tau);
@@ -102,6 +107,7 @@ namespace {
             archive.process("ready_queue"sv, st.nu);
             archive.process("accumulated"sv, st.ksi);
             archive.process("privileges"sv, st.chi);
+            archive.process("statistics"sv, st.pi.services);
             serialize_accounts(archive, "accounts"sv, st.delta);
         }
 
@@ -109,16 +115,37 @@ namespace {
         {
             using namespace std::string_view_literals;
             archive.process("input"sv, in);
-            serialize_state(archive, "pre_state"sv, pre);
+            archive.push("pre_state"sv);
+            serialize_state(archive, pre);
+            archive.pop();
             archive.process("output"sv, out);
-            serialize_state(archive, "post_state"sv, post);
+            archive.push("post_state"sv);
+            serialize_state(archive, post);
+            archive.pop();
+        }
+
+        bool operator==(const test_case_t &o) const
+        {
+            if (in != o.in)
+                return false;
+            if (pre != o.pre)
+                return false;
+            if (out != o.out)
+                return false;
+            if (post != o.post)
+                return false;
+            return true;
         }
     };
 
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = jam::load_obj<test_case_t<CFG>>(path);
+        const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
+        {
+            const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
+            expect(tc == j_tc) << "json test case does not match the binary one" << path;
+        }
         std::optional<output_t> out {};
         state_t<CFG> res_st = tc.pre;
         try {
@@ -139,15 +166,15 @@ namespace {
 
 suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
-        test_file<config_tiny>(file::install_path("test/jam-test-vectors/accumulate/tiny/accumulate_ready_queued_reports-1.bin"));
+        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/accumulate/tiny/accumulate_ready_queued_reports-1.bin"));
         "tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/accumulate/tiny"), ".bin")) {
-                test_file<config_tiny>(path);
+                test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
         };
         "full test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/accumulate/full"), ".bin")) {
-                test_file<config_prod>(path);
+                test_file<config_prod>(path.substr(0, path.size() - 4));
             }
         };
     };

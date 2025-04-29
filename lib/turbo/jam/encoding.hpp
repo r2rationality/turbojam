@@ -301,7 +301,7 @@ namespace turbo::jam {
             using T = std::decay_t<decltype(self)>;
             const auto sz = uint_varlen<size_t>();
             if (!(static_cast<int>(sz >= min_sz) & static_cast<int>(sz <= max_sz))) [[unlikely]]
-                throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", self.size(), min_sz, max_sz));
+                throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", sz, min_sz, max_sz));
             self.clear();
             self.reserve(sz);
             for (size_t i = 0; i < sz; ++i) {
