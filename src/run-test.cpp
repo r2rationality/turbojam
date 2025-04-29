@@ -16,20 +16,25 @@ int main(const int argc, const char **argv)
         std::cerr << fmt::format("using test-filter mask: {}\n", argv[1]);
         boost::ut::cfg<boost::ut::override> = { .filter = argv[1] };
     }
-#ifndef _WIN32
-        {
-            static constexpr size_t stack_size = 32 << 20;
-            struct rlimit rl;
-            if (getrlimit(RLIMIT_STACK, &rl) != 0) [[unlikely]]
-                throw error_sys("getrlimit RLIMIT_STACK failed!");
-            if (rl.rlim_cur < stack_size) {
-                rl.rlim_cur = stack_size;
-                if (setrlimit(RLIMIT_STACK, &rl) != 0) [[unlikely]]
-                    throw error_sys("setrlimit RLIMIT_STACK failed!");
-            }
-            std::cerr << fmt::format("stack size: {} MB\n", rl.rlim_cur >> 20);
+    // On Windows with Visual C++ compiler option is used to set the stack size
+#   ifndef _MSC_VER
+    {
+#       ifdef DT_STACK_SIZE
+            static constexpr size_t stack_size = DT_STACK_SIZE;
+#       else
+            static constexpr size_t stack_size = 32ULL << 20U;
+#       endif
+        struct rlimit rl;
+        if (getrlimit(RLIMIT_STACK, &rl) != 0) [[unlikely]]
+            throw error_sys("getrlimit RLIMIT_STACK failed!");
+        if (rl.rlim_cur < stack_size) {
+            rl.rlim_cur = stack_size;
+            if (setrlimit(RLIMIT_STACK, &rl) != 0) [[unlikely]]
+                throw error_sys("setrlimit RLIMIT_STACK failed!");
         }
-#endif
+        std::cerr << fmt::format("stack size: {} MB\n", rl.rlim_cur >> 20);
+    }
+#   endif
     const bool res = boost::ut::cfg<boost::ut::override>.run();
     return res ? 1 : 0;
 }
