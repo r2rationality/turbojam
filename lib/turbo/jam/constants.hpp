@@ -75,6 +75,16 @@ namespace turbo::jam {
         static constexpr size_t pvm_page_size = 1ULL << 12U;
         // JAM I.4.4: Z_Z
         static constexpr size_t pvm_init_zone_size = 1ULL << 16U;
+
+        static constexpr size_t pvm_p_size(const size_t x)
+        {
+            return ((x + pvm_page_size - 1) / pvm_page_size) * pvm_page_size;
+        }
+
+        static constexpr size_t pvm_z_size(const size_t x)
+        {
+            return ((x + pvm_init_zone_size - 1) / pvm_init_zone_size) * pvm_init_zone_size;
+        }
     };
 
     struct config_tiny: config_prod {

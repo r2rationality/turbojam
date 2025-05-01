@@ -144,7 +144,7 @@ namespace {
         const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
         {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
-            expect(tc == j_tc) << "json test case does not match the binary one" << path;
+            expect(tc == j_tc) << "the json test case does not match the binary one" << path;
         }
         std::optional<output_t> out {};
         state_t<CFG> res_st = tc.pre;

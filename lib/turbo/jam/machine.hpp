@@ -57,10 +57,12 @@ namespace turbo::jam::machine {
     };
     using pages_t = sequence_t<page_t>;
 
+    using registers_t = fixed_sequence_t<register_val_t, 13>;
+
     struct state_t {
-        fixed_sequence_t<uint64_t, 13> regs {};
+        registers_t regs {};
         uint32_t pc {};
-        int64_t gas = 0;
+        gas_remaining_t gas = 0;
         memory_chunks_t memory {};
 
         bool operator==(const state_t &o) const noexcept
@@ -88,12 +90,12 @@ namespace turbo::jam::machine {
         {
         }
 
-        size_t size() const
+        [[nodiscard]] size_t size() const
         {
             return _bit_size;
         }
 
-        bool test(const size_t pos) const
+        [[nodiscard]] bool test(const size_t pos) const
         {
             if (pos >= _bit_size) [[unlikely]]
                 return true;
@@ -126,16 +128,20 @@ namespace turbo::jam::machine {
     struct exit_page_fault_t final {
         register_val_t addr = 0;
 
-        bool operator==(const exit_page_fault_t &) const
+        bool operator==(const exit_page_fault_t &o) const
         {
+            if (addr != o.addr)
+                return false;
             return true;
         }
     };
     struct exit_host_call_t final {
         register_val_t id = 0;
 
-        bool operator==(const exit_host_call_t &) const
+        bool operator==(const exit_host_call_t &o) const
         {
+            if (id != o.id)
+                return false;
             return true;
         }
     };
@@ -188,23 +194,15 @@ namespace turbo::jam::machine {
         }
     };
 
-    struct invocation_t {
-        static invocation_t from_bytes(decoder &dec)
-        {
-            auto prg = program_t::from_bytes(dec);
-            /*const auto ro_sz = dec.uint_fixed<size_t>(3);
-            const auto rw_sz = dec.uint_fixed<size_t>(3);
-            const auto arg_sz = dec.uint_fixed<size_t>(2);
-            const auto stack_sz = dec.uint_fixed<size_t>(3);*/
-            return {};
-        }
-    };
-
     struct machine_t {
         machine_t(const program_t &program, const state_t &init, const pages_t &page_map);
         ~machine_t();
         result_t run();
-        state_t state() const;
+        [[nodiscard]] const registers_t &regs() const;
+        [[nodiscard]] uint32_t pc() const;
+        [[nodiscard]] gas_remaining_t gas() const;
+        [[nodiscard]] std::optional<uint8_vector> mem(size_t offset, size_t sz) const;
+        [[nodiscard]] state_t state() const;
     private:
         struct impl;
         byte_array<304> _impl_storage;

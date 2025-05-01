@@ -86,6 +86,36 @@ namespace turbo::jam::machine {
             }
         }
 
+        [[nodiscard]] gas_remaining_t gas() const
+        {
+            return _gas;
+        }
+
+        [[nodiscard]] uint32_t pc() const
+        {
+            return _pc;
+        }
+
+        [[nodiscard]] const registers_t &regs() const
+        {
+            return _regs;
+        }
+
+        [[nodiscard]] std::optional<uint8_vector> mem(const size_t offset, const size_t sz) const
+        {
+            uint8_vector res {};
+            res.reserve(sz);
+            try {
+                for (size_t p = offset, end = offset + sz; p < end; ++p) {
+                    const auto [page_off, page_it] = _addr_check(p, 1);
+                    res.emplace_back(page_it->second.data[page_off]);
+                }
+                return res;
+            } catch (...) {
+                return {};
+            }
+        }
+
         state_t state() const
         {
             memory_chunks_t mem {};
@@ -125,9 +155,9 @@ namespace turbo::jam::machine {
         using page_map_t = boost::container::flat_map<register_val_t, page_info_t>;
 
         const program_t &_program;
-        fixed_sequence_t<uint64_t, 13> _regs {};
+        registers_t _regs {};
         uint32_t _pc {};
-        int64_t _gas = 0;
+        gas_remaining_t _gas = 0;
         page_map_t _pages;
 
         struct op_res_t {
@@ -384,7 +414,7 @@ namespace turbo::jam::machine {
             return {};
         }
 
-        std::pair<size_t, page_map_t::const_iterator> _addr_check(const register_val_t addr, const size_t sz)
+        std::pair<size_t, page_map_t::const_iterator> _addr_check(const register_val_t addr, const size_t sz) const
         {
             const auto page_off = addr % config_prod::pvm_page_size;
             if (page_off + sz > config_prod::pvm_page_size) [[unlikely]]
@@ -404,7 +434,7 @@ namespace turbo::jam::machine {
                 case 2: return buffer { page_it->second.data.get() + page_off, sz }.to<uint16_t>();
                 case 4: return buffer { page_it->second.data.get() + page_off, sz }.to<uint32_t>();
                 case 8: return buffer { page_it->second.data.get() + page_off, sz }.to<uint64_t>();
-                    [[unlikely]] default: throw exit_panic_t {};
+                [[unlikely]] default: throw exit_panic_t {};
             }
         }
 
@@ -1484,6 +1514,26 @@ namespace turbo::jam::machine {
     result_t machine_t::run()
     {
         return _impl_ptr()->run();
+    }
+
+    gas_remaining_t machine_t::gas() const
+    {
+        return const_cast<machine_t *>(this)->_impl_ptr()->gas();
+    }
+
+    uint32_t machine_t::pc() const
+    {
+        return const_cast<machine_t *>(this)->_impl_ptr()->pc();
+    }
+
+    const registers_t &machine_t::regs() const
+    {
+        return const_cast<machine_t *>(this)->_impl_ptr()->regs();
+    }
+
+    std::optional<uint8_vector> machine_t::mem(size_t offset, size_t sz) const
+    {
+        return const_cast<machine_t *>(this)->_impl_ptr()->mem(offset, sz);
     }
 
     state_t machine_t::state() const

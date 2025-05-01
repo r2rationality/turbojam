@@ -288,7 +288,53 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &/*slot*/, const work_reports_t<CONSTANTS> &reports)
+    machine_invocation_t state_t<CONSTANTS>::invoke_pvm(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer args)
+    {
+        decoder dec { code };
+        // JAM (9.4)
+        const auto meta = byte_sequence_t::from(dec);
+        // JAM (A.37)
+
+        const auto o_sz = dec.uint_fixed<size_t>(3);
+        const auto w_sz = dec.uint_fixed<size_t>(3);
+        const auto z_sz = dec.uint_fixed<size_t>(2);
+        const auto s_sz = dec.uint_fixed<size_t>(3);
+
+        const auto o_bytes = dec.next_bytes(o_sz);
+        const auto w_bytes = dec.next_bytes(w_sz);
+
+        const auto c_sz = dec.uint_fixed<size_t>(4);
+        const auto prg = machine::program_t::from_bytes(dec);
+
+        const auto total_sz = 5 * config_prod::pvm_init_zone_size
+            + config_prod::pvm_z_size(o_sz) + config_prod::pvm_z_size(w_sz + z_sz * config_prod::pvm_init_zone_size)
+            + config_prod::pvm_z_size(s_sz) + config_prod::pvm_input_size;
+        if (total_sz > 1ULL << 32U) [[unlikely]]
+            return { 0, machine::exit_panic_t {} };
+
+        machine::state_t state {
+            .gas = numeric_cast<machine::gas_remaining_t>(gas_init),
+        };
+        machine::pages_t page_map {};
+        machine::machine_t m { prg, state, page_map };
+
+        const auto exit = m.run();
+        const auto gas_used = gas_init - numeric_cast<gas_t>(std::max(machine::gas_remaining_t { 0 },  m.gas()));
+
+        if (std::holds_alternative<machine::exit_out_of_gas_t>(exit)) [[unlikely]]
+            return { gas_used, machine::exit_out_of_gas_t {} };
+        if (std::holds_alternative<machine::exit_halt_t>(exit)) [[unlikely]] {
+            auto data = m.mem(m.regs().at(7), m.regs().at(8));
+            if (data)
+                return { gas_used, std::move(*data) };
+            return { gas_used, uint8_vector {} };
+        }
+
+        return { gas_used, machine::exit_panic_t {}};
+    }
+
+    template<typename CONSTANTS>
+    accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports)
     {
         accumulate_root_t res {};
         // JAM Paper (12.2)
@@ -323,8 +369,17 @@ namespace turbo::jam {
                 for (const auto &r_res: r.results) {
                     auto &service = delta.at(r_res.service_id);
                     const auto &code = service.preimages.at(service.info.code_hash);
-                    decoder dec { code };
-                    const auto inv = machine::invocation_t::from_bytes(dec);
+                    const auto code_hash = crypto::blake2b::digest(code);
+                    if (code_hash != service.info.code_hash) [[unlikely]]
+                        throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
+                    using accumulate_items_t = sequence_t<work_result_t>;
+                    accumulate_items_t accumulate_items {};
+                    accumulate_items.emplace_back(r_res);
+                    encoder arg_enc {};
+                    arg_enc.process(slot);
+                    arg_enc.process(r_res.service_id);
+                    arg_enc.process(accumulate_items);
+                    const auto inv_res = invoke_pvm(static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes());
                 }
             }
         }

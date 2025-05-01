@@ -4,7 +4,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include "types.hpp"
+#include "machine.hpp"
 
 namespace turbo::jam {
     template<typename CONSTANTS=config_prod>
@@ -62,6 +62,17 @@ namespace turbo::jam {
         }
     };
 
+    using invocation_result_base_t = std::variant<uint8_vector, machine::exit_panic_t, machine::exit_out_of_gas_t>;
+    struct invocation_result_t: invocation_result_base_t {
+        using base_type = invocation_result_base_t;
+        using base_type::base_type;
+    };
+
+    struct machine_invocation_t {
+        gas_t gas_used {};
+        invocation_result_base_t result;
+    };
+
     // lower-case sigma in terms of the JAM paper
     template<typename CONSTANTS=config_prod>
     struct state_t {
@@ -87,6 +98,8 @@ namespace turbo::jam {
         offenders_mark_t update_disputes(const disputes_extrinsic_t<CONSTANTS> &disputes);
         void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
 
+
+        machine_invocation_t invoke_pvm(buffer code, uint32_t pc, gas_t gas, buffer args);
         accumulate_root_t accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports);
 
         // JAM paper: Kapital upsilon

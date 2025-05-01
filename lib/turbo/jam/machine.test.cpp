@@ -38,6 +38,9 @@ namespace {
             archive.process("expected-memory"sv, post.memory);
             archive.process("expected-gas"sv, post.gas);
             archive.process("expected-page-fault-address"sv, page_fault_addr);
+            if (page_fault_addr) {
+                std::get<machine::exit_page_fault_t>(status).addr = *page_fault_addr;
+            }
         }
     };
 
@@ -60,7 +63,7 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
-        test_program(file::install_path("test/pvm-test-vectors/pvm/programs/riscv_rv64um_mulh.json"));
+        test_program(file::install_path("test/pvm-test-vectors/pvm/programs/inst_store_imm_indirect_u16_with_offset_nok.json"));
         for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/programs"), ".json")) {
             test_program(path);
         }
