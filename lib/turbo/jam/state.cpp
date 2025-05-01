@@ -288,7 +288,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    machine_invocation_t state_t<CONSTANTS>::invoke_pvm(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer args)
+    machine_invocation_t state_t<CONSTANTS>::invoke_pvm(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
     {
         decoder dec { code };
         // JAM (9.4)
@@ -303,9 +303,11 @@ namespace turbo::jam {
         const auto o_bytes = dec.next_bytes(o_sz);
         const auto w_bytes = dec.next_bytes(w_sz);
 
-        const auto c_sz = dec.uint_fixed<size_t>(4);
+        if (const auto c_sz = dec.uint_fixed<size_t>(4); c_sz != dec.size()) [[unlikely]]
+            return { 0, machine::exit_panic_t {} };
         const auto prg = machine::program_t::from_bytes(dec);
 
+        // JAM (A.40)
         const auto total_sz = 5 * config_prod::pvm_init_zone_size
             + config_prod::pvm_z_size(o_sz) + config_prod::pvm_z_size(w_sz + z_sz * config_prod::pvm_init_zone_size)
             + config_prod::pvm_z_size(s_sz) + config_prod::pvm_input_size;
@@ -316,6 +318,40 @@ namespace turbo::jam {
             .gas = numeric_cast<machine::gas_remaining_t>(gas_init),
         };
         machine::pages_t page_map {};
+
+        // JAM (A.41)
+        struct area_def_t {
+            size_t address;
+            size_t size;
+            bool is_writable = false;
+            std::optional<buffer> data {};
+        };
+
+        for (const auto &def: std::initializer_list<area_def_t> {
+            { config_prod::pvm_init_zone_size, o_bytes.size(), false, o_bytes },
+            { config_prod::pvm_init_zone_size * 2 + config_prod::pvm_z_size(o_bytes.size()), w_bytes.size(), true, w_bytes },
+            { (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size - config_prod::pvm_z_size(s_sz), s_sz, true },
+            { (1ULL << 32U) - config_prod::pvm_input_size - a_bytes.size(), a_bytes.size(), false, a_bytes },
+        }) {
+            page_map.emplace_back(machine::page_t {
+                .address=numeric_cast<uint32_t>(def.address),
+                .length=numeric_cast<uint32_t>(config_prod::pvm_p_size(def.size)),
+                .is_writable=def.is_writable
+            });
+            if (def.data) {
+                state.memory.emplace_back(machine::memory_chunk_t {
+                    .address=numeric_cast<uint32_t>(def.address),
+                    .contents=*def.data
+                });
+            }
+        }
+
+        // JAM (A.42)
+        state.regs[0] = (1ULL << 32U) - (1ULL << 16U);
+        state.regs[1] = (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
+        state.regs[7] = (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
+        state.regs[8] = a_bytes.size();
+
         machine::machine_t m { prg, state, page_map };
 
         const auto exit = m.run();

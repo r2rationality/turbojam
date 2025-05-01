@@ -18,7 +18,7 @@ namespace turbo::jam::machine {
 
     struct memory_chunk_t: codec::serializable_t<memory_chunk_t> {
         uint32_t address = 0;
-        sequence_t<uint8_t> contents {};
+        byte_sequence_t contents {};
 
         void serialize(auto &archive)
         {

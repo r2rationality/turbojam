@@ -336,14 +336,14 @@ namespace turbo::jam {
                 bytes[i] = next();
         }
 
-        uint8_t next()
+        [[nodiscard]] uint8_t next()
         {
             if (_ptr >= _end) [[unlikely]]
                 throw error("codec: an attempt to read past the end of the byte stream");
             return *_ptr++;
         }
 
-        buffer next_bytes(const size_t sz)
+        [[nodiscard]] buffer next_bytes(const size_t sz)
         {
             if (_ptr + sz > _end) [[unlikely]]
                 throw error("codec: an attempt to read past the end of the byte stream");
@@ -352,9 +352,14 @@ namespace turbo::jam {
             return { begin, sz };
         }
 
-        bool empty() const noexcept
+        [[nodiscard]] bool empty() const noexcept
         {
             return _ptr >= _end;
+        }
+
+        [[nodiscard]] size_t size() const noexcept
+        {
+            return empty() ? size_t { 0 } : numeric_cast<size_t>(_end - _ptr);
         }
     private:
         const uint8_t *_ptr, *_end;
