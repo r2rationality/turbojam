@@ -328,10 +328,14 @@ namespace turbo::jam {
         };
 
         for (const auto &def: std::initializer_list<area_def_t> {
+            // read only data
             { config_prod::pvm_init_zone_size, o_bytes.size(), false, o_bytes },
-            { config_prod::pvm_init_zone_size * 2 + config_prod::pvm_z_size(o_bytes.size()), w_bytes.size(), true, w_bytes },
-            { (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size - config_prod::pvm_z_size(s_sz), s_sz, true },
-            { (1ULL << 32U) - config_prod::pvm_input_size - a_bytes.size(), a_bytes.size(), false, a_bytes },
+            // writable data
+            { config_prod::pvm_init_zone_size * 2 + config_prod::pvm_z_size(o_bytes.size()), w_bytes.size() + z_sz * config_prod::pvm_page_size, true, w_bytes },
+            // stack
+            { (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size - config_prod::pvm_p_size(s_sz), s_sz, true },
+            // arguments
+            { (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size, a_bytes.size(), false, a_bytes },
         }) {
             page_map.emplace_back(machine::page_t {
                 .address=numeric_cast<uint32_t>(def.address),
@@ -400,25 +404,40 @@ namespace turbo::jam {
                 queue.emplace_back(r.report);
             }
         }
+
+        std::map<service_id_t, sequence_t<accumulate_operand_t>> service_ops {};
+
         for (const auto &q: { work_immediate, work_queued }) {
             for (const auto &r: q) {
                 for (const auto &r_res: r.results) {
-                    auto &service = delta.at(r_res.service_id);
-                    const auto &code = service.preimages.at(service.info.code_hash);
-                    const auto code_hash = crypto::blake2b::digest(code);
-                    if (code_hash != service.info.code_hash) [[unlikely]]
-                        throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
-                    using accumulate_items_t = sequence_t<work_result_t>;
-                    accumulate_items_t accumulate_items {};
-                    accumulate_items.emplace_back(r_res);
-                    encoder arg_enc {};
-                    arg_enc.process(slot);
-                    arg_enc.process(r_res.service_id);
-                    arg_enc.process(accumulate_items);
-                    const auto inv_res = invoke_pvm(static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes());
+                    service_ops[r_res.service_id].emplace_back(
+                        accumulate_operand_t {
+                            .work_package_hash=r.package_spec.hash,
+                            .exports_root=r.package_spec.exports_root,
+                            .authorizer_hash=r.authorizer_hash,
+                            .auth_output=r.auth_output,
+                            .payload_hash=r_res.payload_hash,
+                            .accumulate_gas=r_res.accumulate_gas,
+                            .result=r_res.result
+                        }
+                    );
                 }
             }
         }
+
+        for (const auto &[service_id, ops]: service_ops) {
+            auto &service = delta.at(service_id);
+            const auto &code = service.preimages.at(service.info.code_hash);
+            const auto code_hash = crypto::blake2b::digest(code);
+            if (code_hash != service.info.code_hash) [[unlikely]]
+                throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
+            encoder arg_enc {};
+            arg_enc.process(slot);
+            arg_enc.process(service_id);
+            arg_enc.process(ops);
+            const auto inv_res = invoke_pvm(static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes());
+        }
+        tau = slot;
         return res;
     }
 

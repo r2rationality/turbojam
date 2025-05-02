@@ -589,6 +589,49 @@ namespace turbo::jam {
         }
     };
 
+    // JAM (12.19)
+    struct accumulate_operand_t: codec::serializable_t<accumulate_operand_t> {
+        opaque_hash_t work_package_hash;
+        opaque_hash_t exports_root;
+        opaque_hash_t authorizer_hash;
+        byte_sequence_t auth_output;
+        opaque_hash_t payload_hash;
+        // gas_t accumulate_gas; gas_t is variable_length but currently the value is fixed length
+        gas_t::base_type accumulate_gas;
+        work_exec_result_t result;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("work_package_hash"sv, work_package_hash);
+            archive.process("exports_root"sv, exports_root);
+            archive.process("authorizer_hash"sv, authorizer_hash);
+            archive.process("auth_output"sv, auth_output);
+            archive.process("payload_hash"sv, payload_hash);
+            archive.process("accumulate_gas"sv, accumulate_gas);
+            archive.process("result"sv, result);
+        }
+
+        bool operator==(const accumulate_operand_t &o) const
+        {
+            if (work_package_hash != o.work_package_hash)
+                return false;
+            if (exports_root != o.exports_root)
+                return false;
+            if (authorizer_hash != o.authorizer_hash)
+                return false;
+            if (auth_output != o.auth_output)
+                return false;
+            if (payload_hash != o.payload_hash)
+                return false;
+            if (accumulate_gas != o.accumulate_gas)
+                return false;
+            if (result != o.result)
+                return false;
+            return true;
+        }
+    };
+
     struct work_result_t: codec::serializable_t<work_result_t> {
         service_id_t service_id;
         opaque_hash_t code_hash;
