@@ -188,12 +188,24 @@ namespace turbo::codec::json {
 
         void process_bytes(std::vector<uint8_t> &bytes)
         {
-            const auto hex = boost::json::value_to<std::string_view>(_top());
-            if (!hex.starts_with("0x")) [[unlikely]]
-                throw error(fmt::format("expected a hex string but got: {}", hex));
-            const auto hex_data = hex.substr(2);
-            bytes.resize(hex_data.size() / 2);
-            init_from_hex(bytes, hex_data);
+            const auto &jv = _top();
+            if (jv.is_string()) {
+                const auto hex = boost::json::value_to<std::string_view>(_top());
+                if (!hex.starts_with("0x")) [[unlikely]]
+                    throw error(fmt::format("expected a hex string but got: {}", hex));
+                const auto hex_data = hex.substr(2);
+                bytes.resize(hex_data.size() / 2);
+                init_from_hex(bytes, hex_data);
+            } else if (jv.is_array()) {
+                const auto &ja = jv.as_array();
+                bytes.clear();
+                bytes.reserve(ja.size());
+                for (const auto &byte: ja) {
+                    bytes.emplace_back(boost::json::value_to<uint8_t>(byte));
+                }
+            } else {
+                throw error(fmt::format("expected a bytestring got: {}", serialize_pretty(jv)));
+            }
         }
 
         void process_bytes_fixed(std::span<uint8_t> bytes)
