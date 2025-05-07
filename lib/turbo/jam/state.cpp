@@ -315,7 +315,8 @@ namespace turbo::jam {
             return { 0, machine::exit_panic_t {} };
 
         machine::state_t state {
-            .gas = numeric_cast<machine::gas_remaining_t>(gas_init),
+            .pc = pc,
+            .gas = numeric_cast<machine::gas_remaining_t>(gas_init)
         };
         machine::pages_t page_map {};
 

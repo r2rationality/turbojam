@@ -857,10 +857,10 @@ namespace turbo::jam {
     using reported_work_seq_t = sequence_t<reported_work_package_t>;
 
     struct block_info_t: codec::serializable_t<block_info_t> {
-        header_hash_t header_hash;
-        mmr_t mmr;
-        state_root_t state_root;
-        reported_work_seq_t reported;
+        header_hash_t header_hash {};
+        mmr_t mmr {};
+        state_root_t state_root {};
+        reported_work_seq_t reported {};
 
         void serialize(auto &archive)
         {
@@ -1123,10 +1123,10 @@ namespace turbo::jam {
     using ed25519_keys_set_t = set_t<ed25519_public_t>;
 
     struct disputes_records_t: codec::serializable_t<disputes_records_t> {
-        set_t<work_report_hash_t> good;
-        set_t<work_report_hash_t> bad;
-        set_t<work_report_hash_t> wonky;
-        ed25519_keys_set_t offenders;
+        set_t<work_report_hash_t> good {};
+        set_t<work_report_hash_t> bad {};
+        set_t<work_report_hash_t> wonky {};
+        ed25519_keys_set_t offenders {};
 
         void serialize(auto &archive)
         {

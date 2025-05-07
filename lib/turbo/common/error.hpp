@@ -15,7 +15,9 @@ namespace turbo {
         const char *what() const noexcept override;
     private:
         std::string _msg;
+#ifdef TURBO_STACKTRACE
         std::array<std::byte, sizeof(void*) * stacktrace_depth> _trace {};
+#endif
     };
 
     struct error: base_error {
