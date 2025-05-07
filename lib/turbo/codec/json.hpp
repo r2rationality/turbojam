@@ -232,7 +232,7 @@ namespace turbo::codec::json {
             return T::from_json(j);
         } else if constexpr (codec::serializable_c<T>) {
             codec::json::decoder j_dec { j };
-            return T::from(j_dec);
+            return codec::from<T>(j_dec);
         } else {
             throw error(fmt::format("JSON serialization not supported for {}", typeid(T).name()));
         }

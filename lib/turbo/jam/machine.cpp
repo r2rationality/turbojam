@@ -162,7 +162,6 @@ namespace turbo::jam::machine {
         uint32_t _pc {};
         gas_remaining_t _gas = 0;
         page_map_t _pages;
-        size_t _exec_no = 0;
 
         struct op_res_t {
             std::optional<register_val_t> new_pc {};
@@ -1693,7 +1692,7 @@ namespace turbo::jam::machine {
     {
         decoder dec { code };
         // JAM (9.4)
-        const auto meta = byte_sequence_t::from(dec);
+        const auto meta = codec::from<byte_sequence_t>(dec);
         // JAM (A.37)
 
         const auto o_sz = dec.uint_fixed<size_t>(3);
@@ -1716,6 +1715,7 @@ namespace turbo::jam::machine {
             return { 0, machine::exit_panic_t {} };
 
         machine::state_t state {
+            .pc = pc,
             .gas = numeric_cast<machine::gas_remaining_t>(gas_init),
         };
         machine::pages_t page_map {};

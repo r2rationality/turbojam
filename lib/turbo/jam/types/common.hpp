@@ -14,14 +14,14 @@
 #include <boost/container/flat_set.hpp>
 #include <turbo/codec/json.hpp>
 #include <turbo/common/bytes.hpp>
+#include <turbo/jam/encoding.hpp>
 #include "errors.hpp"
 #include "constants.hpp"
-#include "encoding.hpp"
 
 namespace turbo::jam {
     // jam-types.asn
 
-    struct byte_sequence_t: uint8_vector, codec::serializable_t<byte_sequence_t> {
+    struct byte_sequence_t: uint8_vector {
         using base_type = uint8_vector;
         using base_type::base_type;
 
@@ -32,7 +32,7 @@ namespace turbo::jam {
     };
 
     template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
-    struct sequence_t: std::vector<T>, codec::serializable_t<sequence_t<T, MIN, MAX>> {
+    struct sequence_t: std::vector<T> {
         static constexpr size_t min_size = MIN;
         static constexpr size_t max_size = MAX;
         static_assert(MIN < MAX);
@@ -46,7 +46,7 @@ namespace turbo::jam {
     };
 
     template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
-    struct set_t: boost::container::flat_set<T>, codec::serializable_t<set_t<T, MIN, MAX>> {
+    struct set_t: boost::container::flat_set<T> {
         static constexpr size_t min_size = MIN;
         static constexpr size_t max_size = MAX;
         static_assert(MIN < MAX);
@@ -60,7 +60,7 @@ namespace turbo::jam {
     };
 
     template<typename T, size_t SZ>
-    struct fixed_sequence_t: std::array<T, SZ>, codec::serializable_t<fixed_sequence_t<T, SZ>> {
+    struct fixed_sequence_t: std::array<T, SZ> {
         static_assert(SZ > 0);
         using base_type = std::array<T, SZ>;
         using base_type::base_type;
@@ -77,7 +77,7 @@ namespace turbo::jam {
     };
 
     template<typename K, typename V, typename CFG>
-    struct map_t: std::map<K, V>, codec::serializable_t<map_t<K, V, CFG>> {
+    struct map_t: std::map<K, V> {
         using base_type = std::map<K, V>;
         using base_type::base_type;
 
@@ -94,7 +94,7 @@ namespace turbo::jam {
     };
 
     template<typename T>
-    struct optional_t: std::optional<T>, codec::serializable_t<optional_t<T>> {
+    struct optional_t: std::optional<T> {
         using base_type = std::optional<T>;
         using base_type::base_type;
 
@@ -110,7 +110,7 @@ namespace turbo::jam {
     };
 
     template<size_t SZ>
-    struct byte_array_t: byte_array<SZ>, codec::serializable_t<byte_array_t<SZ>> {
+    struct byte_array_t: byte_array<SZ> {
         using base_type = byte_array<SZ>;
         using base_type::base_type;
 
@@ -151,7 +151,7 @@ namespace turbo::jam {
 
     // JAM (4.28)
     template<typename CONSTANTS>
-    struct time_slot_t: codec::serializable_t<time_slot_t<CONSTANTS>> {
+    struct time_slot_t {
         time_slot_t(const uint32_t slot):
             _val { slot }
         {
@@ -206,7 +206,7 @@ namespace turbo::jam {
     using erasure_root_t = opaque_hash_t;
 
     template<typename T>
-    struct varlen_uint_t: codec::serializable_t<varlen_uint_t<T>> {
+    struct varlen_uint_t {
         using base_type = T;
 
         varlen_uint_t() =default;
@@ -248,7 +248,7 @@ namespace turbo::jam {
 
     using validator_metadata_t = byte_array_t<128>;
 
-    struct validator_data_t: codec::serializable_t<validator_data_t> {
+    struct validator_data_t {
         bandersnatch_public_t bandersnatch;
         ed25519_public_t ed25519;
         bls_public_t bls;
@@ -272,7 +272,7 @@ namespace turbo::jam {
 
     using service_id_t = uint32_t;
 
-    struct service_info_t: codec::serializable_t<service_info_t> {
+    struct service_info_t {
         opaque_hash_t code_hash {};
         uint64_t balance = 0;
         // gas saved in the fixed format form
@@ -314,7 +314,7 @@ namespace turbo::jam {
 
     // GP 11.1.2: X
     template<typename CONSTANTS>
-    struct refine_context_t: codec::serializable_t<refine_context_t<CONSTANTS>> {
+    struct refine_context_t {
 	    header_hash_t anchor;
 	    state_root_t state_root;
 	    beefy_root_t beefy_root;
@@ -351,7 +351,7 @@ namespace turbo::jam {
         }
     };
 
-    struct authorizer_t: codec::serializable_t<authorizer_t> {
+    struct authorizer_t {
         opaque_hash_t code_hash;
         byte_sequence_t params;
 
@@ -380,7 +380,7 @@ namespace turbo::jam {
     template<typename CONSTANTS=config_prod>
     using auth_pool_t = sequence_t<authorizer_hash_t, 0, CONSTANTS::auth_pool_max_size>;
 
-    struct core_authorizer_t: codec::serializable_t<core_authorizer_t> {
+    struct core_authorizer_t {
         core_index_t core;
         opaque_hash_t auth_hash;
 
@@ -408,7 +408,7 @@ namespace turbo::jam {
         auth_pools_t apply(const time_slot_t<CONSTANTS> &slot, const core_authorizers_t &cas, const auth_queues_t<CONSTANTS> &phi) const;
     };
 
-    struct import_spec_t: codec::serializable_t<import_spec_t> {
+    struct import_spec_t {
         opaque_hash_t tree_root;
         uint16_t index;
 
@@ -425,7 +425,7 @@ namespace turbo::jam {
         }
     };
 
-    struct extrinsic_spec_t: codec::serializable_t<extrinsic_spec_t> {
+    struct extrinsic_spec_t {
         opaque_hash_t hash;
         uint32_t len;
 
@@ -442,7 +442,7 @@ namespace turbo::jam {
         }
     };
 
-    struct work_item_t: codec::serializable_t<work_item_t> {
+    struct work_item_t {
         service_id_t service;
         opaque_hash_t code_hash;
         byte_sequence_t payload;
@@ -476,7 +476,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    struct work_package_t: codec::serializable_t<work_package_t<CONSTANTS>> {
+    struct work_package_t {
         byte_sequence_t authorization;
         service_id_t auth_code_host;
         authorizer_t authorizer;
@@ -501,7 +501,7 @@ namespace turbo::jam {
         }
     };
 
-    struct work_result_ok_t: codec::serializable_t<work_result_ok_t> {
+    struct work_result_ok_t {
         byte_sequence_t data;
 
         void serialize(auto &archive)
@@ -558,7 +558,7 @@ namespace turbo::jam {
         void to_bytes(encoder &enc) const;
     };
 
-    struct refine_load_t: codec::serializable_t<refine_load_t> {
+    struct refine_load_t {
         gas_t gas_used;
         varlen_uint_t<uint16_t> imports;
         varlen_uint_t<uint16_t> extrinsic_count;
@@ -592,7 +592,7 @@ namespace turbo::jam {
     };
 
     // JAM (12.19)
-    struct accumulate_operand_t: codec::serializable_t<accumulate_operand_t> {
+    struct accumulate_operand_t {
         opaque_hash_t work_package_hash;
         opaque_hash_t exports_root;
         opaque_hash_t authorizer_hash;
@@ -634,7 +634,7 @@ namespace turbo::jam {
         }
     };
 
-    struct work_result_t: codec::serializable_t<work_result_t> {
+    struct work_result_t {
         service_id_t service_id;
         opaque_hash_t code_hash;
         opaque_hash_t payload_hash;
@@ -673,7 +673,7 @@ namespace turbo::jam {
     };
     using work_results_t = sequence_t<work_result_t, 1, 16>;
 
-    struct work_package_spec_t: codec::serializable_t<work_package_spec_t> {
+    struct work_package_spec_t {
         work_package_hash_t hash;
         uint32_t length;
         erasure_root_t erasure_root;
@@ -698,7 +698,7 @@ namespace turbo::jam {
         }
     };
 
-    struct segment_root_lookup_item: codec::serializable_t<segment_root_lookup_item> {
+    struct segment_root_lookup_item {
         work_package_hash_t work_package_hash;
         opaque_hash_t segment_tree_root;
 
@@ -719,7 +719,7 @@ namespace turbo::jam {
 
     // JAM (11.2)
     template<typename CONSTANTS>
-    struct work_report_t: codec::serializable_t<work_report_t<CONSTANTS>> {
+    struct work_report_t {
         work_package_spec_t package_spec {};
         refine_context_t<CONSTANTS> context {};
         core_index_t core_index {};
@@ -740,9 +740,6 @@ namespace turbo::jam {
             archive.process("segment_root_lookup"sv, segment_root_lookup);
             archive.process("results"sv, results);
             archive.process("auth_gas_used"sv, auth_gas_used);
-            // JAM (11.3)
-            if (segment_root_lookup.size() + context.prerequisites.size() >= CONSTANTS::max_report_dependencies) [[unlikely]]
-                throw err_too_many_dependencies_t {};
         }
 
         bool operator==(const work_report_t &o) const
@@ -759,7 +756,7 @@ namespace turbo::jam {
     using work_reports_t = sequence_t<work_report_t<CONSTANTS>>;
 
     template<typename CONSTANTS>
-    struct avail_assurance_t: codec::serializable_t<avail_assurance_t<CONSTANTS>> {
+    struct avail_assurance_t {
         opaque_hash_t anchor;
         bitset_t<CONSTANTS::avail_bitfield_bytes * 8> bitfield;
         validator_index_t validator_index;
@@ -792,7 +789,7 @@ namespace turbo::jam {
     using assurances_extrinsic_t = sequence_t<avail_assurance_t<CONSTANTS>, 0, CONSTANTS::validator_count>;
 
     template<typename CONSTANTS>
-    struct availability_assignment_t: codec::serializable_t<availability_assignment_t<CONSTANTS>> {
+    struct availability_assignment_t {
         work_report_t<CONSTANTS> report;
         uint32_t timeout;
 
@@ -835,7 +832,7 @@ namespace turbo::jam {
         opaque_hash_t root() const;
     };
 
-    struct reported_work_package_t: codec::serializable_t<reported_work_package_t> {
+    struct reported_work_package_t {
         work_report_hash_t hash;
         exports_root_t exports_root;
 
@@ -844,6 +841,8 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("hash"sv, hash);
             archive.process("exports_root"sv, exports_root);
+            //archive.process("work_package_hash"sv, hash);
+            //archive.process("segment_tree_root"sv, exports_root);
         }
 
         std::strong_ordering operator<=>(const reported_work_package_t &o) const
@@ -858,17 +857,19 @@ namespace turbo::jam {
     };
     using reported_work_seq_t = sequence_t<reported_work_package_t>;
 
-    struct block_info_t: codec::serializable_t<block_info_t> {
-        header_hash_t header_hash;
-        mmr_t mmr;
-        state_root_t state_root;
-        reported_work_seq_t reported;
+    struct block_info_t {
+        header_hash_t header_hash {};
+        mmr_t mmr {};
+        state_root_t state_root {};
+        reported_work_seq_t reported {};
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("header_hash"sv, header_hash);
-            archive.process("mmr"sv, mmr);
+            archive.push("mmr");
+            archive.process("peaks"sv, mmr);
+            archive.pop();
             archive.process("state_root"sv, state_root);
             archive.process("reported"sv, reported);
         }
@@ -889,7 +890,7 @@ namespace turbo::jam {
         blocks_history_t apply(const header_hash_t &, const state_root_t &, const opaque_hash_t &, const reported_work_seq_t &) const;
     };
 
-    struct activity_record_t: codec::serializable_t<activity_record_t> {
+    struct activity_record_t {
         uint32_t blocks;
         uint32_t tickets;
         uint32_t pre_images;
@@ -929,7 +930,7 @@ namespace turbo::jam {
     using ticket_id_t = opaque_hash_t;
     using ticket_attempt_t = uint8_t;
 
-    struct ticket_envelope_t: codec::serializable_t<ticket_envelope_t> {
+    struct ticket_envelope_t {
         ticket_attempt_t attempt;
         bandersnatch_ring_vrf_signature_t signature;
 
@@ -950,7 +951,7 @@ namespace turbo::jam {
         }
     };
 
-    struct ticket_body_t: codec::serializable_t<ticket_envelope_t> {
+    struct ticket_body_t {
         ticket_id_t id;
         ticket_attempt_t attempt;
 
@@ -994,7 +995,7 @@ namespace turbo::jam {
     template<typename CONSTANTS=config_prod>
     using tickets_extrinsic_t = sequence_t<ticket_envelope_t, 0, CONSTANTS::max_tickets_per_block>;
 
-    struct judgement_t: codec::serializable_t<judgement_t> {
+    struct judgement_t {
         bool vote;
         validator_index_t index;
         ed25519_signature_t signature;
@@ -1026,7 +1027,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    struct verdict_t: codec::serializable_t<verdict_t<CONSTANTS>> {
+    struct verdict_t {
         work_report_hash_t target;
         uint32_t age;
         fixed_sequence_t<judgement_t, CONSTANTS::validator_super_majority> votes;
@@ -1057,7 +1058,7 @@ namespace turbo::jam {
         }
     };
 
-    struct culprit_t: codec::serializable_t<culprit_t> {
+    struct culprit_t {
         work_report_hash_t target;
         ed25519_public_t key;
         ed25519_signature_t signature;
@@ -1088,7 +1089,7 @@ namespace turbo::jam {
         }
     };
 
-    struct fault_t: codec::serializable_t<fault_t> {
+    struct fault_t {
         work_report_hash_t target;
         bool vote;
         ed25519_public_t key;
@@ -1125,11 +1126,11 @@ namespace turbo::jam {
 
     using ed25519_keys_set_t = set_t<ed25519_public_t>;
 
-    struct disputes_records_t: codec::serializable_t<disputes_records_t> {
-        set_t<work_report_hash_t> good;
-        set_t<work_report_hash_t> bad;
-        set_t<work_report_hash_t> wonky;
-        ed25519_keys_set_t offenders;
+    struct disputes_records_t {
+        set_t<work_report_hash_t> good {};
+        set_t<work_report_hash_t> bad {};
+        set_t<work_report_hash_t> wonky {};
+        ed25519_keys_set_t offenders {};
 
         void serialize(auto &archive)
         {
@@ -1155,7 +1156,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    struct disputes_extrinsic_t: codec::serializable_t<disputes_extrinsic_t<CONSTANTS>> {
+    struct disputes_extrinsic_t {
         sequence_t<verdict_t<CONSTANTS>> verdicts {};
         sequence_t<culprit_t> culprits {};
         sequence_t<fault_t> faults {};
@@ -1180,7 +1181,7 @@ namespace turbo::jam {
         }
     };
 
-    struct preimage_t: codec::serializable_t<preimage_t> {
+    struct preimage_t {
         service_id_t requester;
         byte_sequence_t blob;
 
@@ -1206,7 +1207,7 @@ namespace turbo::jam {
 
     using preimages_extrinsic_t = sequence_t<preimage_t>;
 
-    struct validator_signature_t: codec::serializable_t<validator_signature_t> {
+    struct validator_signature_t {
         validator_index_t validator_index;
         ed25519_signature_t signature;
 
@@ -1224,7 +1225,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    struct report_guarantee_t: codec::serializable_t<report_guarantee_t<CONSTANTS>> {
+    struct report_guarantee_t {
         work_report_t<CONSTANTS> report;
         time_slot_t<CONSTANTS> slot;
         sequence_t<validator_signature_t> signatures;
@@ -1253,7 +1254,7 @@ namespace turbo::jam {
     using guarantees_extrinsic_t = sequence_t<report_guarantee_t<CONSTANTS>, 0, CONSTANTS::core_count>;
 
     template<typename CONSTANTS>
-    struct ready_record_t: codec::serializable_t<ready_record_t<CONSTANTS>> {
+    struct ready_record_t {
         work_report_t<CONSTANTS> report;
         set_t<work_package_hash_t> dependencies;
 
@@ -1285,7 +1286,7 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     using accumulated_queue_t = fixed_sequence_t<accumulated_queue_item_t, CONSTANTS::epoch_length>;
 
-    struct always_accumulate_map_item_t: codec::serializable_t<always_accumulate_map_item_t> {
+    struct always_accumulate_map_item_t {
         service_id_t id;
         gas_t gas;
 
@@ -1302,7 +1303,7 @@ namespace turbo::jam {
         }
     };
 
-    struct privileges_t: codec::serializable_t<privileges_t> {
+    struct privileges_t {
         service_id_t bless;
         service_id_t assign;
         service_id_t designate;
@@ -1333,7 +1334,7 @@ namespace turbo::jam {
 
     using accumulate_root_t = opaque_hash_t;
 
-    struct epoch_mark_validator_keys_t: codec::serializable_t<epoch_mark_validator_keys_t> {
+    struct epoch_mark_validator_keys_t {
         bandersnatch_public_t bandersnatch;
         ed25519_public_t ed25519;
 
@@ -1351,7 +1352,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    struct epoch_mark_t: codec::serializable_t<epoch_mark_t<CONSTANTS>> {
+    struct epoch_mark_t {
         entropy_t entropy {};
         entropy_t tickets_entropy {};
         fixed_sequence_t<epoch_mark_validator_keys_t, CONSTANTS::validator_count> validators {};
@@ -1381,7 +1382,7 @@ namespace turbo::jam {
     };
     using preimages_t = map_t<opaque_hash_t, byte_sequence_t, preimages_config_t>;
 
-    struct lookup_met_map_key_t: codec::serializable_t<lookup_met_map_key_t> {
+    struct lookup_met_map_key_t {
         opaque_hash_t hash;
         uint32_t length;
 
@@ -1416,7 +1417,7 @@ namespace turbo::jam {
     using lookup_metas_t = map_t<lookup_met_map_key_t, lookup_met_map_val_t<CONSTANTS>, lookup_metas_config_t>;
 
     template<typename CONSTANTS>
-    struct account_t: codec::serializable_t<account_t<CONSTANTS>> {
+    struct account_t {
         preimages_t preimages {};
         lookup_metas_t<CONSTANTS> lookup_metas {};
         service_info_t info {};
@@ -1456,7 +1457,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    struct header_t: codec::serializable_t<header_t<CONSTANTS>> {
+    struct header_t {
         header_hash_t parent;
         state_root_t parent_state_root;
         opaque_hash_t extrinsic_hash;
@@ -1512,46 +1513,46 @@ namespace turbo::jam {
     template<typename CONSTANTS=config_prod>
     using activity_records_t = fixed_sequence_t<activity_record_t, CONSTANTS::validator_count>;
 
-    struct core_activity_record_t: codec::serializable_t<core_activity_record_t> {
-        gas_t gas_used = 0;
-        varlen_uint_t<uint16_t> imports = 0;
-        varlen_uint_t<uint16_t> extrinsic_count = 0;
-        varlen_uint_t<uint32_t> extrinsic_size = 0;
-        varlen_uint_t<uint16_t> exports = 0;
-        varlen_uint_t<uint32_t> bundle_size = 0;
+    struct core_activity_record_t {
         varlen_uint_t<uint32_t> da_load = 0;
         varlen_uint_t<uint16_t> popularity = 0;
+        varlen_uint_t<uint16_t> imports = 0;
+        varlen_uint_t<uint16_t> exports = 0;
+        varlen_uint_t<uint32_t> extrinsic_size = 0;
+        varlen_uint_t<uint16_t> extrinsic_count = 0;
+        varlen_uint_t<uint32_t> bundle_size = 0;
+        gas_t gas_used = 0;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("gas_used"sv, gas_used);
-            archive.process("imports"sv, imports);
-            archive.process("extrinsic_count"sv, extrinsic_count);
-            archive.process("extrinsic_size"sv, extrinsic_size);
-            archive.process("exports"sv, exports);
-            archive.process("bundle_size"sv, bundle_size);
             archive.process("da_load"sv, da_load);
             archive.process("popularity"sv, popularity);
+            archive.process("imports"sv, imports);
+            archive.process("exports"sv, exports);
+            archive.process("extrinsic_size"sv, extrinsic_size);
+            archive.process("extrinsic_count"sv, extrinsic_count);
+            archive.process("bundle_size"sv, bundle_size);
+            archive.process("gas_used"sv, gas_used);
         }
 
         bool operator==(const core_activity_record_t &o) const
         {
-            if (gas_used != o.gas_used)
-                return false;
-            if (imports != o.imports)
-                return false;
-            if (extrinsic_count != o.extrinsic_count)
-                return false;
-            if (extrinsic_size != o.extrinsic_size)
-                return false;
-            if (exports != o.exports)
-                return false;
-            if (bundle_size != o.bundle_size)
-                return false;
             if (da_load != o.da_load)
                 return false;
             if (popularity != o.popularity)
+                return false;
+            if (imports != o.imports)
+                return false;
+            if (exports != o.exports)
+                return false;
+            if (extrinsic_size != o.extrinsic_size)
+                return false;
+            if (extrinsic_count != o.extrinsic_count)
+                return false;
+            if (bundle_size != o.bundle_size)
+                return false;
+            if (gas_used != o.gas_used)
                 return false;
             return true;
         }
@@ -1560,15 +1561,15 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     using core_statistics_t = fixed_sequence_t<core_activity_record_t, CONSTANTS::core_count>;
 
-    struct service_activity_record_t: codec::serializable_t<service_activity_record_t> {
+    struct service_activity_record_t {
         varlen_uint_t<uint16_t> provided_count {};
         varlen_uint_t<uint32_t> provided_size {};
         varlen_uint_t<uint32_t> refinement_count {};
         gas_t refinement_gas_used {};
         varlen_uint_t<uint32_t> imports {};
-        varlen_uint_t<uint32_t> extrinsic_count {};
-        varlen_uint_t<uint32_t> extrinsic_size {};
         varlen_uint_t<uint32_t> exports {};
+        varlen_uint_t<uint32_t> extrinsic_size {};
+        varlen_uint_t<uint32_t> extrinsic_count {};
         varlen_uint_t<uint32_t> accumulate_count {};
         gas_t accumulate_gas_used {};
         varlen_uint_t<uint32_t> on_transfers_count {};
@@ -1582,9 +1583,9 @@ namespace turbo::jam {
             archive.process("refinement_count"sv, refinement_count);
             archive.process("refinement_gas_used"sv, refinement_gas_used);
             archive.process("imports"sv, imports);
-            archive.process("extrinsic_count"sv, extrinsic_count);
-            archive.process("extrinsic_size"sv, extrinsic_size);
             archive.process("exports"sv, exports);
+            archive.process("extrinsic_size"sv, extrinsic_size);
+            archive.process("extrinsic_count"sv, extrinsic_count);
             archive.process("accumulate_count"sv, accumulate_count);
             archive.process("accumulate_gas_used"sv, accumulate_gas_used);
             archive.process("on_transfers_count"sv, on_transfers_count);
@@ -1603,11 +1604,11 @@ namespace turbo::jam {
                 return false;
             if (imports != o.imports)
                 return false;
-            if (extrinsic_count != o.extrinsic_count)
+            if (exports != o.exports)
                 return false;
             if (extrinsic_size != o.extrinsic_size)
                 return false;
-            if (exports != o.exports)
+            if (extrinsic_count != o.extrinsic_count)
                 return false;
             if (accumulate_count != o.accumulate_count)
                 return false;
@@ -1628,7 +1629,7 @@ namespace turbo::jam {
     using services_statistics_t = map_t<service_id_t, service_activity_record_t, services_statistics_config_t>;
 
     template<typename CONSTANTS>
-    struct statistics_t: codec::serializable_t<statistics_t<CONSTANTS>> {
+    struct statistics_t {
         activity_records_t<CONSTANTS> current {};
         activity_records_t<CONSTANTS> last {};
         core_statistics_t<CONSTANTS> cores {};

@@ -6,15 +6,15 @@
 
 namespace turbo::codec {
     struct archive_t {
-        /*void process_varlen_uint(auto &val);
-        void process_uint(auto &val);
-        void process(std::string_view name, auto &val);
-        void process_array(auto &self, size_t min_sz, size_t max_sz);
-        void process_array_fixed(auto &self);
-        void process_optional(auto &val);
-        void process_bytes(std::vector<uint8_t> &bytes);
-        void process_bytes_fixed(std::span<uint8_t> bytes);*/
     };
+
+    template<typename T>
+    T from(auto &archive)
+    {
+        T res;
+        res.serialize(archive);
+        return res;
+    }
 
     template<typename T>
     using variant_names_t = std::array<std::string_view, std::variant_size_v<T>>;
@@ -29,7 +29,7 @@ namespace turbo::codec {
                 return variant_set_type<T, I + 1>(val, requested_type, archive);
             if (requested_type < I) [[unlikely]]
                 throw error(fmt::format("internal error: an incomplete traversal of type {}", typeid(T).name()));
-            val = std::variant_alternative_t<I, T>::from(archive);
+            val = codec::from<std::variant_alternative_t<I, T>>(archive);
         }
     }
 
@@ -43,17 +43,5 @@ namespace turbo::codec {
     concept serializable_c = requires(T t, archive_t a)
     {
         { t.serialize(a) };
-        { T::from(a) };
-    };
-
-    template<typename T>
-    struct serializable_t {
-        template<typename C=T>
-        static C from(auto &archive)
-        {
-            C res;
-            res.serialize(archive);
-            return res;
-        }
     };
 }

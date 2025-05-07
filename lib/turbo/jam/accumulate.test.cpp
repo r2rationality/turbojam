@@ -4,14 +4,14 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
-#include "errors.hpp"
+#include "types/errors.hpp"
 #include "types.hpp"
 
 namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
-    struct tmp_account_t: codec::serializable_t<tmp_account_t> {
+    struct tmp_account_t {
         service_info_t service;
         preimages_t preimages;
 
@@ -26,7 +26,7 @@ namespace {
     using tmp_accounts_t = map_t<service_id_t, tmp_account_t, accounts_config_t>;
 
     template<typename CONSTANTS>
-    struct input_t: codec::serializable_t<input_t<CONSTANTS>> {
+    struct input_t {
         time_slot_t<CONSTANTS> slot;
         work_reports_t<CONSTANTS> reports;
 
@@ -47,7 +47,7 @@ namespace {
         }
     };
 
-    struct err_code_t: codec::serializable_t<err_code_t> {
+    struct err_code_t {
         void serialize(auto &)
         {
             // do nothing
@@ -60,7 +60,7 @@ namespace {
     };
 
     using output_base_t = std::variant<accumulate_root_t, err_code_t>;
-    struct output_t: output_base_t, codec::serializable_t<output_t> {
+    struct output_t: output_base_t {
         using base_type = output_base_t;
         using base_type::base_type;
 
@@ -76,7 +76,7 @@ namespace {
     };
 
     template<typename CONSTANTS>
-    struct test_case_t: codec::serializable_t<test_case_t<CONSTANTS>> {
+    struct test_case_t {
         input_t<CONSTANTS> in;
         state_t<CONSTANTS> pre;
         output_t out;

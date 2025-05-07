@@ -14,7 +14,7 @@ namespace {
     using namespace turbo::codec;
     using namespace turbo::jam;
 
-    struct test_case_t: codec::serializable_t<test_case_t> {
+    struct test_case_t {
         std::string name;
         sequence_t<uint8_t> program;
         machine::pages_t page_map;
@@ -48,7 +48,7 @@ namespace {
     {
         const auto j = json::load(path);
         json::decoder jdec { j };
-        const auto tc = test_case_t::from(jdec);
+        const auto tc = codec::from<test_case_t>(jdec);
         decoder dec { buffer { tc.program.data(), tc.program.size() } };
         const auto prg = machine::program_t::from_bytes(dec);
         machine::machine_t m { prg, tc.pre, tc.page_map };

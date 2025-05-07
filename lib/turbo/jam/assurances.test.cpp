@@ -4,7 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
-#include "errors.hpp"
+#include "types/errors.hpp"
 #include "types.hpp"
 
 namespace {

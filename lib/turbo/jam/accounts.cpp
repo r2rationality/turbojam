@@ -5,7 +5,7 @@
 
 #include <turbo/common/numeric-cast.hpp>
 #include "turbo/crypto/blake2b.hpp"
-#include "errors.hpp"
+#include "types/errors.hpp"
 #include "types.hpp"
 
 namespace turbo::jam {

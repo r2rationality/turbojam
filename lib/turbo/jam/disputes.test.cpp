@@ -4,7 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
-#include "errors.hpp"
+#include "types/errors.hpp"
 #include "types.hpp"
 
 namespace {
@@ -12,7 +12,7 @@ namespace {
     using namespace turbo::jam;
 
     template<typename CONSTANTS>
-    struct input_t: codec::serializable_t<input_t<CONSTANTS>> {
+    struct input_t {
         disputes_extrinsic_t<CONSTANTS> disputes;
 
         void serialize(auto &archive)
@@ -48,7 +48,7 @@ namespace {
         err_bad_auditor_key_t
     >;
 
-    struct err_code_t final: err_code_base_t, codec::serializable_t<err_code_t> {
+    struct err_code_t final: err_code_base_t {
         using base_type = err_code_base_t;
         using base_type::base_type;
 
@@ -103,7 +103,7 @@ namespace {
         }
     };
 
-    struct output_data_t: codec::serializable_t<output_data_t> {
+    struct output_data_t {
         offenders_mark_t offenders_mark;
 
         void serialize(auto &archive)
@@ -121,7 +121,7 @@ namespace {
     };
 
     using output_base_t = std::variant<output_data_t, err_code_t>;
-    struct output_t: output_base_t, codec::serializable_t<output_t> {
+    struct output_t: output_base_t {
         using base_type = output_base_t;
         using base_type::base_type;
 
@@ -138,7 +138,7 @@ namespace {
     };
 
     template<typename CONSTANTS>
-    struct test_case_t: codec::serializable_t<test_case_t<CONSTANTS>> {
+    struct test_case_t {
         input_t<CONSTANTS> in;
         state_t<CONSTANTS> pre;
         output_t out;

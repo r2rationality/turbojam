@@ -27,7 +27,7 @@ namespace {
     };
 
     template<typename CONSTANTS>
-    struct test_case_t: codec::serializable_t<test_case_t<CONSTANTS>> {
+    struct test_case_t {
         input_t<CONSTANTS> in;
         state_t<CONSTANTS> pre;
         state_t<CONSTANTS> post;

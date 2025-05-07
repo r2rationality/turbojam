@@ -26,7 +26,7 @@ namespace {
     {
         const auto bytes = file::read(prefix + ".bin");
         decoder dec { bytes };
-        const auto b = T::from(dec);
+        const auto b = codec::from<T>(dec);
         encoder enc {};
         enc.process(b);
         expect(enc.bytes() == bytes) << prefix;

@@ -9,7 +9,7 @@
 namespace turbo::jam {
     // JAM (4.3)
     template<typename CONSTANTS>
-    struct extrinsic_t: codec::serializable_t<extrinsic_t<CONSTANTS>> {
+    struct extrinsic_t {
         tickets_extrinsic_t<CONSTANTS> tickets;
         preimages_extrinsic_t preimages;
         guarantees_extrinsic_t<CONSTANTS> guarantees;
@@ -44,7 +44,7 @@ namespace turbo::jam {
 
     // JAM (4.2)
     template<typename CONSTANTS>
-        struct block_t: codec::serializable_t<block_t<CONSTANTS>> {
+        struct block_t {
         header_t<CONSTANTS> header;
         extrinsic_t<CONSTANTS> extrinsic;
 
@@ -98,16 +98,44 @@ namespace turbo::jam {
         }
     };
 
+    // This data structure is need only because the json names in reports_output_items_t
+    // differ from what's encoded in the conformance tests
+    struct reports_output_item_t {
+        work_report_hash_t work_package_hash;
+        exports_root_t segment_tree_root;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("work_package_hash"sv, work_package_hash);
+            archive.process("segment_tree_root"sv, segment_tree_root);
+        }
+
+        std::strong_ordering operator<=>(const reports_output_item_t &o) const
+        {
+            if (const auto cmp = work_package_hash <=> o.work_package_hash; cmp == std::weak_ordering::less || cmp == std::weak_ordering::greater)
+                return cmp;
+            if (const auto cmp = segment_tree_root <=> o.segment_tree_root; cmp == std::weak_ordering::less || cmp == std::weak_ordering::greater)
+                return cmp;
+            return std::strong_ordering::equal;
+        }
+
+        bool operator==(const reports_output_item_t &o) const noexcept
+        {
+            return work_package_hash <=> o.work_package_hash == std::strong_ordering::equal;
+        }
+    };
+    using reports_output_items_t = sequence_t<reports_output_item_t>;
+
     struct reports_output_data_t {
-        reported_work_seq_t reported;
+        reports_output_items_t reported;
         sequence_t<ed25519_public_t> reporters;
 
-        static reports_output_data_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(reported)>(),
-                dec.decode<decltype(reporters)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("reported"sv, reported);
+            archive.process("reporters"sv, reporters);
         }
 
         bool operator==(const reports_output_data_t &o) const

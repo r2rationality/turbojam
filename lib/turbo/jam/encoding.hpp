@@ -222,7 +222,7 @@ namespace turbo::jam {
             if constexpr (from_bytes_c<T>) {
                 return T::from_bytes(*this);
             } else if constexpr (codec::serializable_c<T>) {
-                return T::template from<T>(*this);
+                return codec::from<T>(*this);
             } else if constexpr (std::is_same_v<uint64_t, T>) {
                 return uint_fixed<T>(8);
             } else if constexpr (std::is_same_v<uint32_t, T>) {
@@ -380,7 +380,7 @@ namespace turbo::jam {
         if constexpr (from_bytes_c<T>) {
             return T::from_bytes(dec);
         } else if constexpr (codec::serializable_c<T>) {
-            return T::from(dec);
+            return codec::from<T>(dec);
         } else {
             throw error(fmt::format("binary deserialization not support for type {}", typeid(T).name()));
         }

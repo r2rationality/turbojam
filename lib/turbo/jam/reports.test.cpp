@@ -4,7 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
-#include "errors.hpp"
+#include "types/errors.hpp"
 #include "types.hpp"
 
 namespace {
@@ -15,27 +15,28 @@ namespace {
     struct tmp_account_t {
         service_info_t service;
 
-        static tmp_account_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(service)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("service"sv, service);
         }
     };
 
     using tmp_accounts_t = map_t<service_id_t, tmp_account_t, accounts_config_t>;
+    using known_packages_t = sequence_t<work_package_hash_t>;
 
     template<typename CONSTANTS>
     struct input_t {
         guarantees_extrinsic_t<CONSTANTS> guarantees;
         time_slot_t<CONSTANTS> slot;
+        known_packages_t known_packages;
 
-        static input_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(guarantees)>(),
-                dec.decode<decltype(slot)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("guarantees"sv, guarantees);
+            archive.process("slot"sv, slot);
+            archive.process("known_packages"sv, known_packages);
         }
 
         bool operator==(const input_t &o) const
@@ -44,48 +45,96 @@ namespace {
                 return false;
             if (slot != o.slot)
                 return false;
+            if (known_packages != o.known_packages)
+                return false;
             return true;
         }
     };
 
-    struct err_code_t: err_any_t {
-        using base_type = err_any_t;
+    using err_code_base_t = std::variant<
+        err_bad_core_index_t,
+        err_future_report_slot_t,
+        err_report_epoch_before_last_t,
+        err_insufficient_guarantees_t,
+        err_out_of_order_guarantee_t,
+        err_not_sorted_or_unique_guarantors_t,
+        err_wrong_assignment_t,
+        err_core_engaged_t,
+        err_anchor_not_recent_t,
+        err_bad_service_id_t,
+        err_bad_code_hash_t,
+        err_dependency_missing_t,
+        err_duplicate_package_t,
+        err_bad_state_root_t,
+        err_bad_beefy_mmr_root_t,
+        err_core_unauthorized_t,
+        err_bad_validator_index_t,
+        err_work_report_gas_too_high_t,
+        err_service_item_gas_too_low_t,
+        err_too_many_dependencies_t,
+        err_segment_root_lookup_invalid_t,
+        err_bad_signature_t,
+        err_work_report_too_big_t
+    >;
+
+    struct err_code_t final: err_code_base_t {
+        using base_type = err_code_base_t;
         using base_type::base_type;
 
-        static err_code_t from_err_any(err_any_t &&err)
+        void serialize(auto &archive)
         {
-            return std::visit([&](auto &&e) -> err_code_t {
-                return { std::move(e) };
-            }, std::move(err));
+            using namespace std::string_view_literals;
+            static_assert(std::variant_size_v<err_any_t> > 0);
+            static codec::variant_names_t<base_type> names {
+                "bad_core_index"sv,
+                "future_report_slot"sv,
+                "report_epoch_before_last"sv,
+                "insufficient_guarantees"sv,
+                "out_of_order_guarantee"sv,
+                "not_sorted_or_unique_guarantors"sv,
+                "wrong_assignment"sv,
+                "core_engaged"sv,
+                "anchor_not_recent"sv,
+                "bad_service_id"sv,
+                "bad_code_hash"sv,
+                "dependency_missing"sv,
+                "duplicate_package"sv,
+                "bad_state_root"sv,
+                "bad_beefy_mmr_root"sv,
+                "core_unauthorized"sv,
+                "bad_validator_index"sv,
+                "work_report_gas_too_high"sv,
+                "service_item_gas_too_low"sv,
+                "too_many_dependencies"sv,
+                "segment_root_lookup_invalid"sv,
+                "bad_signature"sv,
+                "work_report_too_big"sv
+            };
+            archive.template process_variant<base_type>(*this, names);
         }
 
-        static err_code_t from_bytes(decoder &dec)
+        static void catch_into(const std::function<void()> &action, const std::function<void(err_code_t)> &on_error)
         {
-            switch (const auto typ = dec.decode<uint8_t>(); typ) {
-                case 0: return { err_bad_core_index_t {} };
-                case 1: return { err_future_report_slot_t {} };
-                case 2: return { err_report_epoch_before_last_t {} };
-                case 3: return { err_insufficient_guarantees_t {} };
-                case 4: return { err_out_of_order_guarantee_t {} };
-                case 5: return { err_not_sorted_or_unique_guarantors_t {} };
-                case 6: return { err_wrong_assignment_t {} };
-                case 7: return { err_core_engaged_t {} };
-                case 8: return { err_anchor_not_recent_t {} };
-                case 9: return { err_bad_service_id_t {} };
-                case 10: return { err_bad_code_hash_t {} };
-                case 11: return { err_dependency_missing_t {} };
-                case 12: return { err_duplicate_package_t {} };
-                case 13: return { err_bad_state_root_t {} };
-                case 14: return { err_bad_beefy_mmr_root_t {} };
-                case 15: return { err_core_unauthorized_t {} };
-                case 16: return { err_bad_validator_index_t {} };
-                case 17: return { err_work_report_gas_too_high_t {} };
-                case 18: return { err_service_item_gas_too_low_t {} };
-                case 19: return { err_too_many_dependencies_t {} };
-                case 20: return { err_segment_root_lookup_invalid_t {} };
-                case 21: return { err_bad_signature_t {} };
-                case 22: return { err_work_report_too_big_t {} };
-                [[unlikely]] default: throw error(fmt::format("unsupported err_code_t type: {}", typ));
+            if constexpr (std::variant_size_v<base_type> > 0) {
+                catch_into_impl<std::variant_size_v<base_type> - 1>(action, on_error);
+            }
+        }
+    private:
+        template<size_t I>
+        static void catch_into_impl(const std::function<void()> &action, const std::function<void(err_code_t)> &on_error)
+        {
+            if constexpr (I == 0) {
+                try {
+                    action();
+                } catch (std::variant_alternative_t<I, base_type> &err) {
+                    on_error(std::move(err));
+                }
+            } else {
+                try {
+                    catch_into_impl<I - 1>(action, on_error);
+                } catch (std::variant_alternative_t<I, base_type> &err) {
+                    on_error(std::move(err));
+                }
             }
         }
     };
@@ -95,19 +144,20 @@ namespace {
         using base_type = output_base_t;
         using base_type::base_type;
 
-        static output_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            const auto typ = dec.decode<uint8_t>();
-            switch (typ) {
-                case 0: return { reports_output_data_t::from_bytes(dec) };
-                case 1: return { err_code_t::from_bytes(dec) };
-                [[unlikely]] default: throw error(fmt::format("unsupported output_t type: {}", typ));
-            }
+            using namespace std::string_view_literals;
+            static_assert(std::variant_size_v<err_any_t> > 0);
+            static codec::variant_names_t<base_type> names {
+                "ok"sv,
+                "err"sv
+            };
+            archive.template process_variant<base_type>(*this, names);
         }
     };
 
     template<typename CONSTANTS>
-    struct test_case_t: codec::serializable_t<test_case_t<CONSTANTS>> {
+    struct test_case_t {
         input_t<CONSTANTS> in;
         state_t<CONSTANTS> pre;
         output_t out;
@@ -126,7 +176,7 @@ namespace {
             }
         }
 
-        static void serialize_state(auto &archive, const std::string_view, state_t<CONSTANTS> &self)
+        static void serialize_state(auto &archive, state_t<CONSTANTS> &self)
         {
             archive.process("avail_assignments"sv, self.rho);
             archive.process("curr_validators"sv, self.kappa);
@@ -143,53 +193,72 @@ namespace {
         void serialize(auto &archive)
         {
             archive.process("input"sv, in);
-            serialize_state(archive, "pre_state"sv, pre);
+            archive.push("pre_state"sv);
+            serialize_state(archive, pre);
+            archive.pop();
             archive.process("output"sv, out);
-            serialize_state(archive, "post_state"sv, post);
+            archive.push("post_state"sv);
+            serialize_state(archive, post);
+            archive.pop();
         }
 
-        static test_case_t from_bytes(decoder &dec)
+        bool operator==(const test_case_t &o) const
         {
-            return test_case_t::from(dec);
+            if (in != o.in)
+                return false;
+            if (pre != o.pre)
+                return false;
+            if (out != o.out)
+                return false;
+            if (post != o.post)
+                return false;
+            return true;
         }
     };
 
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = jam::load_obj<test_case_t<CFG>>(path);
-        std::optional<output_t> out {};
-        state_t<CFG> res_st = tc.pre;
-        err_any_t::catch_into(
-            [&] {
-                auto tmp_st = tc.pre;
-                out.emplace(tmp_st.update_reports(tc.in.slot, tc.in.guarantees));
-                res_st = std::move(tmp_st);
-            },
-            [&](err_any_t err) {
-                out.emplace(err_code_t::from_err_any(std::move(err)));
+        try {
+            const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
+            {
+                const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
+                expect(tc == j_tc) << "the json test case does not match the binary one" << path;
             }
-        );
-        if (out.has_value()) {
-            expect(out == tc.out) << path;
-            expect(res_st == tc.post) << path;
-        } else {
-            expect(false) << path;
+            std::optional<output_t> out {};
+            state_t<CFG> res_st = tc.pre;
+            err_code_t::catch_into(
+                [&] {
+                    auto tmp_st = tc.pre;
+                    out.emplace(tmp_st.update_reports(tc.in.slot, tc.in.guarantees));
+                    res_st = std::move(tmp_st);
+                },
+                [&](err_code_t err) {
+                    out.emplace(std::move(err));
+                }
+            );
+            if (out.has_value()) {
+                expect(out == tc.out) << path;
+                expect(res_st == tc.post) << path;
+            } else {
+                expect(false) << path;
+            }
+        } catch (const std::exception &ex) {
+            expect(false) << path << ex.what();
         }
     }
 }
 
 suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
-        test_file<config_tiny>(file::install_path("test/jam-test-vectors/reports/tiny/bad_code_hash-1.bin"));
         "tiny"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/tiny"), ".bin")) {
-                test_file<config_tiny>(path);
+                test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
         };
         "full"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/full"), ".bin")) {
-                test_file<config_prod>(path);
+                test_file<config_prod>(path.substr(0, path.size() - 4));
             }
         };
     };

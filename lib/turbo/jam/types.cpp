@@ -11,8 +11,8 @@ namespace turbo::jam {
     tickets_or_keys_t<CONSTANTS> tickets_or_keys_t<CONSTANTS>::from_bytes(decoder &dec)
     {
         switch (const auto typ = dec.decode<uint8_t>(); typ) {
-            case 0: return { tickets_t<CONSTANTS>::from(dec) };
-            case 1: return { keys_t<CONSTANTS>::from(dec) };
+            case 0: return { codec::from<tickets_t<CONSTANTS>>(dec) };
+            case 1: return { codec::from<keys_t<CONSTANTS>>(dec) };
             [[unlikely]] default: throw error(fmt::format("unsupported tickets_or_keys_t type: {}", typ));
         }
     }
@@ -24,7 +24,7 @@ namespace turbo::jam {
     {
         const auto typ = dec.decode<uint8_t>();
         switch (typ) {
-            case 0: return { work_result_ok_t::from(dec) };
+            case 0: return { codec::from<work_result_ok_t>(dec) };
             case 1: return { work_result_out_of_gas_t {} };
             case 2: return { work_result_panic_t {} };
             case 3: return { work_result_bad_exports_t {} };
@@ -42,7 +42,7 @@ namespace turbo::jam {
         const auto name = jobj.begin()->key();
         if (name == "ok") {
             codec::json::decoder j_dec { jobj.begin()->value() };
-            return { work_result_ok_t::from(j_dec) };
+            return { codec::from<work_result_ok_t>(j_dec) };
         }
         if (name == "out_of_gas")
             return { work_result_out_of_gas_t {} };

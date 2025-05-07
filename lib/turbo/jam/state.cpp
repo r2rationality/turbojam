@@ -6,7 +6,7 @@
 #include <ark-vrf-cpp.hpp>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
-#include "errors.hpp"
+#include "types/errors.hpp"
 #include "machine.hpp"
 #include "merkle.hpp"
 #include "shuffle.hpp"
@@ -390,6 +390,9 @@ namespace turbo::jam {
                 throw err_bad_core_index_t {};
             if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
                 throw err_out_of_order_guarantee_t {};
+            // JAM (11.3)
+            if (g.report.segment_root_lookup.size() + g.report.context.prerequisites.size() > CONSTANTS::max_report_dependencies) [[unlikely]]
+                throw err_too_many_dependencies_t {};
             prev_core = g.report.core_index;
             if (g.slot > slot) [[unlikely]]
                 throw err_future_report_slot_t {};
@@ -451,9 +454,7 @@ namespace turbo::jam {
             rho[g.report.core_index] = availability_assignment_t<CONSTANTS> {
                 .report=g.report, .timeout=slot.slot()
             };
-            res.reported.emplace_back(reported_work_package_t {
-                .hash=g.report.package_spec.hash, .exports_root=g.report.package_spec.exports_root
-            });
+            res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
 
             uint8_vector msg {};
             msg << std::string_view { "jam_guarantee" };

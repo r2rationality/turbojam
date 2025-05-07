@@ -4,7 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
-#include "errors.hpp"
+#include "types/errors.hpp"
 #include "types.hpp"
 
 namespace {
@@ -12,7 +12,7 @@ namespace {
     using namespace turbo::jam;
 
     template<typename CONSTANTS>
-    struct tmp_account_t: codec::serializable_t<tmp_account_t<CONSTANTS>> {
+    struct tmp_account_t {
         preimages_t preimages;
         lookup_metas_t<CONSTANTS> lookup_metas;
 
@@ -78,7 +78,7 @@ namespace {
     };
 
     template<typename CONSTANTS>
-    struct test_case_t: codec::serializable_t<test_case_t<CONSTANTS>> {
+    struct test_case_t {
         input_t<CONSTANTS> input;
         state_t<CONSTANTS> pre_state;
         output_t output;

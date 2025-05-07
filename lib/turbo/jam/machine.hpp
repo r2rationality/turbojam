@@ -6,7 +6,7 @@
 
 #include <cstdint>
 #include <variant>
-#include "constants.hpp"
+#include "types/constants.hpp"
 #include "encoding.hpp"
 #include "types.hpp"
 
@@ -16,7 +16,7 @@ namespace turbo::jam::machine {
     using address_val_t = register_val_t;
     using gas_remaining_t = register_val_signed_t;
 
-    struct memory_chunk_t: codec::serializable_t<memory_chunk_t> {
+    struct memory_chunk_t {
         uint32_t address = 0;
         byte_sequence_t contents {};
 
@@ -38,7 +38,7 @@ namespace turbo::jam::machine {
     };
     using memory_chunks_t = sequence_t<memory_chunk_t>;
 
-    struct page_t: codec::serializable_t<page_t> {
+    struct page_t {
         uint32_t address = 0;
         uint32_t length = 0;
         bool is_writable = false;
