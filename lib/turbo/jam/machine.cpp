@@ -38,16 +38,24 @@ namespace turbo::jam::machine {
             _pc { init.pc },
             _gas { init.gas }
         {
+            static constexpr auto stack_end = (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
+            _stack_begin = stack_end;
             _pages.reserve(page_map.size());
             for (const auto &page: page_map) {
                 const auto page_id = page.address / config_prod::pvm_page_size;
                 const auto cnt = page.length / config_prod::pvm_page_size;
-                for (size_t i = 0; i < cnt; i++) {
-                    const auto p_it = _pages.emplace_hint(_pages.end(), page_id + i, page_info_t {
-                        std::make_unique<uint8_t[]>(config_prod::pvm_page_size),
-                        page.is_writable
-                    });
-                    memset(p_it->second.data.get(), 0, config_prod::pvm_page_size);
+                const auto segment_end = page.address + page.length;
+                // Stack is the only writable entry that can reach stack_end. Everything else is considered heap
+                if (page.is_writable) {
+                    if (segment_end < stack_end) {
+                        if (_heap_end < segment_end)
+                            _heap_end = segment_end;
+                    } else {
+                        _stack_begin = page.address;
+                    }
+                }
+                for (size_t i = 0; i < cnt; ++i) {
+                    _add_page(page_id + i, page.is_writable);
                 }
             }
             for (const auto &mc: init.memory) {
@@ -56,6 +64,9 @@ namespace turbo::jam::machine {
                     _store_unsigned_init(addr++, b);
                 }
             }
+            if (_stack_begin < config_prod::pvm_init_zone_size) [[unlikely]]
+                throw exit_panic_t {};
+            _stack_begin = ((_stack_begin - config_prod::pvm_init_zone_size) / config_prod::pvm_init_zone_size) * config_prod::pvm_init_zone_size;
         }
 
         result_t run()
@@ -162,6 +173,8 @@ namespace turbo::jam::machine {
         uint32_t _pc {};
         gas_remaining_t _gas = 0;
         page_map_t _pages;
+        register_val_t _heap_end = 0;
+        register_val_t _stack_begin = 0;
 
         struct op_res_t {
             std::optional<register_val_t> new_pc {};
@@ -557,6 +570,15 @@ namespace turbo::jam::machine {
             return {};
         }
 
+        void _add_page(const size_t page_id, const bool is_writable)
+        {
+            const auto p_it = _pages.emplace_hint(_pages.end(), page_id, page_info_t {
+                std::make_unique<uint8_t[]>(config_prod::pvm_page_size),
+                is_writable
+            });
+            memset(p_it->second.data.get(), 0, config_prod::pvm_page_size);
+        }
+
         std::pair<size_t, page_map_t::const_iterator> _addr_check(const register_val_t addr, const size_t sz) const
         {
             const auto page_off = addr % config_prod::pvm_page_size;
@@ -677,11 +699,24 @@ namespace turbo::jam::machine {
             return {};
         }
 
-        op_res_t sbrk(const buffer /*data*/)
+        op_res_t sbrk(const buffer data)
         {
-            //const auto [r_d, r_a] = reg2(data);
-            // not implemented yet
-            throw exit_panic_t {};
+            const auto [r_d, r_a] = reg2(data);
+            const auto new_heap_end = _heap_end + _regs[r_a];
+            if (new_heap_end < _heap_end) [[unlikely]]
+                throw exit_panic_t {};
+            if (new_heap_end >= _stack_begin)
+                throw exit_panic_t {};
+            const auto cur_page_id = _heap_end / config_prod::pvm_page_size;
+            const auto new_page_id = new_heap_end / config_prod::pvm_page_size;
+            for (auto page_id = cur_page_id; page_id <= new_page_id; ++page_id) {
+                if (!_pages.contains(page_id)) {
+                    _add_page(page_id, true);
+                }
+            }
+            _heap_end = new_heap_end;
+            _regs[r_d] = _heap_end;
+            return {};
         }
 
         op_res_t count_set_bits_64(const buffer data)
