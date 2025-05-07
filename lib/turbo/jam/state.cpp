@@ -351,6 +351,12 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
+    void state_t<CONSTANTS>::update_time(const time_slot_t<CONSTANTS> &slot)
+    {
+        tau = slot;
+    }
+
+    template<typename CONSTANTS>
     reports_output_data_t state_t<CONSTANTS>::update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees)
     {
         reports_output_data_t res {};
