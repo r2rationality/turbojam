@@ -9,6 +9,8 @@
 #include <boost/container/flat_map.hpp>
 #include "machine.hpp"
 
+#include <iostream>
+
 namespace turbo::jam::machine {
 #if defined(__GNUC__) || defined(__clang__)
 #   pragma GCC diagnostic push
@@ -67,7 +69,8 @@ namespace turbo::jam::machine {
                     const uint8_t opcode = _program.code[_pc];
                     const auto len = _skip_len(_pc, _program.bitmasks);
                     const auto data = _program.code.subbuf(_pc + 1, len);
-                    const auto res = _exec(opcode, data);
+                    const auto &op = _opcode_info(opcode);
+                    const auto res = (this->*op.exec)(data);
                     _pc = res.new_pc.value_or(_pc + len + 1);
                     _gas -= res.gas_used;
                 }
@@ -159,10 +162,35 @@ namespace turbo::jam::machine {
         uint32_t _pc {};
         gas_remaining_t _gas = 0;
         page_map_t _pages;
+        size_t _exec_no = 0;
 
         struct op_res_t {
             std::optional<register_val_t> new_pc {};
             gas_remaining_t gas_used = 0;
+        };
+
+        using op_exec_t = op_res_t(impl::*)(buffer);
+
+        enum class op_arg_t {
+            none,
+            imm1,
+            imm2,
+            off1,
+            reg1_imm1,
+            reg1_imm2,
+            reg1_imm1_off1,
+            reg2,
+            reg2_imm1,
+            reg2_imm2,
+            reg2_off1,
+            reg3
+        };
+
+        struct opcode_t
+        {
+            std::string_view name;
+            op_exec_t exec;
+            op_arg_t typ;
         };
 
         static size_t _skip_len(const register_val_t opcode_pc, const bit_buffer_t &bitmasks)
@@ -175,107 +203,222 @@ namespace turbo::jam::machine {
             return std::min(size_t { 24 }, static_cast<size_t>(pc - start_pc));
         }
 
-        op_res_t _exec(const uint8_t opcode, const buffer data)
+        static const opcode_t &_opcode_info(const uint32_t opcode)
         {
-            static std::array<op_res_t(impl::*)(buffer), 0x100> ops {
+            using namespace std::string_view_literals;
+            static opcode_t undef { "undefined"sv, &impl::trap, op_arg_t::none };
+            static std::array<opcode_t, 0x100> ops {
                 // 0x00
-                &impl::trap, &impl::fallthrough, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::ecalli, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-
+                opcode_t { "trap"sv, &impl::trap, op_arg_t::none },
+                opcode_t { "fallthrough"sv, &impl::fallthrough, op_arg_t::none },
+                undef, undef,
+                undef, undef, undef, undef,
+                // 0x08
+                undef, undef,
+                opcode_t { "ecalli"sv, &impl::ecalli, op_arg_t::imm1 },
+                undef,
+                undef, undef, undef, undef,
                 // 0x10
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::load_imm_64, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::store_imm_u8, &impl::store_imm_u16,
-
+                undef, undef, undef, undef,
+                opcode_t { "load_imm_64"sv, &impl::load_imm_64, op_arg_t::reg1_imm1 },
+                undef, undef, undef,
+                // 0x18
+                undef, undef, undef, undef,
+                undef, undef,
+                opcode_t { "undefined", &impl::store_imm_u8, op_arg_t::imm2 },
+                opcode_t { "undefined", &impl::store_imm_u16, op_arg_t::imm2 },
                 // 0x20
-                &impl::store_imm_u32, &impl::store_imm_u64, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::jump, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-
+                opcode_t { "store_imm_u32", &impl::store_imm_u32, op_arg_t::imm2 },
+                opcode_t { "store_imm_u64", &impl::store_imm_u64, op_arg_t::imm2 },
+                undef, undef,
+                undef, undef, undef, undef,
+                // 0x28
+                { "jump", &impl::jump, op_arg_t::off1 },
+                undef, undef, undef,
+                undef, undef, undef, undef,
                 // 0x30
-                &impl::trap, &impl::trap, &impl::jump_ind, &impl::load_imm,
-                &impl::load_u8, &impl::load_i8, &impl::load_u16, &impl::load_i16,
-                &impl::load_u32, &impl::load_i32, &impl::load_u64, &impl::store_u8,
-                &impl::store_u16, &impl::store_u32, &impl::store_u64, &impl::trap,
-
+                undef, undef,
+                opcode_t { "jump_ind", &impl::jump_ind, op_arg_t::reg1_imm1 },
+                opcode_t { "load_imm", &impl::load_imm, op_arg_t::reg1_imm1 },
+                opcode_t { "load_u8", &impl::load_u8, op_arg_t::reg1_imm1 },
+                opcode_t { "load_i8", &impl::load_i8, op_arg_t::reg1_imm1 },
+                opcode_t { "load_u16", &impl::load_u16, op_arg_t::reg1_imm1 },
+                opcode_t { "load_i16", &impl::load_i16, op_arg_t::reg1_imm1 },
+                // 0x38
+                opcode_t { "load_u32", &impl::load_u32, op_arg_t::reg1_imm1 },
+                opcode_t { "load_i32", &impl::load_i32, op_arg_t::reg1_imm1 },
+                opcode_t { "load_u64", &impl::load_u64, op_arg_t::reg1_imm1 },
+                opcode_t { "store_u8", &impl::store_u8, op_arg_t::reg1_imm1 },
+                opcode_t { "store_u16", &impl::store_u16, op_arg_t::reg1_imm1 },
+                opcode_t { "store_u32", &impl::store_u32, op_arg_t::reg1_imm1 },
+                opcode_t { "store_u64", &impl::store_u64, op_arg_t::reg1_imm1 },
+                undef,
                 // 0x40
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::store_imm_ind_u8, &impl::store_imm_ind_u16,
-                &impl::store_imm_ind_u32, &impl::store_imm_ind_u64, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-
+                undef, undef, undef, undef,
+                undef, undef,
+                opcode_t { "store_imm_ind_u8", &impl::store_imm_ind_u8, op_arg_t::reg1_imm2 },
+                opcode_t { "store_imm_ind_u16", &impl::store_imm_ind_u16, op_arg_t::reg1_imm2 },
+                // 0x48
+                opcode_t { "store_imm_ind_u32", &impl::store_imm_ind_u32, op_arg_t::reg1_imm2 },
+                opcode_t { "store_imm_ind_u64", &impl::store_imm_ind_u64, op_arg_t::reg1_imm2 },
+                undef, undef,
+                undef, undef, undef, undef,
                 // 0x50
-                &impl::load_imm_jump, &impl::branch_eq_imm, &impl::branch_ne_imm, &impl::branch_lt_u_imm,
-                &impl::branch_le_u_imm, &impl::branch_ge_u_imm, &impl::branch_gt_u_imm, &impl::branch_lt_s_imm,
-                &impl::branch_le_s_imm, &impl::branch_ge_s_imm, &impl::branch_ge_s_imm, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-
+                opcode_t { "load_imm_jump", &impl::load_imm_jump, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_eq_imm", &impl::branch_eq_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_ne_imm", &impl::branch_ne_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_lt_u_imm", &impl::branch_lt_u_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_le_u_imm", &impl::branch_le_u_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_ge_u_imm", &impl::branch_ge_u_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_gt_u_imm", &impl::branch_gt_u_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_lt_s_imm", &impl::branch_lt_s_imm, op_arg_t::reg1_imm1_off1 },
+                //0x58
+                opcode_t { "branch_le_s_imm", &impl::branch_le_s_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_ge_s_imm", &impl::branch_ge_s_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_ge_s_imm", &impl::branch_ge_s_imm, op_arg_t::reg1_imm1_off1 },
+                undef,
+                undef, undef, undef, undef,
                 // 0x60
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::move_reg, &impl::sbrk, &impl::count_set_bits_64, &impl::count_set_bits_32,
-                &impl::leading_zero_bits_64, &impl::leading_zero_bits_32, &impl::trailing_zero_bits_64, &impl::trailing_zero_bits_32,
-                &impl::sign_extend_8, &impl::sign_extend_16, &impl::zero_extend_16, &impl::reverse_bytes,
-
+                undef, undef, undef, undef,
+                opcode_t { "move_reg", &impl::move_reg, op_arg_t::reg2 },
+                opcode_t { "sbrk", &impl::sbrk, op_arg_t::reg2 },
+                opcode_t { "count_set_bits_64", &impl::count_set_bits_64, op_arg_t::reg2 },
+                opcode_t { "count_set_bits_32", &impl::count_set_bits_32, op_arg_t::reg2 },
+                // 0x68
+                opcode_t { "leading_zero_bits_64", &impl::leading_zero_bits_64, op_arg_t::reg2 },
+                opcode_t { "leading_zero_bits_32", &impl::leading_zero_bits_32, op_arg_t::reg2 },
+                opcode_t { "trailing_zero_bits_64", &impl::trailing_zero_bits_64, op_arg_t::reg2 },
+                opcode_t { "trailing_zero_bits_32", &impl::trailing_zero_bits_32, op_arg_t::reg2 },
+                opcode_t { "sign_extend_8", &impl::sign_extend_8, op_arg_t::reg2 },
+                opcode_t { "sign_extend_16", &impl::sign_extend_16, op_arg_t::reg2 },
+                opcode_t { "zero_extend_16", &impl::zero_extend_16, op_arg_t::reg2 },
+                opcode_t { "reverse_bytes", &impl::reverse_bytes, op_arg_t::reg2 },
                 // 0x70
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::store_ind_u8, &impl::store_ind_u16, &impl::store_ind_u32, &impl::store_ind_u64,
-                &impl::load_ind_u8, &impl::load_ind_i8, &impl::load_ind_u16, &impl::load_ind_i16,
-
+                undef, undef, undef, undef,
+                undef, undef, undef, undef,
+                // 0x78
+                opcode_t { "store_ind_u8", &impl::store_ind_u8, op_arg_t::reg2_imm1 },
+                opcode_t { "store_ind_u16", &impl::store_ind_u16, op_arg_t::reg2_imm1 },
+                opcode_t { "store_ind_u32", &impl::store_ind_u32, op_arg_t::reg2_imm1 },
+                opcode_t { "store_ind_u64", &impl::store_ind_u64, op_arg_t::reg2_imm1 },
+                opcode_t { "load_ind_u8", &impl::load_ind_u8, op_arg_t::reg2_imm1 },
+                opcode_t { "load_ind_i8", &impl::load_ind_i8, op_arg_t::reg2_imm1 },
+                opcode_t { "load_ind_u16", &impl::load_ind_u16, op_arg_t::reg2_imm1 },
+                opcode_t { "load_ind_i16", &impl::load_ind_i16, op_arg_t::reg2_imm1 },
                 // 0x80
-                &impl::load_ind_u32, &impl::load_ind_i32, &impl::load_ind_u64, &impl::add_imm_32,
-                &impl::and_imm, &impl::xor_imm, &impl::or_imm, &impl::mul_imm_32,
-                &impl::set_lt_u_imm, &impl::set_lt_s_imm, &impl::shlo_l_imm_32, &impl::shlo_r_imm_32,
-                &impl::shar_r_imm_32, &impl::neg_add_imm_32, &impl::set_gt_u_imm, &impl::set_gt_s_imm,
-
+                opcode_t { "load_ind_u32", &impl::load_ind_u32, op_arg_t::reg2_imm1 },
+                opcode_t { "load_ind_i32", &impl::load_ind_i32, op_arg_t::reg2_imm1 },
+                opcode_t { "load_ind_u64", &impl::load_ind_u64, op_arg_t::reg2_imm1 },
+                opcode_t { "add_imm_32", &impl::add_imm_32, op_arg_t::reg2_imm1 },
+                opcode_t { "and_imm", &impl::and_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "xor_imm", &impl::xor_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "or_imm", &impl::or_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "mul_imm_32", &impl::mul_imm_32, op_arg_t::reg2_imm1 },
+                // 0x88
+                opcode_t { "set_lt_u_imm", &impl::set_lt_u_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "set_lt_s_imm", &impl::set_lt_s_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "shlo_l_imm_32", &impl::shlo_l_imm_32, op_arg_t::reg2_imm1 },
+                opcode_t { "shlo_r_imm_32", &impl::shlo_r_imm_32, op_arg_t::reg2_imm1 },
+                opcode_t { "shar_r_imm_32", &impl::shar_r_imm_32, op_arg_t::reg2_imm1 },
+                opcode_t { "neg_add_imm_32", &impl::neg_add_imm_32, op_arg_t::reg2_imm1 },
+                opcode_t { "set_gt_u_imm", &impl::set_gt_u_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "set_gt_s_imm", &impl::set_gt_s_imm, op_arg_t::reg2_imm1 },
                 // 0x90
-                &impl::shlo_l_imm_alt_32, &impl::shlo_r_imm_alt_32, &impl::shar_r_imm_alt_32, &impl::cmov_iz_imm,
-                &impl::cmov_nz_imm, &impl::add_imm_64, &impl::mul_imm_64, &impl::shlo_l_imm_64,
-                &impl::shlo_r_imm_64, &impl::shar_r_imm_64, &impl::neg_add_imm_64, &impl::shlo_l_imm_alt_64,
-                &impl::shlo_r_imm_alt_64, &impl::shar_r_imm_alt_64, &impl::rot_r_64_imm, &impl::rot_r_64_imm_alt,
-
+                opcode_t { "shlo_l_imm_alt_32", &impl::shlo_l_imm_alt_32, op_arg_t::reg2_imm1 },
+                opcode_t { "shlo_r_imm_alt_32", &impl::shlo_r_imm_alt_32, op_arg_t::reg2_imm1 },
+                opcode_t { "shar_r_imm_alt_32", &impl::shar_r_imm_alt_32, op_arg_t::reg2_imm1 },
+                opcode_t { "cmov_iz_imm", &impl::cmov_iz_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "cmov_nz_imm", &impl::cmov_nz_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "add_imm_64", &impl::add_imm_64, op_arg_t::reg2_imm1 },
+                opcode_t { "mul_imm_64", &impl::mul_imm_64, op_arg_t::reg2_imm1 },
+                opcode_t { "shlo_l_imm_64", &impl::shlo_l_imm_64, op_arg_t::reg2_imm1 },
+                // 0x98
+                opcode_t { "shlo_r_imm_64", &impl::shlo_r_imm_64, op_arg_t::reg2_imm1 },
+                opcode_t { "shar_r_imm_64", &impl::shar_r_imm_64, op_arg_t::reg2_imm1 },
+                opcode_t { "neg_add_imm_64", &impl::neg_add_imm_64, op_arg_t::reg2_imm1 },
+                opcode_t { "shlo_l_imm_alt_64", &impl::shlo_l_imm_alt_64, op_arg_t::reg2_imm1 },
+                opcode_t { "shlo_r_imm_alt_64", &impl::shlo_r_imm_alt_64, op_arg_t::reg2_imm1 },
+                opcode_t { "shar_r_imm_alt_64", &impl::shar_r_imm_alt_64, op_arg_t::reg2_imm1 },
+                opcode_t { "rot_r_64_imm", &impl::rot_r_64_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "rot_r_64_imm_alt", &impl::rot_r_64_imm_alt, op_arg_t::reg2_imm1 },
                 // 0xA0
-                &impl::rot_r_32_imm, &impl::rot_r_32_imm_alt, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::branch_eq, &impl::branch_ne,
-                &impl::branch_lt_u, &impl::branch_lt_s, &impl::branch_ge_u, &impl::branch_ge_s,
-
+                opcode_t { "rot_r_32_imm", &impl::rot_r_32_imm, op_arg_t::reg2_imm1 },
+                opcode_t { "rot_r_32_imm_alt", &impl::rot_r_32_imm_alt, op_arg_t::reg2_imm1 },
+                undef, undef,
+                undef, undef, undef, undef,
+                // 0xA8
+                undef, undef,
+                opcode_t { "branch_eq", &impl::branch_eq, op_arg_t::reg2_off1 },
+                opcode_t { "branch_ne", &impl::branch_ne, op_arg_t::reg2_off1 },
+                opcode_t { "branch_lt_u", &impl::branch_lt_u, op_arg_t::reg2_off1 },
+                opcode_t { "branch_lt_s", &impl::branch_lt_s, op_arg_t::reg2_off1 },
+                opcode_t { "branch_ge_u", &impl::branch_ge_u, op_arg_t::reg2_off1 },
+                opcode_t { "branch_ge_s", &impl::branch_ge_s, op_arg_t::reg2_off1 },
                 // 0xB0
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::load_imm_jump_ind, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::add_32, &impl::sub_32,
-
+                undef, undef, undef, undef,
+                opcode_t { "load_imm_jump_ind", &impl::load_imm_jump_ind, op_arg_t::reg2_imm2 },
+                undef, undef, undef,
+                // 0xB8
+                undef, undef, undef, undef,
+                undef, undef,
+                opcode_t { "add_32", &impl::add_32, op_arg_t::reg3 },
+                opcode_t { "sub_32", &impl::sub_32, op_arg_t::reg3 },
                 // 0xC0
-                &impl::mul_32, &impl::div_u_32, &impl::div_s_32, &impl::rem_u_32,
-                &impl::rem_s_32, &impl::shlo_l_32, &impl::shlo_r_32, &impl::shar_r_32,
-                &impl::add_64, &impl::sub_64, &impl::mul_64, &impl::div_u_64,
-                &impl::div_s_64, &impl::rem_u_64, &impl::rem_s_64, &impl::shlo_l_64,
-
+                opcode_t { "mul_32", &impl::mul_32, op_arg_t::reg3 },
+                opcode_t { "div_u_32", &impl::div_u_32, op_arg_t::reg3 },
+                opcode_t { "div_s_32", &impl::div_s_32, op_arg_t::reg3 },
+                opcode_t { "rem_u_32", &impl::rem_u_32, op_arg_t::reg3 },
+                opcode_t { "rem_s_32", &impl::rem_s_32, op_arg_t::reg3 },
+                opcode_t { "shlo_l_32", &impl::shlo_l_32, op_arg_t::reg3 },
+                opcode_t { "shlo_r_32", &impl::shlo_r_32, op_arg_t::reg3 },
+                opcode_t { "shar_r_32", &impl::shar_r_32, op_arg_t::reg3 },
+                // 0xC8
+                opcode_t { "add_64", &impl::add_64, op_arg_t::reg3 },
+                opcode_t { "sub_64", &impl::sub_64, op_arg_t::reg3 },
+                opcode_t { "mul_64", &impl::mul_64, op_arg_t::reg3 },
+                opcode_t { "div_u_64", &impl::div_u_64, op_arg_t::reg3 },
+                opcode_t { "div_s_64", &impl::div_s_64, op_arg_t::reg3 },
+                opcode_t { "rem_u_64", &impl::rem_u_64, op_arg_t::reg3 },
+                opcode_t { "rem_s_64", &impl::rem_s_64, op_arg_t::reg3 },
+                opcode_t { "shlo_l_64", &impl::shlo_l_64, op_arg_t::reg3 },
                 // 0xD0
-                &impl::shlo_r_64, &impl::shar_r_64, &impl::and_, &impl::xor_,
-                &impl::or_, &impl::mul_upper_s_s, &impl::mul_upper_u_u, &impl::mul_upper_s_u,
-                &impl::set_lt_u, &impl::set_lt_s, &impl::cmov_iz, &impl::cmov_nz,
-                &impl::rot_l_64, &impl::rot_l_32, &impl::rot_r_64, &impl::rot_r_32,
-
+                opcode_t { "shlo_r_64", &impl::shlo_r_64, op_arg_t::reg3 },
+                opcode_t { "shar_r_64", &impl::shar_r_64, op_arg_t::reg3 },
+                opcode_t { "and_", &impl::and_, op_arg_t::reg3 },
+                opcode_t { "xor_", &impl::xor_, op_arg_t::reg3 },
+                opcode_t { "or_", &impl::or_, op_arg_t::reg3 },
+                opcode_t { "mul_upper_s_s", &impl::mul_upper_s_s, op_arg_t::reg3 },
+                opcode_t { "mul_upper_u_u", &impl::mul_upper_u_u, op_arg_t::reg3 },
+                opcode_t { "mul_upper_s_u", &impl::mul_upper_s_u, op_arg_t::reg3 },
+                // 0xD8
+                opcode_t { "set_lt_u", &impl::set_lt_u, op_arg_t::reg3 },
+                opcode_t { "set_lt_s", &impl::set_lt_s, op_arg_t::reg3 },
+                opcode_t { "cmov_iz", &impl::cmov_iz, op_arg_t::reg3 },
+                opcode_t { "cmov_nz", &impl::cmov_nz, op_arg_t::reg3 },
+                opcode_t { "rot_l_64", &impl::rot_l_64, op_arg_t::reg3 },
+                opcode_t { "rot_l_32", &impl::rot_l_32, op_arg_t::reg3 },
+                opcode_t { "rot_r_64", &impl::rot_r_64, op_arg_t::reg3 },
+                opcode_t { "rot_r_32", &impl::rot_r_32, op_arg_t::reg3 },
                 // 0xE0
-                &impl::and_inv, &impl::or_inv, &impl::xnor, &impl::max,
-                &impl::max_u, &impl::min, &impl::min_u, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-
+                opcode_t { "and_inv", &impl::and_inv, op_arg_t::reg3 },
+                opcode_t { "or_inv", &impl::or_inv, op_arg_t::reg3 },
+                opcode_t { "xnor", &impl::xnor, op_arg_t::reg3 },
+                opcode_t { "max", &impl::max, op_arg_t::reg3 },
+                opcode_t { "max_u", &impl::max_u, op_arg_t::reg3 },
+                opcode_t { "min", &impl::min, op_arg_t::reg3 },
+                opcode_t { "min_u", &impl::min_u, op_arg_t::reg3 },
+                undef,
+                // 0xE8
+                undef, undef, undef, undef,
+                undef, undef, undef, undef,
                 // 0xF0
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap,
-                &impl::trap, &impl::trap, &impl::trap, &impl::trap
+                undef, undef, undef, undef,
+                undef, undef, undef, undef,
+                // 0xF8
+                undef, undef, undef, undef,
+                undef, undef, undef, undef,
             };
-            const auto &op = ops[opcode];
-            return (this->*op)(data);
+            return ops[opcode];
         }
 
         // opcode helper functions
@@ -404,6 +547,7 @@ namespace turbo::jam::machine {
 
         op_res_t branch_base(const register_val_t new_pc, const bool cond)
         {
+            // std::cout << fmt::format("branch {:08X}, {}\n", new_pc, cond);
             if (cond) {
                 if (new_pc >= _program.code.size()) [[unlikely]]
                     throw exit_panic_t {};
@@ -429,13 +573,16 @@ namespace turbo::jam::machine {
         register_val_t _load_unsigned(const register_val_t addr, const size_t sz)
         {
             const auto [page_off, page_it] = _addr_check(addr, sz);
+            register_val_t res;
             switch (sz) {
-                case 1: return page_it->second.data[page_off];
-                case 2: return buffer { page_it->second.data.get() + page_off, sz }.to<uint16_t>();
-                case 4: return buffer { page_it->second.data.get() + page_off, sz }.to<uint32_t>();
-                case 8: return buffer { page_it->second.data.get() + page_off, sz }.to<uint64_t>();
+                case 1: res = page_it->second.data[page_off]; break;
+                case 2: res = buffer { page_it->second.data.get() + page_off, sz }.to<uint16_t>(); break;
+                case 4: res = buffer { page_it->second.data.get() + page_off, sz }.to<uint32_t>(); break;
+                case 8: res = buffer { page_it->second.data.get() + page_off, sz }.to<uint64_t>(); break;
                 [[unlikely]] default: throw exit_panic_t {};
             }
+            //std::cout << fmt::format("load {:08X}:{}: {:X}\n", addr, sz, res);
+            return res;
         }
 
         register_val_t _load_signed(const register_val_t addr, const size_t sz)
@@ -457,6 +604,7 @@ namespace turbo::jam::machine {
             const auto [page_off, page_it] = _addr_check(addr, sizeof(val));
             if (!page_it->second.is_writable) [[unlikely]]
                 throw exit_page_fault_t { addr };
+            // std::cout << fmt::format("store {:08X}:{}: {:X}\n", addr, sizeof(val), val);
             *reinterpret_cast<T*>(page_it->second.data.get() + page_off) = val;
         }
 
@@ -1541,4 +1689,88 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl_ptr()->state();
     }
 
+    invocation_t invoke(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
+    {
+        decoder dec { code };
+        // JAM (9.4)
+        const auto meta = byte_sequence_t::from(dec);
+        // JAM (A.37)
+
+        const auto o_sz = dec.uint_fixed<size_t>(3);
+        const auto w_sz = dec.uint_fixed<size_t>(3);
+        const auto z_sz = dec.uint_fixed<size_t>(2);
+        const auto s_sz = dec.uint_fixed<size_t>(3);
+
+        const auto o_bytes = dec.next_bytes(o_sz);
+        const auto w_bytes = dec.next_bytes(w_sz);
+
+        if (const auto c_sz = dec.uint_fixed<size_t>(4); c_sz != dec.size()) [[unlikely]]
+            return { 0, machine::exit_panic_t {} };
+        const auto prg = machine::program_t::from_bytes(dec);
+
+        // JAM (A.40)
+        const auto total_sz = 5 * config_prod::pvm_init_zone_size
+            + config_prod::pvm_z_size(o_sz) + config_prod::pvm_z_size(w_sz + z_sz * config_prod::pvm_init_zone_size)
+            + config_prod::pvm_z_size(s_sz) + config_prod::pvm_input_size;
+        if (total_sz > 1ULL << 32U) [[unlikely]]
+            return { 0, machine::exit_panic_t {} };
+
+        machine::state_t state {
+            .gas = numeric_cast<machine::gas_remaining_t>(gas_init),
+        };
+        machine::pages_t page_map {};
+
+        // JAM (A.41)
+        struct area_def_t {
+            size_t address;
+            size_t size;
+            bool is_writable = false;
+            std::optional<buffer> data {};
+        };
+
+        for (const auto &def: std::initializer_list<area_def_t> {
+            // read only data
+            { config_prod::pvm_init_zone_size, o_bytes.size(), false, o_bytes },
+            // writable data
+            { config_prod::pvm_init_zone_size * 2 + config_prod::pvm_z_size(o_bytes.size()), w_bytes.size() + z_sz * config_prod::pvm_page_size, true, w_bytes },
+            // stack
+            { (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size - config_prod::pvm_p_size(s_sz), s_sz, true },
+            // arguments
+            { (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size, a_bytes.size(), false, a_bytes },
+        }) {
+            page_map.emplace_back(machine::page_t {
+                .address=numeric_cast<uint32_t>(def.address),
+                .length=numeric_cast<uint32_t>(config_prod::pvm_p_size(def.size)),
+                .is_writable=def.is_writable
+            });
+            if (def.data) {
+                state.memory.emplace_back(machine::memory_chunk_t {
+                    .address=numeric_cast<uint32_t>(def.address),
+                    .contents=*def.data
+                });
+            }
+        }
+
+        // JAM (A.42)
+        state.regs[0] = (1ULL << 32U) - (1ULL << 16U);
+        state.regs[1] = (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
+        state.regs[7] = (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
+        state.regs[8] = a_bytes.size();
+
+        machine::machine_t m { prg, state, page_map };
+
+        const auto exit = m.run();
+        const auto gas_used = gas_init - numeric_cast<gas_t>(std::max(machine::gas_remaining_t { 0 },  m.gas()));
+
+        if (std::holds_alternative<machine::exit_out_of_gas_t>(exit)) [[unlikely]]
+            return { gas_used, machine::exit_out_of_gas_t {} };
+        if (std::holds_alternative<machine::exit_halt_t>(exit)) [[unlikely]] {
+            auto data = m.mem(m.regs().at(7), m.regs().at(8));
+            if (data)
+                return { gas_used, std::move(*data) };
+            return { gas_used, uint8_vector {} };
+        }
+
+        return { gas_used, machine::exit_panic_t {}};
+    }
 }

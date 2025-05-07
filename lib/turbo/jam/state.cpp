@@ -9,7 +9,6 @@
 #include "errors.hpp"
 #include "machine.hpp"
 #include "merkle.hpp"
-#include "state.hpp"
 #include "shuffle.hpp"
 
 namespace turbo::jam {
@@ -30,16 +29,13 @@ namespace turbo::jam {
     template struct safrole_state_t<config_prod>;
     template struct safrole_state_t<config_tiny>;
 
+    // JAM (4.1): Kapital upsilon
     template<typename CONSTANTS>
-    state_t<CONSTANTS> state_t<CONSTANTS>::apply(const block_info_t &) const
+    void state_t<CONSTANTS>::apply(const block_t<CONSTANTS> &)
     {
-        state_t new_st = *this;
-        // assurances must be processed before guarantees
-
-        // new_st.beta = this->beta.apply(blk.header_hash, blk.state_root)
-
-        // alpha is processed after phi
-        return new_st;
+        // for performance this function operates on the same set
+        // this means that extra care must be taken when handling errors
+        // to ensure that the state after a failed apply never changes
     }
 
     template<typename CONSTANTS>
@@ -283,95 +279,7 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     bool should_accumulate_immediately(const work_report_t<CONSTANTS> &r)
     {
-
         return static_cast<int>(r.context.prerequisites.empty()) & static_cast<int>(r.segment_root_lookup.empty());
-    }
-
-    template<typename CONSTANTS>
-    machine_invocation_t state_t<CONSTANTS>::invoke_pvm(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
-    {
-        decoder dec { code };
-        // JAM (9.4)
-        const auto meta = byte_sequence_t::from(dec);
-        // JAM (A.37)
-
-        const auto o_sz = dec.uint_fixed<size_t>(3);
-        const auto w_sz = dec.uint_fixed<size_t>(3);
-        const auto z_sz = dec.uint_fixed<size_t>(2);
-        const auto s_sz = dec.uint_fixed<size_t>(3);
-
-        const auto o_bytes = dec.next_bytes(o_sz);
-        const auto w_bytes = dec.next_bytes(w_sz);
-
-        if (const auto c_sz = dec.uint_fixed<size_t>(4); c_sz != dec.size()) [[unlikely]]
-            return { 0, machine::exit_panic_t {} };
-        const auto prg = machine::program_t::from_bytes(dec);
-
-        // JAM (A.40)
-        const auto total_sz = 5 * config_prod::pvm_init_zone_size
-            + config_prod::pvm_z_size(o_sz) + config_prod::pvm_z_size(w_sz + z_sz * config_prod::pvm_init_zone_size)
-            + config_prod::pvm_z_size(s_sz) + config_prod::pvm_input_size;
-        if (total_sz > 1ULL << 32U) [[unlikely]]
-            return { 0, machine::exit_panic_t {} };
-
-        machine::state_t state {
-            .pc = pc,
-            .gas = numeric_cast<machine::gas_remaining_t>(gas_init)
-        };
-        machine::pages_t page_map {};
-
-        // JAM (A.41)
-        struct area_def_t {
-            size_t address;
-            size_t size;
-            bool is_writable = false;
-            std::optional<buffer> data {};
-        };
-
-        for (const auto &def: std::initializer_list<area_def_t> {
-            // read only data
-            { config_prod::pvm_init_zone_size, o_bytes.size(), false, o_bytes },
-            // writable data
-            { config_prod::pvm_init_zone_size * 2 + config_prod::pvm_z_size(o_bytes.size()), w_bytes.size() + z_sz * config_prod::pvm_page_size, true, w_bytes },
-            // stack
-            { (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size - config_prod::pvm_p_size(s_sz), s_sz, true },
-            // arguments
-            { (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size, a_bytes.size(), false, a_bytes },
-        }) {
-            page_map.emplace_back(machine::page_t {
-                .address=numeric_cast<uint32_t>(def.address),
-                .length=numeric_cast<uint32_t>(config_prod::pvm_p_size(def.size)),
-                .is_writable=def.is_writable
-            });
-            if (def.data) {
-                state.memory.emplace_back(machine::memory_chunk_t {
-                    .address=numeric_cast<uint32_t>(def.address),
-                    .contents=*def.data
-                });
-            }
-        }
-
-        // JAM (A.42)
-        state.regs[0] = (1ULL << 32U) - (1ULL << 16U);
-        state.regs[1] = (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
-        state.regs[7] = (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
-        state.regs[8] = a_bytes.size();
-
-        machine::machine_t m { prg, state, page_map };
-
-        const auto exit = m.run();
-        const auto gas_used = gas_init - numeric_cast<gas_t>(std::max(machine::gas_remaining_t { 0 },  m.gas()));
-
-        if (std::holds_alternative<machine::exit_out_of_gas_t>(exit)) [[unlikely]]
-            return { gas_used, machine::exit_out_of_gas_t {} };
-        if (std::holds_alternative<machine::exit_halt_t>(exit)) [[unlikely]] {
-            auto data = m.mem(m.regs().at(7), m.regs().at(8));
-            if (data)
-                return { gas_used, std::move(*data) };
-            return { gas_used, uint8_vector {} };
-        }
-
-        return { gas_used, machine::exit_panic_t {}};
     }
 
     template<typename CONSTANTS>
@@ -436,7 +344,7 @@ namespace turbo::jam {
             arg_enc.process(slot);
             arg_enc.process(service_id);
             arg_enc.process(ops);
-            const auto inv_res = invoke_pvm(static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes());
+            const auto inv_res = machine::invoke(static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes());
         }
         tau = slot;
         return res;

@@ -4,9 +4,67 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include "machine.hpp"
+#include "common.hpp"
 
 namespace turbo::jam {
+    // JAM (4.3)
+    template<typename CONSTANTS>
+    struct extrinsic_t: codec::serializable_t<extrinsic_t<CONSTANTS>> {
+        tickets_extrinsic_t<CONSTANTS> tickets;
+        preimages_extrinsic_t preimages;
+        guarantees_extrinsic_t<CONSTANTS> guarantees;
+        assurances_extrinsic_t<CONSTANTS> assurances;
+        disputes_extrinsic_t<CONSTANTS> disputes;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("tickets"sv, tickets);
+            archive.process("preimages"sv, preimages);
+            archive.process("guarantees"sv, guarantees);
+            archive.process("assurances"sv, assurances);
+            archive.process("disputes"sv, disputes);
+        }
+
+        bool operator==(const extrinsic_t &o) const
+        {
+            if (tickets != o.tickets)
+                return false;
+            if (preimages != o.preimages)
+                return false;
+            if (guarantees != o.guarantees)
+                return false;
+            if (assurances != o.assurances)
+                return false;
+            if (disputes != o.disputes)
+                return false;
+            return true;
+        }
+    };
+
+    // JAM (4.2)
+    template<typename CONSTANTS>
+        struct block_t: codec::serializable_t<block_t<CONSTANTS>> {
+        header_t<CONSTANTS> header;
+        extrinsic_t<CONSTANTS> extrinsic;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("header"sv, header);
+            archive.process("extrinsic"sv, extrinsic);
+        }
+
+        bool operator==(const block_t &o) const
+        {
+            if (header != o.header)
+                return false;
+            if (extrinsic != o.extrinsic)
+                return false;
+            return true;
+        }
+    };
+
     template<typename CONSTANTS=config_prod>
     struct safrole_state_t {
         tickets_accumulator_t<CONSTANTS> a {}; // prior sealing key ticket accumulator
@@ -62,18 +120,7 @@ namespace turbo::jam {
         }
     };
 
-    using invocation_result_base_t = std::variant<uint8_vector, machine::exit_panic_t, machine::exit_out_of_gas_t>;
-    struct invocation_result_t: invocation_result_base_t {
-        using base_type = invocation_result_base_t;
-        using base_type::base_type;
-    };
-
-    struct machine_invocation_t {
-        gas_t gas_used {};
-        invocation_result_base_t result;
-    };
-
-    // lower-case sigma in terms of the JAM paper
+    // JAM (4.4) - lowercase sigma
     template<typename CONSTANTS=config_prod>
     struct state_t {
         auth_pools_t<CONSTANTS> alpha {}; // authorizations
@@ -84,35 +131,39 @@ namespace turbo::jam {
         validators_data_t<CONSTANTS> iota {}; // next validators
         validators_data_t<CONSTANTS> kappa {}; // active validators
         validators_data_t<CONSTANTS> lambda {}; // prev validators
-        ready_queue_t<CONSTANTS> nu {}; // work reports ready to be accumulated
-        accumulated_queue_t<CONSTANTS> ksi {}; // recently accumulated reports
-        statistics_t<CONSTANTS> pi {};
         availability_assignments_t<CONSTANTS> rho {}; // assigned work reports
         time_slot_t<CONSTANTS> tau {};
         auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
         privileges_t chi {};
         disputes_records_t psi {}; // judgements
+        statistics_t<CONSTANTS> pi {};
+        ready_queue_t<CONSTANTS> nu {}; // work reports ready to be accumulated
+        accumulated_queue_t<CONSTANTS> ksi {}; // recently accumulated reports
 
+        // JAM (4.1): Kapital upsilon
+        void apply(const block_t<CONSTANTS> &);
+
+        // Methods internally used by the apply and in unit tests
+        // Todo: make them protected and the respective unit test class friends
+        // JAM (4.5)
+        void update_time(const time_slot_t<CONSTANTS> &slot);
+        // JAM (4.7)
+        // JAM (4.8)
+        // JAM (4.9)
+        // JAM (4.10)
         safrole_output_data_t<CONSTANTS> update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic);
+        // JAM (4.12)
+        // JAM (4.13)
+        // JAM (4.14)
+        // JAM (4.15)
         reports_output_data_t update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees);
+        // JAM (4.11)
         offenders_mark_t update_disputes(const disputes_extrinsic_t<CONSTANTS> &disputes);
+        // JAM (4.20)
         void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
-
-
-        machine_invocation_t invoke_pvm(buffer code, uint32_t pc, gas_t gas, buffer args);
+        // JAM (4.16)
         accumulate_root_t accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports);
-
-        // JAM paper: Kapital upsilon
-        void apply(const block_t<CONSTANTS> &)
-        {
-            // for performance this function operates on the same set
-            // this means that extra care must be taken when handling errors
-            // to ensure that the state after a failed apply never changes
-        }
-
-        state_t apply(const block_info_t &) const;
         bool operator==(const state_t &o) const noexcept;
-
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONSTANTS::validator_count>;
 

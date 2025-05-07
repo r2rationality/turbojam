@@ -209,4 +209,17 @@ namespace turbo::jam::machine {
 
         impl *_impl_ptr();
     };
+
+    using invocation_result_base_t = std::variant<uint8_vector, machine::exit_panic_t, machine::exit_out_of_gas_t>;
+    struct invocation_result_t: invocation_result_base_t {
+        using base_type = invocation_result_base_t;
+        using base_type::base_type;
+    };
+
+    struct invocation_t {
+        gas_t gas_used {};
+        invocation_result_base_t result;
+    };
+
+    extern invocation_t invoke(buffer code, uint32_t pc, gas_t gas, buffer args);
 }
