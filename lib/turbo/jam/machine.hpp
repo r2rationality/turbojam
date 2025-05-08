@@ -81,30 +81,40 @@ namespace turbo::jam::machine {
         }
     };
 
-    struct bit_vector_t: uint8_vector {
-        using base_type = uint8_vector;
+    struct bit_vector_t {
+        bit_vector_t() =delete;
+        bit_vector_t(const bit_vector_t &o) =delete;
 
         bit_vector_t(const buffer bytes, const size_t num_bits):
-            uint8_vector { bytes },
-            _bit_size { num_bits }
+            _num_bits { num_bits },
+            _bytes { bytes }
+        {
+            if (_num_bits > _bytes.size() * 8) [[unlikely]]
+                throw error(fmt::format("to many bits for bit vector of {} bytes: {}", _bytes.size(), _num_bits));
+        }
+
+        bit_vector_t(bit_vector_t &&o):
+            _num_bits { o._num_bits },
+            _bytes { std::move(o._bytes) }
         {
         }
 
         [[nodiscard]] size_t size() const
         {
-            return _bit_size;
+            return _num_bits;
         }
 
         [[nodiscard]] bool test(const size_t pos) const
         {
-            if (pos >= _bit_size) [[unlikely]]
+            if (pos >= _num_bits) [[unlikely]]
                 return true;
             const auto byte_pos = pos >> 3;
             const auto bit_pos = pos & 7;
-            return (*this)[byte_pos] & (1 << bit_pos);
+            return (_bytes)[byte_pos] & (1 << bit_pos);
         }
     private:
-        size_t _bit_size;
+        size_t _num_bits;
+        uint8_vector _bytes;
     };
 
     struct exit_halt_t final {
@@ -166,11 +176,28 @@ namespace turbo::jam::machine {
     };
 
     struct program_t {
-        using offset_list = std::vector<uint32_t>;
+        using offset_list_t = std::vector<uint32_t>;
 
-        offset_list jump_table;
+        offset_list_t jump_table;
         uint8_vector code;
         bit_vector_t bitmasks;
+
+        program_t() =delete;
+        program_t(const program_t &o) =delete;
+
+        program_t(offset_list_t &&jt, uint8_vector &&c, bit_vector_t &&b):
+            jump_table { std::move(jt) },
+            code { std::move(c) },
+            bitmasks { std::move(b) }
+        {
+        }
+
+        program_t(program_t &&o):
+            jump_table { std::move(o.jump_table) },
+            code { std::move(o.code) },
+            bitmasks { std::move(o.bitmasks) }
+        {
+        }
 
         static program_t from_bytes(const buffer bytes)
         {
@@ -178,7 +205,7 @@ namespace turbo::jam::machine {
             const auto jt_sz = dec.uint_varlen();
             const auto jt_offset_sz = dec.uint_fixed<uint8_t>(1);
             const auto code_sz = dec.uint_varlen();
-            offset_list jt {};
+            offset_list_t jt {};
             jt.reserve(jt_sz);
             while (jt.size() < jt_sz) {
                 jt.emplace_back(dec.uint_fixed<uint32_t>(jt_offset_sz));
@@ -189,13 +216,16 @@ namespace turbo::jam::machine {
                 throw error("failed to decode all bytes of the program blob");
             return {
                 std::move(jt),
-                code,
-                { bitmasks, code_sz }
+                uint8_vector { code },
+                bit_vector_t { bitmasks, code_sz }
             };
         }
     };
 
     struct machine_t {
+        machine_t() =delete;
+        machine_t(const machine_t &o) =delete;
+        machine_t(machine_t &&o);
         machine_t(program_t &&program, const state_t &init, const pages_t &page_map);
         ~machine_t();
         result_t run();
@@ -274,6 +304,6 @@ namespace turbo::jam::machine {
         } catch (const std::exception &) {
             status = exit_panic_t {};
         }
-        return { gas_begin - m->gas(), std::get<invocation_result_base_t>(status) };
+        return { numeric_cast<gas_t>(gas_begin - m->gas()), std::get<invocation_result_base_t>(status) };
     }
 }

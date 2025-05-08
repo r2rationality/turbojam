@@ -33,7 +33,7 @@ namespace turbo::jam::machine {
 
     struct machine_t::impl {
         explicit impl(program_t &&program, const state_t &init, const pages_t &page_map):
-            _program { program },
+            _program { std::move(program) },
             _regs { init.regs },
             _pc { init.pc },
             _gas { init.gas }
@@ -67,6 +67,17 @@ namespace turbo::jam::machine {
             if (_stack_begin < config_prod::pvm_init_zone_size) [[unlikely]]
                 throw exit_panic_t {};
             _stack_begin = ((_stack_begin - config_prod::pvm_init_zone_size) / config_prod::pvm_init_zone_size) * config_prod::pvm_init_zone_size;
+        }
+
+        explicit impl(impl &&o):
+            _program { std::move(o._program) },
+            _regs { o._regs },
+            _pc { o._pc },
+            _gas { o._gas },
+            _pages { std::move(o._pages) },
+            _heap_end { o._heap_end },
+            _stack_begin { o._stack_begin }
+        {
         }
 
         result_t run()
@@ -1685,6 +1696,11 @@ namespace turbo::jam::machine {
     machine_t::machine_t(program_t &&program, const state_t &init, const pages_t &page_map)
     {
         new (_impl_ptr()) impl { std::move(program), init, page_map };
+    }
+
+    machine_t::machine_t(machine_t &&o)
+    {
+        new (_impl_ptr()) impl { std::move(*o._impl_ptr()) };
     }
 
     machine_t::~machine_t()
