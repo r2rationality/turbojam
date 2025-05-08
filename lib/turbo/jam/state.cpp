@@ -282,6 +282,11 @@ namespace turbo::jam {
         return static_cast<int>(r.context.prerequisites.empty()) & static_cast<int>(r.segment_root_lookup.empty());
     }
 
+    static machine::host_call_res_t accumulate_host_fn(const machine::register_val_t, machine::machine_t &, std::monostate &)
+    {
+        throw error("not implemented");
+    }
+
     template<typename CONSTANTS>
     accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports)
     {
@@ -344,7 +349,12 @@ namespace turbo::jam {
             arg_enc.process(slot);
             arg_enc.process(service_id);
             arg_enc.process(ops);
-            const auto inv_res = machine::invoke(static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes());
+            std::monostate inv_st {};
+            const auto inv_res = machine::invoke<std::monostate>(
+                static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes(),
+                accumulate_host_fn,
+                inv_st
+            );
         }
         tau = slot;
         return res;

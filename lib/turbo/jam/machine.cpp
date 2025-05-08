@@ -32,7 +32,7 @@ namespace turbo::jam::machine {
     static constexpr register_val_t host_res_ok = 0;*/
 
     struct machine_t::impl {
-        explicit impl(const program_t &program, const state_t &init, const pages_t &page_map):
+        explicit impl(program_t &&program, const state_t &init, const pages_t &page_map):
             _program { program },
             _regs { init.regs },
             _pc { init.pc },
@@ -79,7 +79,7 @@ namespace turbo::jam::machine {
                         throw exit_panic_t {};
                     const uint8_t opcode = _program.code[_pc];
                     const auto len = _skip_len(_pc, _program.bitmasks);
-                    const auto data = _program.code.subbuf(_pc + 1, len);
+                    const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
                     const auto &op = _opcode_info(opcode);
                     const auto res = (this->*op.exec)(data);
                     _pc = res.new_pc.value_or(_pc + len + 1);
@@ -168,7 +168,7 @@ namespace turbo::jam::machine {
 
         using page_map_t = boost::container::flat_map<register_val_t, page_info_t>;
 
-        const program_t &_program;
+        program_t _program;
         registers_t _regs {};
         uint32_t _pc {};
         gas_remaining_t _gas = 0;
@@ -205,7 +205,7 @@ namespace turbo::jam::machine {
             op_arg_t typ;
         };
 
-        static size_t _skip_len(const register_val_t opcode_pc, const bit_buffer_t &bitmasks)
+        static size_t _skip_len(const register_val_t opcode_pc, const bit_vector_t &bitmasks)
         {
             const auto start_pc = opcode_pc + 1;
             auto pc = start_pc;
@@ -523,6 +523,13 @@ namespace turbo::jam::machine {
             return std::make_tuple(r_a, nu_x, nu_y);
         }
 
+        static register_val_t imm1(const buffer data)
+        {
+            const size_t l_x = std::min(size_t { 4 }, data.size());
+            decoder dec { data };
+            return _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+        }
+
         static std::tuple<register_val_t, register_val_t> imm2(const buffer data)
         {
             const size_t l_x = std::min(4ULL, data.at(0ULL) % 8ULL);
@@ -644,9 +651,7 @@ namespace turbo::jam::machine {
 
         op_res_t ecalli(const buffer data)
         {
-            const size_t l_x = std::min(size_t { 4 }, data.size());
-            decoder dec { data };
-            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_x = imm1(data);
             throw exit_host_call_t { nu_x };
         }
 
@@ -1677,9 +1682,9 @@ namespace turbo::jam::machine {
         }
     };
 
-    machine_t::machine_t(const program_t &program, const state_t &init, const pages_t &page_map)
+    machine_t::machine_t(program_t &&program, const state_t &init, const pages_t &page_map)
     {
-        new (_impl_ptr()) impl { program, init, page_map };
+        new (_impl_ptr()) impl { std::move(program), init, page_map };
     }
 
     machine_t::~machine_t()
@@ -1723,7 +1728,7 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl_ptr()->state();
     }
 
-    invocation_t invoke(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
+    std::optional<machine_t> configure(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
     {
         decoder dec { code };
         // JAM (9.4)
@@ -1739,21 +1744,21 @@ namespace turbo::jam::machine {
         const auto w_bytes = dec.next_bytes(w_sz);
 
         if (const auto c_sz = dec.uint_fixed<size_t>(4); c_sz != dec.size()) [[unlikely]]
-            return { 0, machine::exit_panic_t {} };
-        const auto prg = machine::program_t::from_bytes(dec);
+            return {};
+        auto prg = program_t::from_bytes(dec.next_bytes(dec.size()));
 
         // JAM (A.40)
         const auto total_sz = 5 * config_prod::pvm_init_zone_size
             + config_prod::pvm_z_size(o_sz) + config_prod::pvm_z_size(w_sz + z_sz * config_prod::pvm_init_zone_size)
             + config_prod::pvm_z_size(s_sz) + config_prod::pvm_input_size;
         if (total_sz > 1ULL << 32U) [[unlikely]]
-            return { 0, machine::exit_panic_t {} };
+            return {};
 
-        machine::state_t state {
+        state_t state {
             .pc = pc,
             .gas = numeric_cast<machine::gas_remaining_t>(gas_init),
         };
-        machine::pages_t page_map {};
+        pages_t page_map {};
 
         // JAM (A.41)
         struct area_def_t {
@@ -1773,13 +1778,13 @@ namespace turbo::jam::machine {
             // arguments
             { (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size, a_bytes.size(), false, a_bytes },
         }) {
-            page_map.emplace_back(machine::page_t {
+            page_map.emplace_back(page_t {
                 .address=numeric_cast<uint32_t>(def.address),
                 .length=numeric_cast<uint32_t>(config_prod::pvm_p_size(def.size)),
                 .is_writable=def.is_writable
             });
             if (def.data) {
-                state.memory.emplace_back(machine::memory_chunk_t {
+                state.memory.emplace_back(memory_chunk_t {
                     .address=numeric_cast<uint32_t>(def.address),
                     .contents=*def.data
                 });
@@ -1792,20 +1797,8 @@ namespace turbo::jam::machine {
         state.regs[7] = (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
         state.regs[8] = a_bytes.size();
 
-        machine::machine_t m { prg, state, page_map };
-
-        const auto exit = m.run();
-        const auto gas_used = gas_init - numeric_cast<gas_t>(std::max(machine::gas_remaining_t { 0 },  m.gas()));
-
-        if (std::holds_alternative<machine::exit_out_of_gas_t>(exit)) [[unlikely]]
-            return { gas_used, machine::exit_out_of_gas_t {} };
-        if (std::holds_alternative<machine::exit_halt_t>(exit)) [[unlikely]] {
-            auto data = m.mem(m.regs().at(7), m.regs().at(8));
-            if (data)
-                return { gas_used, std::move(*data) };
-            return { gas_used, uint8_vector {} };
-        }
-
-        return { gas_used, machine::exit_panic_t {}};
+        std::optional<machine_t> m {};
+        m.emplace(std::move(prg), state, page_map);
+        return m;
     }
 }

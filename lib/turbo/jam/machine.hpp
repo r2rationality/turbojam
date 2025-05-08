@@ -81,11 +81,11 @@ namespace turbo::jam::machine {
         }
     };
 
-    struct bit_buffer_t: buffer {
-        using base_type = buffer;
+    struct bit_vector_t: uint8_vector {
+        using base_type = uint8_vector;
 
-        bit_buffer_t(const buffer bytes, const size_t num_bits):
-            buffer { bytes },
+        bit_vector_t(const buffer bytes, const size_t num_bits):
+            uint8_vector { bytes },
             _bit_size { num_bits }
         {
         }
@@ -169,11 +169,12 @@ namespace turbo::jam::machine {
         using offset_list = std::vector<uint32_t>;
 
         offset_list jump_table;
-        buffer code;
-        bit_buffer_t bitmasks;
+        uint8_vector code;
+        bit_vector_t bitmasks;
 
-        static program_t from_bytes(decoder &dec)
+        static program_t from_bytes(const buffer bytes)
         {
+            decoder dec { bytes };
             const auto jt_sz = dec.uint_varlen();
             const auto jt_offset_sz = dec.uint_fixed<uint8_t>(1);
             const auto code_sz = dec.uint_varlen();
@@ -183,19 +184,19 @@ namespace turbo::jam::machine {
                 jt.emplace_back(dec.uint_fixed<uint32_t>(jt_offset_sz));
             }
             const auto code = dec.next_bytes(code_sz);
-            const bit_buffer_t bitmasks { dec.next_bytes((code_sz + 7) / 8), code_sz };
+            const auto bitmasks = dec.next_bytes((code_sz + 7) / 8);
             if (!dec.empty()) [[unlikely]]
                 throw error("failed to decode all bytes of the program blob");
             return {
                 std::move(jt),
                 code,
-                bitmasks
+                { bitmasks, code_sz }
             };
         }
     };
 
     struct machine_t {
-        machine_t(const program_t &program, const state_t &init, const pages_t &page_map);
+        machine_t(program_t &&program, const state_t &init, const pages_t &page_map);
         ~machine_t();
         result_t run();
         [[nodiscard]] const registers_t &regs() const;
@@ -210,9 +211,15 @@ namespace turbo::jam::machine {
         impl *_impl_ptr();
     };
 
-    using invocation_result_base_t = std::variant<uint8_vector, machine::exit_panic_t, machine::exit_out_of_gas_t>;
+    using invocation_result_base_t = std::variant<uint8_vector, exit_panic_t, exit_out_of_gas_t>;
     struct invocation_result_t: invocation_result_base_t {
         using base_type = invocation_result_base_t;
+        using base_type::base_type;
+    };
+
+    using host_call_res_base_t = std::variant<std::monostate, exit_panic_t, exit_out_of_gas_t, exit_halt_t, exit_page_fault_t>;
+    struct host_call_res_t: host_call_res_base_t {
+        using base_type = host_call_res_base_t;
         using base_type::base_type;
     };
 
@@ -221,5 +228,52 @@ namespace turbo::jam::machine {
         invocation_result_base_t result;
     };
 
-    extern invocation_t invoke(buffer code, uint32_t pc, gas_t gas, buffer args);
+    extern std::optional<machine_t> configure(buffer blob, uint32_t pc, gas_t gas, buffer args);
+
+    template<typename X>
+    invocation_t invoke(const buffer blob, const uint32_t pc, const gas_t gas, const buffer args,
+        const std::function<host_call_res_t(register_val_t, machine_t &, X &)> &host_fn, X &host_st)
+    {
+        auto m = configure(blob, pc, gas, args);
+        if (!m)
+            return { 0, exit_panic_t {} };
+        const auto halt_status = [&] {
+            auto data = m->mem(m->regs().at(7), m->regs().at(8));
+            return data ? std::move(*data) : uint8_vector {};
+        };
+        const auto gas_begin = m->gas();
+        std::variant<std::monostate, invocation_result_base_t> status {};
+        try {
+            while (std::holds_alternative<std::monostate>(status)) {
+                const auto m_res = m->run();
+                std::visit([&](const auto &rv) {
+                    using T = std::decay_t<decltype(rv)>;
+                    if constexpr (std::is_same_v<T, exit_host_call_t>) {
+                        const auto h_res = host_fn(rv.id, *m, host_st);
+                        std::visit([&](auto &&hv) {
+                            using HT = std::decay_t<decltype(hv)>;
+                            if constexpr (std::is_same_v<HT, std::monostate>) {
+                                // do nothing
+                            } else if constexpr (std::is_same_v<HT, exit_halt_t>) {
+                                status = halt_status();
+                            } else if constexpr (std::is_same_v<HT, exit_out_of_gas_t>) {
+                                status = std::move(hv);
+                            } else {
+                                status = exit_panic_t {};
+                            }
+                        }, std::move(h_res));
+                    } else if constexpr (std::is_same_v<T, exit_out_of_gas_t>) {
+                        status = exit_out_of_gas_t {};
+                    } else if constexpr (std::is_same_v<T, exit_halt_t>) {
+                        status = halt_status();
+                    } else {
+                        status = exit_panic_t {};
+                    }
+                }, m_res);
+            }
+        } catch (const std::exception &) {
+            status = exit_panic_t {};
+        }
+        return { gas_begin - m->gas(), std::get<invocation_result_base_t>(status) };
+    }
 }
