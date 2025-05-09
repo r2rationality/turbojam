@@ -229,6 +229,9 @@ namespace turbo::jam::machine {
         machine_t(program_t &&program, const state_t &init, const pages_t &page_map);
         ~machine_t();
         result_t run();
+        void consume_gas(gas_t gas);
+        void set_reg(size_t id, register_val_t val);
+        void skip_op();
         [[nodiscard]] const registers_t &regs() const;
         [[nodiscard]] uint32_t pc() const;
         [[nodiscard]] gas_remaining_t gas() const;
@@ -251,59 +254,34 @@ namespace turbo::jam::machine {
     struct host_call_res_t: host_call_res_base_t {
         using base_type = host_call_res_base_t;
         using base_type::base_type;
+
+        // an item does not exist
+        static constexpr register_val_t none = std::numeric_limits<register_val_t>::max();
+        // name unknown
+        static constexpr register_val_t what = std::numeric_limits<register_val_t>::max() - 1;
+        // memory not accessible
+        static constexpr register_val_t oob  = std::numeric_limits<register_val_t>::max() - 2;
+        // index unknown
+        static constexpr register_val_t who  = std::numeric_limits<register_val_t>::max() - 3;
+        // storage full
+        static constexpr register_val_t full = std::numeric_limits<register_val_t>::max() - 4;
+        // core index unknown
+        static constexpr register_val_t core = std::numeric_limits<register_val_t>::max() - 5;
+        // insufficient funds
+        static constexpr register_val_t cash = std::numeric_limits<register_val_t>::max() - 6;
+        // gas limit too low
+        static constexpr register_val_t low  = std::numeric_limits<register_val_t>::max() - 7;
+        // already solicited or cannot be forgotten
+        static constexpr register_val_t huh  = std::numeric_limits<register_val_t>::max() - 8;
+        static constexpr register_val_t ok   = 0;
     };
 
     struct invocation_t {
         gas_t gas_used {};
         invocation_result_base_t result;
     };
+    using host_call_func_t = std::function<host_call_res_t(register_val_t, machine_t &)>;
 
     extern std::optional<machine_t> configure(buffer blob, uint32_t pc, gas_t gas, buffer args);
-
-    template<typename X>
-    invocation_t invoke(const buffer blob, const uint32_t pc, const gas_t gas, const buffer args,
-        const std::function<host_call_res_t(register_val_t, machine_t &, X &)> &host_fn, X &host_st)
-    {
-        auto m = configure(blob, pc, gas, args);
-        if (!m)
-            return { 0, exit_panic_t {} };
-        const auto halt_status = [&] {
-            auto data = m->mem(m->regs().at(7), m->regs().at(8));
-            return data ? std::move(*data) : uint8_vector {};
-        };
-        const auto gas_begin = m->gas();
-        std::variant<std::monostate, invocation_result_base_t> status {};
-        try {
-            while (std::holds_alternative<std::monostate>(status)) {
-                const auto m_res = m->run();
-                std::visit([&](const auto &rv) {
-                    using T = std::decay_t<decltype(rv)>;
-                    if constexpr (std::is_same_v<T, exit_host_call_t>) {
-                        const auto h_res = host_fn(rv.id, *m, host_st);
-                        std::visit([&](auto &&hv) {
-                            using HT = std::decay_t<decltype(hv)>;
-                            if constexpr (std::is_same_v<HT, std::monostate>) {
-                                // do nothing
-                            } else if constexpr (std::is_same_v<HT, exit_halt_t>) {
-                                status = halt_status();
-                            } else if constexpr (std::is_same_v<HT, exit_out_of_gas_t>) {
-                                status = std::move(hv);
-                            } else {
-                                status = exit_panic_t {};
-                            }
-                        }, std::move(h_res));
-                    } else if constexpr (std::is_same_v<T, exit_out_of_gas_t>) {
-                        status = exit_out_of_gas_t {};
-                    } else if constexpr (std::is_same_v<T, exit_halt_t>) {
-                        status = halt_status();
-                    } else {
-                        status = exit_panic_t {};
-                    }
-                }, m_res);
-            }
-        } catch (const std::exception &) {
-            status = exit_panic_t {};
-        }
-        return { numeric_cast<gas_t>(gas_begin - m->gas()), std::get<invocation_result_base_t>(status) };
-    }
+    extern invocation_t invoke(buffer blob, uint32_t pc, gas_t gas, buffer args, const host_call_func_t &host_fn);
 }

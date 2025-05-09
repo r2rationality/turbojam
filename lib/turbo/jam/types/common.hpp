@@ -271,10 +271,11 @@ namespace turbo::jam {
     static_assert(sizeof(validator_data_t) == 336); // JAM paper (6.8)
 
     using service_id_t = uint32_t;
+    using balance_t = uint64_t;
 
     struct service_info_t {
         opaque_hash_t code_hash {};
-        uint64_t balance = 0;
+        balance_t balance = 0;
         // gas saved in the fixed format form
         gas_t::base_type min_item_gas = 0;
         gas_t::base_type min_memo_gas = 0;

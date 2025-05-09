@@ -20,17 +20,6 @@ namespace turbo::jam::machine {
 #   pragma GCC diagnostic pop
 #endif
 
-    /*static constexpr register_val_t host_res_none = std::numeric_limits<register_val_t>::max();
-    static constexpr register_val_t host_res_what = std::numeric_limits<register_val_t>::max() - 1;
-    static constexpr register_val_t host_res_oob = std::numeric_limits<register_val_t>::max() - 2;
-    static constexpr register_val_t host_res_who = std::numeric_limits<register_val_t>::max() - 3;
-    static constexpr register_val_t host_res_full = std::numeric_limits<register_val_t>::max() - 4;
-    static constexpr register_val_t host_res_core = std::numeric_limits<register_val_t>::max() - 5;
-    static constexpr register_val_t host_res_cash = std::numeric_limits<register_val_t>::max() - 6;
-    static constexpr register_val_t host_res_low = std::numeric_limits<register_val_t>::max() - 7;
-    static constexpr register_val_t host_res_huh = std::numeric_limits<register_val_t>::max() - 8;
-    static constexpr register_val_t host_res_ok = 0;*/
-
     struct machine_t::impl {
         explicit impl(program_t &&program, const state_t &init, const pages_t &page_map):
             _program { std::move(program) },
@@ -109,6 +98,26 @@ namespace turbo::jam::machine {
             } catch (...) {
                 return { exit_panic_t {} };
             }
+        }
+
+        void skip_op()
+        {
+            _pc += _skip_len(_pc, _program.bitmasks) + 1;
+        }
+
+        void consume_gas(const gas_t gas)
+        {
+            const auto gas_s = numeric_cast<gas_remaining_t>(gas);
+            if (gas_s > _gas) [[unlikely]]
+                throw exit_panic_t {};
+            _gas -= gas_s;
+        }
+
+        void set_reg(const size_t id, const register_val_t val)
+        {
+            if (id >= _regs.size()) [[unlikely]]
+                throw exit_panic_t {};
+            _regs[id] = val;
         }
 
         [[nodiscard]] gas_remaining_t gas() const
@@ -1719,6 +1728,21 @@ namespace turbo::jam::machine {
         return _impl_ptr()->run();
     }
 
+    void machine_t::consume_gas(const gas_t gas)
+    {
+        return _impl_ptr()->consume_gas(gas);
+    }
+
+    void machine_t::set_reg(const size_t id, const register_val_t val)
+    {
+        return _impl_ptr()->set_reg(id, val);
+    }
+
+    void machine_t::skip_op()
+    {
+        return _impl_ptr()->skip_op();
+    }
+
     gas_remaining_t machine_t::gas() const
     {
         return const_cast<machine_t *>(this)->_impl_ptr()->gas();
@@ -1816,5 +1840,50 @@ namespace turbo::jam::machine {
         std::optional<machine_t> m {};
         m.emplace(std::move(prg), state, page_map);
         return m;
+    }
+
+    invocation_t invoke(const buffer blob, const uint32_t pc, const gas_t gas, const buffer args, const host_call_func_t &host_fn)
+    {
+        auto m = configure(blob, pc, gas, args);
+        if (!m)
+            return { 0, exit_panic_t {} };
+        const auto halt_status = [&] {
+            auto data = m->mem(m->regs().at(7), m->regs().at(8));
+            return data ? std::move(*data) : uint8_vector {};
+        };
+        const auto gas_begin = m->gas();
+        std::variant<std::monostate, invocation_result_base_t> status {};
+        try {
+            while (std::holds_alternative<std::monostate>(status)) {
+                const auto m_res = m->run();
+                std::visit([&](const auto &rv) {
+                    using T = std::decay_t<decltype(rv)>;
+                    if constexpr (std::is_same_v<T, exit_host_call_t>) {
+                        const auto h_res = host_fn(rv.id, *m);
+                        std::visit([&](auto &&hv) {
+                            using HT = std::decay_t<decltype(hv)>;
+                            if constexpr (std::is_same_v<HT, std::monostate>) {
+                                m->skip_op();
+                            } else if constexpr (std::is_same_v<HT, exit_halt_t>) {
+                                status = halt_status();
+                            } else if constexpr (std::is_same_v<HT, exit_out_of_gas_t>) {
+                                status = std::move(hv);
+                            } else {
+                                status = exit_panic_t {};
+                            }
+                        }, std::move(h_res));
+                    } else if constexpr (std::is_same_v<T, exit_out_of_gas_t>) {
+                        status = exit_out_of_gas_t {};
+                    } else if constexpr (std::is_same_v<T, exit_halt_t>) {
+                        status = halt_status();
+                    } else {
+                        status = exit_panic_t {};
+                    }
+                }, m_res);
+            }
+        } catch (const std::exception &) {
+            status = exit_panic_t {};
+        }
+        return { numeric_cast<gas_t>(gas_begin - m->gas()), std::get<invocation_result_base_t>(status) };
     }
 }

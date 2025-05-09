@@ -7,6 +7,7 @@
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
 #include "types/errors.hpp"
+#include "accumulate.hpp"
 #include "machine.hpp"
 #include "merkle.hpp"
 #include "shuffle.hpp"
@@ -282,11 +283,6 @@ namespace turbo::jam {
         return static_cast<int>(r.context.prerequisites.empty()) & static_cast<int>(r.segment_root_lookup.empty());
     }
 
-    static machine::host_call_res_t accumulate_host_fn(const machine::register_val_t, machine::machine_t &, std::monostate &)
-    {
-        throw error("not implemented");
-    }
-
     template<typename CONSTANTS>
     accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports)
     {
@@ -339,6 +335,7 @@ namespace turbo::jam {
             }
         }
 
+
         for (const auto &[service_id, ops]: service_ops) {
             auto &service = delta.at(service_id);
             const auto &code = service.preimages.at(service.info.code_hash);
@@ -349,11 +346,51 @@ namespace turbo::jam {
             arg_enc.process(slot);
             arg_enc.process(service_id);
             arg_enc.process(ops);
-            std::monostate inv_st {};
-            const auto inv_res = machine::invoke<std::monostate>(
+
+            // JAM (B.9): bold psi_a
+            const auto inv_res = machine::invoke(
                 static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes(),
-                accumulate_host_fn,
-                inv_st
+                [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
+                    try {
+                        switch (id) {
+                            // gas
+                            case 0:
+                                m.consume_gas(10);
+                                m.set_reg(7, m.gas());
+                                return std::monostate {};
+                            // lookup
+                            case 1: return machine::exit_panic_t {};
+                            // read
+                            case 2: return machine::exit_panic_t {};
+                            // write
+                            case 3: {
+                                const auto k_o = m.regs()[7];
+                                const auto k_z = m.regs()[8];
+                                const auto v_o = m.regs()[9];
+                                const auto v_z = m.regs()[10];
+                                const auto key_data = m.mem(k_o, k_z);
+                                if (!key_data) [[unlikely]]
+                                    return machine::exit_panic_t {};
+                                encoder enc {};
+                                enc.uint_fixed(4, service_id);
+                                enc.bytes() << *key_data;
+                                const auto key = crypto::blake2b::digest(enc.bytes());
+                                return machine::exit_panic_t {};
+                            }
+                            // info
+                            case 4: return machine::exit_panic_t {};
+                            // fetch
+                            case 18:
+                                return machine::exit_panic_t {};
+                            default:
+                                m.consume_gas(10);
+                                m.set_reg(7, machine::host_call_res_t::what);
+                                return std::monostate {};
+                        }
+                    } catch (...) {
+                        return machine::exit_panic_t {};
+                    }
+                }
             );
         }
         tau = slot;
