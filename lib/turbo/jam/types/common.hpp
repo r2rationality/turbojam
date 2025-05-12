@@ -1383,7 +1383,7 @@ namespace turbo::jam {
     };
     using preimages_t = map_t<opaque_hash_t, byte_sequence_t, preimages_config_t>;
 
-    struct lookup_met_map_key_t {
+    struct lookup_meta_map_key_t {
         opaque_hash_t hash;
         uint32_t length;
 
@@ -1394,7 +1394,7 @@ namespace turbo::jam {
             archive.process("length", length);
         }
 
-        std::strong_ordering operator<=>(const lookup_met_map_key_t &o) const noexcept
+        std::strong_ordering operator<=>(const lookup_meta_map_key_t &o) const noexcept
         {
             const auto cmp = hash <=> o.hash;
             if (cmp != std::strong_ordering::equal)
@@ -1402,7 +1402,7 @@ namespace turbo::jam {
             return length <=> o.length;
         }
 
-        bool operator==(const lookup_met_map_key_t &o) const
+        bool operator==(const lookup_meta_map_key_t &o) const
         {
             return (*this <=> o) == std::strong_ordering::equal;
         }
@@ -1413,15 +1413,57 @@ namespace turbo::jam {
         std::string val_name = "value";
     };
     template<typename CONSTANTS>
-    using lookup_met_map_val_t = sequence_t<time_slot_t<CONSTANTS>, 0, 3>;
+    using lookup_meta_map_val_t = sequence_t<time_slot_t<CONSTANTS>, 0, 3>;
     template<typename CONSTANTS>
-    using lookup_metas_t = map_t<lookup_met_map_key_t, lookup_met_map_val_t<CONSTANTS>, lookup_metas_config_t>;
+    using lookup_metas_t = map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CONSTANTS>, lookup_metas_config_t>;
 
     template<typename CONSTANTS>
     struct account_t {
         preimages_t preimages {};
         lookup_metas_t<CONSTANTS> lookup_metas {};
         service_info_t info {};
+
+        void insert(const time_slot_t<CONSTANTS> &slot, const opaque_hash_t &key_hash, const uint32_t key_len, const buffer data)
+        {
+            const auto [p_it, p_created] = preimages.try_emplace(key_hash, data);
+            if (!p_created) {
+                info.bytes -= p_it->second.size();
+                p_it->second = data;
+            } else {
+                ++info.items;
+            }
+            info.bytes += data.size();
+            const auto [l_it, l_created] = lookup_metas.try_emplace(lookup_meta_map_key_t { key_hash, key_len },
+                lookup_meta_map_val_t<CONSTANTS> { slot });
+            if (!l_created) {
+
+            }
+        }
+
+        void erase(const time_slot_t<CONSTANTS> &slot, const opaque_hash_t &key_hash, const uint32_t key_len)
+        {
+            const auto p_it = preimages.find(key_hash);
+            if (p_it != preimages.end()) {
+                preimages.erase(key_hash);
+                info.bytes -= p_it->second.size();
+                --info.items;
+            }
+            const auto l_it = lookup_metas.find(lookup_meta_map_key_t { key_hash, key_len });
+            switch (const auto sz = l_it->second.size(); sz) {
+                case 1:
+                    l_it->second.emplace_back(slot);
+                    break;
+                case 3:
+                    l_it->second = lookup_meta_map_val_t<CONSTANTS> { l_it->second[2], slot };
+                    break;
+                // cannot delete already unavailable data
+                [[unlikely]] case 0:
+                [[unlikely]] case 2:
+                    throw error("lookup metadata not available");
+                [[unlikely]] default:
+                    throw error(fmt::format("unsupported lookup metadata size: {}", sz));
+            }
+        }
 
         void serialize(auto &archive)
         {

@@ -3,6 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <iostream>
 #include <ark-vrf-cpp.hpp>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
@@ -351,42 +352,64 @@ namespace turbo::jam {
             const auto inv_res = machine::invoke(
                 static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes(),
                 [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                    try {
+                    std::cout << fmt::format("host call service_id: {} id: {}\n", service_id, id);
+                    try
+                    {
                         switch (id) {
                             // gas
-                            case 0:
-                                m.consume_gas(10);
-                                m.set_reg(7, m.gas());
-                                return std::monostate {};
-                            // lookup
-                            case 1: return machine::exit_panic_t {};
-                            // read
-                            case 2: return machine::exit_panic_t {};
-                            // write
-                            case 3: {
+                        case 0:
+                            m.consume_gas(10);
+                            m.set_reg(7, m.gas());
+                            return std::monostate {};
+                        // lookup
+                        case 1: return machine::exit_panic_t {};
+                        // read
+                        case 2: return machine::exit_panic_t {};
+                        // write
+                        case 3: {
+                            if (service.info.min_memo_gas <= service.info.balance) {
                                 const auto k_o = m.regs()[7];
                                 const auto k_z = m.regs()[8];
-                                const auto v_o = m.regs()[9];
-                                const auto v_z = m.regs()[10];
                                 const auto key_data = m.mem(k_o, k_z);
                                 if (!key_data) [[unlikely]]
                                     return machine::exit_panic_t {};
                                 encoder enc {};
                                 enc.uint_fixed(4, service_id);
                                 enc.bytes() << *key_data;
-                                const auto key = crypto::blake2b::digest(enc.bytes());
-                                return machine::exit_panic_t {};
+                                opaque_hash_t key_hash;
+                                crypto::blake2b::digest(key_hash, enc.bytes());
+                                std::cout << fmt::format("write key: {} size: {} hash: {}\n", key_data, key_data->size(),  key_hash);
+                                const auto v_o = m.regs()[9];
+                                const auto v_z = m.regs()[10];
+                                if (v_z == 0) {
+                                    service.erase(slot, key_hash, k_z);
+                                    m.set_reg(7, machine::host_call_res_t::none);
+                                } else {
+                                    const auto val_data = m.mem(v_o, v_z);
+                                    if (!val_data) [[unlikely]]
+                                        return machine::exit_panic_t {};
+                                    std::cout << fmt::format("write data: {} size: {}\n", val_data, val_data->size());
+                                    service.insert(slot, key_hash, k_z, *val_data);
+                                    m.set_reg(7, v_z);
+                                }
+                                service.info.balance -= service.info.min_memo_gas;
+                            } else {
+                                m.set_reg(7, machine::host_call_res_t::full);
                             }
-                            // info
-                            case 4: return machine::exit_panic_t {};
-                            // fetch
-                            case 18:
-                                return machine::exit_panic_t {};
-                            default:
-                                m.consume_gas(10);
-                                m.set_reg(7, machine::host_call_res_t::what);
-                                return std::monostate {};
+                            return std::monostate {};
                         }
+                        // info
+                        case 4: return machine::exit_panic_t {};
+                        // fetch
+                        case 18:
+                            return machine::exit_panic_t {};
+                        default:
+                            m.consume_gas(10);
+                            m.set_reg(7, machine::host_call_res_t::what);
+                            return std::monostate {};
+                        }
+                    } catch (machine::exit_out_of_gas_t &ex) {
+                        return ex;
                     } catch (...) {
                         return machine::exit_panic_t {};
                     }
