@@ -378,7 +378,7 @@ namespace turbo::jam {
             const auto inv_res = machine::invoke(
                 static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes(),
                 [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                    std::cout << fmt::format("host call service_id: {} id: {}\n", service_id, id);
+                    std::cout << fmt::format("host call service_id: {} id: {}\n", service_id, id) << std::flush;
                     try
                     {
                         switch (id) {
@@ -404,7 +404,7 @@ namespace turbo::jam {
                                 enc.bytes() << *key_data;
                                 opaque_hash_t key_hash;
                                 crypto::blake2b::digest(key_hash, enc.bytes());
-                                std::cout << fmt::format("write key: {} size: {} hash: {}\n", key_data, key_data->size(),  key_hash);
+                                std::cout << fmt::format("write key: {} size: {} hash: {}\n", key_data, key_data->size(),  key_hash) << std::flush;
                                 const auto v_o = m.regs()[9];
                                 const auto v_z = m.regs()[10];
                                 if (v_z == 0) {
@@ -414,7 +414,7 @@ namespace turbo::jam {
                                     const auto val_data = m.mem(v_o, v_z);
                                     if (!val_data) [[unlikely]]
                                         return machine::exit_panic_t {};
-                                    std::cout << fmt::format("write data: {} size: {}\n", val_data, val_data->size());
+                                    std::cout << fmt::format("write data: {} size: {}\n", val_data, val_data->size()) << std::flush;
                                     service.insert(slot, key_hash, k_z, *val_data);
                                     m.set_reg(7, v_z);
                                 }

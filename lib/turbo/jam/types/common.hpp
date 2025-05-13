@@ -1501,9 +1501,6 @@ namespace turbo::jam {
     struct accounts_t: map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t> {
         using base_type = map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t>;
         using base_type::base_type;
-
-        // JAM (4.18)
-        accounts_t apply(const time_slot_t<CONSTANTS> &, const preimages_extrinsic_t &) const;
     };
 
     template<typename CONSTANTS>
