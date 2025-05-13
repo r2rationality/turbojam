@@ -81,7 +81,6 @@ namespace turbo::jam::machine {
                     const auto len = _skip_len(_pc, _program.bitmasks);
                     const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
                     const auto &op = _opcode_info(opcode);
-                    std::cout << fmt::format("{}\n", op.name);
                     const auto res = (this->*op.exec)(data);
                     _pc = res.new_pc.value_or(_pc + len + 1);
                     _gas -= res.gas_used;
@@ -630,7 +629,7 @@ namespace turbo::jam::machine {
                 case 8: res = buffer { page_it->second.data.get() + page_off, sz }.to<uint64_t>(); break;
                 [[unlikely]] default: throw exit_panic_t {};
             }
-            std::cout << fmt::format("load {:08X}:{}: {:X}\n", addr, sz, res);
+            //std::cout << fmt::format("load {:08X}:{}: {:X}\n", addr, sz, res);
             return res;
         }
 
@@ -653,7 +652,7 @@ namespace turbo::jam::machine {
             const auto [page_off, page_it] = _addr_check(addr, sizeof(val));
             if (!page_it->second.is_writable) [[unlikely]]
                 throw exit_page_fault_t { addr };
-            std::cout << fmt::format("store {:08X}:{}: {:X}\n", addr, sizeof(val), val);
+            //std::cout << fmt::format("store {:08X}:{}: {:X}\n", addr, sizeof(val), val);
             *reinterpret_cast<T*>(page_it->second.data.get() + page_off) = val;
         }
 

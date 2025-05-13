@@ -55,7 +55,7 @@ namespace {
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            static_assert(std::variant_size_v<err_any_t> > 0);
+            static_assert(std::variant_size_v<err_code_base_t> > 0);
             static codec::variant_names_t<base_type> names {
                 "already_judged"sv,
                 "bad_vote_split"sv,

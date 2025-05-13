@@ -31,34 +31,53 @@ namespace {
         preimages_extrinsic_t preimages;
         time_slot_t<CONSTANTS> slot;
 
-        static input_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(preimages)>(),
-                dec.decode<decltype(slot)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("preimages"sv, preimages);
+            archive.process("slot"sv, slot);
+        }
+
+        bool operator==(const input_t &o) const
+        {
+            if (preimages != o.preimages)
+                return false;
+            if (slot != o.slot)
+                return false;
+            return true;
         }
     };
 
     struct ok_t {
+        void serialize(auto &)
+        {
+            // do nothing
+        }
+
         bool operator==(const ok_t &) const
         {
             return true;
         }
     };
 
-    struct err_code_t: err_any_t {
-        using base_type = err_any_t;
+    using err_code_base_t = std::variant<
+        err_preimage_unneeded_t,
+        err_preimages_not_sorted_or_unique_t
+    >;
+
+    struct err_code_t: err_group_t<err_code_t, err_code_base_t> {
+        using base_type = err_group_t;
         using base_type::base_type;
 
-        static err_code_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            const auto typ = dec.decode<uint8_t>();
-            switch (typ) {
-                case 0: return { err_preimage_unneeded_t {} };
-                case 1: return { err_preimages_not_sorted_or_unique_t {} };
-                [[unlikely]] default: throw error(fmt::format("unsupported err_code_t type: {}", typ));
-            }
+            using namespace std::string_view_literals;
+            static_assert(std::variant_size_v<err_code_base_t> > 0);
+            static codec::variant_names_t<err_code_base_t> names {
+                "preimage_unneeded"sv,
+                "preimages_not_sorted_unique"sv
+            };
+            archive.template process_variant<err_code_base_t>(*this, names);
         }
     };
 
@@ -66,71 +85,95 @@ namespace {
         using base_type = std::variant<ok_t, err_code_t>;
         using base_type::base_type;
 
-        static output_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            const auto typ = dec.decode<uint8_t>();
-            switch (typ) {
-                case 0: return { ok_t {} };
-                case 1: return { err_code_t::from_bytes(dec) };
-                [[unlikely]] default: throw error(fmt::format("unsupported output_t type: {}", typ));
-            }
+            using namespace std::string_view_literals;
+            static_assert(std::variant_size_v<base_type> > 0);
+            static codec::variant_names_t<base_type> names {
+                "ok"sv,
+                "err"sv
+            };
+            archive.template process_variant<base_type>(*this, names);
         }
     };
 
     template<typename CONSTANTS>
     struct test_case_t {
-        input_t<CONSTANTS> input;
-        state_t<CONSTANTS> pre_state;
-        output_t output;
-        state_t<CONSTANTS> post_state;
+        input_t<CONSTANTS> in;
+        state_t<CONSTANTS> pre;
+        output_t out;
+        state_t<CONSTANTS> post;
 
-        static void serialize_state(auto &archive, const std::string_view, state_t<CONSTANTS> &st)
+        static void serialize_state(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
         {
             using namespace std::string_view_literals;
+            archive.push(name);
             tmp_accounts_t<CONSTANTS> taccs;
             archive.process("accounts"sv, taccs);
             for (auto &&[id, tacc]: taccs) {
                 st.delta.try_emplace(std::move(id), account_t<CONSTANTS> { .preimages=std::move(tacc.preimages), .lookup_metas=std::move(tacc.lookup_metas) });
             }
+            archive.process("statistics"sv, st.pi.services);
+            archive.pop();
         }
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("input"sv, input);
-            serialize_state(archive, "pre_state"sv, pre_state);
-            archive.process("output"sv, output);
-            serialize_state(archive, "post_state"sv, post_state);
+            archive.process("input"sv, in);
+            serialize_state(archive, "pre_state"sv, pre);
+            archive.process("output"sv, out);
+            serialize_state(archive, "post_state"sv, post);
+        }
+
+        bool operator==(const test_case_t &o) const
+        {
+            if (in != o.in)
+                return false;
+            if (pre != o.pre)
+                return false;
+            if (out != o.out)
+                return false;
+            if (post != o.post)
+                return false;
+            return true;
         }
     };
 
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = jam::load_obj<test_case_t<CFG>>(path);
-        auto new_st = tc.pre_state;
+        const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
+        {
+            const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
+            expect(tc == j_tc) << "json test case does not match the binary one" << path;
+        }
         std::optional<output_t> out {};
-        err_any_t::catch_into(
+        auto res_st = tc.pre;
+        err_code_t::catch_into(
             [&] {
-                new_st.delta = tc.pre_state.delta.apply(tc.input.slot, tc.input.preimages);
+                auto tmp_st = tc.pre;
+                tmp_st.provide_preimages(tc.in.slot, tc.in.preimages);
                 out.emplace(ok_t {});
+                res_st = std::move(tmp_st);
             },
-            [&](err_any_t err) {
-                std::visit([&](auto &&e) {
-                    out.emplace(std::move(e));
-                }, std::move(err));
+            [&](err_code_t err) {
+                out.emplace(std::move(err));
             }
         );
-        expect(fatal(out.has_value())) << path;
-        expect(out == tc.output) << path;
-        expect(new_st == tc.post_state) << path;
+        if (out.has_value()) {
+            expect(out == tc.out) << path;
+            expect(res_st == tc.post) << path;
+        } else {
+            expect(false) << path;
+        }
     }
 }
 
 suite turbo_jam_preimages_suite = [] {
     "turbo::jam::preimages"_test = [] {
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/preimages/data"), ".bin")) {
-            test_file<config_tiny>(path);
+            test_file<config_tiny>(path.substr(0, path.size() - 4));
         }
     };
 };

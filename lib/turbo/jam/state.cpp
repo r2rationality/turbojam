@@ -145,6 +145,32 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
+    void state_t<CONSTANTS>::provide_preimages(const time_slot_t<CONSTANTS> &slot, const preimages_extrinsic_t &preimages)
+    {
+        const preimage_t *prev = nullptr;
+        for (const auto &p: preimages) {
+            if (prev && *prev >= p) [[unlikely]]
+                throw err_preimages_not_sorted_or_unique_t {};
+            prev = &p;
+            auto &service = delta.at(p.requester);
+            lookup_meta_map_key_t key;
+            static_assert(sizeof(key.hash) == sizeof(crypto::blake2b::hash_t));
+            key.length = numeric_cast<decltype(lookup_meta_map_key_t::length)>(p.blob.size());
+            crypto::blake2b::digest(*reinterpret_cast<crypto::blake2b::hash_t *>(&key.hash), p.blob);
+            const auto meta_it = service.lookup_metas.find(key);
+            if (meta_it == service.lookup_metas.end()) [[unlikely]]
+                throw err_preimage_unneeded_t {};
+            const auto [it, created] = service.preimages.try_emplace(key.hash, p.blob);
+            if (!created) [[unlikely]]
+                throw err_preimage_unneeded_t {};
+            meta_it->second.emplace_back(slot);
+            auto &service_stats = pi.services[p.requester];
+            ++service_stats.provided_count;
+            service_stats.provided_size += p.blob.size();
+        }
+    }
+
+    template<typename CONSTANTS>
     safrole_output_data_t<CONSTANTS> state_t<CONSTANTS>::update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic)
     {
         if (slot <= tau) [[unlikely]]
@@ -396,6 +422,7 @@ namespace turbo::jam {
                             } else {
                                 m.set_reg(7, machine::host_call_res_t::full);
                             }
+                            m.consume_gas(10);
                             return std::monostate {};
                         }
                         // info

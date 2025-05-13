@@ -173,6 +173,8 @@ namespace turbo::jam {
 
         // Methods internally used by the apply and in unit tests
         // Todo: make them protected and the respective unit test class friends
+
+        void provide_preimages(const time_slot_t<CONSTANTS> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.5)
         void update_time(const time_slot_t<CONSTANTS> &slot);
         // JAM (4.7)

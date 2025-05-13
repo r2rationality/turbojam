@@ -383,6 +383,37 @@ namespace turbo::jam {
             }
         }
     };
+
+    template<typename BASE_T, typename BASE_V>
+    struct err_group_t: BASE_V {
+        using base_type = BASE_V;
+        using base_type::base_type;
+
+        static void catch_into(const std::function<void()> &action, const std::function<void(BASE_T)> &on_error)
+        {
+            if constexpr (std::variant_size_v<BASE_V> > 0) {
+                catch_into_impl<std::variant_size_v<BASE_V> - 1>(action, on_error);
+            }
+        }
+    private:
+        template<size_t I>
+        static void catch_into_impl(const std::function<void()> &action, const std::function<void(BASE_T)> &on_error)
+        {
+            if constexpr (I == 0) {
+                try {
+                    action();
+                } catch (std::variant_alternative_t<I, BASE_V> &err) {
+                    on_error(std::move(err));
+                }
+            } else {
+                try {
+                    catch_into_impl<I - 1>(action, on_error);
+                } catch (std::variant_alternative_t<I, BASE_V> &err) {
+                    on_error(std::move(err));
+                }
+            }
+        }
+    };
 }
 
 namespace std {
