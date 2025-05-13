@@ -80,12 +80,11 @@ namespace turbo::jam {
         optional_t<epoch_mark_t<CONSTANTS>> epoch_mark;
         optional_t<tickets_mark_t<CONSTANTS>> tickets_mark;
 
-        static safrole_output_data_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(epoch_mark)>(),
-                dec.decode<decltype(tickets_mark)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("epoch_mark"sv, epoch_mark);
+            archive.process("tickets_mark"sv, tickets_mark);
         }
 
         bool operator==(const safrole_output_data_t &o) const

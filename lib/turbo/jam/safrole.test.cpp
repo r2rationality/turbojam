@@ -17,32 +17,43 @@ namespace {
         entropy_t entropy;
         tickets_extrinsic_t<CONSTANTS> extrinsic;
 
-        static input_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(slot)>(),
-                dec.decode<decltype(entropy)>(),
-                dec.decode<decltype(extrinsic)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("slot"sv, slot);
+            archive.process("entropy"sv, entropy);
+            archive.process("extrinsic"sv, extrinsic);
         }
     };
 
-    struct err_code_t: err_any_t {
-        using base_type = err_any_t;
+    using err_code_base_t = std::variant<
+        err_bad_slot_t,
+        err_unexpected_ticket_t,
+        err_bad_ticket_order_t,
+        err_bad_ticket_proof_t,
+        err_bad_ticket_attempt_t,
+        err_reserved_t,
+        err_duplicate_ticket_t
+    >;
+
+    struct err_code_t: err_group_t<err_code_t, err_code_base_t> {
+        using base_type = err_group_t<err_code_t, err_code_base_t>;
         using base_type::base_type;
 
-        static err_code_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            switch (const auto typ = dec.decode<uint8_t>(); typ) {
-                case 0: return { err_bad_slot_t {} };
-                case 1: return { err_unexpected_ticket_t {} };
-                case 2: return { err_bad_ticket_order_t {} };
-                case 3: return { err_bad_ticket_proof_t {} };
-                case 4: return { err_bad_ticket_attempt_t {} };
-                case 5: return { err_reserved_t {} };
-                case 6: return { err_duplicate_ticket_t {} };
-                [[unlikely]] default: throw error(fmt::format("unsupported err_code_t type: {}", typ));
-            }
+            using namespace std::string_view_literals;
+            static_assert(std::variant_size_v<err_code_base_t> > 0);
+            static codec::variant_names_t<err_code_base_t> names {
+                "bad_slot"sv,
+                "unexpected_ticket"sv,
+                "bad_ticket_order"sv,
+                "bad_ticket_proof"sv,
+                "bad_ticket_attempt"sv,
+                "reserved"sv,
+                "duplicate_ticket"sv
+            };
+            archive.template process_variant<err_code_base_t>(*this, names);
         }
     };
 
@@ -50,14 +61,15 @@ namespace {
     struct output_t: std::variant<safrole_output_data_t<CONSTANTS>, err_code_t> {
         using base_type = std::variant<safrole_output_data_t<CONSTANTS>, err_code_t>;
 
-        static output_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            const auto typ = dec.decode<uint8_t>();
-            switch (typ) {
-                case 0: return { safrole_output_data_t<CONSTANTS>::from_bytes(dec) };
-                case 1: return { err_code_t::from_bytes(dec) };
-                    [[unlikely]] default: throw error(fmt::format("unsupported output_t type: {}", typ));
-            }
+            using namespace std::string_view_literals;
+            static_assert(std::variant_size_v<base_type> > 0);
+            static codec::variant_names_t<base_type> names {
+                "ok"sv,
+                "err"sv
+            };
+            archive.template process_variant<base_type>(*this, names);
         }
     };
 
@@ -115,18 +127,22 @@ namespace {
         const auto tc = jam::load_obj<test_case_t<CFG>>(path);
         std::optional<output_t<CFG>> out {};
         state_t<CFG> res_st = tc.pre;
-        err_any_t::catch_into(
+        err_code_t::catch_into(
             [&] {
                 auto tmp_st = tc.pre;
                 out.emplace(tmp_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic));
                 res_st = std::move(tmp_st);
             },
-            [&](err_any_t err) {
-                std::visit([&](auto &&e) {
-                    out.emplace(std::move(e));
-                }, std::move(err));
+            [&](err_code_t err) {
+                out.emplace(std::move(err));
             }
         );
+        if (out.has_value()) {
+            expect(out == tc.out) << path;
+            expect(res_st == tc.post) << path;
+        } else {
+            expect(false) << path;
+        }
         expect(fatal(out.has_value())) << path;
         expect(out == tc.out) << path;
         expect(res_st == tc.post) << path;

@@ -48,15 +48,15 @@ namespace {
         err_bad_auditor_key_t
     >;
 
-    struct err_code_t final: err_code_base_t {
-        using base_type = err_code_base_t;
+    struct err_code_t: err_group_t<err_code_t, err_code_base_t> {
+        using base_type = err_group_t;
         using base_type::base_type;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             static_assert(std::variant_size_v<err_code_base_t> > 0);
-            static codec::variant_names_t<base_type> names {
+            static codec::variant_names_t<err_code_base_t> names {
                 "already_judged"sv,
                 "bad_vote_split"sv,
                 "verdicts_not_sorted_unique"sv,
@@ -74,32 +74,7 @@ namespace {
                 "bad_guarantor_key"sv,
                 "bad_auditor_key"sv
             };
-            archive.template process_variant<base_type>(*this, names);
-        }
-
-        static void catch_into(const std::function<void()> &action, const std::function<void(err_code_t)> &on_error)
-        {
-            if constexpr (std::variant_size_v<base_type> > 0) {
-                catch_into_impl<std::variant_size_v<base_type> - 1>(action, on_error);
-            }
-        }
-    private:
-        template<size_t I>
-        static void catch_into_impl(const std::function<void()> &action, const std::function<void(err_code_t)> &on_error)
-        {
-            if constexpr (I == 0) {
-                try {
-                    action();
-                } catch (std::variant_alternative_t<I, base_type> &err) {
-                    on_error(std::move(err));
-                }
-            } else {
-                try {
-                    catch_into_impl<I - 1>(action, on_error);
-                } catch (std::variant_alternative_t<I, base_type> &err) {
-                    on_error(std::move(err));
-                }
-            }
+            archive.template process_variant<err_code_base_t>(*this, names);
         }
     };
 
@@ -128,7 +103,7 @@ namespace {
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            static_assert(std::variant_size_v<err_any_t> > 0);
+            static_assert(std::variant_size_v<base_type> > 0);
             static codec::variant_names_t<base_type> names {
                 "ok"sv,
                 "err"sv
@@ -184,9 +159,11 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
         const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
-        expect(tc == j_tc) << "json test case does not match the binary one" << path;
+        {
+            const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
+            expect(tc == j_tc) << "json test case does not match the binary one" << path;
+        }
         std::optional<output_t> out {};
         state_t<CFG> res_st = tc.pre;
         err_code_t::catch_into(
@@ -210,7 +187,6 @@ namespace {
 
 suite turbo_jam_disputes_suite = [] {
     "turbo::jam::disputes"_test = [] {
-        test_file<config_tiny>(file::install_path("test/jam-test-vectors/disputes/tiny/progress_with_faults-7"));
         "tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/disputes/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
