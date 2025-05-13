@@ -226,6 +226,13 @@ namespace turbo::jam {
             return _val;
         }
 
+        template<typename T2>
+        varlen_uint_t &operator+=(const varlen_uint_t<T2> &o)
+        {
+            _val += numeric_cast<T>(static_cast<T2>(o));
+            return *this;
+        }
+
         varlen_uint_t &operator+=(const varlen_uint_t &o)
         {
             _val += o._val;

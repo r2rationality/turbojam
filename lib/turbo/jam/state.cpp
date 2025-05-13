@@ -590,6 +590,8 @@ namespace turbo::jam {
             pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
             size_t blobs_size = g.report.auth_output.size();
             gas_t total_accumulate_gas = 0;
+            auto &core_stats = pi.cores[g.report.core_index];
+
             for (const auto &r: g.report.results) {
                 if (std::holds_alternative<work_result_ok_t>(r.result)) {
                     blobs_size += std::get<work_result_ok_t>(r.result).data.size();
@@ -605,7 +607,19 @@ namespace turbo::jam {
                     throw err_service_item_gas_too_low_t {};
                 total_accumulate_gas += r.accumulate_gas;
 
-                ++pi.services[r.service_id].refinement_count;
+                core_stats.gas_used += r.refine_load.gas_used;
+                core_stats.imports += r.refine_load.imports;
+                core_stats.extrinsic_count += r.refine_load.extrinsic_count;
+                core_stats.extrinsic_size += r.refine_load.extrinsic_size;
+                core_stats.exports += r.refine_load.exports;
+
+                auto &service_stats = pi.services[r.service_id];
+                ++service_stats.refinement_count;
+                service_stats.refinement_gas_used += r.refine_load.gas_used;
+                service_stats.imports += r.refine_load.imports;
+                service_stats.exports += r.refine_load.exports;
+                service_stats.extrinsic_size += r.refine_load.extrinsic_size;
+                service_stats.extrinsic_count += r.refine_load.extrinsic_count;
             }
             // JAM (11.30) part 2
             if (total_accumulate_gas > CONSTANTS::max_accumulate_gas) [[unlikely]]

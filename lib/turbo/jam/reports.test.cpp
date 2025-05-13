@@ -77,15 +77,15 @@ namespace {
         err_work_report_too_big_t
     >;
 
-    struct err_code_t final: err_code_base_t {
-        using base_type = err_code_base_t;
+    struct err_code_t: err_group_t<err_code_t, err_code_base_t> {
+        using base_type = err_group_t;
         using base_type::base_type;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            static_assert(std::variant_size_v<err_any_t> > 0);
-            static codec::variant_names_t<base_type> names {
+            static_assert(std::variant_size_v<err_code_base_t> > 0);
+            static codec::variant_names_t<err_code_base_t> names {
                 "bad_core_index"sv,
                 "future_report_slot"sv,
                 "report_epoch_before_last"sv,
@@ -110,32 +110,7 @@ namespace {
                 "bad_signature"sv,
                 "work_report_too_big"sv
             };
-            archive.template process_variant<base_type>(*this, names);
-        }
-
-        static void catch_into(const std::function<void()> &action, const std::function<void(err_code_t)> &on_error)
-        {
-            if constexpr (std::variant_size_v<base_type> > 0) {
-                catch_into_impl<std::variant_size_v<base_type> - 1>(action, on_error);
-            }
-        }
-    private:
-        template<size_t I>
-        static void catch_into_impl(const std::function<void()> &action, const std::function<void(err_code_t)> &on_error)
-        {
-            if constexpr (I == 0) {
-                try {
-                    action();
-                } catch (std::variant_alternative_t<I, base_type> &err) {
-                    on_error(std::move(err));
-                }
-            } else {
-                try {
-                    catch_into_impl<I - 1>(action, on_error);
-                } catch (std::variant_alternative_t<I, base_type> &err) {
-                    on_error(std::move(err));
-                }
-            }
+            archive.template process_variant<err_code_base_t>(*this, names);
         }
     };
 
