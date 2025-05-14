@@ -386,7 +386,7 @@ namespace turbo::jam {
                         case 2: return machine::exit_panic_t {};
                         // write
                         case 3: {
-                            if (service.info.min_memo_gas <= service.info.balance) {
+                            if (service.info.balance >= service.balance_threshold()) {
                                 const auto k_o = m.regs()[7];
                                 const auto k_z = m.regs()[8];
                                 const auto key_data = m.mem(k_o, k_z);
@@ -805,13 +805,30 @@ namespace turbo::jam {
         };
         if (!beta.empty()) [[likely]]
             beta.back().state_root = sr;
-        if (beta.size() == beta.max_size) [[likely]] {
-            for (size_t i = 1; i < beta.size(); ++i) {
-                std::swap(beta[i - 1], beta[i]);
-            }
-            beta[beta.max_size - 1] = std::move(bi);
-        } else {
-            beta.emplace_back(std::move(bi));
+        if (beta.size() == beta.max_size) [[likely]]
+            beta.erase(beta.begin());
+        beta.emplace_back(std::move(bi));
+    }
+
+    template<typename CONSTANTS>
+    void state_t<CONSTANTS>::update_auth_pools(const time_slot_t<CONSTANTS> &slot, const core_authorizers_t &cas)
+    {
+        for (const auto &ca: cas) {
+            auto &pool = alpha.at(ca.core);
+            auto pool_it = std::find(pool.begin(), pool.end(), ca.auth_hash);
+            if (pool_it == pool.end()) [[unlikely]]
+                throw error(fmt::format("a work report for core {} mentions an unknown auth_hash: {}", ca.core, ca.auth_hash));
+            // remove the element and shift all elements after to make the final slot free
+            pool.erase(pool_it);
+        }
+
+        // JAM (8.2)
+        for (size_t core = 0; core < alpha.size(); ++core) {
+            auto &pool = alpha.at(core);
+            if (pool.size() == pool.max_size)
+                pool.erase(pool.begin());
+            const auto &queue = phi.at(core);
+            pool.emplace_back(queue.at(slot.slot() % queue.size()));
         }
     }
 

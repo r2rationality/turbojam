@@ -196,6 +196,8 @@ namespace turbo::jam {
         void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
         // JAM (4.16)
         accumulate_root_t accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports);
+        // JAM (4.19)
+        void update_auth_pools(const time_slot_t<CONSTANTS> &slot, const core_authorizers_t &cas);
         bool operator==(const state_t &o) const noexcept;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONSTANTS::validator_count>;

@@ -432,14 +432,7 @@ namespace turbo::jam {
     using core_authorizers_t = sequence_t<core_authorizer_t>;
 
     template<typename CONSTANTS=config_prod>
-    struct auth_pools_t: fixed_sequence_t<auth_pool_t<CONSTANTS>, CONSTANTS::core_count>
-    {
-        using base_type = fixed_sequence_t<auth_pool_t<CONSTANTS>, CONSTANTS::core_count>;
-        using base_type::base_type;
-
-        // JAM (4.19)
-        auth_pools_t apply(const time_slot_t<CONSTANTS> &slot, const core_authorizers_t &cas, const auth_queues_t<CONSTANTS> &phi) const;
-    };
+    using auth_pools_t = fixed_sequence_t<auth_pool_t<CONSTANTS>, CONSTANTS::core_count>;
 
     struct import_spec_t {
         opaque_hash_t tree_root;
@@ -1451,13 +1444,41 @@ namespace turbo::jam {
 
     template<typename CONSTANTS>
     struct account_t {
+        preimages_t storage {};
         preimages_t preimages {};
         lookup_metas_t<CONSTANTS> lookup_metas {};
         service_info_t info {};
 
+        // JAM (9.8) a_i
+        size_t num_items() const
+        {
+            return 2 * lookup_metas.size() + storage.size();
+        }
+
+        // JAM (9.8) a_o
+        size_t num_electives() const
+        {
+            // TODO:
+            size_t res = 0;
+            for (const auto &[lk, lv]: lookup_metas) {
+                res += 81 + lk.length;
+            }
+            for (const auto &[h, bytes]: storage) {
+                res += 32 + bytes.size();
+            }
+            return res;
+        }
+
+        balance_t balance_threshold() const
+        {
+            return config_base::min_balance_per_service
+                + config_base::min_balance_per_item * num_items()
+                + config_base::min_balance_per_elective * num_electives();
+        }
+
         void insert(const time_slot_t<CONSTANTS> &slot, const opaque_hash_t &key_hash, const uint32_t key_len, const buffer data)
         {
-            const auto [p_it, p_created] = preimages.try_emplace(key_hash, data);
+            const auto [p_it, p_created] = storage.try_emplace(key_hash, data);
             if (!p_created) {
                 info.bytes -= p_it->second.size();
                 p_it->second = data;
@@ -1465,35 +1486,15 @@ namespace turbo::jam {
                 ++info.items;
             }
             info.bytes += data.size();
-            const auto [l_it, l_created] = lookup_metas.try_emplace(lookup_meta_map_key_t { key_hash, key_len },
-                lookup_meta_map_val_t<CONSTANTS> { slot });
-            if (!l_created) {
-
-            }
         }
 
         void erase(const time_slot_t<CONSTANTS> &slot, const opaque_hash_t &key_hash, const uint32_t key_len)
         {
-            const auto p_it = preimages.find(key_hash);
-            if (p_it != preimages.end()) {
-                preimages.erase(key_hash);
+            const auto p_it = storage.find(key_hash);
+            if (p_it != storage.end()) {
+                storage.erase(key_hash);
                 info.bytes -= p_it->second.size();
                 --info.items;
-            }
-            const auto l_it = lookup_metas.find(lookup_meta_map_key_t { key_hash, key_len });
-            switch (const auto sz = l_it->second.size(); sz) {
-                case 1:
-                    l_it->second.emplace_back(slot);
-                    break;
-                case 3:
-                    l_it->second = lookup_meta_map_val_t<CONSTANTS> { l_it->second[2], slot };
-                    break;
-                // cannot delete already unavailable data
-                [[unlikely]] case 0:
-                [[unlikely]] case 2:
-                    throw error("lookup metadata not available");
-                [[unlikely]] default:
-                    throw error(fmt::format("unsupported lookup metadata size: {}", sz));
             }
         }
 
@@ -1523,10 +1524,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    struct accounts_t: map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t> {
-        using base_type = map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t>;
-        using base_type::base_type;
-    };
+    using accounts_t = map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t>;
 
     // JAM (5.1)
 
@@ -1722,8 +1720,8 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("current"sv, current);
-            archive.process("last"sv, last);
+            archive.process("vals_current"sv, current);
+            archive.process("vals_last"sv, last);
             archive.process("cores"sv, cores);
             archive.process("services"sv, services);
         }

@@ -9,7 +9,7 @@
 
 namespace turbo::jam {
     // Constants that are the same in all configurations
-    struct config {
+    struct config_base {
         // JAM I.4.4: Z_A
         static constexpr size_t pvm_address_alignment_factor = 2;
         // JAM I.4.4: Z_I
@@ -18,6 +18,13 @@ namespace turbo::jam {
         static constexpr size_t pvm_page_size = 1ULL << 12U;
         // JAM I.4.4: Z_Z
         static constexpr size_t pvm_init_zone_size = 1ULL << 16U;
+
+        // B_I
+        static constexpr size_t min_balance_per_item = 10;
+        // B_L
+        static constexpr size_t min_balance_per_elective = 1;
+        // B_S
+        static constexpr size_t min_balance_per_service = 100;
 
         static constexpr size_t pvm_p_size(const size_t x)
         {
@@ -31,7 +38,7 @@ namespace turbo::jam {
     };
 
     // JAM paper: I.4.4
-    struct config_prod: config {
+    struct config_prod: config_base {
         // JAM I.4.5 Signing Contexts
         static constexpr std::string_view jam_entropy { "jam_entropy" };
         static constexpr std::string_view jam_fallback_seal { "jam_fallback_seal" };
