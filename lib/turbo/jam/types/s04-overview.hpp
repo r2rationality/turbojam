@@ -65,6 +65,7 @@ namespace turbo::jam {
         }
     };
 
+    // JAM (6.3) - Changed: new order k, y_z, y_s, y_a but not reflected in the tests yet
     template<typename CONSTANTS=config_prod>
     struct safrole_state_t {
         tickets_accumulator_t<CONSTANTS> a {}; // prior sealing key ticket accumulator
@@ -154,10 +155,10 @@ namespace turbo::jam {
         blocks_history_t<CONSTANTS> beta {}; // most recent blocks
         safrole_state_t<CONSTANTS> gamma {};
         accounts_t<CONSTANTS> delta {}; // services
-        entropy_buffer_t eta {};
-        validators_data_t<CONSTANTS> iota {}; // next validators
-        validators_data_t<CONSTANTS> kappa {}; // active validators
-        validators_data_t<CONSTANTS> lambda {}; // prev validators
+        entropy_buffer_t eta {}; // JAM (6.21)
+        validators_data_t<CONSTANTS> iota {}; // next validators JAM (6.7)
+        validators_data_t<CONSTANTS> kappa {}; // active validators JAM (6.7)
+        validators_data_t<CONSTANTS> lambda {}; // prev validators JAM (6.7)
         availability_assignments_t<CONSTANTS> rho {}; // assigned work reports
         time_slot_t<CONSTANTS> tau {};
         auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
@@ -175,6 +176,8 @@ namespace turbo::jam {
 
         // JAM (4.5)
         void update_time(const time_slot_t<CONSTANTS> &slot);
+        // JAM (4.6)
+        void update_history(const header_hash_t &hh, const state_root_t &sr, const opaque_hash_t &ar, const reported_work_seq_t &wp);
         // JAM (4.7)
         // JAM (4.8)
         // JAM (4.9)

@@ -8,8 +8,30 @@
 #include <string_view>
 
 namespace turbo::jam {
+    // Constants that are the same in all configurations
+    struct config {
+        // JAM I.4.4: Z_A
+        static constexpr size_t pvm_address_alignment_factor = 2;
+        // JAM I.4.4: Z_I
+        static constexpr size_t pvm_input_size = 1ULL << 24U;
+        // JAM I.4.4: Z_P
+        static constexpr size_t pvm_page_size = 1ULL << 12U;
+        // JAM I.4.4: Z_Z
+        static constexpr size_t pvm_init_zone_size = 1ULL << 16U;
+
+        static constexpr size_t pvm_p_size(const size_t x)
+        {
+            return ((x + pvm_page_size - 1) / pvm_page_size) * pvm_page_size;
+        }
+
+        static constexpr size_t pvm_z_size(const size_t x)
+        {
+            return ((x + pvm_init_zone_size - 1) / pvm_init_zone_size) * pvm_init_zone_size;
+        }
+    };
+
     // JAM paper: I.4.4
-    struct config_prod {
+    struct config_prod: config {
         // JAM I.4.5 Signing Contexts
         static constexpr std::string_view jam_entropy { "jam_entropy" };
         static constexpr std::string_view jam_fallback_seal { "jam_fallback_seal" };
@@ -67,24 +89,6 @@ namespace turbo::jam {
         static constexpr size_t max_refine_gas = 5'000'000'000;
         // JAM I.4.4: G_T
         static constexpr size_t max_total_accumulation_gas = 3'500'000'000;
-        // JAM I.4.4: Z_A
-        static constexpr size_t pvm_address_alignment_factor = 2;
-        // JAM I.4.4: Z_I
-        static constexpr size_t pvm_input_size = 1ULL << 24U;
-        // JAM I.4.4: Z_P
-        static constexpr size_t pvm_page_size = 1ULL << 12U;
-        // JAM I.4.4: Z_Z
-        static constexpr size_t pvm_init_zone_size = 1ULL << 16U;
-
-        static constexpr size_t pvm_p_size(const size_t x)
-        {
-            return ((x + pvm_page_size - 1) / pvm_page_size) * pvm_page_size;
-        }
-
-        static constexpr size_t pvm_z_size(const size_t x)
-        {
-            return ((x + pvm_init_zone_size - 1) / pvm_init_zone_size) * pvm_init_zone_size;
-        }
     };
 
     struct config_tiny: config_prod {

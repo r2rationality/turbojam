@@ -152,6 +152,27 @@ namespace turbo::jam {
     // JAM (4.28)
     template<typename CONSTANTS>
     struct time_slot_t {
+        static std::chrono::sys_time<std::chrono::seconds> jam_era_start()
+        {
+            static const std::string iso_time { "2025-01-01T12:00:00Z" };
+            std::chrono::sys_time<std::chrono::seconds> tp {};
+            std::istringstream is { iso_time };
+            is >> std::chrono::parse("%FT%TZ", tp);
+            if (is.fail()) [[unlikely]]
+                throw error(fmt::format("failed to parse ISO time: {}", iso_time));
+            return tp;
+        }
+
+        static time_slot_t current()
+        {
+            static auto era_start = jam_era_start();
+            // JAM time does not account for leap seconds!
+            const auto diff = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now() - era_start).count();
+            if (diff < 0) [[unlikely]]
+                throw error("the current time is before the JAM start era!");
+            return { numeric_cast<uint32_t>(diff) };
+        }
+
         time_slot_t(const uint32_t slot):
             _val { slot }
         {
@@ -256,10 +277,14 @@ namespace turbo::jam {
     using validator_metadata_t = byte_array_t<128>;
 
     struct validator_data_t {
-        bandersnatch_public_t bandersnatch;
-        ed25519_public_t ed25519;
-        bls_public_t bls;
-        validator_metadata_t metadata;
+        bandersnatch_public_t bandersnatch; // JAM (6.9)
+        static_assert(sizeof(bandersnatch) == 32);
+        ed25519_public_t ed25519; // JAM (6.10)
+        static_assert(sizeof(ed25519) == 32);
+        bls_public_t bls; // JAM (6.11)
+        static_assert(sizeof(bls) == 144);
+        validator_metadata_t metadata; // JAM (6.12)
+        static_assert(sizeof(metadata) == 128);
 
         void serialize(auto &archive)
         {
@@ -893,9 +918,6 @@ namespace turbo::jam {
     {
         using base_type = sequence_t<block_info_t, 0, CONSTANTS::max_blocks_history>;
         using base_type::base_type;
-
-        // JAM (4.6)
-        blocks_history_t apply(const header_hash_t &, const state_root_t &, const opaque_hash_t &, const reported_work_seq_t &) const;
     };
 
     struct activity_record_t {
@@ -959,6 +981,7 @@ namespace turbo::jam {
         }
     };
 
+    // JAM (6.6)
     struct ticket_body_t {
         ticket_id_t id;
         ticket_attempt_t attempt;
@@ -983,6 +1006,7 @@ namespace turbo::jam {
         }
     };
 
+    // JAM (6.5)
     template<typename CONSTANTS=config_prod>
     using tickets_accumulator_t = sequence_t<ticket_body_t, 0, CONSTANTS::epoch_length>;
 
@@ -992,6 +1016,7 @@ namespace turbo::jam {
     template<typename CONSTANTS=config_prod>
     using keys_t = fixed_sequence_t<bandersnatch_public_t, CONSTANTS::epoch_length>;
 
+    // JAM (6.5)
     template<typename CONSTANTS>
     struct tickets_or_keys_t: std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>> {
         using base_type = std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>>;
@@ -1503,17 +1528,29 @@ namespace turbo::jam {
         using base_type::base_type;
     };
 
+    // JAM (5.1)
+
     template<typename CONSTANTS>
     struct header_t {
+        // H_p
         header_hash_t parent;
+        // H_r - ancestors need to be stored only for previous 24-hours of any block to be validated
         state_root_t parent_state_root;
+        // H_x - merkle commitment (H^#) to the block's external data
         opaque_hash_t extrinsic_hash;
+        // H_t
         time_slot_t<CONSTANTS> slot;
+        // H_e
         optional_t<epoch_mark_t<CONSTANTS>> epoch_mark;
+        // H_w
         optional_t<tickets_mark_t<CONSTANTS>> tickets_mark;
+        // H_o
         offenders_mark_t offenders_mark;
+        // H_i
         validator_index_t author_index;
+        // H_v
         bandersnatch_vrf_signature_t entropy_source;
+        // H_s
         bandersnatch_vrf_signature_t seal;
 
         void serialize(auto &archive)

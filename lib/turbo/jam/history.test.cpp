@@ -12,67 +12,85 @@ namespace {
 
     struct input_t {
         header_hash_t header_hash;
-        state_root_t state_root;
+        state_root_t parent_state_root;
         opaque_hash_t accumulate_root;
-        reported_work_seq_t reported_work;
+        reported_work_seq_t work_packages;
 
-        static input_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(header_hash)>(),
-                dec.decode<decltype(state_root)>(),
-                dec.decode<decltype(accumulate_root)>(),
-                dec.decode<decltype(reported_work)>()
-            };
+            using namespace std::string_view_literals;
+            archive.process("header_hash"sv, header_hash);
+            archive.process("parent_state_root"sv, parent_state_root);
+            archive.process("accumulate_root"sv, accumulate_root);
+            archive.process("work_packages"sv, work_packages);
+        }
+
+        bool operator==(const input_t &o) const
+        {
+            if (header_hash != o.header_hash)
+                return false;
+            if (parent_state_root != o.parent_state_root)
+                return false;
+            if (accumulate_root != o.accumulate_root)
+                return false;
+            if (work_packages != o.work_packages)
+                return false;
+            return true;
         }
     };
 
     template<typename CONSTANTS=config_prod>
     struct test_case_t {
-        input_t input;
-        state_t<CONSTANTS> pre_state;
-        state_t<CONSTANTS> post_state;
+        input_t in;
+        state_t<CONSTANTS> pre;
+        state_t<CONSTANTS> post;
 
-        static state_t<CONSTANTS> read_state(decoder &dec)
+        static void serialize_state(auto &archive, const std::string_view &name, state_t<CONSTANTS> &st)
         {
-            auto history = dec.decode<decltype(pre_state.beta)>();
-            return { .beta=std::move(history) };
+            using namespace std::string_view_literals;
+            archive.push(name);
+            archive.process("beta"sv, st.beta);
+            archive.pop();
         }
 
-        static test_case_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(input)>(),
-                read_state(dec),
-                read_state(dec)
-            };
+            using namespace std::string_view_literals;
+            archive.process("input"sv, in);
+            serialize_state(archive, "pre_state"sv, pre);
+            serialize_state(archive, "post_state"sv, post);
+        }
+
+        bool operator==(const test_case_t &o) const
+        {
+            if (in != o.in)
+                return false;
+            if (pre != o.pre)
+                return false;
+            if (post != o.post)
+                return false;
+            return true;
         }
     };
 
     template<typename CFG>
     void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
     {
-        const auto tc = jam::load_obj<test_case_t<CFG>>(path);
-        auto new_st = tc.pre_state;
-        new_st.beta = new_st.beta.apply(tc.input.header_hash, tc.input.state_root, tc.input.accumulate_root, tc.input.reported_work);
-        expect(fatal(new_st.beta.size() == tc.post_state.beta.size()));
-        for (size_t i = 0; i < tc.post_state.beta.size(); ++i) {
-            const auto &act_block = new_st.beta[i];
-            const auto &exp_block = tc.post_state.beta[i];
-            expect_equal(fmt::format("{}#{} header_hash", path, i), act_block.header_hash, exp_block.header_hash);
-            expect_equal(fmt::format("{}#{} state_root", path, i), act_block.state_root, exp_block.state_root);
-            expect(act_block.mmr == exp_block.mmr) << path << i;
-            expect(act_block.reported == exp_block.reported) << path << i;
-            expect(act_block == exp_block) << path << i;;
+        const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
+        {
+            const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
+            expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
-        expect(new_st == tc.post_state, loc) << path;
+        state_t<CFG> new_st = tc.pre;
+        new_st.update_history(tc.in.header_hash, tc.in.parent_state_root, tc.in.accumulate_root, tc.in.work_packages);
+        expect(new_st == tc.post) << path;
     }
 }
 
 suite turbo_jam_history_suite = [] {
     "turbo::jam::history"_test = [] {
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/history/data"), ".bin")) {
-            test_file<config_tiny>(path);
+            test_file<config_tiny>(path.substr(0, path.size() - 4));
         }
     };
 };

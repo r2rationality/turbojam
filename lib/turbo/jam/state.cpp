@@ -31,15 +31,6 @@ namespace turbo::jam {
     template struct safrole_state_t<config_prod>;
     template struct safrole_state_t<config_tiny>;
 
-    // JAM (4.1): Kapital upsilon
-    template<typename CONSTANTS>
-    void state_t<CONSTANTS>::apply(const block_t<CONSTANTS> &)
-    {
-        // for performance this function operates on the same set
-        // this means that extra care must be taken when handling errors
-        // to ensure that the state after a failed apply never changes
-    }
-
     template<typename CONSTANTS>
     bool state_t<CONSTANTS>::operator==(const state_t &o) const noexcept
     {
@@ -178,7 +169,9 @@ namespace turbo::jam {
         if (slot.epoch_slot() >= CONSTANTS::ticket_submission_end && !extrinsic.empty()) [[unlikely]]
             throw err_unexpected_ticket_t {};
         safrole_output_data_t<CONSTANTS> res {};
-        if (slot.epoch() > tau.epoch()) {
+
+        // Epoch transition
+        if (slot.epoch() > tau.epoch()) [[unlikely]] {
             // JAM Paper (6.13)
             lambda = kappa;
             kappa = gamma.k;
@@ -450,6 +443,10 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     void state_t<CONSTANTS>::update_time(const time_slot_t<CONSTANTS> &slot)
     {
+        // JAM (5.7)
+        if (slot <= tau || slot > time_slot_t<CONSTANTS>::current()) [[unlikely]]
+            throw err_bad_slot_t {};
+        // JAM (6.1)
         tau = slot;
     }
 
@@ -794,6 +791,38 @@ namespace turbo::jam {
         }
 
         return new_offenders;
+    }
+
+    template<typename CONSTANTS>
+    void state_t<CONSTANTS>::update_history(const header_hash_t &hh, const state_root_t &sr, const opaque_hash_t &ar, const reported_work_seq_t &wp)
+    {
+        static mmr_t empty_mmr {};
+        const mmr_t &prev_mmr = beta.empty() ? empty_mmr : beta.at(beta.size() - 1).mmr;
+        block_info_t bi {
+            .header_hash=hh,
+            .mmr=prev_mmr.append(ar),
+            .reported=wp
+        };
+        if (!beta.empty()) [[likely]]
+            beta.back().state_root = sr;
+        if (beta.size() == beta.max_size) [[likely]] {
+            for (size_t i = 1; i < beta.size(); ++i) {
+                std::swap(beta[i - 1], beta[i]);
+            }
+            beta[beta.max_size - 1] = std::move(bi);
+        } else {
+            beta.emplace_back(std::move(bi));
+        }
+    }
+
+    // JAM (4.1): Kapital upsilon
+    template<typename CONSTANTS>
+    void state_t<CONSTANTS>::apply(const block_t<CONSTANTS> &blk)
+    {
+        update_time(blk.header.slot);
+        // for performance this function operates on the same set
+        // this means that extra care must be taken when handling errors
+        // to ensure that the state after a failed apply never changes
     }
 
     template struct state_t<config_prod>;
