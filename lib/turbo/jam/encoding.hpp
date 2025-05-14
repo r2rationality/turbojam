@@ -130,6 +130,15 @@ namespace turbo::jam {
         }
 
         template<typename T>
+        void process_variant(T &val, const codec::variant_names_t<T> &)
+        {
+            uint_fixed(1, numeric_cast<uint8_t>(val.index()));
+            std::visit([&](const auto &vv) {
+                process(vv);
+            }, val);
+        }
+
+        template<typename T>
         void process(const T &val)
         {
             if constexpr (to_bytes_c<T>) {

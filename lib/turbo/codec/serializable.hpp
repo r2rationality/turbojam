@@ -33,6 +33,20 @@ namespace turbo::codec {
         }
     }
 
+    template<typename T, size_t I>
+    void variant_get_type(T &val, const size_t requested_type, auto &archive)
+    {
+        if (requested_type >= std::variant_size_v<T>) [[unlikely]]
+            throw error(fmt::format("an unsupported type value {} for {}", requested_type, typeid(T).name()));
+        if constexpr (I < std::variant_size_v<T>) {
+            if (requested_type > I)
+                return variant_set_type<T, I + 1>(val, requested_type, archive);
+            if (requested_type < I) [[unlikely]]
+                throw error(fmt::format("internal error: an incomplete traversal of type {}", typeid(T).name()));
+            val = codec::from<std::variant_alternative_t<I, T>>(archive);
+        }
+    }
+
     template<typename T>
     concept has_emplace_c = requires(T t)
     {

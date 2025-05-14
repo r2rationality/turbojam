@@ -8,6 +8,7 @@
 #include "types.hpp"
 
 namespace {
+    using namespace std::string_view_literals;
     using namespace turbo;
     using namespace turbo::jam;
 
@@ -23,6 +24,17 @@ namespace {
             archive.process("slot"sv, slot);
             archive.process("entropy"sv, entropy);
             archive.process("extrinsic"sv, extrinsic);
+        }
+
+        bool operator==(const input_t &o) const
+        {
+            if (slot != o.slot)
+                return false;
+            if (entropy != o.entropy)
+                return false;
+            if (extrinsic != o.extrinsic)
+                return false;
+            return true;
         }
     };
 
@@ -80,51 +92,52 @@ namespace {
         output_t<CONSTANTS> out;
         state_t<CONSTANTS> post;
 
-        static state_t<CONSTANTS> decode_state(decoder &dec)
+        static void serialize_state(auto &archive, const std::string_view &name, state_t<CONSTANTS> &self)
         {
-            auto tau = dec.decode<decltype(pre.tau)>();
-            auto eta = dec.decode<decltype(pre.eta)>();
-            auto lambda = dec.decode<decltype(pre.lambda)>();
-            auto kappa = dec.decode<decltype(pre.kappa)>();
-            auto gamma_k = dec.decode<decltype(pre.gamma.k)>();
-            auto iota = dec.decode<decltype(pre.iota)>();
-            auto gamma_a = dec.decode<decltype(pre.gamma.a)>();
-            auto gamma_s = dec.decode<decltype(pre.gamma.s)>();
-            auto gamma_z = dec.decode<decltype(pre.gamma.z)>();
-            auto psi_offenders = dec.decode<decltype(pre.psi.offenders)>();
-            return {
-                .gamma {
-                    .a = std::move(gamma_a),
-                    .k = std::move(gamma_k),
-                    .s = std::move(gamma_s),
-                    .z = std::move(gamma_z)
-                },
-                .eta = std::move(eta),
-                .iota = std::move(iota),
-                .kappa = std::move(kappa),
-                .lambda = std::move(lambda),
-                .tau = std::move(tau),
-                .psi = {
-                    .offenders = std::move(psi_offenders)
-                }
-            };
+            archive.push(name);
+            archive.process("tau"sv, self.tau);
+            archive.process("eta"sv, self.eta);
+            archive.process("lambda"sv, self.lambda);
+            archive.process("kappa"sv, self.kappa);
+            archive.process("gamma_k"sv, self.gamma.k);
+            archive.process("iota"sv, self.iota);
+            archive.process("gamma_a"sv, self.gamma.a);
+            archive.process("gamma_s"sv, self.gamma.s);
+            archive.process("gamma_z"sv, self.gamma.z);
+            archive.process("post_offenders"sv, self.psi.offenders);
+            archive.pop();
         }
 
-        static test_case_t from_bytes(decoder &dec)
+        void serialize(auto &archive)
         {
-            return {
-                dec.decode<decltype(in)>(),
-                decode_state(dec),
-                dec.decode<decltype(out)>(),
-                decode_state(dec)
-            };
+            archive.process("input"sv, in);
+            serialize_state(archive, "pre_state"sv, pre);
+            archive.process("output"sv, out);
+            serialize_state(archive, "post_state"sv, post);
+        }
+
+        bool operator==(const test_case_t &o) const
+        {
+            if (in != o.in)
+                return false;
+            if (pre != o.pre)
+                return false;
+            if (out != o.out)
+                return false;
+            if (post != o.post)
+                return false;
+            return true;
         }
     };
 
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = jam::load_obj<test_case_t<CFG>>(path);
+        const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
+        {
+            const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
+            expect(tc == j_tc) << "the json test case does not match the binary one" << path;
+        }
         std::optional<output_t<CFG>> out {};
         state_t<CFG> res_st = tc.pre;
         err_code_t::catch_into(
@@ -150,10 +163,10 @@ suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         "conformance test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/tiny"), ".bin")) {
-                test_file<config_tiny>(path);
+                test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/safrole/full"), ".bin")) {
-                test_file<config_prod>(path);
+                test_file<config_prod>(path.substr(0, path.size() - 4));
             }
         };
     };

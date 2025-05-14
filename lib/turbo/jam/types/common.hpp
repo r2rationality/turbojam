@@ -542,6 +542,11 @@ namespace turbo::jam {
     };
 
     struct work_result_out_of_gas_t {
+        void serialize(auto &)
+        {
+            // do nothing
+        }
+
         bool operator==(const work_result_out_of_gas_t &) const
         {
             return true;
@@ -549,6 +554,11 @@ namespace turbo::jam {
     };
 
     struct work_result_panic_t {
+        void serialize(auto &)
+        {
+            // do nothing
+        }
+
         bool operator==(const work_result_panic_t &) const
         {
             return true;
@@ -556,6 +566,11 @@ namespace turbo::jam {
     };
 
     struct work_result_bad_exports_t {
+        void serialize(auto &)
+        {
+            // do nothing
+        }
+
         bool operator==(const work_result_bad_exports_t &) const
         {
             return true;
@@ -563,6 +578,11 @@ namespace turbo::jam {
     };
 
     struct work_result_bad_code_t {
+        void serialize(auto &)
+        {
+            // do nothing
+        }
+
         bool operator==(const work_result_bad_code_t &) const
         {
             return true;
@@ -570,18 +590,43 @@ namespace turbo::jam {
     };
 
     struct work_result_code_oversize_t {
+        void serialize(auto &)
+        {
+            // do nothing
+        }
+
         bool operator==(const work_result_code_oversize_t &) const
         {
             return true;
         }
     };
 
-    using work_exec_result_base_t = std::variant<work_result_ok_t, work_result_out_of_gas_t, work_result_panic_t, work_result_bad_exports_t,
-                                            work_result_bad_code_t, work_result_code_oversize_t>;
+    using work_exec_result_base_t = std::variant<
+        work_result_ok_t,
+        work_result_out_of_gas_t,
+        work_result_panic_t,
+        work_result_bad_exports_t,
+        work_result_bad_code_t,
+        work_result_code_oversize_t
+    >;
     struct work_exec_result_t: work_exec_result_base_t {
-        static work_exec_result_t from_bytes(decoder &dec);
-        static work_exec_result_t from_json(const boost::json::value &json);
-        void to_bytes(encoder &enc) const;
+        using base_type = work_exec_result_base_t;
+        using base_type::base_type;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            static_assert(std::variant_size_v<base_type> > 0);
+            static codec::variant_names_t<base_type> names {
+                "ok"sv,
+                "out_of_gas"sv,
+                "panic"sv,
+                "bad_exports"sv,
+                "bad_code"sv,
+                "code_oversize"sv
+            };
+            archive.template process_variant<base_type>(*this, names);
+        }
     };
 
     struct refine_load_t {
@@ -1015,7 +1060,16 @@ namespace turbo::jam {
         using base_type = std::variant<tickets_t<CONSTANTS>, keys_t<CONSTANTS>>;
         using base_type::base_type;
 
-        static tickets_or_keys_t from_bytes(decoder &dec);
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            static_assert(std::variant_size_v<base_type> > 0);
+            static codec::variant_names_t<base_type> names {
+                "tickets"sv,
+                "keys"sv
+            };
+            archive.template process_variant<base_type>(*this, names);
+        }
     };
 
     template<typename CONSTANTS=config_prod>
@@ -1152,6 +1206,7 @@ namespace turbo::jam {
 
     using ed25519_keys_set_t = set_t<ed25519_public_t>;
 
+    // JAM (10.1)
     struct disputes_records_t {
         set_t<work_report_hash_t> good {};
         set_t<work_report_hash_t> bad {};
