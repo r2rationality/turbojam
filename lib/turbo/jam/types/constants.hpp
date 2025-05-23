@@ -10,6 +10,17 @@
 namespace turbo::jam {
     // Constants that are the same in all configurations
     struct config_base {
+        // JAM I.4.5 Signing Contexts
+        static constexpr std::string_view jam_entropy { "jam_entropy" };
+        static constexpr std::string_view jam_fallback_seal { "jam_fallback_seal" };
+        static constexpr std::string_view jam_ticket_seal { "jam_ticket_seal" };
+        static constexpr std::string_view jam_valid { "jam_valid" };
+        static constexpr std::string_view jam_invalid { "jam_invalid" };
+        static constexpr std::string_view jam_available { "jam_available" };
+        static constexpr std::string_view jam_guarantee { "jam_guarantee" };
+        static constexpr std::string_view jam_audit { "jam_audit" };
+        static constexpr std::string_view jam_announce { "jam_announce" };
+        static constexpr std::string_view jam_beefy { "jam_beefy" };
         // JAM I.4.4: Z_A
         static constexpr size_t pvm_address_alignment_factor = 2;
         // JAM I.4.4: Z_I
@@ -39,18 +50,6 @@ namespace turbo::jam {
 
     // JAM paper: I.4.4
     struct config_prod: config_base {
-        // JAM I.4.5 Signing Contexts
-        static constexpr std::string_view jam_entropy { "jam_entropy" };
-        static constexpr std::string_view jam_fallback_seal { "jam_fallback_seal" };
-        static constexpr std::string_view jam_ticket_seal { "jam_ticket_seal" };
-        static constexpr std::string_view jam_valid { "jam_valid" };
-        static constexpr std::string_view jam_invalid { "jam_invalid" };
-        static constexpr std::string_view jam_available { "jam_available" };
-        static constexpr std::string_view jam_guarantee { "jam_guarantee" };
-        static constexpr std::string_view jam_audit { "jam_audit" };
-        static constexpr std::string_view jam_announce { "jam_announce" };
-        static constexpr std::string_view jam_beefy { "jam_beefy" };
-
         // JAM I.4.4: E
         static constexpr size_t epoch_length = 600;
         // JAM I.4.4: Y
