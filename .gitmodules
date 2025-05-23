@@ -4,3 +4,6 @@
 [submodule "test/pvm-test-vectors"]
 	path = test/pvm-test-vectors
 	url = https://github.com/koute/jamtestvectors.git
+[submodule "test/w3f-test-vectors"]
+	path = test/w3f-test-vectors
+	url = https://github.com/w3f/jamtestvectors
