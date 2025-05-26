@@ -154,13 +154,21 @@ namespace turbo::jam {
     struct time_slot_t {
         static std::chrono::sys_time<std::chrono::seconds> jam_era_start()
         {
-            static const std::string iso_time { "2025-01-01T12:00:00Z" };
-            std::chrono::sys_time<std::chrono::seconds> tp {};
-            std::istringstream is { iso_time };
-            is >> std::chrono::parse("%FT%TZ", tp);
-            if (is.fail()) [[unlikely]]
-                throw error(fmt::format("failed to parse ISO time: {}", iso_time));
-            return tp;
+            static std::tm t = {
+                .tm_sec = 0,
+                .tm_min = 0,
+                .tm_hour = 12,
+                .tm_mday = 1,
+                .tm_mon = 0,
+                .tm_year = 2025 - 1900,
+                .tm_isdst = 0
+            };
+#           if defined(_WIN32)
+                time_t time_since_epoch = _mkgmtime(&t);
+#           else
+                time_t time_since_epoch = timegm(&t);
+#           endif
+            return std::chrono::sys_time<std::chrono::seconds>{std::chrono::seconds{time_since_epoch}};
         }
 
         static time_slot_t current()
@@ -705,6 +713,7 @@ namespace turbo::jam {
         }
     };
 
+    // JAM (11.6)
     struct work_result_t {
         service_id_t service_id;
         opaque_hash_t code_hash;
