@@ -68,7 +68,7 @@ namespace {
     };
 
     template<typename CFG>
-    void test_file(const std::string &path, const std::source_location &loc=std::source_location::current())
+    void test_file(const std::string &path)
     {
         const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
         {
