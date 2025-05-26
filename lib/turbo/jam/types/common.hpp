@@ -162,6 +162,7 @@ namespace turbo::jam {
                 .tm_mon = 0,
                 .tm_year = 2025 - 1900,
                 .tm_wday = 0, // not necessary but makes Clang and GCC happy
+                .tm_yday = 0, // not necessary but makes Clang and GCC happy
                 .tm_isdst = 0
             };
 #           if defined(_WIN32)
