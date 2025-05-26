@@ -161,6 +161,7 @@ namespace turbo::jam {
                 .tm_mday = 1,
                 .tm_mon = 0,
                 .tm_year = 2025 - 1900,
+                .tm_wday = 0, // not necessary but makes Clang and GCC happy
                 .tm_isdst = 0
             };
 #           if defined(_WIN32)
@@ -1540,7 +1541,7 @@ namespace turbo::jam {
                 + config_base::min_balance_per_elective * num_electives();
         }
 
-        void insert(const time_slot_t<CONSTANTS> &slot, const opaque_hash_t &key_hash, const uint32_t key_len, const buffer data)
+        void insert(const time_slot_t<CONSTANTS> &/*slot*/, const opaque_hash_t &key_hash, const uint32_t /*key_len*/, const buffer data)
         {
             const auto [p_it, p_created] = storage.try_emplace(key_hash, data);
             if (!p_created) {
@@ -1552,7 +1553,7 @@ namespace turbo::jam {
             info.bytes += data.size();
         }
 
-        void erase(const time_slot_t<CONSTANTS> &slot, const opaque_hash_t &key_hash, const uint32_t key_len)
+        void erase(const time_slot_t<CONSTANTS> &/*slot*/, const opaque_hash_t &key_hash, const uint32_t /*key_len*/)
         {
             const auto p_it = storage.find(key_hash);
             if (p_it != storage.end()) {
