@@ -137,9 +137,10 @@ namespace turbo {
         using base_type = std::array<uint8_t, SZ>;
         using base_type::base_type;
 
-        static byte_array<SZ> from_hex(const std::string_view hex)
+        template<typename C=byte_array<SZ>>
+        static C from_hex(const std::string_view hex)
         {
-            byte_array<SZ> data;
+            C data;
             init_from_hex(data, hex);
             return data;
         }
