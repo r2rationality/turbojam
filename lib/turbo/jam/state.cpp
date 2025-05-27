@@ -873,13 +873,13 @@ namespace turbo::jam {
             st.emplace(state_dict_t::make_key(255, s_id), encode(s.info));
             for (const auto &[k, v]: s.storage) {
                 state_key_subhash_t kh;
-                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, 1ULL << 32U - 1ULL);
+                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 1ULL);
                 memcpy(kh.data() + 4, k.data(), kh.size() - 4);
                 st.emplace(state_dict_t::make_key(s_id, kh), v);
             }
             for (const auto &[k, v]: s.preimages) {
                 state_key_subhash_t kh;
-                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, 1ULL << 32U - 2ULL);
+                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 2ULL);
                 memcpy(kh.data() + 4, k.data(), kh.size() - 4);
                 st.emplace(state_dict_t::make_key(s_id, kh), v);
             }
