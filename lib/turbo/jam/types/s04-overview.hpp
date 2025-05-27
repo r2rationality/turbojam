@@ -170,7 +170,6 @@ namespace turbo::jam {
         accumulated_queue_t<CONSTANTS> ksi {}; // recently accumulated reports
 
         state_dict_t state_dict() const;
-        state_root_t state_root() const;
 
         // JAM (4.1): Kapital upsilon
         void apply(const block_t<CONSTANTS> &);
