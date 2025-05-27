@@ -286,6 +286,9 @@ namespace turbo {
     }
 
     struct uint8_vector: std::vector<uint8_t> {
+        using base_type = std::vector<uint8_t>;
+        using base_type::base_type;
+
         template<typename C=uint8_vector>
         static C from_hex(const std::string_view hex)
         {
@@ -296,7 +299,12 @@ namespace turbo {
             return data;
         }
 
-        uint8_vector() =default;
+        uint8_vector() noexcept =default;
+
+        uint8_vector(base_type &&o) noexcept:
+            base_type { std::move(o) }
+        {
+        }
 
         uint8_vector(const size_t sz):
             std::vector<uint8_t>(sz)

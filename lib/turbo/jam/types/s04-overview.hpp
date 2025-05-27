@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include "common.hpp"
+#include "state-dict.hpp"
 
 namespace turbo::jam {
     // JAM (4.3)
@@ -167,6 +168,8 @@ namespace turbo::jam {
         statistics_t<CONSTANTS> pi {};
         ready_queue_t<CONSTANTS> nu {}; // work reports ready to be accumulated
         accumulated_queue_t<CONSTANTS> ksi {}; // recently accumulated reports
+
+        state_dict_t state_dict() const;
 
         // JAM (4.1): Kapital upsilon
         void apply(const block_t<CONSTANTS> &);

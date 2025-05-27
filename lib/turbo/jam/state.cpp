@@ -842,6 +842,57 @@ namespace turbo::jam {
         // to ensure that the state after a failed apply never changes
     }
 
+    template<typename T>
+    static byte_sequence_t encode(const T &v)
+    {
+        encoder enc {};
+        enc.process(v);
+        return { std::move(enc.bytes()) };
+    }
+
+    template<typename CONSTANTS>
+    state_dict_t state_t<CONSTANTS>::state_dict() const
+    {
+        state_dict_t st {};
+        st.emplace(state_dict_t::make_key(1), encode(alpha));
+        st.emplace(state_dict_t::make_key(2), encode(phi));
+        st.emplace(state_dict_t::make_key(3), encode(beta));
+        st.emplace(state_dict_t::make_key(4), encode(gamma));
+        st.emplace(state_dict_t::make_key(5), encode(psi));
+        st.emplace(state_dict_t::make_key(6), encode(eta));
+        st.emplace(state_dict_t::make_key(7), encode(iota));
+        st.emplace(state_dict_t::make_key(8), encode(kappa));
+        st.emplace(state_dict_t::make_key(9), encode(lambda));
+        st.emplace(state_dict_t::make_key(10), encode(rho));
+        st.emplace(state_dict_t::make_key(11), encode(tau));
+        st.emplace(state_dict_t::make_key(12), encode(chi));
+        st.emplace(state_dict_t::make_key(13), encode(pi));
+        st.emplace(state_dict_t::make_key(14), encode(nu));
+        st.emplace(state_dict_t::make_key(15), encode(ksi));
+        for (const auto &[s_id, s]: delta) {
+            st.emplace(state_dict_t::make_key(255, s_id), encode(s.info));
+            for (const auto &[k, v]: s.storage) {
+                state_key_subhash_t kh;
+                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, 1ULL << 32U - 1ULL);
+                memcpy(kh.data() + 4, k.data(), kh.size() - 4);
+                st.emplace(state_dict_t::make_key(s_id, kh), v);
+            }
+            for (const auto &[k, v]: s.preimages) {
+                state_key_subhash_t kh;
+                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, 1ULL << 32U - 2ULL);
+                memcpy(kh.data() + 4, k.data(), kh.size() - 4);
+                st.emplace(state_dict_t::make_key(s_id, kh), v);
+            }
+            for (const auto &[k, v]: s.lookup_metas) {
+                state_key_subhash_t kh;
+                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, k.length);
+                memcpy(kh.data() + 4, k.hash.data(), kh.size() - 4);
+                st.emplace(state_dict_t::make_key(s_id, kh), encode(v));
+            }
+        }
+        return st;
+    }
+
     template struct state_t<config_prod>;
     template struct state_t<config_tiny>;
 }

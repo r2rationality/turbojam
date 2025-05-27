@@ -28,6 +28,19 @@ namespace turbo::jam {
     };
 
     struct encoder: codec::archive_t {
+        static void uint_fixed(const std::span<uint8_t> &bytes, const size_t num_bytes, const uint64_t val)
+        {
+            if (bytes.size() != num_bytes) [[unlikely]]
+                throw error(fmt::format("uint_fixed: expected an output buffer of {} bytes, got {}", num_bytes, bytes.size()));
+            auto x = val;
+            for (size_t i = 0; i < num_bytes; ++i) {
+                bytes[i] = static_cast<uint8_t>(x & 0xFF);
+                x >>= 8;
+            }
+            if (x) [[unlikely]]
+                throw error(fmt::format("{} cannot be encoded as a sequence of {} bytes", val, num_bytes));
+        }
+
         void push(const std::string_view)
         {
             // do nothing
@@ -40,13 +53,10 @@ namespace turbo::jam {
 
         void uint_fixed(const size_t num_bytes, const uint64_t val)
         {
-            auto x = val;
             for (size_t i = 0; i < num_bytes; ++i) {
-                _bytes.emplace_back(static_cast<uint8_t>(x & 0xFF));
-                x >>= 8;
+                _bytes.emplace_back(0);
             }
-            if (x) [[unlikely]]
-                throw error(fmt::format("{} cannot be encoded as a sequence of {} bytes", val, num_bytes));
+            uint_fixed(std::span { _bytes.end() - num_bytes, _bytes.end() }, num_bytes, val);
         }
 
         void uint_varlen(const uint64_t x)
@@ -100,6 +110,11 @@ namespace turbo::jam {
                 process(k);
                 process(v);
             }
+        }
+
+        void process_map(auto &m, const std::string_view /*key_name*/, const std::string_view /*val_name*/)
+        {
+            process_map(m);
         }
 
         void process_array_fixed(auto &self)
