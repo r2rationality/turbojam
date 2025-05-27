@@ -893,15 +893,6 @@ namespace turbo::jam {
         return st;
     }
 
-    template<typename CONSTANTS>
-    state_root_t state_t<CONSTANTS>::state_root() const
-    {
-        state_root_t root;
-        const auto st = state_dict();
-        merkle::trie::encode_blake2b(root, st);
-        return root;
-    }
-
     template struct state_t<config_prod>;
     template struct state_t<config_tiny>;
 }

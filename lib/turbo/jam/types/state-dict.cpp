@@ -44,4 +44,11 @@ namespace turbo::jam {
         memcpy(res.data() + 8, h.data() + 4, h.size() - 4);
         return res;
     }
+
+    state_root_t state_dict_t::root() const
+    {
+        state_root_t root;
+        merkle::trie::encode_blake2b(root, *this);
+        return root;
+    }
 }

@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/jam/merkle.hpp>
+#include "common.hpp"
 
 namespace turbo::jam {
     // JAM D.1
@@ -18,5 +19,6 @@ namespace turbo::jam {
         static state_key_t make_key(uint8_t id);
         static state_key_t make_key(uint8_t id, uint32_t service_id);
         static state_key_t make_key(uint32_t service_id, const state_key_subhash_t &subhash);
+        state_root_t root() const;
     };
 }
