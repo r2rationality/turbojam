@@ -3,6 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <turbo/jam/encoding.hpp>
 #include "state-dict.hpp"
 
 namespace turbo::jam {
@@ -13,11 +14,10 @@ namespace turbo::jam {
         return res;
     }
 
-    state_key_t state_dict_t::make_key(const uint8_t id, const service_id_t service_id)
+    state_key_t state_dict_t::make_key(const uint8_t id, const uint32_t service_id)
     {
-        encoder enc {};
-        enc.uint_fixed(4, service_id);
-        const auto n = static_cast<buffer>(enc.bytes());
+        byte_array<4> n;
+        encoder::uint_fixed(n, sizeof(service_id), service_id);
         state_key_t res {};
         res[0] = id;
         res[1] = n[0];
@@ -27,11 +27,10 @@ namespace turbo::jam {
         return res;
     }
 
-    state_key_t state_dict_t::make_key(const service_id_t service_id, const state_key_subhash_t &h)
+    state_key_t state_dict_t::make_key(const uint32_t service_id, const state_key_subhash_t &h)
     {
-        encoder enc {};
-        enc.uint_fixed(4, service_id);
-        const auto n = static_cast<buffer>(enc.bytes());
+        byte_array<4> n;
+        encoder::uint_fixed(n, sizeof(service_id), service_id);
         state_key_t res {};
         res[0] = n[0];
         res[1] = h[0];

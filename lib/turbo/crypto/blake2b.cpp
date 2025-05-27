@@ -5,7 +5,7 @@
 #include "sodium.hpp"
 
 namespace turbo::crypto::blake2b {
-    void digest(hash_t &out, const buffer &in)
+    void digest(const hash_span_t &out, const buffer &in)
     {
         sodium::ensure_initialized();
         if (sodium::crypto_generichash(out.data(), out.size(), in.data(), in.size(), nullptr, 0) != 0)

@@ -5,10 +5,10 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/bytes.hpp>
-#include "types.hpp"
 
 namespace turbo::jam::merkle {
     using hash_t = byte_array<32>;
+    using hash_span_t = std::span<uint8_t, sizeof(hash_t)>;
 
     struct node_t {
         hash_t left;
@@ -21,14 +21,25 @@ namespace turbo::jam::merkle {
     };
 
     namespace trie {
-        struct key_val_t {
-            hash_t key;
-            uint8_vector val;
-        };
-        using flat_tree_t = std::vector<key_val_t>;
+        using key_t = byte_array<31>;
+        using input_map_t = std::map<key_t, uint8_vector>;
 
-        extern hash_t encode_blake2b(const flat_tree_t &tree);
-        extern hash_t encode_keccak(const flat_tree_t &tree);
+        extern void encode_blake2b(const hash_span_t &out, const input_map_t &tree);
+        extern void encode_keccak(const hash_span_t &out, const input_map_t &tree);
+
+        inline hash_t encode_blake2b(const input_map_t &tree)
+        {
+            hash_t res;
+            encode_blake2b(res, tree);
+            return res;
+        }
+
+        inline hash_t encode_keccak(const input_map_t &tree)
+        {
+            hash_t res;
+            encode_keccak(res, tree);
+            return res;
+        }
     }
 
     namespace binary {

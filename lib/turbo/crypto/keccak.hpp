@@ -7,8 +7,9 @@
 namespace turbo::crypto::keccak
 {
     using hash_t = byte_array<32>;
+    using hash_span_t = std::span<uint8_t, sizeof(hash_t)>;
 
-    extern void digest(hash_t &out, const buffer &in);
+    extern void digest(const hash_span_t &out, const buffer &in);
 
     inline hash_t digest(const buffer &in)
     {

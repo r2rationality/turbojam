@@ -5,7 +5,7 @@
 #include "keccak.hpp"
 
 namespace turbo::crypto::keccak {
-    void digest(hash_t &out, const buffer &in)
+    void digest(const hash_span_t &out, const buffer &in)
     {
         Keccak hasher {};
         hasher.add(in.data(), in.size());

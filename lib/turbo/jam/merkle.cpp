@@ -9,10 +9,10 @@
 #include "merkle.hpp"
 
 namespace turbo::jam::merkle {
-    using hash_func = std::function<void(hash_t &, buffer bytes)>;
+    using hash_func = std::function<void(const hash_span_t &, buffer bytes)>;
 
     namespace trie {
-        // JAM Paper C.1.5 "Bit encoding": The bit order is least significant first.
+        // JAM Paper D.2.1 "Bit encoding": The bit order is the least significant first.
         static node_t encode(const hash_t &l, const hash_t &r)
         {
             node_t res { l, r };
@@ -20,34 +20,40 @@ namespace turbo::jam::merkle {
             return res;
         }
 
-        static node_t encode(const hash_t &k, const buffer v, const hash_func &hash_f)
+        static node_t encode(const key_t &k, const buffer &v, const hash_func &hash_f)
         {
             node_t res;
+            static_assert(sizeof(res.left) == sizeof(k) + 1);
             static_assert(sizeof(res.right) == 32);
             if (v.size() <= sizeof(res.right)) {
+                // embedded value leaf
                 memcpy(res.right.data(), v.data(), v.size());
                 memset(res.right.data() + v.size(), 0, res.right.size() - v.size());
                 res.left[0] = 0x01 | v.size() << 2;
-                static_assert(sizeof(k) == sizeof(res.left));
-                memcpy(res.left.data() + 1, k.data(), k.size() - 1);
+                memcpy(res.left.data() + 1, k.data(), k.size());
             } else {
+                // regular leaf
                 res.left[0] = 0x03;
-                memcpy(res.left.data() + 1, k.data(), k.size() - 1);
+                memcpy(res.left.data() + 1, k.data(), k.size());
                 hash_f(res.right, v);
             }
             return res;
         }
 
-        using tree_copy_t = std::vector<const key_val_t *>;
+        using tree_copy_t = std::vector<const input_map_t::value_type *>;
 
-        static hash_t encode(const tree_copy_t &nodes, const size_t bit_no, const hash_func &hash_f)
+        inline hash_t encode(const tree_copy_t &nodes, const size_t bit_no, const hash_func &hash_f);
+
+        static void encode(const hash_span_t &out, const tree_copy_t &nodes, const size_t bit_no, const hash_func &hash_f)
         {
             switch (nodes.size()) {
-                case 0: return {};
+                case 0: {
+                    memset(out.data(), 0, out.size());
+                    break;
+                }
                 case 1: {
-                    hash_t res;
-                    hash_f(res, encode(nodes[0]->key, nodes[0]->val, hash_f));
-                    return res;
+                    hash_f(out, encode(nodes[0]->first, nodes[0]->second, hash_f));
+                    break;
                 }
                 default: {
                     tree_copy_t l {};
@@ -55,35 +61,41 @@ namespace turbo::jam::merkle {
                     tree_copy_t r {};
                     r.reserve(nodes.size() / 2 + 1);
                     for (const auto *n: nodes) {
-                        if (n->key.bit(bit_no))
+                        if (n->first.bit(bit_no))
                             r.emplace_back(n);
                         else
                             l.emplace_back(n);
                     }
-                    hash_t res;
-                    hash_f(res, encode(encode(l, bit_no + 1, hash_f), encode(r, bit_no + 1, hash_f)));
-                    return res;
+                    hash_f(out, encode(encode(l, bit_no + 1, hash_f), encode(r, bit_no + 1, hash_f)));
+                    break;
                 }
             }
         }
 
-        hash_t encode_any(const flat_tree_t &tree, const hash_func &hash_f)
+        inline hash_t encode(const tree_copy_t &nodes, const size_t bit_no, const hash_func &hash_f)
+        {
+            hash_t out;
+            encode(out, nodes, bit_no, hash_f);
+            return out;
+        }
+
+        void encode_any(const hash_span_t &out, const input_map_t &tree, const hash_func &hash_f)
         {
             tree_copy_t copy {};
             copy.reserve(tree.size());
             for (const auto &n: tree)
                 copy.emplace_back(&n);
-            return encode(copy, 0, hash_f);
+            encode(out, copy, 0, hash_f);
         }
 
-        hash_t encode_blake2b(const flat_tree_t &tree)
+        void encode_blake2b(const hash_span_t &out, const input_map_t &tree)
         {
-            return encode_any(tree, [](hash_t &out, const buffer bytes) { crypto::blake2b::digest(out, bytes); });
+            encode_any(out, tree, [](const hash_span_t &out, const buffer bytes) { crypto::blake2b::digest(out, bytes); });
         }
 
-        hash_t encode_keccak(const flat_tree_t &tree)
+        void encode_keccak(const hash_span_t &out, const input_map_t &tree)
         {
-            return encode_any(tree, [](hash_t &out, const buffer bytes) { crypto::keccak::digest(out, bytes); });
+            encode_any(out, tree, [](const hash_span_t &out, const buffer bytes) { crypto::keccak::digest(out, bytes); });
         }
     }
 
@@ -111,12 +123,12 @@ namespace turbo::jam::merkle {
 
         hash_t encode_blake2b(const value_list &items)
         {
-            return encode(items, [](hash_t &out, const buffer bytes) { crypto::blake2b::digest(out, bytes); });
+            return encode(items, [](const hash_span_t &out, const buffer bytes) { crypto::blake2b::digest(out, bytes); });
         }
 
         hash_t encode_keccak(const value_list &items)
         {
-            return encode(items, [](hash_t &out, const buffer bytes) { crypto::keccak::digest(out, bytes); });
+            return encode(items, [](const hash_span_t &out,const buffer bytes) { crypto::keccak::digest(out, bytes); });
         }
     }
 }
