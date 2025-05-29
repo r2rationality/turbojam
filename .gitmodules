@@ -7,3 +7,6 @@
 [submodule "test/w3f-test-vectors"]
 	path = test/w3f-test-vectors
 	url = https://github.com/w3f/jamtestvectors
+[submodule "3rdparty/msquic"]
+	path = 3rdparty/msquic
+	url = https://github.com/microsoft/msquic.git
