@@ -3,8 +3,8 @@
     "boost",
     "fmt",
     "libsodium",
-    "mvfst",
+    "msquic",
     "pkgconf"
   ],
-  "builtin-baseline": "7adc2e4d49e8d0efc07a369079faa6bc3dbb90f3"
+  "builtin-baseline": "a9eee3b18df395dbb8be71a31bd78ea441056e42"
 }
