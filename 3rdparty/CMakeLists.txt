@@ -15,21 +15,25 @@ add_custom_target(
 add_dependencies(ark_vrf_cpp DEPENDS ark_vrf_cpp_lib)
 set_target_properties(ark_vrf_cpp PROPERTIES IMPORTED_LOCATION ${ARK_VRF_CPP_PATH})
 
-add_custom_target(
+add_library(3rdparty OBJECT hash-library/keccak.cpp nanobench.cpp)
+target_include_directories(3rdparty PUBLIC .)
+set_target_properties(3rdparty PROPERTIES LINKER_LANGUAGE CXX)
+target_link_libraries(3rdparty PUBLIC ark_vrf_cpp)
+
+include(ExternalProject)
+ExternalProject_Add(
     msquic_build
-    COMMAND ${CMAKE_COMMAND} -E remove_directory build-tmp
-    COMMAND cmake -B bld -G Ninja -DCMAKE_BUILD_TYPE=Release
-    COMMAND cmake --build bld -t all
-    COMMAND cmake --install bld --prefix=./build
-    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/msquic"
+    SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/msquic"
+    BINARY_DIR "${CMAKE_CURRENT_LIST_DIR}/msquic/bld"
+    INSTALL_DIR "${CMAKE_CURRENT_LIST_DIR}/msquic/build"
+    CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+    BUILD_ALWAYS 1
 )
 
-add_library(3rdparty OBJECT hash-library/keccak.cpp nanobench.cpp)
 add_dependencies(3rdparty msquic_build)
-set_target_properties(3rdparty PROPERTIES LINKER_LANGUAGE CXX)
-target_include_directories(3rdparty PUBLIC . msquic/build/include)
+target_include_directories(3rdparty PUBLIC msquic/build/include)
 target_link_directories(3rdparty PUBLIC msquic/build/lib)
-target_link_libraries(3rdparty PUBLIC ark_vrf_cpp msquic)
+target_link_libraries(3rdparty PUBLIC msquic)
 
 if(UNIX)
     target_link_libraries(3rdparty PUBLIC numa)
