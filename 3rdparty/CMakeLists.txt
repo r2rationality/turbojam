@@ -17,9 +17,10 @@ set_target_properties(ark_vrf_cpp PROPERTIES IMPORTED_LOCATION ${ARK_VRF_CPP_PAT
 
 add_custom_target(
     msquic_build
-    COMMAND cmake -B build-tmp -G Ninja -DQUIC_BUILD_SHARED=OFF -DCMAKE_BUILD_TYPE=Release
-    COMMAND cmake --build build-tmp -t all
-    COMMAND cmake --install build-tmp --prefix=./build
+    COMMAND ${CMAKE_COMMAND} -E remove_directory build-tmp
+    COMMAND cmake -B bld -G Ninja -DCMAKE_BUILD_TYPE=Release
+    COMMAND cmake --build bld -t all
+    COMMAND cmake --install bld --prefix=./build
     WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/msquic"
 )
 
