@@ -23,7 +23,7 @@ namespace {
                 const auto buf_scope = new QuicBufferScope { 0x8 };
                 const auto buf = static_cast<QUIC_BUFFER *>(*buf_scope);
                 memcpy(buf->Buffer, "DEADBEAF", 8);
-                if (const auto res = stream->Send(buf, 1, QUIC_SEND_FLAG_NONE, buf_scope); QUIC_FAILED(res)) [[unlikely]] {
+                if (const auto res = stream->Send(buf, 1, QUIC_SEND_FLAG_FIN, buf_scope); QUIC_FAILED(res)) [[unlikely]] {
                     std::cerr << fmt::format("stream: send failed with code {:08X}\n", res);
                     stream->ConnectionShutdown(1);
                 }
@@ -33,9 +33,17 @@ namespace {
                 std::cerr << fmt::format("stream: data sent!\n");
                 delete reinterpret_cast<QuicBufferScope *>(event->SEND_COMPLETE.ClientContext);
                 break;
-            case QUIC_STREAM_EVENT_RECEIVE:
-                std::cerr << fmt::format("stream: data received!\n");
+            case QUIC_STREAM_EVENT_RECEIVE: {
+                std::ostringstream ss {};
+                ss << fmt::format("stream: data received: off: {} len: {} ", event->RECEIVE.AbsoluteOffset, event->RECEIVE.TotalBufferLength);
+                for (decltype(event->RECEIVE.BufferCount) bi = 0; bi < event->RECEIVE.BufferCount; ++bi) {
+                    const QUIC_BUFFER *buf = event->RECEIVE.Buffers + bi;
+                    ss << fmt::format("#{}: {} ", bi, buffer { buf->Buffer, buf->Length });
+                }
+                ss << '\n';
+                std::cerr << ss.str();
                 break;
+            }
             case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
                 std::cerr << fmt::format("stream: send aborted!\n");
                 break;
@@ -83,15 +91,19 @@ namespace {
                 break;
             case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
                 std::cerr << fmt::format("connection: resumption ticket received: {}!\n",
-                    buffer { event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket,event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength });
+                    buffer { event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket, event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength });
                 break;
             case QUIC_CONNECTION_EVENT_DATAGRAM_STATE_CHANGED:
                 std::cerr << fmt::format("connection: datagram state changed: SendEnabled: {} MaxSendLength: {}!\n",
                     event->DATAGRAM_STATE_CHANGED.SendEnabled, event->DATAGRAM_STATE_CHANGED.MaxSendLength);
                 break;
-            case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
-                std::cerr << fmt::format("connection: shut down by transport: {:08X}!\n", event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode);
+            case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT: {
+                MsQuicSettings settings;
+                conn->GetSettings(&settings);
+                std::cerr << fmt::format("connection: shut down by transport: ErrorCode: {:08X} Status: {:08X}!\n",
+                    event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode, (unsigned long)event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
                 break;
+            }
             case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
                 std::cerr << fmt::format("connection: shut down by peer!\n");
                 break;
@@ -119,7 +131,7 @@ int main()
     try {
         const MsQuicApi quic {};
         if (!quic.IsValid()) [[unlikely]]
-            throw error("failed to initialize MsQuic API!");
+            throw error(fmt::format("failed to initialize MsQuic API! Error: {:08X}", static_cast<unsigned long>(quic.GetInitStatus())));
         MsQuic = &quic;
         const MsQuicRegistration reg { "quicksample", QUIC_EXECUTION_PROFILE_LOW_LATENCY, true };
         const MsQuicAlpn alpn { "sample" };
@@ -127,13 +139,6 @@ int main()
             QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION
         };
         MsQuicSettings settings {};
-        settings.SetStreamRecvWindowDefault(65536);
-        settings.SetDatagramReceiveEnabled(true);
-        settings.SetSendBufferingEnabled(true);
-        settings.SetIdleTimeoutMs(1000);
-        settings.SetDisconnectTimeoutMs(1000);
-        settings.SetPeerBidiStreamCount(5);
-        settings.SetPeerUnidiStreamCount(5);
         const MsQuicConfiguration config { reg, alpn, settings, cred };
         const auto conn = new MsQuicConnection { reg, CleanUpAutoDelete, connection_callback };
         if (const auto res = conn->Start(config, "127.0.0.1", 4567); QUIC_FAILED(res)) [[unlikely]]
