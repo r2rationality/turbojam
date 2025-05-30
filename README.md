@@ -26,7 +26,7 @@ When reporting a problem, include details about your build setup to help with tr
 3. Install the necessary packages:
    ```
    sudo apt update
-   sudo apt install -y ninja-build cmake build-essential curl libboost-all-dev libfmt-dev libsodium-dev pkgconf
+   sudo apt install -y ninja-build cmake build-essential curl libboost-all-dev libfmt-dev libsodium-dev libssl-dev pkgconf
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
    . $HOME/.cargo/env
    ```
