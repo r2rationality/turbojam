@@ -267,6 +267,8 @@ int main(int argc, char **argv)
             throw error(fmt::format("failed to initialize MsQuic API! Error: {:08X}", static_cast<unsigned long>(quic.GetInitStatus())));
         MsQuic = &quic;
         const MsQuicRegistration reg { "jamnp-test", QUIC_EXECUTION_PROFILE_LOW_LATENCY, true };
+        if (!reg.IsValid()) [[unlikely]]
+            throw error(fmt::format("failed to initialize MsQuicRegistration! Error: {:08X}", static_cast<unsigned long>(reg.GetInitStatus())));
         const MsQuicAlpn alpn { "jamnp-s/0/00000000" };
         QUIC_CERTIFICATE_FILE cred_file {
             .PrivateKeyFile="client.key",
@@ -283,7 +285,11 @@ int main(int argc, char **argv)
         const MsQuicCredentialConfig cred { cred_cfg };
         MsQuicSettings settings {};
         const MsQuicConfiguration config { reg, alpn, settings, cred };
+        if (!config.IsValid()) [[unlikely]]
+            throw error(fmt::format("failed to initialize MsQuicConfiguration! Error: {:08X}", static_cast<unsigned long>(config.GetInitStatus())));
         const auto conn = new MsQuicConnection { reg, CleanUpAutoDelete, connection_callback };
+        if (!conn->IsValid()) [[unlikely]]
+            throw error(fmt::format("failed to initialize MsQuicConnection! Error: {:08X}", static_cast<unsigned long>(conn->GetInitStatus())));
         if (const auto res = conn->Start(config, server_addr, server_port); QUIC_FAILED(res)) [[unlikely]] {
             conn->Shutdown(1);
             throw error(fmt::format("connection start failed with {:08X}", static_cast<unsigned long>(res)));
