@@ -14,6 +14,11 @@
 #include <openssl/pem.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
+
+#ifdef _WIN32
+#   include <openssl/applink.c>
+#endif
+
 // include it the last since it include Windows headers
 #include <msquic.hpp>
 
@@ -234,14 +239,29 @@ namespace {
         if (err_msg)
             throw error(err_msg);
     }
+
+    template<typename T>
+    T from_str(const char *str)
+    {
+        char *end;
+        errno = 0;
+        long val = strtoll(str, &end, 10);
+        if (errno || end == str || *end != '\0') [[unlikely]]
+            throw error_sys(fmt::format("failed to parse {} from '{}'", typeid(T).name(), str));
+        return numeric_cast<T>(val);
+    }
 }
 
 const MsQuicApi *MsQuic = nullptr;
 
-int main()
+int main(int argc, char **argv)
 {
     auto exit_code = EXIT_SUCCESS;
     try {
+        if (argc != 3) [[unlikely]]
+            throw error("Usage: jamsnp-test <ipv6-addr> <port>");
+        const char *server_addr = argv[1];
+        const auto server_port = from_str<uint16_t>(argv[2]);
         const MsQuicApi quic {};
         if (!quic.IsValid()) [[unlikely]]
             throw error(fmt::format("failed to initialize MsQuic API! Error: {:08X}", static_cast<unsigned long>(quic.GetInitStatus())));
@@ -264,9 +284,9 @@ int main()
         MsQuicSettings settings {};
         const MsQuicConfiguration config { reg, alpn, settings, cred };
         const auto conn = new MsQuicConnection { reg, CleanUpAutoDelete, connection_callback };
-        if (const auto res = conn->Start(config, "127.0.0.1", 4567); QUIC_FAILED(res)) [[unlikely]] {
+        if (const auto res = conn->Start(config, server_addr, server_port); QUIC_FAILED(res)) [[unlikely]] {
             conn->Shutdown(1);
-            throw error(fmt::format("connection start failed with {:08X}", res));
+            throw error(fmt::format("connection start failed with {:08X}", static_cast<unsigned long>(res)));
         }
         std::cerr << fmt::format("connection: initiating\n");
         {
