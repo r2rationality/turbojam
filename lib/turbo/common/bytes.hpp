@@ -208,19 +208,6 @@ namespace turbo {
 
     extern void secure_clear(std::span<uint8_t> store);
 
-    struct secure_store {
-        secure_store(const std::span<uint8_t> store): _store { store }
-        {
-        }
-
-        ~secure_store()
-        {
-            secure_clear(_store);
-        }
-    private:
-        std::span<uint8_t> _store;
-    };
-
     template<size_t SZ>
     struct secure_byte_array: byte_array<SZ>
     {

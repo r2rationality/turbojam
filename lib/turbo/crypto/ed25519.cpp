@@ -10,4 +10,13 @@ namespace turbo::crypto::ed25519 {
         sodium::ensure_initialized();
         return sodium::crypto_sign_verify_detached(sig.data(), msg.data(), msg.size(), vk.data()) == 0;
     }
+
+    key_pair_t create_from_seed(const seed_t &sd)
+    {
+        sodium::ensure_initialized();
+        key_pair_t res;
+        if (sodium::crypto_sign_seed_keypair(res.vk.data(), res.sk.data(), sd.data()) != 0)
+            throw error("failed to generate a cryptographic key pair!");
+        return res;
+    }
 }

@@ -112,5 +112,5 @@ file(GLOB_RECURSE BENCH_SRCS lib/*.bench.cpp)
 add_executable(run-bench src/run-test.cpp ${BENCH_SRCS})
 target_link_libraries(run-bench PRIVATE lib 3rdparty)
 
-add_executable(test-quic src/test-quic.cpp)
-target_link_libraries(test-quic PRIVATE lib 3rdparty)
+add_executable(jamsnp-test src/jamsnp-test.cpp)
+target_link_libraries(jamsnp-test PRIVATE lib 3rdparty)

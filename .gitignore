@@ -1,6 +1,10 @@
 .idea
+.vs
+.vscode
 cmake-*
 build*
 **/*.profdata
 **/*.profraw
+**/*.cert
+**/*.key
 tmp
