@@ -188,7 +188,9 @@ namespace {
         X509_NAME *name = nullptr;
         const auto vk_name = jamsnp::cert_name_from_vk(kp.vk);
 
-        EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, kp.sk.data(), std::min(size_t { 32 }, kp.sk.size()));
+        // OpenSSL and Sodium's Secret Key sizes do not match
+        static_assert(sizeof(kp.sk) >= 32);
+        EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, kp.sk.data(), size_t { 32 });
         if (!pkey) [[unlikely]] {
             err_msg = "Failed to import a private key!";
             goto err;
