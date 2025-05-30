@@ -9,4 +9,4 @@
 	url = https://github.com/w3f/jamtestvectors
 [submodule "3rdparty/msquic"]
 	path = 3rdparty/msquic
-	url = https://github.com/microsoft/msquic.git
+	url = https://github.com/sierkov/msquic.git
