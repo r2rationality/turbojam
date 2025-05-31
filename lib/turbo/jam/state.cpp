@@ -446,7 +446,8 @@ namespace turbo::jam {
     void state_t<CONSTANTS>::update_time(const time_slot_t<CONSTANTS> &slot)
     {
         // JAM (5.7)
-        if (slot <= tau || slot > time_slot_t<CONSTANTS>::current()) [[unlikely]]
+        // Bootstrapping: allow slot 0 when the history is empty
+        if ((!beta.empty() && slot <= tau) || slot > time_slot_t<CONSTANTS>::current()) [[unlikely]]
             throw err_bad_slot_t {};
         // JAM (6.1)
         tau = slot;
@@ -897,7 +898,7 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    state_t<CONSTANTS> &state_t<CONSTANTS>::operator=(const boost::json::object &j_state)
+    state_t<CONSTANTS> &state_t<CONSTANTS>::operator=(const state_dict_t &st)
     {
         using preimage_hh_t = byte_array_t<23>;
         struct lookup_request_t {
@@ -945,9 +946,7 @@ namespace turbo::jam {
         };
         // TODO: verify that deserialization always clears the previous state!
         using namespace std::string_view_literals;
-        for (const auto &[jk, jv]: j_state) {
-            const auto key = state_key_t::from_hex(jk);
-            const auto bytes = uint8_vector::from_hex(boost::json::value_to<std::string_view>(jv));
+        for (const auto &[key, bytes]: st) {
             decoder dec { bytes };
             const auto ksum = std::accumulate(key.begin() + 1, key.end(), size_t { 0 });
             const auto k2sum = key[2] + key[4] + key[6] + std::accumulate(key.begin() + 8, key.end(), size_t { 0 });

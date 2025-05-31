@@ -4,10 +4,10 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <turbo/common/bytes.hpp>
+#include <turbo/jam/types/common.hpp>
 
 namespace turbo::jam::merkle {
-    using hash_t = byte_array<32>;
+    using hash_t = byte_array_t<32>;
     using hash_span_t = std::span<uint8_t, sizeof(hash_t)>;
 
     struct node_t {
@@ -20,9 +20,14 @@ namespace turbo::jam::merkle {
         }
     };
 
+    struct input_map_config_t {
+        std::string key_name = "key";
+        std::string val_name = "value";
+    };
+
     namespace trie {
-        using key_t = byte_array<31>;
-        using input_map_t = std::map<key_t, uint8_vector>;
+        using key_t = byte_array_t<31>;
+        using input_map_t = map_t<key_t, byte_sequence_t, input_map_config_t>;
 
         extern void encode_blake2b(const hash_span_t &out, const input_map_t &tree);
         extern void encode_keccak(const hash_span_t &out, const input_map_t &tree);

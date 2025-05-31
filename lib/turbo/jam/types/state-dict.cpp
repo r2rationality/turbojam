@@ -7,6 +7,16 @@
 #include "state-dict.hpp"
 
 namespace turbo::jam {
+    state_dict_t state_dict_t::from_genesis_json(const boost::json::value &j)
+    {
+        const auto &j_state = j.as_object();
+        state_dict_t st {};
+        for (const auto &[jk, jv]: j_state) {
+            st[state_key_t::from_hex<state_key_t>(jk)] = uint8_vector::from_hex(boost::json::value_to<std::string_view>(jv));
+        }
+        return st;
+    }
+
     state_key_t state_dict_t::make_key(const uint8_t id)
     {
         state_key_t res {};
@@ -43,12 +53,5 @@ namespace turbo::jam {
         static_assert(sizeof(res) - 8 == sizeof(h) - 4);
         memcpy(res.data() + 8, h.data() + 4, h.size() - 4);
         return res;
-    }
-
-    state_root_t state_dict_t::root() const
-    {
-        state_root_t root;
-        merkle::trie::encode_blake2b(root, *this);
-        return root;
     }
 }

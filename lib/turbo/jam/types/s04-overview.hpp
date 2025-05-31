@@ -180,7 +180,7 @@ namespace turbo::jam {
 
         // export & import
         state_dict_t state_dict() const;
-        state_t &operator=(const boost::json::object &);
+        state_t &operator=(const state_dict_t &);
 
         // JAM (4.1): Kapital upsilon
         void apply(const block_t<CONSTANTS> &);

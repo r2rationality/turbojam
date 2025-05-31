@@ -39,14 +39,7 @@ suite turbo_jam_chain_suite = [] {
         };
         "state root"_test = [] {
             const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
-            const auto j_state = j_cfg.at("genesis_state").as_object();
-            state_dict_t st {};
-            for (const auto &[jk, jv]: j_state) {
-                st.try_emplace(
-                    state_key_t::from_hex(jk),
-                    uint8_vector::from_hex(boost::json::value_to<std::string_view>(jv))
-                );
-            }
+            const state_dict_t st = state_dict_t::from_genesis_json(j_cfg.at("genesis_state"));
             expect_equal(
                 state_root_t::from_hex("957C2FDE59ED6EC1249BBE4CAB260B29BE0A03504181A491CE8C9522661CD3A6"),
                 st.root()

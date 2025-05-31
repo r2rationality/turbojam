@@ -17,7 +17,7 @@ namespace turbo::jam {
         decoder dec { genesis_header_raw };
         dec.process(_genesis_header);
 
-        _state = j_cfg.at("genesis_state").as_object();
+        _state = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
     }
 
     template struct chain_t<config_prod>;
