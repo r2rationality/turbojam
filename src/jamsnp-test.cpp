@@ -37,8 +37,7 @@ namespace {
     uint8_vector make_block_request(const jam::header_hash_t &hh, const uint32_t max_blocks, const block_direction_t direction=block_direction_t::ascending)
     {
         uint8_vector res {};
-        res.reserve(1 + sizeof(hh) + 1 + sizeof(max_blocks));
-        res << 128;
+        res.reserve(sizeof(hh) + 1 + sizeof(max_blocks));
         res << hh;
         res << static_cast<uint8_t>(direction);
         res << buffer::from(max_blocks);
@@ -49,11 +48,15 @@ namespace {
         switch (event->Type) {
             case QUIC_STREAM_EVENT_START_COMPLETE: {
                 std::cerr << fmt::format("stream: start complete\n");
-                // CE 128: Block request
                 const auto msg = make_block_request({}, 1);
-                const auto buf_scope = new QuicBufferScope { numeric_cast<uint32_t>(msg.size()) };
+		const uint32_t msg_len = msg.size();
+		static_assert(sizeof(msg_len) == 4);
+                const auto buf_scope = new QuicBufferScope { numeric_cast<uint32_t>(1ULL + sizeof(msg_len) + msg.size()) };
                 const auto buf = static_cast<QUIC_BUFFER *>(*buf_scope);
-                memcpy(buf->Buffer, msg.data(), msg.size());
+                // CE 128: Block request
+		buf->Buffer[0] = 128;
+                memcpy(buf->Buffer + 1, &msg_len, sizeof(msg_len));
+                memcpy(buf->Buffer + 5, msg.data(), msg.size());
                 if (const auto res = stream->Send(buf, 1, QUIC_SEND_FLAG_FIN, buf_scope); QUIC_FAILED(res)) [[unlikely]] {
                     std::cerr << fmt::format("stream: send failed with code {:08X}\n", res);
                     stream->ConnectionShutdown(1);
@@ -109,6 +112,25 @@ namespace {
         }
     }
 
+    std::string stringify_cert(X509 *x509)
+    {
+	if (x509) {
+	    BIO *bio = BIO_new(BIO_s_mem());
+	    if (bio) {
+		X509_print(bio, x509);
+		char *data;
+		auto data_len = BIO_get_mem_data(bio, &data);
+		std::string res { data, numeric_cast<size_t>(data_len) };
+		BIO_free(bio);
+		return res;
+	    } else {
+		return "failed to allocate a BIO for the cert";
+	    }
+	} else {
+	    return "nullptr";
+	}
+    }
+
     QUIC_STATUS QUIC_API connection_callback(MsQuicConnection* conn, void* /*ctx*/, QUIC_CONNECTION_EVENT *event)
     {
         switch (event->Type) {
@@ -116,6 +138,11 @@ namespace {
                 std::cerr << fmt::format("connection: connected!\n");
                 send_data(*conn);
                 break;
+	    case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED: {
+		X509 *x509 = reinterpret_cast<X509 *>(event->PEER_CERTIFICATE_RECEIVED.Certificate);
+                std::cerr << fmt::format("connection: peer certificate received:\n{}!\n", stringify_cert(x509));
+		break;
+	    }
             case QUIC_CONNECTION_EVENT_STREAMS_AVAILABLE:
                 std::cerr << fmt::format("connection: streams available uni: {} bidi: {}!\n",
                     event->STREAMS_AVAILABLE.UnidirectionalCount, event->STREAMS_AVAILABLE.BidirectionalCount);
@@ -155,34 +182,17 @@ namespace {
 
     void cert_set_alt_name(X509 *x509, const std::string &name)
     {
-        const char *err_msg = nullptr;
-        X509_EXTENSION *extension_san = nullptr;
-        ASN1_OCTET_STRING *subject_alt_name_ASN1 = nullptr;
-
-        subject_alt_name_ASN1 = ASN1_OCTET_STRING_new();
-        if (!subject_alt_name_ASN1) [[unlikely]] {
-            err_msg = "OpenSSL failed to allocate memory for the alternative name!";
-            goto err;
-        }
-        if (!ASN1_OCTET_STRING_set(subject_alt_name_ASN1, reinterpret_cast<const uint8_t*>(name.data()), name.size())) [[unlikely]] {
-            err_msg = "OpenSSL failed to copy an alternative name value!";
-            goto err;
-        }
-        if (!X509_EXTENSION_create_by_NID(&extension_san, NID_subject_alt_name, 0, subject_alt_name_ASN1)) [[unlikely]] {
-            err_msg = "OpenSSL failed to set an alternative name value!";
-            goto err;
-        }
-        if (!X509_add_ext(x509, extension_san, -1)) [[unlikely]] {
-            err_msg = "OpenSSL failed to set the alternative name extension!";
-            goto err;
-        }
-    err:
-        if (subject_alt_name_ASN1)
-            ASN1_OCTET_STRING_free(subject_alt_name_ASN1);
-        if (extension_san)
-            X509_EXTENSION_free(extension_san);
-        if (err_msg)
-            throw error(err_msg);
+	// TODO: add error checking
+	GENERAL_NAMES *gens = sk_GENERAL_NAME_new_null();
+	GENERAL_NAME *gen = GENERAL_NAME_new();
+	ASN1_IA5STRING *dns = ASN1_IA5STRING_new();
+	ASN1_STRING_set(dns, name.data(), name.size());
+	GENERAL_NAME_set0_value(gen, GEN_DNS, dns);
+	sk_GENERAL_NAME_push(gens, gen);
+	X509_EXTENSION *ext = X509V3_EXT_i2d(NID_subject_alt_name, 0, gens);
+	X509_add_ext(x509, ext, -1);
+	X509_EXTENSION_free(ext);
+	sk_GENERAL_NAME_pop_free(gens, GENERAL_NAME_free);
     }
 
     void write_cert(const QUIC_CERTIFICATE_FILE &cert_file, const crypto::ed25519::key_pair_t &kp)
@@ -206,9 +216,10 @@ namespace {
             err_msg = "Failed to create a x509 certificate!";
             goto err;
         }
+	X509_set_version(x509, 2);
         ASN1_INTEGER_set(X509_get_serialNumber(x509), 1);
         X509_gmtime_adj(X509_get_notBefore(x509), 0);
-        X509_gmtime_adj(X509_get_notAfter(x509), 31536000L); // valid for 1 year
+        X509_gmtime_adj(X509_get_notAfter(x509), 3600L * 24 * 265 * 100); 
         X509_set_pubkey(x509, pkey);
         cert_set_alt_name(x509, vk_name);
 
@@ -229,6 +240,7 @@ namespace {
         // closed in the clean up section
 
         std::cerr << fmt::format("Generated {} and {}\n", cert_file.PrivateKeyFile, cert_file.CertificateFile);
+	std::cerr << fmt::format("{}\n", stringify_cert(x509));
     err:
         if (f)
             fclose(f);
@@ -269,7 +281,7 @@ int main(int argc, char **argv)
         const MsQuicRegistration reg { "jamnp-test", QUIC_EXECUTION_PROFILE_LOW_LATENCY, true };
         if (!reg.IsValid()) [[unlikely]]
             throw error(fmt::format("failed to initialize MsQuicRegistration! Error: {:08X}", static_cast<unsigned long>(reg.GetInitStatus())));
-        const MsQuicAlpn alpn { "jamnp-s/0/00000000" };
+        const MsQuicAlpn alpn { "jamnp-s/0/b5af8eda" };
         QUIC_CERTIFICATE_FILE cred_file {
             .PrivateKeyFile="client.key",
             .CertificateFile="client.cert"
@@ -278,9 +290,11 @@ int main(int argc, char **argv)
             const auto key_pair = crypto::ed25519::create_from_seed(crypto::ed25519::seed_t::from_hex("0000000000000000000000000000000000000000000000000000000000000000"));
             write_cert(cred_file, key_pair);
         }
-        QUIC_CREDENTIAL_CONFIG cred_cfg;
+        QUIC_CREDENTIAL_CONFIG cred_cfg {};
         cred_cfg.Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE;
-        cred_cfg.Flags = QUIC_CREDENTIAL_FLAG_CLIENT | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION;
+        cred_cfg.Flags = QUIC_CREDENTIAL_FLAG_CLIENT
+		| QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION
+		| QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED;
         cred_cfg.CertificateFile = &cred_file;
         const MsQuicCredentialConfig cred { cred_cfg };
         MsQuicSettings settings {};
@@ -290,7 +304,7 @@ int main(int argc, char **argv)
         const auto conn = new MsQuicConnection { reg, CleanUpAutoDelete, connection_callback };
         if (!conn->IsValid()) [[unlikely]]
             throw error(fmt::format("failed to initialize MsQuicConnection! Error: {:08X}", static_cast<unsigned long>(conn->GetInitStatus())));
-        if (const auto res = conn->Start(config, server_addr, server_port); QUIC_FAILED(res)) [[unlikely]] {
+        if (const auto res = conn->Start(config, QUIC_ADDRESS_FAMILY_INET6, server_addr, server_port); QUIC_FAILED(res)) [[unlikely]] {
             conn->Shutdown(1);
             throw error(fmt::format("connection start failed with {:08X}", static_cast<unsigned long>(res)));
         }
