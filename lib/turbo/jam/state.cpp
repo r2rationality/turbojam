@@ -925,8 +925,6 @@ namespace turbo::jam {
                     byte_sequence_t data { dec.next_bytes(dec.size()) };
                     const auto h = crypto::blake2b::digest<opaque_hash_t>(data);
                     service.preimages[h] = std::move(data);
-                    std::cout << fmt::format("service: {} preimage: hash: {} hh: {} size: {}\n",
-                        service_id, h, crypto::blake2b::digest(h), data.size());
                     break;
                 }
                 default: {

@@ -10,9 +10,11 @@ namespace turbo::jam {
     template<typename CONFIG>
     struct chain_t {
         explicit chain_t(const std::string &spec_path);
-        const header_t<CONFIG> &genesis_header() const { return _genesis_header; }
-        const state_t<CONFIG> &state() const { return _state; }
+        [[nodiscard]] const std::string &id() const { return _id; }
+        [[nodiscard]] const header_t<CONFIG> &genesis_header() const { return _genesis_header; }
+        [[nodiscard]] const state_t<CONFIG> &state() const { return _state; }
     private:
+        std::string _id;
         header_t<CONFIG> _genesis_header;
         state_t<CONFIG> _state {};
     };

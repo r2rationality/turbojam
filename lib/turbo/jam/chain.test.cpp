@@ -39,6 +39,7 @@ suite turbo_jam_chain_suite = [] {
         };
         "parse config"_test = [] {
             const chain_t<config_tiny> chain { file::install_path("etc/devnet/dev-spec.json") };
+            expect_equal("dev", chain.id());
             expect_equal(
                 header_hash_t::from_hex("B5AF8EDAD70D962097EEFA2CEF92C8284CF0A7578B70A6B7554CF53AE6D51222"),
                 chain.genesis_header().hash()
