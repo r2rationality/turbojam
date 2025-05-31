@@ -9,7 +9,7 @@ namespace turbo::jam {
     template<typename CONFIG>
     chain_t<CONFIG>::chain_t(const std::string &spec_path)
     {
-        const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
+        const auto j_cfg = codec::json::load(spec_path);
 
         _id = boost::json::value_to<std::string_view>(j_cfg.at("id"));
 

@@ -882,13 +882,14 @@ namespace turbo::jam {
             for (const auto &[k, v]: s.preimages) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 2ULL);
-                memcpy(kh.data() + 4, k.data(), kh.size() - 4);
+                memcpy(kh.data() + 4, k.data() + 1, kh.size() - 4);
                 st.emplace(state_dict_t::make_key(s_id, kh), v);
             }
             for (const auto &[k, v]: s.lookup_metas) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, k.length);
-                memcpy(kh.data() + 4, k.hash.data(), kh.size() - 4);
+                const auto hh = crypto::blake2b::digest(k.hash);
+                memcpy(kh.data() + 4, hh.data() + 2, kh.size() - 4);
                 st.emplace(state_dict_t::make_key(s_id, kh), encode(v));
             }
         }
