@@ -20,7 +20,10 @@ suite turbo_jam_devnet_suite = [] {
             const auto genesis_header_bytes = uint8_vector::from_hex(boost::json::value_to<std::string_view>(j_cfg.at("genesis_header")));
             decoder dec { genesis_header_bytes };
             const auto genesis_header = codec::from<header_t<config_tiny>>(dec);
-            expect(true);
+            expect_equal(
+                header_hash_t::from_hex("B5AF8EDAD70D962097EEFA2CEF92C8284CF0A7578B70A6B7554CF53AE6D51222"),
+                genesis_header.hash()
+            );
 
             const auto &genesis_state = j_cfg.at("genesis_state").as_object();
             state_dict_t state_dict {};

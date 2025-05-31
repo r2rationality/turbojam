@@ -17,6 +17,7 @@
 #include <turbo/jam/encoding.hpp>
 #include "errors.hpp"
 #include "constants.hpp"
+#include "turbo/crypto/blake2b.hpp"
 
 namespace turbo::jam {
     // jam-types.asn
@@ -1613,6 +1614,15 @@ namespace turbo::jam {
         bandersnatch_vrf_signature_t entropy_source;
         // H_s
         bandersnatch_vrf_signature_t seal;
+
+        [[nodiscard]] header_hash_t hash() const
+        {
+            header_hash_t res;
+            encoder enc {};
+            enc.process(*this);
+            crypto::blake2b::digest(res, enc.bytes());
+            return res;
+        }
 
         void serialize(auto &archive)
         {
