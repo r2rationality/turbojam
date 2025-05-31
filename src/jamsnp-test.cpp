@@ -155,13 +155,10 @@ namespace {
                 std::cerr << fmt::format("connection: datagram state changed: SendEnabled: {} MaxSendLength: {}!\n",
                     event->DATAGRAM_STATE_CHANGED.SendEnabled, event->DATAGRAM_STATE_CHANGED.MaxSendLength);
                 break;
-            case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT: {
-                MsQuicSettings settings;
-                conn->GetSettings(&settings);
+            case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
                 std::cerr << fmt::format("connection: shut down by transport: ErrorCode: {:08X} Status: {:08X}!\n",
-                    event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode, (unsigned long)event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status);
+                    event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode, static_cast<unsigned long>(event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status));
                 break;
-            }
             case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
                 std::cerr << fmt::format("connection: shut down by peer!\n");
                 break;
