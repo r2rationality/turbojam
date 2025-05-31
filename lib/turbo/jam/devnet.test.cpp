@@ -20,11 +20,24 @@ suite turbo_jam_devnet_suite = [] {
             decoder dec { block_raw };
             const auto msg_size = dec.uint_fixed<size_t>(4);
             expect_equal(msg_size, block_raw.size() - 4);
-            const auto block = codec::from<block_t<config_tiny>>(dec);
+            const auto block1 = codec::from<block_t<config_tiny>>(dec);
             expect_equal(
                 header_hash_t::from_hex("B5AF8EDAD70D962097EEFA2CEF92C8284CF0A7578B70A6B7554CF53AE6D51222"),
-                block.header.hash()
+                block1.header.hash()
             );
+            const auto block2 = codec::from<block_t<config_tiny>>(dec);
+            expect_equal(
+                header_hash_t::from_hex("00E02D4EDC3076BD604A81EBFBC7D9CE6EE1C48705CE313136B78B873B29FFE2"),
+                block2.header.hash()
+            );
+            expect_equal(block1.header.hash(), block2.header.parent);
+            const auto block3 = codec::from<block_t<config_tiny>>(dec);
+            expect_equal(
+                header_hash_t::from_hex("5FF61E1F3F7C3483CD80E2464961BC2AD17D9B3BDCE57F21160EC6E7DB12F296"),
+                block3.header.hash()
+            );
+            expect_equal(block2.header.hash(), block3.header.parent);
+            expect(dec.empty());
         };
         "parse config"_test = [] {
             const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
@@ -42,7 +55,7 @@ suite turbo_jam_devnet_suite = [] {
                 state_dict.emplace(state_key_t::from_hex(k), byte_sequence_t::from_hex(v.as_string()));
             }
             const auto genesis_root = state_dict.root();
-            expect_equal(state_root_t::from_hex("DB29024A82CA5F628A2DABE26B896DAA7C8AF44D6752CD31528589E68ECC84C9"), genesis_root);
+            expect_equal(state_root_t::from_hex("957C2FDE59ED6EC1249BBE4CAB260B29BE0A03504181A491CE8C9522661CD3A6"), genesis_root);
         };
     };
 };
