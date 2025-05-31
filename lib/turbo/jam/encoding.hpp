@@ -198,6 +198,13 @@ namespace turbo::jam {
     };
 
     struct decoder: codec::archive_t {
+        template<typename T>
+        static T uint_fixed(const buffer bytes)
+        {
+            decoder dec { bytes };
+            return dec.uint_fixed<T>(bytes.size());
+        }
+
         explicit decoder(const buffer bytes) noexcept:
             _ptr { bytes.data() },
             _end { bytes.data() + bytes.size() }

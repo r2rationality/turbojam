@@ -69,10 +69,19 @@ namespace turbo::jam {
     // JAM (6.3) - Changed: new order k, y_z, y_s, y_a but not reflected in the tests yet
     template<typename CONSTANTS=config_prod>
     struct safrole_state_t {
-        tickets_accumulator_t<CONSTANTS> a {}; // prior sealing key ticket accumulator
         validators_data_t<CONSTANTS> k {}; // prior next epoch validator keys and metadata
-        tickets_or_keys_t<CONSTANTS> s; // prior sealing key series
         bandersnatch_ring_commitment_t z {}; // prior bandersnatch ring commitment
+        tickets_or_keys_t<CONSTANTS> s; // prior sealing key series
+        tickets_accumulator_t<CONSTANTS> a {}; // prior sealing key ticket accumulator
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("k"sv, k);
+            archive.process("z"sv, z);
+            archive.process("s"sv, s);
+            archive.process("a"sv, a);
+        }
 
         bool operator==(const safrole_state_t &o) const noexcept;
     };
@@ -169,7 +178,9 @@ namespace turbo::jam {
         ready_queue_t<CONSTANTS> nu {}; // work reports ready to be accumulated
         accumulated_queue_t<CONSTANTS> ksi {}; // recently accumulated reports
 
+        // export & import
         state_dict_t state_dict() const;
+        state_t &operator=(const boost::json::object &);
 
         // JAM (4.1): Kapital upsilon
         void apply(const block_t<CONSTANTS> &);

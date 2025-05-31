@@ -11,9 +11,11 @@ namespace turbo::crypto::blake2b
 
     extern void digest(const hash_span_t &out, const buffer &in);
 
-    inline hash_t digest(const buffer &in)
+    template<typename T=hash_t>
+    T digest(const buffer &in)
     {
-        hash_t out;
+        static_assert(sizeof(T) == sizeof(hash_t));
+        T out;
         digest(out, in);
         return out;
     }

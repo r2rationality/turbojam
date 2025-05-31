@@ -3,8 +3,10 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <algorithm>
 #include <iostream>
 #include <ark-vrf-cpp.hpp>
+#include <numeric>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
 #include "types/errors.hpp"
@@ -891,6 +893,110 @@ namespace turbo::jam {
             }
         }
         return st;
+    }
+
+    template<typename CONSTANTS>
+    state_t<CONSTANTS> &state_t<CONSTANTS>::operator=(const boost::json::object &j_state)
+    {
+        using preimage_hh_t = byte_array_t<23>;
+        struct lookup_request_t {
+            service_id_t service_id;
+            preimage_hh_t hh;
+            uint32_t l;
+            lookup_meta_map_val_t<CONSTANTS> meta;
+        };
+
+        std::vector<lookup_request_t> lookup_requests {};
+        const auto decode_service_info = [&](const state_key_t &key, decoder &dec) {
+            const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
+            dec.process(delta[service_id].info);
+        };
+        const auto decode_service_data = [&](const state_key_t &key, decoder &dec) {
+            const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[0], key[2], key[4], key[6] });
+            auto &service = delta[service_id];
+            const auto typ = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
+            switch (typ) {
+                case 0xFFFFFFFFU: {
+                    byte_sequence_t data { dec.next_bytes(dec.size()) };
+                    service.storage[crypto::blake2b::digest<opaque_hash_t>(data)] = std::move(data);
+                    break;
+                }
+                case 0xFFFFFFFEU: {
+                    byte_sequence_t data { dec.next_bytes(dec.size()) };
+                    const auto h = crypto::blake2b::digest<opaque_hash_t>(data);
+                    service.preimages[h] = std::move(data);
+                    std::cout << fmt::format("service: {} preimage: hash: {} hh: {} size: {}\n",
+                        service_id, h, crypto::blake2b::digest(h), data.size());
+                    break;
+                }
+                default: {
+                    const buffer meta_hh { key.data() + 8, key.size() - 8 };
+                    lookup_meta_map_val_t<CONSTANTS> meta;
+                    dec.process(meta);
+                    lookup_requests.emplace_back(service_id, meta_hh, typ, std::move(meta));
+                    break;
+                }
+            }
+        };
+        const auto decode_state_item_or_service_data = [&](const state_key_t &key, decoder &dec, const size_t ksum, auto &item) {
+            if (ksum == 0)
+                dec.process(item);
+            else
+                decode_service_data(key, dec);
+        };
+        // TODO: verify that deserialization always clears the previous state!
+        using namespace std::string_view_literals;
+        for (const auto &[jk, jv]: j_state) {
+            const auto key = state_key_t::from_hex(jk);
+            const auto bytes = uint8_vector::from_hex(boost::json::value_to<std::string_view>(jv));
+            decoder dec { bytes };
+            const auto ksum = std::accumulate(key.begin() + 1, key.end(), size_t { 0 });
+            const auto k2sum = key[2] + key[4] + key[6] + std::accumulate(key.begin() + 8, key.end(), size_t { 0 });
+            switch (const auto typ = key[0]; typ) {
+                case 1: decode_state_item_or_service_data(key, dec, ksum, alpha); break;
+                case 2: decode_state_item_or_service_data(key, dec, ksum, phi); break;
+                case 3: decode_state_item_or_service_data(key, dec, ksum, beta); break;
+                case 4: decode_state_item_or_service_data(key, dec, ksum, gamma); break;
+                case 5: decode_state_item_or_service_data(key, dec, ksum, psi); break;
+                case 6: decode_state_item_or_service_data(key, dec, ksum, eta); break;
+                case 7: decode_state_item_or_service_data(key, dec, ksum, iota); break;
+                case 8: decode_state_item_or_service_data(key, dec, ksum, kappa); break;
+                case 9: decode_state_item_or_service_data(key, dec, ksum, lambda); break;
+                case 10: decode_state_item_or_service_data(key, dec, ksum, rho); break;
+                case 11: decode_state_item_or_service_data(key, dec, ksum, tau); break;
+                case 12: decode_state_item_or_service_data(key, dec, ksum, chi); break;
+                case 13: decode_state_item_or_service_data(key, dec, ksum, pi); break;
+                case 14: decode_state_item_or_service_data(key, dec, ksum, nu); break;
+                case 15: decode_state_item_or_service_data(key, dec, ksum, ksi); break;
+                case 255:
+                    if (k2sum == 0)
+                        decode_service_info(key, dec);
+                    else
+                        decode_service_data(key, dec);
+                    break;
+                default:
+                    decode_service_data(key, dec);
+                    break;
+            }
+        }
+        // Resolve metadata hashes
+        // Slow!!! But this is OK for genesis_state decoding
+        for (auto &&lr: lookup_requests) {
+            auto &service = delta[lr.service_id];
+            std::optional<opaque_hash_t> meta_hash {};
+            for (const auto &[h, p]: service.preimages) {
+                const auto hh = crypto::blake2b::digest<opaque_hash_t>(h);
+                if (buffer { hh }.subbuf(2, 23) == lr.hh) {
+                    meta_hash.emplace(h);
+                    break;
+                }
+            }
+            if (!meta_hash) [[unlikely]]
+                throw error(fmt::format("failed to recover preimage with its hash's hash: {}", lr.hh));
+            lookup_meta_map_key_t meta_key { *meta_hash, lr.l };
+            service.lookup_metas[std::move(meta_key)] = std::move(lr.meta);
+        }
+        return *this;
     }
 
     template struct state_t<config_prod>;
