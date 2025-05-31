@@ -48,7 +48,7 @@ namespace {
         switch (event->Type) {
             case QUIC_STREAM_EVENT_START_COMPLETE: {
                 std::cerr << fmt::format("stream: start complete\n");
-                const auto msg = make_block_request({}, 1);
+                const auto msg = make_block_request({}, 256);
 		const uint32_t msg_len = msg.size();
 		static_assert(sizeof(msg_len) == 4);
                 const auto buf_scope = new QuicBufferScope { numeric_cast<uint32_t>(1ULL + sizeof(msg_len) + msg.size()) };
