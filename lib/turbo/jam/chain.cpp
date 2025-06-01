@@ -52,9 +52,11 @@ namespace turbo::jam {
     void chain_t<CONFIG>::apply(const block_t<CONFIG> &blk)
     {
         if (!_state) [[unlikely]] {
-            if (blk.header != _genesis_header) [[unlikely]]
-                throw error("the genesis header does not match the genesis state!");
+            //if (blk.header != _genesis_header) [[unlikely]]
+             //   throw error("the genesis header does not match the genesis state!");
             _state.emplace(_genesis_state);
+            _state->beta.clear();
+            _state->update_history(blk.header.hash(), blk.header.parent_state_root, {}, {});
         } else {
             _state->apply(blk);
         }

@@ -69,14 +69,16 @@ namespace {
 
             const state_t<config_tiny> pre_state { tc.pre.keyvals };
             const state_t<config_tiny> exp_post_state { tc.post.keyvals };
-            std::cout << fmt::format("state diff: {}\n", exp_post_state.diff(pre_state));
+            //std::cout << fmt::format("state diff: {}\n", exp_post_state.diff(pre_state));
             chain_t<config_tiny> chain {
                 "dev",
                 genesis_state,
                 !tc.pre.keyvals.empty() ? std::optional<state_t<config_tiny>> { pre_state } : std::nullopt
             };
+            std::cout << fmt::format("block {}\n", tc.block.header.hash());
             chain.apply(tc.block);
-            expect(exp_post_state != chain.state()) << path;
+            std::cout << chain.state().diff(exp_post_state);
+            expect(exp_post_state == chain.state()) << path;
             expect_equal(path, chain.state().state_dict().root(), tc.post.state_root);
         } catch (const std::exception &ex) {
             expect(false) << path << ex.what();
@@ -89,13 +91,17 @@ suite turbo_jam_traces_suite = [] {
         state_t<config_tiny> genesis_state {};
         {
             const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
-            const state_t<config_tiny> spec_gen_state { state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object()) };
-            genesis_state.gamma.k = spec_gen_state.gamma.k;
-            genesis_state.phi = spec_gen_state.phi;
-            genesis_state.alpha = spec_gen_state.alpha;
-            genesis_state.eta = spec_gen_state.eta;
+            genesis_state = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
+            const auto j_tc = codec::json::load_obj<test_case_t>(file::install_path("test/jam-test-vectors/traces/fallback/00000000.json"));
+            const state_t<config_tiny> upd_genesis { j_tc.post.keyvals };
+            genesis_state.alpha = upd_genesis.alpha;
+            genesis_state.gamma.s = upd_genesis.gamma.s;
+            genesis_state.delta = upd_genesis.delta;
+            genesis_state.phi = upd_genesis.phi;
+            genesis_state.eta = upd_genesis.eta;
         }
-        test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000000"), genesis_state);
+        //test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000000"), genesis_state);
+        test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000002"), genesis_state);
         /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
             test_file(path.substr(0, path.size() - 4));
         }

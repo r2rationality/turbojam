@@ -404,9 +404,8 @@ namespace turbo::jam {
     }
 
     template<typename T>
-    T load_obj(const std::string &path)
+    T from_bytes(const buffer bytes)
     {
-        const auto bytes = file::read(path);
         decoder dec { bytes };
         if constexpr (from_bytes_c<T>) {
             return T::from_bytes(dec);
@@ -415,5 +414,12 @@ namespace turbo::jam {
         } else {
             throw error(fmt::format("binary deserialization not support for type {}", typeid(T).name()));
         }
+    }
+
+    template<typename T>
+    T load_obj(const std::string &path)
+    {
+        const auto bytes = file::read(path);
+        return from_bytes<T>(bytes);
     }
 }

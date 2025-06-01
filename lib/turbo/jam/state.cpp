@@ -79,7 +79,7 @@ namespace turbo::jam {
         auto oit = std::back_inserter(res);
         const auto compare_item = [&](const std::string_view &name, const auto &a, const auto &b) {
             if (a != b)
-                oit = fmt::format_to(oit, "{}: {}\n{} before {}\n", name, a, name, b);
+                oit = fmt::format_to(oit, "{} left: {}\n{} right {}\n", name, a, name, b);
         };
         compare_item("alpha"sv, alpha, o.alpha);
         compare_item("beta"sv, beta, o.beta);
@@ -823,13 +823,13 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    void state_t<CONSTANTS>::update_history(const header_hash_t &hh, const state_root_t &state_root, const opaque_hash_t &accumulation_result, const reported_work_seq_t &wp)
+    void state_t<CONSTANTS>::update_history(const header_hash_t &hh, const state_root_t &state_root, const std::optional<opaque_hash_t> &accumulation_result, const reported_work_seq_t &wp)
     {
         static mmr_t empty_mmr {};
         const mmr_t &prev_mmr = beta.empty() ? empty_mmr : beta.at(beta.size() - 1).mmr;
         block_info_t bi {
             .header_hash=hh,
-            .mmr=prev_mmr.append(accumulation_result),
+            .mmr=accumulation_result ? prev_mmr.append(*accumulation_result) : prev_mmr,
             .reported=wp
         };
         if (!beta.empty()) [[likely]]

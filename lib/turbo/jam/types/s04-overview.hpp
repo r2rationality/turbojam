@@ -234,7 +234,7 @@ namespace turbo::jam {
         // JAM (4.5)
         void update_time(const time_slot_t<CONSTANTS> &slot);
         // JAM (4.6)
-        void update_history(const header_hash_t &hh, const state_root_t &sr, const opaque_hash_t &ar, const reported_work_seq_t &wp);
+        void update_history(const header_hash_t &hh, const state_root_t &sr, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
         // JAM (4.7)
         // JAM (4.8)
         // JAM (4.9)
