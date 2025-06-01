@@ -7,4 +7,5 @@ build*
 **/*.profraw
 **/*.cert
 **/*.key
+**/*.log
 tmp
