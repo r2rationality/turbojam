@@ -56,6 +56,161 @@ namespace turbo::codec {
     template<typename T>
     concept serializable_c = requires(T t, archive_t a)
     {
-        { t.serialize(a) };
+        { t.serialize(a) } -> std::same_as<void>;
+    };
+
+    template<typename T>
+    concept not_serializable_c = !serializable_c<T>;
+
+    template<typename OUT_IT>
+    struct formatter: archive_t {
+        explicit formatter(OUT_IT it):
+            _it { std::move(it) }
+        {
+        }
+
+        void push(const std::string_view)
+        {
+        }
+
+        void pop()
+        {
+        }
+
+        template<typename T>
+        void format(const T &val)
+        {
+            if constexpr (serializable_c<T>) {
+                const_cast<T &>(val).serialize(*this);
+            } else if constexpr (std::is_same_v<T, uint8_t>
+                    || std::is_same_v<T, uint16_t>
+                    || std::is_same_v<T, uint32_t>
+                    || std::is_same_v<T, uint64_t>
+                    || std::is_same_v<T, int64_t>
+                    || std::is_same_v<T, bool>
+                    || std::is_same_v<T, std::string_view>
+                    || std::is_same_v<T, std::string>) {
+                _it = fmt::format_to(_it, "{}", val);
+            } else {
+                throw error(fmt::format("formatter serialization is not enabled for type {}", typeid(T).name()));
+            }
+        }
+
+        void process_varlen_uint(const auto &val)
+        {
+            format(val);
+        }
+
+        void process_uint(const auto &val)
+        {
+            format(val);
+        }
+
+        void process(const auto &val)
+        {
+            format(val);
+        }
+
+        void process(const std::string_view name, const auto &val)
+        {
+            _it = fmt::format_to(_it, "{}: ", name);
+            format(val);
+            _it = fmt::format_to(_it, "\n{:{}}", "", _depth * 4);
+        }
+
+        void process_map(const auto &m, const std::string_view, const std::string_view)
+        {
+            _it = fmt::format_to(_it, "{{");
+            if (!m.empty()) {
+                ++_depth;
+                _it = fmt::format_to(_it, "\n");
+                for (const auto &[k, v]: m) {
+                    _it = fmt::format_to(_it, "{:{}}", "", _depth * 4);
+                    format(k);
+                    _it = fmt::format_to(_it, ": ");
+                    format(v);
+                    _it = fmt::format_to(_it, "\n");
+                }
+                --_depth;
+                _it = fmt::format_to(_it, "{:{}}", "", _depth * 4);
+            }
+            _it = fmt::format_to(_it, "}}(size: {})", m.size());
+        }
+
+        void process_array(const auto &arr, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
+        {
+            _it = fmt::format_to(_it, "[");
+            if (!arr.empty()) {
+                ++_depth;
+                _it = fmt::format_to(_it, "\n");
+                for (const auto &v: arr) {
+                    _it = fmt::format_to(_it, "{:{}}", "", _depth * 4);
+                    format(v);
+                    _it = fmt::format_to(_it, "\n");
+                }
+                --_depth;
+                _it = fmt::format_to(_it, "{:{}}", "", _depth * 4);
+            }
+            _it = fmt::format_to(_it, "](size: {})", arr.size());
+        }
+
+        void process_array_fixed(const auto &self)
+        {
+            process_array(self);
+        }
+
+        template<typename T>
+        void process_optional(const T &val)
+        {
+            if (val) {
+                process(*val);
+            } else {
+                _it = fmt::format_to(_it, "std::nullopt_t");
+            }
+        }
+
+        template<typename T>
+        void process_variant(const T &val, const codec::variant_names_t<T> &names)
+        {
+            format(names.at(val.index()));
+            _it = fmt::format_to(_it, "{ ");
+            ++_depth;
+            std::visit([&](const auto &vv) {
+                format(vv);
+            }, val);
+            --_depth;
+            _it = fmt::format_to(_it, " }");
+        }
+
+        void process_bytes(const std::vector<uint8_t> &bytes)
+        {
+            _it = fmt::format_to(_it, "#{}", bytes);
+        }
+
+        void process_bytes_fixed(const std::span<const uint8_t> bytes)
+        {
+            _it = fmt::format_to(_it, "#{}", bytes);
+        }
+
+        OUT_IT it() const
+        {
+            return _it;
+        }
+    private:
+        OUT_IT _it;
+        size_t _depth = 0;
+    };
+}
+
+namespace fmt {
+    template<turbo::codec::serializable_c T>
+    struct formatter<T>: formatter<int> {
+        template<typename FormatContext>
+        auto format(const T &v, FormatContext &ctx) const -> decltype(ctx.out())
+        {
+            turbo::codec::formatter<decltype(ctx.out())> frmtr { ctx.out() };
+            frmtr.format(v);
+            return frmtr.it();
+        }
     };
 }

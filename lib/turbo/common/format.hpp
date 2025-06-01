@@ -29,6 +29,7 @@
 #   pragma GCC diagnostic pop
 #endif
 
+#include <turbo/codec/serializable.hpp>
 #include "error.hpp"
 
 namespace turbo {
@@ -51,6 +52,9 @@ namespace fmt {
     {
         { static_cast<typename T::base_type>(v) };
     };
+
+    template <typename T>
+    concept not_serializable_derived_from_base = derived_from_base<T> && turbo::codec::not_serializable_c<T>;
 
     template<>
     struct formatter<std::span<const uint8_t>>: formatter<int> {
@@ -203,7 +207,7 @@ namespace fmt {
         }
     };
 
-    template<derived_from_base T>
+    template<not_serializable_derived_from_base T>
     struct formatter<T>: formatter<int> {
         template<typename FormatContext>
         auto format(const typename T::base_type &v, FormatContext &ctx) const -> decltype(ctx.out()) {
