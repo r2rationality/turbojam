@@ -1259,6 +1259,17 @@ namespace turbo::jam {
             archive.process("faults"sv, faults);
         }
 
+        bool empty() const
+        {
+            if (!verdicts.empty())
+                return false;
+            if (!culprits.empty())
+                return false;
+            if (!faults.empty())
+                return false;
+            return true;
+        }
+
         bool operator==(const disputes_extrinsic_t &o) const
         {
             if (verdicts != o.verdicts)
@@ -1442,10 +1453,41 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
+    struct epoch_mark_validators_t: fixed_sequence_t<epoch_mark_validator_keys_t, CONSTANTS::validator_count> {
+        using base_type = fixed_sequence_t<epoch_mark_validator_keys_t, CONSTANTS::validator_count>;
+        using base_type::base_type;
+
+        epoch_mark_validators_t(const validators_data_t<CONSTANTS> &o)
+        {
+            if (o.size() != this->size()) [[unlikely]]
+                throw error("internal error: validators_t size != epoch_mark_validators_t!");
+            for (size_t i = 0; i < this->size(); ++i) {
+                auto &v_dst = (*this)[i];
+                const auto &v_src = o[i];
+                v_dst.bandersnatch = v_src.bandersnatch;
+                v_dst.ed25519 = v_src.ed25519;
+            }
+        }
+
+        bool operator==(const validators_data_t<CONSTANTS> &o) const
+        {
+            if (o.size() != this->size())
+                return false;
+            for (size_t vi = 0; vi < this->size(); ++vi) {
+                if (o[vi].bandersnatch != this->operator[](vi).bandersnatch)
+                    return false;
+                if (o[vi].ed25519 != this->operator[](vi).ed25519)
+                    return false;
+            }
+            return true;
+        }
+    };
+
+    template<typename CONSTANTS>
     struct epoch_mark_t {
         entropy_t entropy {};
         entropy_t tickets_entropy {};
-        fixed_sequence_t<epoch_mark_validator_keys_t, CONSTANTS::validator_count> validators {};
+        epoch_mark_validators_t<CONSTANTS> validators {};
 
         void serialize(auto &archive)
         {
@@ -1595,25 +1637,25 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     struct header_t {
         // H_p
-        header_hash_t parent;
+        header_hash_t parent {};
         // H_r - ancestors need to be stored only for previous 24-hours of any block to be validated
-        state_root_t parent_state_root;
+        state_root_t parent_state_root {};
         // H_x - merkle commitment (H^#) to the block's external data
-        opaque_hash_t extrinsic_hash;
+        opaque_hash_t extrinsic_hash {};
         // H_t
-        time_slot_t<CONSTANTS> slot;
+        time_slot_t<CONSTANTS> slot {};
         // H_e
-        optional_t<epoch_mark_t<CONSTANTS>> epoch_mark;
+        optional_t<epoch_mark_t<CONSTANTS>> epoch_mark {};
         // H_w
-        optional_t<tickets_mark_t<CONSTANTS>> tickets_mark;
+        optional_t<tickets_mark_t<CONSTANTS>> tickets_mark {};
         // H_o
-        offenders_mark_t offenders_mark;
+        offenders_mark_t offenders_mark {};
         // H_i
-        validator_index_t author_index;
+        validator_index_t author_index {};
         // H_v
-        bandersnatch_vrf_signature_t entropy_source;
+        bandersnatch_vrf_signature_t entropy_source {};
         // H_s
-        bandersnatch_vrf_signature_t seal;
+        bandersnatch_vrf_signature_t seal {};
 
         [[nodiscard]] header_hash_t hash() const
         {

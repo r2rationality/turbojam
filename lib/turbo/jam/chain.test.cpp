@@ -46,15 +46,31 @@ suite turbo_jam_chain_suite = [] {
             );
         };
         "parse config"_test = [] {
-            const chain_t<config_tiny> chain { file::install_path("etc/devnet/dev-spec.json") };
+            const auto chain = chain_t<config_tiny>::from_json_spec(file::install_path("etc/devnet/dev-spec.json"));
             expect_equal("dev", chain.id());
             expect_equal(
                 header_hash_t::from_hex("B5AF8EDAD70D962097EEFA2CEF92C8284CF0A7578B70A6B7554CF53AE6D51222"),
                 chain.genesis_header().hash()
             );
             expect_equal(
+                header_hash_t::from_hex("0000000000000000000000000000000000000000000000000000000000000000"),
+                chain.genesis_header().parent
+            );
+            expect_equal(
+                header_hash_t::from_hex("0000000000000000000000000000000000000000000000000000000000000000"),
+                chain.genesis_header().parent_state_root
+            );
+            expect_equal(
+                header_hash_t::from_hex("0000000000000000000000000000000000000000000000000000000000000000"),
+                chain.genesis_header().extrinsic_hash
+            );
+            expect_equal(
+                std::numeric_limits<validator_index_t>::max(),
+                chain.genesis_header().author_index
+            );
+            expect_equal(
                 state_root_t::from_hex("957C2FDE59ED6EC1249BBE4CAB260B29BE0A03504181A491CE8C9522661CD3A6"),
-                chain.state().state_dict().root()
+                chain.genesis_state().state_dict().root()
             );
         };
     };

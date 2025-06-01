@@ -4,7 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
-#include "types.hpp"
+#include "chain.hpp"
 
 namespace {
     using namespace turbo;
@@ -56,7 +56,7 @@ namespace {
         }
     };
 
-    void test_file(const std::string &path)
+    void test_file(const std::string &path, const state_t<config_tiny> &genesis_state)
     {
         try {
             const auto tc = jam::load_obj<test_case_t>(path + ".bin");
@@ -64,12 +64,20 @@ namespace {
                 const auto j_tc = codec::json::load_obj<test_case_t>(path + ".json");
                 expect(tc == j_tc) << "the json test case does not match the binary one" << path;
             }
-            state_t<config_tiny> st {};
-            st = tc.pre.keyvals;
-            st.apply(tc.block);
-            const auto res = st.state_dict();
-            expect_equal(path, res.root(), tc.post.state_root);
-            expect(res != tc.post.keyvals) << path;
+            expect_equal(path, tc.pre.keyvals.root(), tc.pre.state_root);
+            expect_equal(path, tc.post.keyvals.root(), tc.post.state_root);
+
+            const state_t<config_tiny> pre_state { tc.pre.keyvals };
+            const state_t<config_tiny> exp_post_state { tc.post.keyvals };
+            std::cout << fmt::format("state diff: {}\n", exp_post_state.diff(pre_state));
+            chain_t<config_tiny> chain {
+                "dev",
+                genesis_state,
+                !tc.pre.keyvals.empty() ? std::optional<state_t<config_tiny>> { pre_state } : std::nullopt
+            };
+            chain.apply(tc.block);
+            expect(exp_post_state != chain.state()) << path;
+            expect_equal(path, chain.state().state_dict().root(), tc.post.state_root);
         } catch (const std::exception &ex) {
             expect(false) << path << ex.what();
         }
@@ -78,13 +86,23 @@ namespace {
 
 suite turbo_jam_traces_suite = [] {
     "turbo::jam::traces"_test = [] {
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
+        state_t<config_tiny> genesis_state {};
+        {
+            const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
+            const state_t<config_tiny> spec_gen_state { state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object()) };
+            genesis_state.gamma.k = spec_gen_state.gamma.k;
+            genesis_state.phi = spec_gen_state.phi;
+            genesis_state.alpha = spec_gen_state.alpha;
+            genesis_state.eta = spec_gen_state.eta;
+        }
+        test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000000"), genesis_state);
+        /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
             test_file(path.substr(0, path.size() - 4));
         }
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/safrole"), ".bin")) {
             test_file(path.substr(0, path.size() - 4));
         }
-        /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
+        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
             test_file(path.substr(0, path.size() - 4));
         }*/
     };

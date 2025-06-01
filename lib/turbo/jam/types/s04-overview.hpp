@@ -27,6 +27,21 @@ namespace turbo::jam {
             archive.process("disputes"sv, disputes);
         }
 
+        bool empty() const
+        {
+            if (!tickets.empty())
+                return false;
+            if (!preimages.empty())
+                return false;
+            if (!guarantees.empty())
+                return false;
+            if (!assurances.empty())
+                return false;
+            if (!disputes.empty())
+                return false;
+            return true;
+        }
+
         bool operator==(const extrinsic_t &o) const
         {
             if (tickets != o.tickets)
@@ -177,6 +192,34 @@ namespace turbo::jam {
         statistics_t<CONSTANTS> pi {};
         ready_queue_t<CONSTANTS> nu {}; // work reports ready to be accumulated
         accumulated_queue_t<CONSTANTS> ksi {}; // recently accumulated reports
+
+        state_t() =default;
+
+        state_t(const state_dict_t &state_dict)
+        {
+            *this = state_dict;
+        }
+
+        [[nodiscard]] std::string diff(const state_t &o) const;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("alpha"sv, alpha);
+            archive.process("beta"sv, beta);
+            archive.process("gamma"sv, gamma);
+            archive.process("delta"sv, delta);
+            archive.process("eta"sv, eta);
+            archive.process("kappa"sv, kappa);
+            archive.process("lambda"sv, lambda);
+            archive.process("rho"sv, rho);
+            archive.process("tau"sv, tau);
+            archive.process("chi"sv, chi);
+            archive.process("psi"sv, psi);
+            archive.process("pi"sv, pi);
+            archive.process("nu"sv, nu);
+            archive.process("ksi"sv, ksi);
+        }
 
         // export & import
         state_dict_t state_dict() const;

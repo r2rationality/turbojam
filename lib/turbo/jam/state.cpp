@@ -71,6 +71,35 @@ namespace turbo::jam {
         return true;
     }
 
+    template<typename CONSTANTS>
+    std::string state_t<CONSTANTS>::diff(const state_t &o) const
+    {
+        using namespace std::string_view_literals;
+        std::string res {};
+        auto oit = std::back_inserter(res);
+        const auto compare_item = [&](const std::string_view &name, const auto &a, const auto &b) {
+            if (a != b)
+                oit = fmt::format_to(oit, "{}: {}\n{} before {}\n", name, a, name, b);
+        };
+        compare_item("alpha"sv, alpha, o.alpha);
+        compare_item("beta"sv, beta, o.beta);
+        compare_item("gamma"sv, gamma, o.gamma);
+        compare_item("delta"sv, delta, o.delta);
+        compare_item("eta"sv, eta, o.eta);
+        compare_item("iota"sv, iota, o.iota);
+        compare_item("kappa"sv, kappa, o.kappa);
+        compare_item("lambda"sv, lambda, o.lambda);
+        compare_item("nu"sv, nu, o.nu);
+        compare_item("ksi"sv, ksi, o.ksi);
+        compare_item("pi"sv, pi, o.pi);
+        compare_item("rho"sv, rho, o.rho);
+        compare_item("tau"sv, tau, o.tau);
+        compare_item("phi"sv, phi, o.phi);
+        compare_item("chi"sv, chi, o.chi);
+        compare_item("psi"sv, psi, o.psi);
+        return res;
+    }
+
     // JAM paper (6.14)
     template<typename CONSTANTS>
     validators_data_t<CONSTANTS> state_t<CONSTANTS>::_capital_phi(const validators_data_t<CONSTANTS> &iota, const offenders_mark_t &psi_o)
@@ -166,8 +195,6 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     safrole_output_data_t<CONSTANTS> state_t<CONSTANTS>::update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic)
     {
-        if (slot <= tau) [[unlikely]]
-            throw err_bad_slot_t {};
         if (slot.epoch_slot() >= CONSTANTS::ticket_submission_end && !extrinsic.empty()) [[unlikely]]
             throw err_unexpected_ticket_t {};
         safrole_output_data_t<CONSTANTS> res {};
@@ -237,7 +264,7 @@ namespace turbo::jam {
 
             ticket_body_t tb;
             tb.attempt = t.attempt;
-            if (ark_vrf_cpp::vrf_output(tb.id.data(), tb.id.size(), t.signature.data(), t.signature.size()) != 0) [[unlikely]]
+            if (ark_vrf_cpp::ring_vrf_output(tb.id.data(), tb.id.size(), t.signature.data(), t.signature.size()) != 0) [[unlikely]]
                 throw err_bad_ticket_proof_t {};
             if (prev_ticket && *prev_ticket >= tb)
                 throw err_bad_ticket_order_t {};
@@ -245,7 +272,7 @@ namespace turbo::jam {
             const auto it = std::lower_bound(gamma.a.begin(), gamma.a.end(), tb);
             if (it != gamma.a.end() && *it == tb) [[unlikely]]
                 throw err_duplicate_ticket_t {};
-            if (ark_vrf_cpp::vrf_verify(CONSTANTS::validator_count, gamma.z.data(), gamma.z.size(),
+            if (ark_vrf_cpp::ring_vrf_verify(CONSTANTS::validator_count, gamma.z.data(), gamma.z.size(),
                     t.signature.data(), t.signature.size(),
                     input.data(), input.size(), aux.data(), aux.size()) != 0) [[unlikely]]
                 throw err_bad_ticket_proof_t {};
@@ -254,7 +281,6 @@ namespace turbo::jam {
         if (gamma.a.size() > gamma.a.max_size)
             gamma.a.resize(gamma.a.max_size);
 
-        tau = slot;
         return res;
     }
 
@@ -265,22 +291,24 @@ namespace turbo::jam {
             pi.last = pi.current;
             pi.current = decltype(pi.current) {};
         }
-        if (val_idx >= CONSTANTS::validator_count) [[unlikely]]
-            throw error(fmt::format("validator index too large: {}", val_idx));
-        auto &stats = pi.current.at(val_idx);
-        ++stats.blocks;
-        stats.tickets += extrinsic.tickets.size();
-        stats.pre_images += extrinsic.preimages.size();
-        for (const auto &p: extrinsic.preimages) {
-            stats.pre_images_size += p.blob.size();
-        }
-        for (const auto &g: extrinsic.guarantees) {
-            for (const auto &s: g.signatures) {
-                ++pi.current.at(s.validator_index).guarantees;
+        if (!extrinsic.empty()) [[unlikely]] {
+            if (val_idx >= CONSTANTS::validator_count) [[unlikely]]
+                throw error(fmt::format("validator index too large: {}", val_idx));
+            auto &stats = pi.current.at(val_idx);
+            ++stats.blocks;
+            stats.tickets += extrinsic.tickets.size();
+            stats.pre_images += extrinsic.preimages.size();
+            for (const auto &p: extrinsic.preimages) {
+                stats.pre_images_size += p.blob.size();
             }
-        }
-        for (const auto &a: extrinsic.assurances) {
-            ++pi.current.at(a.validator_index).assurances;
+            for (const auto &g: extrinsic.guarantees) {
+                for (const auto &s: g.signatures) {
+                    ++pi.current.at(s.validator_index).guarantees;
+                }
+            }
+            for (const auto &a: extrinsic.assurances) {
+                ++pi.current.at(a.validator_index).assurances;
+            }
         }
     }
 
@@ -447,7 +475,7 @@ namespace turbo::jam {
     {
         // JAM (5.7)
         // Bootstrapping: allow slot 0 when the history is empty
-        if ((!beta.empty() && slot <= tau) || slot > time_slot_t<CONSTANTS>::current()) [[unlikely]]
+        if (slot <= tau || slot > time_slot_t<CONSTANTS>::current()) [[unlikely]]
             throw err_bad_slot_t {};
         // JAM (6.1)
         tau = slot;
@@ -797,17 +825,17 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    void state_t<CONSTANTS>::update_history(const header_hash_t &hh, const state_root_t &sr, const opaque_hash_t &ar, const reported_work_seq_t &wp)
+    void state_t<CONSTANTS>::update_history(const header_hash_t &hh, const state_root_t &state_root, const opaque_hash_t &accumulation_result, const reported_work_seq_t &wp)
     {
         static mmr_t empty_mmr {};
         const mmr_t &prev_mmr = beta.empty() ? empty_mmr : beta.at(beta.size() - 1).mmr;
         block_info_t bi {
             .header_hash=hh,
-            .mmr=prev_mmr.append(ar),
+            .mmr=prev_mmr.append(accumulation_result),
             .reported=wp
         };
         if (!beta.empty()) [[likely]]
-            beta.back().state_root = sr;
+            beta.back().state_root = state_root;
         if (beta.size() == beta.max_size) [[likely]]
             beta.erase(beta.begin());
         beta.emplace_back(std::move(bi));
@@ -839,10 +867,61 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     void state_t<CONSTANTS>::apply(const block_t<CONSTANTS> &blk)
     {
-        update_time(blk.header.slot);
-        // for performance this function operates on the same set
-        // this means that extra care must be taken when handling errors
-        // to ensure that the state after a failed apply never changes
+        auto new_st = *this;
+
+        // Work on a copy so that in case of exceptions the original state remains intact
+        // In addition, this makes it easier to differentiate between the original and intermeidate state values
+        new_st.update_time(blk.header.slot);
+
+        // JAM (4.5) update tau
+        // JAM (4.7) update gamma
+        // JAM (4.8) update eta
+        // JAM (4.9) update kappa
+        // JAM (4.10) update lambda
+
+        entropy_t block_entropy;
+        if (ark_vrf_cpp::vrf_output(block_entropy, blk.header.entropy_source) != 0) [[unlikely]]
+            throw err_bad_ticket_proof_t {};
+        new_st.update_safrole(blk.header.slot, block_entropy, blk.extrinsic.tickets);
+
+        // JAM (4.11) -> psi'
+        new_st.update_disputes(blk.extrinsic.disputes);
+
+        // JAM (4.12)
+        new_st.update_reports(blk.header.slot, blk.extrinsic.guarantees);
+        // JAM (4.13)
+        // JAM (4.14)
+        // JAM (4.15)
+        work_reports_t<CONSTANTS> ready_reports {};
+        new_st.rho = new_st.rho.apply(ready_reports, new_st.kappa, blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
+
+        // accumulate
+        accumulate_root_t accumulate_res = new_st.accumulate(blk.header.slot, ready_reports);
+
+        // JAM (4.18)
+        new_st.provide_preimages(blk.header.slot, blk.extrinsic.preimages);
+
+        // JAM (4.6)
+        // JAM (4.16)
+        reported_work_seq_t reported_work {};
+        for (const auto &g: blk.extrinsic.guarantees) {
+            reported_work.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
+        }
+        new_st.update_history(blk.header.hash(), blk.header.parent_state_root, accumulate_res, reported_work);
+
+        // (4.19): alpha' <- (H, E_G, psi', and alpha)
+        {
+            core_authorizers_t cas {};
+            for (const auto &g: blk.extrinsic.guarantees) {
+                cas.emplace_back(g.report.core_index, g.report.package_spec.hash);
+            }
+            new_st.update_auth_pools(blk.header.slot, cas);
+        }
+
+        // JAM (4.20): pi' <- (E_G, E_P, E_A, E_T, taz, kappa', pi, H)
+        new_st.update_statistics(blk.header.slot, blk.header.author_index, blk.extrinsic);
+
+        *this = std::move(new_st);
     }
 
     template<typename T>
