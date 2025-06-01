@@ -64,6 +64,8 @@ namespace turbo::codec {
 
     template<typename OUT_IT>
     struct formatter: archive_t {
+        static constexpr size_t shift = 2;
+
         explicit formatter(OUT_IT it):
             _it { std::move(it) }
         {
@@ -71,10 +73,12 @@ namespace turbo::codec {
 
         void push(const std::string_view)
         {
+            ++_depth;
         }
 
         void pop()
         {
+            --_depth;
         }
 
         template<typename T>
@@ -90,7 +94,9 @@ namespace turbo::codec {
                     || std::is_same_v<T, bool>
                     || std::is_same_v<T, std::string_view>
                     || std::is_same_v<T, std::string>) {
+                _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
                 _it = fmt::format_to(_it, "{}", val);
+                _it = fmt::format_to(_it, "\n");
             } else {
                 throw error(fmt::format("formatter serialization is not enabled for type {}", typeid(T).name()));
             }
@@ -108,50 +114,48 @@ namespace turbo::codec {
 
         void process(const auto &val)
         {
+            _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
             format(val);
         }
 
         void process(const std::string_view name, const auto &val)
         {
-            _it = fmt::format_to(_it, "{}: ", name);
+            _it = fmt::format_to(_it, "{:{}}{}:\n", "", _depth * shift, name);
+            ++_depth;
             format(val);
-            _it = fmt::format_to(_it, "\n{:{}}", "", _depth * 4);
+            --_depth;
         }
 
         void process_map(const auto &m, const std::string_view, const std::string_view)
         {
-            _it = fmt::format_to(_it, "{{");
+            _it = fmt::format_to(_it, "{:{}}{{", "", _depth * shift);
             if (!m.empty()) {
                 ++_depth;
                 _it = fmt::format_to(_it, "\n");
                 for (const auto &[k, v]: m) {
-                    _it = fmt::format_to(_it, "{:{}}", "", _depth * 4);
                     format(k);
                     _it = fmt::format_to(_it, ": ");
                     format(v);
-                    _it = fmt::format_to(_it, "\n");
                 }
                 --_depth;
-                _it = fmt::format_to(_it, "{:{}}", "", _depth * 4);
+                _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
             }
-            _it = fmt::format_to(_it, "}}(size: {})", m.size());
+            _it = fmt::format_to(_it, "}}(size: {})\n", m.size());
         }
 
         void process_array(const auto &arr, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
         {
-            _it = fmt::format_to(_it, "[");
+            _it = fmt::format_to(_it, "{:{}}[", "", _depth * shift);
             if (!arr.empty()) {
                 ++_depth;
                 _it = fmt::format_to(_it, "\n");
                 for (const auto &v: arr) {
-                    _it = fmt::format_to(_it, "{:{}}", "", _depth * 4);
                     format(v);
-                    _it = fmt::format_to(_it, "\n");
                 }
                 --_depth;
-                _it = fmt::format_to(_it, "{:{}}", "", _depth * 4);
+                _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
             }
-            _it = fmt::format_to(_it, "](size: {})", arr.size());
+            _it = fmt::format_to(_it, "](size: {})\n", arr.size());
         }
 
         void process_array_fixed(const auto &self)
@@ -165,31 +169,26 @@ namespace turbo::codec {
             if (val) {
                 process(*val);
             } else {
-                _it = fmt::format_to(_it, "std::nullopt_t");
+                _it = fmt::format_to(_it, "{:{}}std::nullopt\n", "", _depth * shift);
             }
         }
 
         template<typename T>
         void process_variant(const T &val, const codec::variant_names_t<T> &names)
         {
-            format(names.at(val.index()));
-            _it = fmt::format_to(_it, "{ ");
-            ++_depth;
             std::visit([&](const auto &vv) {
-                format(vv);
+                process(names.at(val.index()), vv);
             }, val);
-            --_depth;
-            _it = fmt::format_to(_it, " }");
         }
 
-        void process_bytes(const std::vector<uint8_t> &bytes)
+        void process_bytes(const std::span<const uint8_t> bytes)
         {
-            _it = fmt::format_to(_it, "#{}", bytes);
+            _it = fmt::format_to(_it, "{:{}}#{}\n", "", _depth * shift, bytes);
         }
 
         void process_bytes_fixed(const std::span<const uint8_t> bytes)
         {
-            _it = fmt::format_to(_it, "#{}", bytes);
+            _it = fmt::format_to(_it, "{:{}}#{}\n", "", _depth * shift, bytes);
         }
 
         OUT_IT it() const
