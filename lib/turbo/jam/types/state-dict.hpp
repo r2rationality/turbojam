@@ -24,8 +24,9 @@ namespace turbo::jam {
 
         [[nodiscard]] state_root_t root() const
         {
-            state_root_t root;
-            merkle::trie::encode_blake2b(root, *this);
+            state_root_t root {};
+            if (!empty()) [[likely]]
+                merkle::trie::encode_blake2b(root, *this);
             return root;
         }
     };

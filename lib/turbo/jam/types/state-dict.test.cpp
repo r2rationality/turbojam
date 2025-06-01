@@ -13,17 +13,29 @@ namespace {
 
 suite turbo_jam_state_dict_suite = [] {
     "turbo::jam::state_dict"_test = [] {
-        expect_equal(
-            state_key_t::from_hex("0a000000000000000000000000000000000000000000000000000000000000"),
-            state_dict_t::make_key(10)
-        );
-        expect_equal(
-            state_key_t::from_hex("37AF00BE00AD00DE0000000000000000000000000000000000000000000000"),
-            state_dict_t::make_key(55, 0xDEADBEAF)
-        );
-        expect_equal(
-            state_key_t::from_hex("FE00CA01AF02DE030405060708090a0b0c0d0e0f101112131415161718191a"),
-            state_dict_t::make_key(0xDEAFCAFE, state_key_subhash_t::from_hex<state_key_subhash_t>("000102030405060708090a0b0c0d0e0f101112131415161718191a"))
-        );
+        "simple_key"_test = [] {
+            expect_equal(
+                state_key_t::from_hex("0a000000000000000000000000000000000000000000000000000000000000"),
+                state_dict_t::make_key(10)
+            );
+        };
+        "service_info_key"_test = [] {
+            expect_equal(
+                state_key_t::from_hex("37AF00BE00AD00DE0000000000000000000000000000000000000000000000"),
+                state_dict_t::make_key(55, 0xDEADBEAF)
+            );
+        };
+        "service_item_key"_test = [] {
+            expect_equal(
+                state_key_t::from_hex("FE00CA01AF02DE030405060708090a0b0c0d0e0f101112131415161718191a"),
+                state_dict_t::make_key(0xDEAFCAFE, state_key_subhash_t::from_hex<state_key_subhash_t>("000102030405060708090a0b0c0d0e0f101112131415161718191a"))
+            );
+        };
+        "empty state root"_test = [] {
+            expect_equal(
+                state_root_t::from_hex("0000000000000000000000000000000000000000000000000000000000000000"),
+                state_dict_t {}.root()
+            );
+        };
     };
 };
