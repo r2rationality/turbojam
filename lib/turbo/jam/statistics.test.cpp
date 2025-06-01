@@ -46,7 +46,8 @@ namespace {
         {
             using namespace std::string_view_literals;
             archive.push(name);
-            archive.process("statistics"sv, st.pi);
+            archive.process("vals_curr_stats"sv, st.pi.current);
+            archive.process("vals_last_stats"sv, st.pi.last);
             archive.process("slot"sv, st.tau);
             archive.process("curr_validators"sv, st.kappa);
             archive.pop();
@@ -82,7 +83,8 @@ namespace {
         }
         auto new_st = tc.pre;
         new_st.update_statistics(tc.in.slot, tc.in.author_index, tc.in.extrinsic);
-        expect(new_st == tc.post) << path;
+        expect(new_st.pi.current == tc.post.pi.current) << path;
+        expect(new_st.pi.last == tc.post.pi.last) << path;
     }
 }
 

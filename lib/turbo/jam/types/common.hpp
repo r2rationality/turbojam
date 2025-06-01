@@ -802,7 +802,7 @@ namespace turbo::jam {
     struct work_report_t {
         work_package_spec_t package_spec {};
         refine_context_t<CONSTANTS> context {};
-        core_index_t core_index {};
+        varlen_uint_t<core_index_t> core_index {};
         opaque_hash_t authorizer_hash {};
         byte_sequence_t auth_output {};
         segment_root_lookup_t segment_root_lookup {};

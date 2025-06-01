@@ -291,24 +291,22 @@ namespace turbo::jam {
             pi.last = pi.current;
             pi.current = decltype(pi.current) {};
         }
-        if (!extrinsic.empty()) [[unlikely]] {
-            if (val_idx >= CONSTANTS::validator_count) [[unlikely]]
-                throw error(fmt::format("validator index too large: {}", val_idx));
-            auto &stats = pi.current.at(val_idx);
-            ++stats.blocks;
-            stats.tickets += extrinsic.tickets.size();
-            stats.pre_images += extrinsic.preimages.size();
-            for (const auto &p: extrinsic.preimages) {
-                stats.pre_images_size += p.blob.size();
+        if (val_idx >= CONSTANTS::validator_count) [[unlikely]]
+            throw err_bad_validator_index_t {};
+        auto &stats = pi.current.at(val_idx);
+        ++stats.blocks;
+        stats.tickets += extrinsic.tickets.size();
+        stats.pre_images += extrinsic.preimages.size();
+        for (const auto &p: extrinsic.preimages) {
+            stats.pre_images_size += p.blob.size();
+        }
+        for (const auto &g: extrinsic.guarantees) {
+            for (const auto &s: g.signatures) {
+                ++pi.current.at(s.validator_index).guarantees;
             }
-            for (const auto &g: extrinsic.guarantees) {
-                for (const auto &s: g.signatures) {
-                    ++pi.current.at(s.validator_index).guarantees;
-                }
-            }
-            for (const auto &a: extrinsic.assurances) {
-                ++pi.current.at(a.validator_index).assurances;
-            }
+        }
+        for (const auto &a: extrinsic.assurances) {
+            ++pi.current.at(a.validator_index).assurances;
         }
     }
 
