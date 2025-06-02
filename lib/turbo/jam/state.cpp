@@ -72,11 +72,11 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    std::string state_t<CONSTANTS>::diff(const state_t &o) const
+    std::optional<std::string> state_t<CONSTANTS>::diff(const state_t &o) const
     {
         using namespace std::string_view_literals;
-        std::string res {};
-        auto oit = std::back_inserter(res);
+        std::string diff_text {};
+        auto oit = std::back_inserter(diff_text);
         const auto compare_item = [&](const std::string_view &name, const auto &a, const auto &b) {
             if (a != b)
                 oit = fmt::format_to(oit, "{} left: {}\n{} right {}\n", name, a, name, b);
@@ -97,6 +97,9 @@ namespace turbo::jam {
         compare_item("phi"sv, phi, o.phi);
         compare_item("chi"sv, chi, o.chi);
         compare_item("psi"sv, psi, o.psi);
+        std::optional<std::string> res {};
+        if (!diff_text.empty())
+            res.emplace(std::move(diff_text));
         return res;
     }
 
@@ -878,8 +881,10 @@ namespace turbo::jam {
         // JAM (4.10) update lambda
 
         entropy_t block_entropy;
-        if (ark_vrf_cpp::vrf_output(block_entropy, blk.header.entropy_source) != 0) [[unlikely]]
-            throw err_bad_ticket_proof_t {};
+        if (ark_vrf_cpp::ietf_vrf_output(block_entropy, blk.header.entropy_source) != 0) [[unlikely]]
+            throw err_bad_signature_t {};
+
+        // TODO: verify seal and entropy_source signatures
         new_st.update_safrole(blk.header.slot, block_entropy, blk.extrinsic.tickets);
 
         // JAM (4.11) -> psi'

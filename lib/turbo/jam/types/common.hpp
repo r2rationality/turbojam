@@ -1657,6 +1657,15 @@ namespace turbo::jam {
         // H_s
         bandersnatch_vrf_signature_t seal {};
 
+        [[nodiscard]] header_hash_t hash_u() const
+        {
+            header_hash_t res;
+            encoder enc {};
+            enc.process(*this);
+            crypto::blake2b::digest(res, enc.bytes());
+            return res;
+        }
+
         [[nodiscard]] header_hash_t hash() const
         {
             header_hash_t res;

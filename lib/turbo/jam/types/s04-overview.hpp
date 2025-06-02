@@ -200,7 +200,7 @@ namespace turbo::jam {
             *this = state_dict;
         }
 
-        [[nodiscard]] std::string diff(const state_t &o) const;
+        [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
 
         void serialize(auto &archive)
         {
