@@ -61,10 +61,8 @@ namespace turbo::jam::merkle {
                     tree_copy_t r {};
                     r.reserve(nodes.size() / 2 + 1);
                     for (const auto *n: nodes) {
-                        if (n->first.bit(bit_no))
-                            r.emplace_back(n);
-                        else
-                            l.emplace_back(n);
+                        auto &list = n->first.bit(bit_no) ? r : l;
+                        list.emplace_back(n);
                     }
                     hash_f(out, encode(encode(l, bit_no + 1, hash_f), encode(r, bit_no + 1, hash_f)));
                     break;

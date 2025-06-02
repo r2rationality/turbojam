@@ -67,9 +67,8 @@ namespace {
 
             // test round-trip decoding/encoding of the state from the state dictionary
             expect_equal(state_t<config_tiny> { tc.post.keyvals }.state_dict().root(), tc.post.keyvals.root(), path);
-
             //expect_equal(path, tc.pre.keyvals.root(), tc.pre.state_root);
-            //expect_equal(path, tc.post.keyvals.root(), tc.post.state_root);
+            //expect_equal(tc.post.keyvals.root(), tc.post.state_root, path);
 
             const state_t<config_tiny> pre_state { tc.pre.keyvals };
             const state_t<config_tiny> exp_post_state { tc.post.keyvals };
@@ -78,14 +77,19 @@ namespace {
                 genesis_state,
                 !tc.pre.keyvals.empty() ? std::optional<state_t<config_tiny>> { pre_state } : std::nullopt
             };
-            //std::cout << fmt::format("block {}\n", tc.block.header.hash());
+
+            //std::cout << fmt::format("{} block {}\n", path, tc.block.header.hash());
             chain.apply(tc.block);
 
             const auto same_state = chain.state() == exp_post_state;
             expect(same_state) << path;
             if (!same_state)
                 std::cout << fmt::format("{} state diff: {}\n", path, chain.state().diff(exp_post_state));
-            //expect_equal(path, chain.state().state_dict().root(), tc.post.state_root);
+            expect(chain.state().state_dict() == tc.post.keyvals) << path;
+            // TODO: temporarily disabled, re-enabled after an investigation
+            // Even though state_dict matches, the root's do not!
+            // Seems like the traces use a different algo than the one in the trie tests
+            // expect_equal(path, chain.state().state_dict().root(), tc.post.state_root);
         } catch (const std::exception &ex) {
             expect(false) << path << ex.what();
         }
@@ -106,14 +110,15 @@ suite turbo_jam_traces_suite = [] {
             genesis_state.phi = upd_genesis.phi;
             genesis_state.eta = upd_genesis.eta;
         }
+        //test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000000"), genesis_state);
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
             test_file(path.substr(0, path.size() - 4), genesis_state);
         }
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/safrole"), ".bin")) {
             test_file(path.substr(0, path.size() - 4), genesis_state);
         }
-        /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
-            test_file(path.substr(0, path.size() - 4));
-        }*/
+        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
+            test_file(path.substr(0, path.size() - 4), genesis_state);
+        }
     };
 };
