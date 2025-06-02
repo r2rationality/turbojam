@@ -50,7 +50,7 @@ suite turbo_jam_shuffle_suite = [] {
                     exp.emplace_back(boost::json::value_to<size_t>(jv));
                 }
                 const auto act = jam::shuffle::with_entropy(in, entropy);
-                expect_equal(fmt::format("#{}", case_no), exp, act);
+                expect_equal(exp, act, fmt::format("#{}", case_no));
                 ++case_no;
             }
         };

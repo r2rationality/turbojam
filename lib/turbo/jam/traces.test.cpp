@@ -64,6 +64,10 @@ namespace {
                 const auto j_tc = codec::json::load_obj<test_case_t>(path + ".json");
                 expect(tc == j_tc) << "the json test case does not match the binary one" << path;
             }
+
+            // test round-trip decoding/encoding of the state from the state dictionary
+            expect_equal(state_t<config_tiny> { tc.post.keyvals }.state_dict().root(), tc.post.keyvals.root(), path);
+
             //expect_equal(path, tc.pre.keyvals.root(), tc.pre.state_root);
             //expect_equal(path, tc.post.keyvals.root(), tc.post.state_root);
 
@@ -102,14 +106,13 @@ suite turbo_jam_traces_suite = [] {
             genesis_state.phi = upd_genesis.phi;
             genesis_state.eta = upd_genesis.eta;
         }
-        test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000012"), genesis_state);
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
             test_file(path.substr(0, path.size() - 4), genesis_state);
         }
-        /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/safrole"), ".bin")) {
-            test_file(path.substr(0, path.size() - 4));
+        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/safrole"), ".bin")) {
+            test_file(path.substr(0, path.size() - 4), genesis_state);
         }
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
+        /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
             test_file(path.substr(0, path.size() - 4));
         }*/
     };

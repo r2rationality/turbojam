@@ -28,7 +28,7 @@ suite turbo_jam_merkle_suite = [] {
                 input_m.emplace(tk, uint8_vector::from_hex(json::value_to<std::string_view>(v)));
             }
             const auto act_out = trie::encode_blake2b(input_m);
-            expect_equal(fmt::format("#{}", case_no), exp_out, act_out);
+            expect_equal(exp_out, act_out, fmt::format("#{}", case_no));
             ++case_no;
         }
     };
