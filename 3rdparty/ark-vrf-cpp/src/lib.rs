@@ -5,13 +5,19 @@ use ark_vrf::{
 };
 use bandersnatch::{BandersnatchSha512Ell2, RingProofParams, PcsParams, Input, Output, RingProof, Public, IetfProof};
 
-const SIG_SZ: usize = 96;
+const IETF_SIG_SZ: usize = 96;
 const RING_SIG_SZ: usize = 784;
-const COMMIT_SZ: usize = 144;
+const RING_COMMIT_SZ: usize = 144;
 const HASH_SZ: usize = 32;
 const VKEY_SZ: usize = 32;
 
 type RingCommitment = ark_vrf::ring::RingCommitment<BandersnatchSha512Ell2>;
+
+#[derive(CanonicalSerialize, CanonicalDeserialize)]
+struct IetfVrfSignature {
+    output: Output,
+    proof: IetfProof,
+}
 
 // This is the IETF `Prove` procedure output as described in section 4.2
 // of the Bandersnatch VRF specification
@@ -144,29 +150,11 @@ pub extern "C" fn ring_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *co
 }
 
 #[no_mangle]
-pub extern "C" fn ietf_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *const u8, sig_len: usize) -> i32 {
-    if sig_len != SIG_SZ {
-        return -1;
-    }
-    let sig_res = IetfVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
-    if sig_res.is_err() {
-        return -1;
-    }
-    let sig = sig_res.unwrap();
-    let out_hash = sig.output.hash();
-    if out_hash.len() < HASH_SZ || out_len < HASH_SZ {
-        return -1;
-    }
-    unsafe { ptr::copy_nonoverlapping(out_hash.as_ptr(), out_ptr, HASH_SZ) };
-    return 0;
-}
-
-#[no_mangle]
 pub extern "C" fn ring_vrf_verify(ring_size: usize, comm_ptr: *const u8, comm_len: usize,
-                            sig_ptr: *const u8, sig_len: usize,
-                            input_ptr: *const u8, input_len: usize,
-                            aux_ptr: *const u8, aux_len: usize) -> i32 {
-    if comm_len != COMMIT_SZ || sig_len != RING_SIG_SZ {
+                                  sig_ptr: *const u8, sig_len: usize,
+                                  input_ptr: *const u8, input_len: usize,
+                                  aux_ptr: *const u8, aux_len: usize) -> i32 {
+    if comm_len != RING_COMMIT_SZ || sig_len != RING_SIG_SZ {
         return -1;
     }
     let params_res = ring_proof_params(ring_size);
@@ -205,10 +193,64 @@ pub extern "C" fn ring_vrf_verify(ring_size: usize, comm_ptr: *const u8, comm_le
     return 0;
 }
 
-#[derive(CanonicalSerialize, CanonicalDeserialize)]
-struct IetfVrfSignature {
-    output: Output,
-    proof: IetfProof,
+#[no_mangle]
+pub extern "C" fn ietf_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *const u8, sig_len: usize) -> i32 {
+    if sig_len != IETF_SIG_SZ {
+        return -1;
+    }
+    let sig_res = IetfVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
+    if sig_res.is_err() {
+        return -1;
+    }
+    let sig = sig_res.unwrap();
+    let out_hash = sig.output.hash();
+    if out_hash.len() < HASH_SZ || out_len < HASH_SZ {
+        return -1;
+    }
+    unsafe { ptr::copy_nonoverlapping(out_hash.as_ptr(), out_ptr, HASH_SZ) };
+    return 0;
+}
+
+#[no_mangle]
+pub extern "C" fn ietf_vrf_verify(vkey_ptr: *const u8, vkey_len: usize,
+                                  sig_ptr: *const u8, sig_len: usize,
+                                  input_ptr: *const u8, input_len: usize,
+                                  aux_ptr: *const u8, aux_len: usize) -> i32 {
+    if vkey_len != VKEY_SZ || sig_len != IETF_SIG_SZ {
+        println!("ietf_vrf_verify: vkey_len or sig_len mismatch!");
+        return -1;
+    }
+    let sig_res = IetfVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
+    if sig_res.is_err() {
+        println!("ietf_vrf_verify: failed to deserialize the signature!");
+        return -1;
+    }
+    let sig = sig_res.unwrap();
+
+    let vkey_res = Public::deserialize_compressed(unsafe { std::slice::from_raw_parts(vkey_ptr, vkey_len) });
+    if vkey_res.is_err() {
+        println!("ietf_vrf_verify: failed to deserialize the vkey!");
+        return -1;
+    }
+    let vkey = vkey_res.unwrap();
+
+    let input_res = Input::new(unsafe { std::slice::from_raw_parts(input_ptr, input_len) });
+    if input_res.is_none() {
+        println!("ietf_vrf_verify: failed to construct the input!");
+        return -1;
+    }
+    let input = input_res.unwrap();
+
+    let aux = unsafe { std::slice::from_raw_parts(aux_ptr, aux_len) };
+
+    use ark_vrf::ietf::Verifier;
+
+    let verify_res = vkey.verify(input, sig.output, aux, &sig.proof);
+    if verify_res.is_err() {
+        println!("ietf_vrf_verify: verification failed!");
+        return -1;
+    }
+    return 0;
 }
 
 #[cfg(test)]
@@ -266,7 +308,7 @@ mod tests {
         let mut sig_buf = Vec::new();
         signature.serialize_compressed(&mut sig_buf).unwrap();
 
-        println!("idx: {} attempt: {} signature: {}", prover_idx, attempt, hex::encode(sig_buf.as_slice()));
+        //println!("idx: {} attempt: {} signature: {}", prover_idx, attempt, hex::encode(sig_buf.as_slice()));
 
         let verifier_key = params.verifier_key(&pts);
         let comm = verifier_key.clone().commitment();
@@ -275,7 +317,7 @@ mod tests {
 
         let mut comm_buf: Vec<u8> = vec![];
         comm.serialize_compressed(&mut comm_buf).unwrap();
-        assert_eq!(COMMIT_SZ, comm_buf.len());
+        assert_eq!(RING_COMMIT_SZ, comm_buf.len());
     
         assert_eq!(0, ring_vrf_verify(ring_vk.len(), comm_buf.as_ptr(), comm_buf.len(),
                       sig_buf.as_ptr(), sig_buf.len(),
@@ -285,7 +327,7 @@ mod tests {
     #[test]
     fn test_ring_verify() {
         setup();
-        let mut ring_comm: [u8; COMMIT_SZ] = [0; COMMIT_SZ];
+        let mut ring_comm: [u8; RING_COMMIT_SZ] = [0; RING_COMMIT_SZ];
         assert_eq!(0, ring_commitment(ring_comm.as_mut_ptr(), ring_comm.len(), KEYS.as_ptr(), KEYS.len()));
         assert_eq!(
             hex::decode("85f9095f4abd040839d793d89ab5ff25c61e50c844ab6765e2c0b22373b5a8f6fbe5fc0cd61fdde580b3d44fe1be127197e33b91960b10d2c6fc75aec03f36e16c2a8204961097dbc2c5ba7655543385399cc9ef08bf2e520ccf3b0a7569d88492e630ae2b14e758ab0960e372172203f4c9a41777dadd529971d7ab9d23ab29fe0e9c85ec450505dde7f5ac038274cf").expect("must be hex"),
@@ -306,5 +348,88 @@ mod tests {
                   ring_comm.as_ptr(), ring_comm.len(),
                   sig.as_ptr(), sig.len(),
                   input_ro.as_ptr(), input_ro.len(), aux.as_ptr(), aux.len()));
+    }
+
+    #[test]
+    fn test_ietf_verify_self_signed_seal() {
+        let exp_seal_sig = hex::decode("0f606eb145b063ab8f5e674994c5aded7ccee38e0e465b4fb89a83bdf3d6b75edf17cf7630eb00cd3860017f6365138875e044fe6d080150096ecdb3ba739d08505a7ec9fa9053466032cd1d33bc141ba9ce490b87781796b524237d27844f01").expect("must be hex");
+        let exp_seal_output = hex::decode("B7D78259F764212368B40714B24F9CABD95F13F9A655589D654900F005D09F67").expect("must be hex");
+
+        let header_unsigned = hex::decode("26105152A5CA03595E302F6C0DC525C2887DDD54CAF8682BC8E400C86CC3F085F850BE7AF3307147E72EE70331F79FD41E89143B607FD8C42705D71A915F4453189D15AF832DFE4F67744008B62C334B569FCBB4C261E0F065655697306CA25201000000000000040059641E97289901776DA45FBBCEA69E830A9BCA58991A13D8FA27F6706B93D2DB5D645DBB91FF1EAA8AE00AE8BF1F11FB6B9C084540B34DCA06039E3CC8DECC08D92243FB90F5E96333F40259A99CB54A90FB57CD1800180F1A66EE49BE721E0B")
+            .expect("must be hex");
+        let eta3 = hex::decode("607033ff740f9bc953f1b1bd524a40b155f3ff0f1f35332f066b63cb82c9516c").expect("must be hex");
+        let mut input_ctx: Vec<u8> = vec![];
+        input_ctx.extend_from_slice("jam_fallback_seal".as_bytes());
+        input_ctx.extend_from_slice(eta3.as_slice());
+        let seal_input = input_ctx.as_slice();
+
+        let secret = Secret::from_seed(&hex::decode("0bb36f5ba8e3ba602781bb714e67182410440ce18aa800c4cb4dd22525b70409").expect("must be hex"));
+        let public = secret.public();
+        let input = Input::new(seal_input).unwrap();
+        let output = secret.output(input);
+        let output_hash = output.hash();
+        println!("output_hash: {}", hex::encode(output_hash.as_slice()));
+        assert_eq!(exp_seal_output, output_hash[0..HASH_SZ]);
+        use ark_vrf::ietf::Prover;
+        let proof = secret.prove(input, output, header_unsigned.clone());
+        let sig = IetfVrfSignature { output: output.clone(), proof: proof.clone() };
+        let mut sig_bytes = Vec::new();
+        sig.serialize_compressed(&mut sig_bytes).unwrap();
+        println!("sig_bytes: {}", hex::encode(sig_bytes.clone()));
+        assert_eq!(sig_bytes, exp_seal_sig);
+        use ark_vrf::ietf::Verifier;
+        assert!(public.verify(input, output, header_unsigned, &proof).is_ok());
+    }
+
+    #[test]
+    fn test_ietf_verify_self_signed_vrf() {
+        let exp_entropy_sig = hex::decode("59641e97289901776da45fbbcea69e830a9bca58991a13d8fa27f6706b93d2db5d645dbb91ff1eaa8ae00ae8bf1f11fb6b9c084540b34dca06039e3cc8decc08d92243fb90f5e96333f40259a99cb54a90fb57cd1800180f1a66ee49be721e0b").expect("must be hex");
+        let exp_entropy_output = hex::decode("ba738c2f537bb77fb8d048f2dc225c50c123604e3d5702d7a0527e94dbab3e3c").expect("must be hex");
+
+        let seal_output = hex::decode("B7D78259F764212368B40714B24F9CABD95F13F9A655589D654900F005D09F67").expect("must be hex");
+        let mut input_ctx: Vec<u8> = vec![];
+        input_ctx.extend_from_slice("jam_entropy".as_bytes());
+        input_ctx.extend_from_slice(seal_output.as_slice());
+        let entropy_input = input_ctx.as_slice();
+
+        let secret = Secret::from_seed(&hex::decode("0bb36f5ba8e3ba602781bb714e67182410440ce18aa800c4cb4dd22525b70409").expect("must be hex"));
+        let public = secret.public();
+        let input = Input::new(entropy_input).unwrap();
+        let output = secret.output(input);
+        let output_hash = output.hash();
+        let aux_data = b"";
+        assert_eq!(exp_entropy_output, output_hash[0..HASH_SZ]);
+        use ark_vrf::ietf::Prover;
+        let proof = secret.prove(input, output, aux_data);
+        let sig = IetfVrfSignature { output: output.clone(), proof: proof.clone() };
+        let mut sig_bytes = Vec::new();
+        sig.serialize_compressed(&mut sig_bytes).unwrap();
+        assert_eq!(sig_bytes, exp_entropy_sig);
+        use ark_vrf::ietf::Verifier;
+        assert!(public.verify(input, output, aux_data, &proof).is_ok());
+    }
+
+    #[test]
+    fn test_ietf_verify_presigned_vrf() {
+        setup();
+        let vkey = hex::decode("151e5c8fe2b9d8a606966a79edd2f9e5db47e83947ce368ccba53bf6ba20a40b").expect("must be hex");
+        let seal_sig = hex::decode("0f606eb145b063ab8f5e674994c5aded7ccee38e0e465b4fb89a83bdf3d6b75edf17cf7630eb00cd3860017f6365138875e044fe6d080150096ecdb3ba739d08505a7ec9fa9053466032cd1d33bc141ba9ce490b87781796b524237d27844f01").expect("must be hex");
+        let mut seal_output: [u8; HASH_SZ] = [0; HASH_SZ];
+        assert_eq!(0, ietf_vrf_output(seal_output.as_mut_ptr(), seal_output.len(), seal_sig.as_ptr(), seal_sig.len()));
+
+        let header_unsigned = hex::decode("26105152A5CA03595E302F6C0DC525C2887DDD54CAF8682BC8E400C86CC3F085F850BE7AF3307147E72EE70331F79FD41E89143B607FD8C42705D71A915F4453189D15AF832DFE4F67744008B62C334B569FCBB4C261E0F065655697306CA25201000000000000040059641E97289901776DA45FBBCEA69E830A9BCA58991A13D8FA27F6706B93D2DB5D645DBB91FF1EAA8AE00AE8BF1F11FB6B9C084540B34DCA06039E3CC8DECC08D92243FB90F5E96333F40259A99CB54A90FB57CD1800180F1A66EE49BE721E0B")
+            .expect("must be hex");
+        let eta3 = hex::decode("607033ff740f9bc953f1b1bd524a40b155f3ff0f1f35332f066b63cb82c9516c").expect("must be hex");
+        let mut input_ctx: Vec<u8> = vec![];
+        input_ctx.extend_from_slice("jam_fallback_seal".as_bytes());
+        input_ctx.extend_from_slice(eta3.as_slice());
+        let seal_input = input_ctx.as_slice();
+
+        assert_eq!(0, ietf_vrf_verify(
+            vkey.as_ptr(), vkey.len(),
+            seal_sig.as_ptr(), seal_sig.len(),
+            seal_input.as_ptr(), seal_input.len(),
+            header_unsigned.as_ptr(), header_unsigned.len())
+        );
     }
 }
