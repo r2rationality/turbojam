@@ -215,18 +215,7 @@ namespace turbo::jam {
             eta[2] = eta[1];
             eta[1] = eta[0];
 
-            // JAM Paper (6.24)
-            if (slot.epoch() == tau.epoch() + 1 && tau.epoch_slot() >= CONSTANTS::ticket_submission_end && gamma.a.size() == CONSTANTS::epoch_length) {
-                gamma.s = _permute_tickets(gamma.a);
-            } else {
-                // JAM Paper (6.26)
-                // since the update operates on a copy of the state
-                // eta[2] and kappa are the updated "prime" values
-                gamma.s = _fallback_key_sequence(eta[2], kappa);
-            }
 
-            // JAM Paper (6.34)
-            gamma.a.clear();
 
             // JAM Paper (6.27) - epoch marker
             res.epoch_mark.emplace();
@@ -238,8 +227,22 @@ namespace turbo::jam {
             }
         }
 
+        // JAM (6.24)
+        if (slot.epoch() == tau.epoch() + 1 && tau.epoch_slot() >= CONSTANTS::ticket_submission_end && gamma.a.size() == CONSTANTS::epoch_length) {
+            gamma.s = _permute_tickets(gamma.a);
+        } else if (slot.epoch() != tau.epoch()) {
+            // since the update operates on a copy of the state
+            // eta[2] and kappa are the updated "prime" values
+            gamma.s = _fallback_key_sequence(eta[2], kappa);
+        }
+
+        if (slot.epoch() > tau.epoch()) [[unlikely]] {
+        // JAM Paper (6.34)
+            gamma.a.clear();
+        }
+
         // JAM Paper (6.28) - winning-tickets marker
-        if (slot.epoch() == tau.epoch() &&  tau.epoch_slot() < CONSTANTS::ticket_submission_end
+        if (slot.epoch() == tau.epoch() && tau.epoch_slot() < CONSTANTS::ticket_submission_end
                 && slot.epoch_slot() >= CONSTANTS::ticket_submission_end && gamma.a.size() == CONSTANTS::epoch_length) {
             res.tickets_mark.emplace(_permute_tickets(gamma.a));
         }
@@ -867,6 +870,7 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     void state_t<CONSTANTS>::apply(const block_t<CONSTANTS> &blk)
     {
+        using namespace std::string_view_literals;
         // Work on a copy so that in case of exceptions the original state remains intact
         // In addition, this makes it easier to differentiate between the original and intermediate state values
         auto new_st = *this;
@@ -876,16 +880,21 @@ namespace turbo::jam {
         // JAM (4.9) update kappa
         // JAM (4.10) update lambda
 
-        entropy_t block_entropy;
-        if (ark_vrf_cpp::ietf_vrf_output(block_entropy, blk.header.entropy_source) != 0) [[unlikely]]
+        entropy_t entropy_vrf_output;
+        if (ark_vrf_cpp::ietf_vrf_output(entropy_vrf_output, blk.header.entropy_source) != 0) [[unlikely]]
             throw err_bad_signature_t {};
-
-        // TODO: verify seal and entropy_source signatures
-        const auto safrole_res = new_st.update_safrole(blk.header.slot, block_entropy, blk.extrinsic.tickets);
+        const auto safrole_res = new_st.update_safrole(blk.header.slot, entropy_vrf_output, blk.extrinsic.tickets);
         if (safrole_res.epoch_mark != blk.header.epoch_mark) [[unlikely]]
             throw error("supplied epoch_mark does not match the computed one!");
         if (safrole_res.tickets_mark != blk.header.tickets_mark) [[unlikely]]
             throw error("supplied tickets_mark does not match the computed one!");
+
+        // signature verification depends on updated kappa, gamma.s and eta, so happens after update_safrole
+        blk.header.verify_signatures(
+            new_st.kappa.at(blk.header.author_index).bandersnatch,
+            new_st.gamma.s,
+            new_st.eta[3]
+        );
 
         // JAM (4.11) -> psi'
         new_st.update_disputes(blk.extrinsic.disputes);

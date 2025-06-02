@@ -195,17 +195,17 @@ namespace turbo::jam {
             archive.process_uint(_val);
         }
 
-        uint32_t slot() const
+        [[nodiscard]] uint32_t slot() const
         {
             return _val;
         }
 
-        uint32_t epoch() const
+        [[nodiscard]] uint32_t epoch() const
         {
             return _val / CONSTANTS::epoch_length;
         }
 
-        uint32_t epoch_slot() const
+        [[nodiscard]] uint32_t epoch_slot() const
         {
             return _val % CONSTANTS::epoch_length;
         }
@@ -1657,13 +1657,11 @@ namespace turbo::jam {
         // H_s
         bandersnatch_vrf_signature_t seal {};
 
-        [[nodiscard]] header_hash_t hash_u() const
+        [[nodiscard]] uint8_vector unsigned_bytes() const
         {
-            header_hash_t res;
             encoder enc {};
-            enc.process(*this);
-            crypto::blake2b::digest(res, enc.bytes());
-            return res;
+            const_cast<header_t &>(*this).serialize_unsigned(enc);
+            return std::move(enc.bytes());
         }
 
         [[nodiscard]] header_hash_t hash() const
@@ -1675,7 +1673,9 @@ namespace turbo::jam {
             return res;
         }
 
-        void serialize(auto &archive)
+        void verify_signatures(const bandersnatch_public_t &vkey, const tickets_or_keys_t<CONSTANTS> &gamma_s, const entropy_t &eta3) const;
+
+        void serialize_unsigned(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("parent"sv, parent);
@@ -1687,6 +1687,12 @@ namespace turbo::jam {
             archive.process("offenders_mark"sv, offenders_mark);
             archive.process("author_index"sv, author_index);
             archive.process("entropy_source"sv, entropy_source);
+        }
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            serialize_unsigned(archive);
             archive.process("seal"sv, seal);
         }
 
