@@ -467,7 +467,6 @@ namespace turbo::jam {
                 }
             );
         }
-        tau = slot;
         return res;
     }
 
@@ -868,13 +867,10 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     void state_t<CONSTANTS>::apply(const block_t<CONSTANTS> &blk)
     {
+        // Work on a copy so that in case of exceptions the original state remains intact
+        // In addition, this makes it easier to differentiate between the original and intermediate state values
         auto new_st = *this;
 
-        // Work on a copy so that in case of exceptions the original state remains intact
-        // In addition, this makes it easier to differentiate between the original and intermeidate state values
-        new_st.update_time(blk.header.slot);
-
-        // JAM (4.5) update tau
         // JAM (4.7) update gamma
         // JAM (4.8) update eta
         // JAM (4.9) update kappa
@@ -885,7 +881,11 @@ namespace turbo::jam {
             throw err_bad_signature_t {};
 
         // TODO: verify seal and entropy_source signatures
-        new_st.update_safrole(blk.header.slot, block_entropy, blk.extrinsic.tickets);
+        const auto safrole_res = new_st.update_safrole(blk.header.slot, block_entropy, blk.extrinsic.tickets);
+        if (safrole_res.epoch_mark != blk.header.epoch_mark) [[unlikely]]
+            throw error("supplied epoch_mark does not match the computed one!");
+        if (safrole_res.tickets_mark != blk.header.tickets_mark) [[unlikely]]
+            throw error("supplied tickets_mark does not match the computed one!");
 
         // JAM (4.11) -> psi'
         new_st.update_disputes(blk.extrinsic.disputes);
@@ -923,6 +923,9 @@ namespace turbo::jam {
 
         // JAM (4.20): pi' <- (E_G, E_P, E_A, E_T, taz, kappa', pi, H)
         new_st.update_statistics(blk.header.slot, blk.header.author_index, blk.extrinsic);
+
+        // JAM (4.5) update tau
+        new_st.update_time(blk.header.slot);
 
         *this = std::move(new_st);
     }

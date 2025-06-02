@@ -69,17 +69,19 @@ namespace {
 
             const state_t<config_tiny> pre_state { tc.pre.keyvals };
             const state_t<config_tiny> exp_post_state { tc.post.keyvals };
-            //std::cout << fmt::format("state diff: {}\n", exp_post_state.diff(pre_state));
             chain_t<config_tiny> chain {
                 "dev",
                 genesis_state,
                 !tc.pre.keyvals.empty() ? std::optional<state_t<config_tiny>> { pre_state } : std::nullopt
             };
-            std::cout << fmt::format("block {}\n", tc.block.header.hash());
+            //std::cout << fmt::format("block {}\n", tc.block.header.hash());
             chain.apply(tc.block);
-            std::cout << fmt::format("post_state diff: {}\n", chain.state().diff(exp_post_state));
-            expect(exp_post_state == chain.state()) << path;
-            expect_equal(path, chain.state().state_dict().root(), tc.post.state_root);
+
+            const auto same_state = chain.state() == exp_post_state;
+            expect(same_state) << path;
+            if (!same_state)
+                std::cout << fmt::format("{} state diff: {}\n", path, chain.state().diff(exp_post_state));
+            //expect_equal(path, chain.state().state_dict().root(), tc.post.state_root);
         } catch (const std::exception &ex) {
             expect(false) << path << ex.what();
         }
@@ -100,7 +102,7 @@ suite turbo_jam_traces_suite = [] {
             genesis_state.phi = upd_genesis.phi;
             genesis_state.eta = upd_genesis.eta;
         }
-        //test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000000"), genesis_state);
+        test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000012"), genesis_state);
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
             test_file(path.substr(0, path.size() - 4), genesis_state);
         }

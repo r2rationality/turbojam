@@ -83,6 +83,7 @@ namespace {
         }
         auto new_st = tc.pre;
         new_st.update_statistics(tc.in.slot, tc.in.author_index, tc.in.extrinsic);
+        new_st.update_time(tc.in.slot);
         expect(new_st.pi.current == tc.post.pi.current) << path;
         expect(new_st.pi.last == tc.post.pi.last) << path;
     }
