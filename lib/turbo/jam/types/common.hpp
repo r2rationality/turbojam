@@ -1584,24 +1584,12 @@ namespace turbo::jam {
 
         void insert(const time_slot_t<CONSTANTS> &/*slot*/, const opaque_hash_t &key_hash, const uint32_t /*key_len*/, const buffer data)
         {
-            const auto [p_it, p_created] = storage.try_emplace(key_hash, data);
-            if (!p_created) {
-                info.bytes -= p_it->second.size();
-                p_it->second = data;
-            } else {
-                ++info.items;
-            }
-            info.bytes += data.size();
+
         }
 
         void erase(const time_slot_t<CONSTANTS> &/*slot*/, const opaque_hash_t &key_hash, const uint32_t /*key_len*/)
         {
-            const auto p_it = storage.find(key_hash);
-            if (p_it != storage.end()) {
-                storage.erase(key_hash);
-                info.bytes -= p_it->second.size();
-                --info.items;
-            }
+
         }
 
         void serialize(auto &archive)

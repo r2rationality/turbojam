@@ -141,12 +141,23 @@ namespace turbo::jam::machine {
             res.reserve(sz);
             try {
                 for (size_t p = offset, end = offset + sz; p < end; ++p) {
-                    const auto [page_off, page_it] = _addr_check(p, 1);
-                    res.emplace_back(page_it->second.data[page_off]);
+                    res.emplace_back(_load_unsigned(p, 1));
                 }
                 return res;
             } catch (...) {
                 return {};
+            }
+        }
+
+        bool mem_write(const size_t offset, const buffer data)
+        {
+            try {
+                for (size_t p = offset, end = offset + data.size(); p < end; ++p) {
+                    _store_unsigned(p, data[p - offset]);
+                }
+                return true;
+            } catch (...) {
+                return false;
             }
         }
 
@@ -618,7 +629,7 @@ namespace turbo::jam::machine {
             return std::make_pair(page_off, page_it);
         }
 
-        register_val_t _load_unsigned(const register_val_t addr, const size_t sz)
+        register_val_t _load_unsigned(const register_val_t addr, const size_t sz) const
         {
             const auto [page_off, page_it] = _addr_check(addr, sz);
             register_val_t res;
@@ -1756,6 +1767,11 @@ namespace turbo::jam::machine {
     const registers_t &machine_t::regs() const
     {
         return const_cast<machine_t *>(this)->_impl_ptr()->regs();
+    }
+
+    bool machine_t::mem_write(const size_t offset, const buffer data)
+    {
+        return _impl_ptr()->mem_write(offset, data);
     }
 
     std::optional<uint8_vector> machine_t::mem(size_t offset, size_t sz) const

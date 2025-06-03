@@ -231,6 +231,7 @@ namespace turbo::jam::machine {
         result_t run();
         void consume_gas(gas_t gas);
         void set_reg(size_t id, register_val_t val);
+        bool mem_write(size_t offset, buffer data);
         void skip_op();
         [[nodiscard]] const registers_t &regs() const;
         [[nodiscard]] uint32_t pc() const;

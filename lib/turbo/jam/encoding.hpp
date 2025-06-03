@@ -189,6 +189,11 @@ namespace turbo::jam {
             process(val);;
         }
 
+        void next_bytes(const buffer data)
+        {
+            _bytes << data;
+        }
+
         uint8_vector &bytes()
         {
             return _bytes;
