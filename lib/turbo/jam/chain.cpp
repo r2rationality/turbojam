@@ -3,6 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <iostream>
 #include "chain.hpp"
 
 namespace turbo::jam {
@@ -49,17 +50,32 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void chain_t<CONFIG>::apply(const block_t<CONFIG> &blk)
+    std::exception_ptr chain_t<CONFIG>::try_apply(const block_t<CONFIG> &blk) noexcept
     {
         if (!_state) [[unlikely]] {
             //if (blk.header != _genesis_header) [[unlikely]]
-             //   throw error("the genesis header does not match the genesis state!");
+            //   throw error("the genesis header does not match the genesis state!");
             _state.emplace(_genesis_state);
             _state->beta.clear();
-            _state->update_history(blk.header.hash(), blk.header.parent_state_root, {}, {});
-        } else {
-            _state->apply(blk);
+            try {
+                _state->update_history_2(blk.header.hash(), {}, {});
+            } catch (std::exception &ex) {
+                std::cerr << fmt::format("chain_t::try_apply failed to apply the genesis block: {}\n", ex.what());
+                return std::current_exception();
+            } catch (...) {
+                std::cerr << "chain_t::try_apply failed to apply the genesis block: unknown exception\n";
+                return std::current_exception();
+            }
+            return nullptr;
         }
+        return _state->try_apply(blk);
+    }
+
+    template<typename CONFIG>
+    void chain_t<CONFIG>::apply(const block_t<CONFIG> &blk)
+    {
+        if (const auto ex_ptr = try_apply(blk); ex_ptr)
+            std::rethrow_exception(ex_ptr);
     }
 
     template struct chain_t<config_prod>;

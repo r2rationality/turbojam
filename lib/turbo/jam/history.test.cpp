@@ -82,7 +82,8 @@ namespace {
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
         state_t<CFG> new_st = tc.pre;
-        new_st.update_history(tc.in.header_hash, tc.in.parent_state_root, tc.in.accumulate_root, tc.in.work_packages);
+        new_st.update_history_1(tc.in.parent_state_root);
+        new_st.update_history_2(tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages);
         expect(new_st == tc.post) << path;
     }
 }

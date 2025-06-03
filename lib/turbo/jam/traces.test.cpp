@@ -70,16 +70,16 @@ namespace {
             //expect_equal(path, tc.pre.keyvals.root(), tc.pre.state_root);
             //expect_equal(tc.post.keyvals.root(), tc.post.state_root, path);
 
-            const state_t<config_tiny> pre_state { tc.pre.keyvals };
+            state_t<config_tiny> pre_state { tc.pre.keyvals };
             const state_t<config_tiny> exp_post_state { tc.post.keyvals };
             chain_t<config_tiny> chain {
                 "dev",
                 genesis_state,
-                !tc.pre.keyvals.empty() ? std::optional<state_t<config_tiny>> { pre_state } : std::nullopt
+                !tc.pre.keyvals.empty() ? std::optional { std::move(pre_state) } : std::nullopt
             };
 
             //std::cout << fmt::format("{} block {}\n", path, tc.block.header.hash());
-            chain.apply(tc.block);
+            expect(chain.try_apply(tc.block) == nullptr);
 
             const auto same_state = chain.state() == exp_post_state;
             expect(same_state) << path;
@@ -110,15 +110,15 @@ suite turbo_jam_traces_suite = [] {
             genesis_state.phi = upd_genesis.phi;
             genesis_state.eta = upd_genesis.eta;
         }
-        //test_file(file::install_path("test/jam-test-vectors/traces/safrole/00000024"), genesis_state);
+        //test_file(file::install_path("test/jam-test-vectors/traces/reports-l0/00000002"), genesis_state);
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
             test_file(path.substr(0, path.size() - 4), genesis_state);
         }
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/safrole"), ".bin")) {
             test_file(path.substr(0, path.size() - 4), genesis_state);
         }
-        /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
+        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
             test_file(path.substr(0, path.size() - 4), genesis_state);
-        }*/
+        }
     };
 };

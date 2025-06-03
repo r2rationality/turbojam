@@ -227,14 +227,16 @@ namespace turbo::jam {
 
         // JAM (4.1): Kapital upsilon
         void apply(const block_t<CONSTANTS> &);
+        std::exception_ptr try_apply(const block_t<CONSTANTS> &) noexcept;
 
         // Methods internally used by the apply and in unit tests
-        // Todo: make them protected and the respective unit test class friends
+        // Todo: make them protected and the respective unit test classes friends?
 
         // JAM (4.5)
         void update_time(const time_slot_t<CONSTANTS> &slot);
         // JAM (4.6)
-        void update_history(const header_hash_t &hh, const state_root_t &sr, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
+        void update_history_1(const state_root_t &sr);
+        void update_history_2(const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
         // JAM (4.7)
         // JAM (4.8)
         // JAM (4.9)

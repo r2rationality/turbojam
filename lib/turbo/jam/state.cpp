@@ -828,7 +828,14 @@ namespace turbo::jam {
     }
 
     template<typename CONSTANTS>
-    void state_t<CONSTANTS>::update_history(const header_hash_t &hh, const state_root_t &state_root, const std::optional<opaque_hash_t> &accumulation_result, const reported_work_seq_t &wp)
+    void state_t<CONSTANTS>::update_history_1(const state_root_t &state_root)
+    {
+        if (!beta.empty()) [[likely]]
+            beta.back().state_root = state_root;
+    }
+
+    template<typename CONSTANTS>
+    void state_t<CONSTANTS>::update_history_2(const header_hash_t &hh, const std::optional<opaque_hash_t> &accumulation_result, const reported_work_seq_t &wp)
     {
         static mmr_t empty_mmr {};
         const mmr_t &prev_mmr = beta.empty() ? empty_mmr : beta.at(beta.size() - 1).mmr;
@@ -837,8 +844,6 @@ namespace turbo::jam {
             .mmr=accumulation_result ? prev_mmr.append(*accumulation_result) : prev_mmr,
             .reported=wp
         };
-        if (!beta.empty()) [[likely]]
-            beta.back().state_root = state_root;
         if (beta.size() == beta.max_size) [[likely]]
             beta.erase(beta.begin());
         beta.emplace_back(std::move(bi));
@@ -874,6 +879,9 @@ namespace turbo::jam {
         // Work on a copy so that in case of exceptions the original state remains intact
         // In addition, this makes it easier to differentiate between the original and intermediate state values
         auto new_st = *this;
+
+        // JAM (4.6)
+        new_st.update_history_1(blk.header.parent_state_root);
 
         // JAM (4.7) update gamma
         // JAM (4.8) update eta
@@ -919,13 +927,15 @@ namespace turbo::jam {
         for (const auto &g: blk.extrinsic.guarantees) {
             reported_work.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
         }
-        new_st.update_history(blk.header.hash(), blk.header.parent_state_root, accumulate_res, reported_work);
+
+        // JAM (4.17)
+        new_st.update_history_2(blk.header.hash(), accumulate_res, reported_work);
 
         // (4.19): alpha' <- (H, E_G, psi', and alpha)
         {
             core_authorizers_t cas {};
             for (const auto &g: blk.extrinsic.guarantees) {
-                cas.emplace_back(g.report.core_index, g.report.package_spec.hash);
+                cas.emplace_back(g.report.core_index, g.report.authorizer_hash);
             }
             new_st.update_auth_pools(blk.header.slot, cas);
         }
@@ -937,6 +947,21 @@ namespace turbo::jam {
         new_st.update_time(blk.header.slot);
 
         *this = std::move(new_st);
+    }
+
+    template<typename CONSTANTS>
+    std::exception_ptr state_t<CONSTANTS>::try_apply(const block_t<CONSTANTS> &blk) noexcept
+    {
+        try {
+            apply(blk);
+            return nullptr;
+        } catch (const std::exception &ex) {
+            std::cerr << fmt::format("state_t::try_apply failed: {}\n", ex.what());
+            return std::current_exception();
+        } catch (...) {
+            std::cerr << fmt::format("state_t::try_apply failed: unknown exception\n");
+            return std::current_exception();
+        }
     }
 
     template<typename T>

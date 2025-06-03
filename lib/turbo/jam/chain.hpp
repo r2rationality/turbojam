@@ -18,6 +18,7 @@ namespace turbo::jam {
         [[nodiscard]] const state_t<CONFIG> &genesis_state() const { return _genesis_state; }
         [[nodiscard]] const state_t<CONFIG> &state() const;
         void apply(const block_t<CONFIG> &blk);
+        std::exception_ptr try_apply(const block_t<CONFIG> &blk) noexcept;
     private:
         std::string _id;
         state_t<CONFIG> _genesis_state;
