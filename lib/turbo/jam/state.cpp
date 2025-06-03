@@ -390,7 +390,6 @@ namespace turbo::jam {
             }
         }
 
-
         for (const auto &[service_id, ops]: service_ops) {
             auto &service = delta.at(service_id);
             const auto &code = service.preimages.at(service.info.code_hash);
@@ -406,39 +405,17 @@ namespace turbo::jam {
             const auto inv_res = machine::invoke(
                 static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes(),
                 [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                    std::cout << fmt::format("host call service_id: {} id: {}\n", service_id, id) << std::flush;
-                    host_service_t<CONSTANTS> host_service { m, *this, service_id, slot };
-                    try
-                    {
-                        switch (id) {
-                            case 0: return host_service.gas();
-                            case 1: return host_service.lookup();
-                            case 2: return host_service.read();
-                            case 3: return host_service.write();
-                            case 4: return host_service.info();
-                            case 5: return host_service.bless();
-                            case 6: return host_service.assign();
-                            case 7: return host_service.designate();
-                            case 8: return host_service.checkpoint();
-                            case 9: return host_service.new_();
-                            case 10: return host_service.upgrade();
-                            case 11: return host_service.transfer();
-                            case 12: return host_service.eject();
-                            case 13: return host_service.query();
-                            case 14: return host_service.solicit();
-                            case 15: return host_service.forget();
-                            case 16: return host_service.yield();
-                            case 17: return host_service.provide();
-                            default:
-                                m.consume_gas(10);
-                                m.set_reg(7, machine::host_call_res_t::what);
-                                return std::monostate {};
-                        }
-                    } catch (machine::exit_out_of_gas_t &ex) {
-                        return ex;
-                    } catch (...) {
-                        return machine::exit_panic_t {};
+                    static std::set<machine::register_val_t> allowed_calls {
+                        0, 1, 2, 3, 4, // general
+                        5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 // accumulate-specific
+                    };
+                    if (allowed_calls.contains(id)) {
+                        host_service_t<CONSTANTS> host_service { m, *this, service_id, slot };
+                        return host_service.call(id);
                     }
+                    m.consume_gas(10);
+                    m.set_reg(7, machine::host_call_res_t::what);
+                    return std::monostate {};
                 }
             );
         }

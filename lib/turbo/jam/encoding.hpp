@@ -41,6 +41,12 @@ namespace turbo::jam {
                 throw error(fmt::format("{} cannot be encoded as a sequence of {} bytes", val, num_bytes));
         }
 
+        template<typename ...Args>
+        explicit encoder(const Args &... args)
+        {
+            (process(args), ...);
+        }
+
         void push(const std::string_view)
         {
             // do nothing

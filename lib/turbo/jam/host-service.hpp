@@ -10,48 +10,56 @@
 namespace turbo::jam {
     template<typename CONFIG>
     struct host_service_t {
-        using res_t = machine::host_call_res_t;
-
         host_service_t(machine::machine_t &m, state_t<CONFIG> &st, service_id_t service_id, time_slot_t<CONFIG> slot);
-
-        // General functions
-        res_t gas();
-        res_t lookup();
-        res_t read();
-        res_t write();
-        res_t info();
-
-        // Accumulate functions
-        res_t bless();
-        res_t assign();
-        res_t designate();
-        res_t checkpoint();
-        res_t new_();
-        res_t upgrade();
-        res_t transfer();
-        res_t eject();
-        res_t query();
-        res_t solicit();
-        res_t forget();
-        res_t yield();
-        res_t provide();
-
-        // Refine functions
-        res_t historical_lookup();
-        res_t fetch();
-        res_t export_();
-        res_t machine();
-        res_t peek();
-        res_t poke();
-        res_t zero();
-        res_t void_();
-        res_t invoke();
-        res_t expunge();
+        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     private:
         machine::machine_t &_m;
         state_t<CONFIG> &_st;
         service_id_t _service_id;
         account_t<CONFIG> &_service;
         time_slot_t<CONFIG> _slot;
+
+        // helper methods
+        typename accounts_t<CONFIG>::value_type &_get_service(machine::register_val_t id);
+
+        template<typename M>
+        static typename M::mapped_type &_get_value(M &m, const typename M::key_type &key);
+
+        template<typename M>
+        static const typename M::mapped_type &_get_value(const M &m, const typename M::key_type &key);
+
+        // General functions
+        void gas();
+        void lookup();
+        void read();
+        void write();
+        void info();
+
+        // Accumulate functions
+        void bless();
+        void assign();
+        void designate();
+        void checkpoint();
+        void new_();
+        void upgrade();
+        void transfer();
+        void eject();
+        void query();
+        void solicit();
+        void forget();
+        void yield();
+        void provide();
+
+        // Refine functions
+        void historical_lookup();
+        void fetch();
+        void export_();
+        void machine();
+        void peek();
+        void poke();
+        void zero();
+        void void_();
+        void invoke();
+        void expunge();
     };
 }

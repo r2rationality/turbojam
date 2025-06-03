@@ -231,12 +231,13 @@ namespace turbo::jam::machine {
         result_t run();
         void consume_gas(gas_t gas);
         void set_reg(size_t id, register_val_t val);
-        bool mem_write(size_t offset, buffer data);
+        void mem_write(size_t offset, buffer data);
+        [[nodiscard]] uint8_vector mem_read(size_t offset, size_t sz) const;
         void skip_op();
         [[nodiscard]] const registers_t &regs() const;
         [[nodiscard]] uint32_t pc() const;
         [[nodiscard]] gas_remaining_t gas() const;
-        [[nodiscard]] std::optional<uint8_vector> mem(size_t offset, size_t sz) const;
+        [[nodiscard]] std::optional<uint8_vector> try_mem_read(size_t offset, size_t sz) const noexcept;
         [[nodiscard]] state_t state() const;
     private:
         struct impl;
@@ -251,7 +252,7 @@ namespace turbo::jam::machine {
         using base_type::base_type;
     };
 
-    using host_call_res_base_t = std::variant<std::monostate, exit_panic_t, exit_out_of_gas_t, exit_halt_t, exit_page_fault_t>;
+    using host_call_res_base_t = std::variant<std::monostate, exit_panic_t, exit_out_of_gas_t>;
     struct host_call_res_t: host_call_res_base_t {
         using base_type = host_call_res_base_t;
         using base_type::base_type;

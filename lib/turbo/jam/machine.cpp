@@ -135,29 +135,22 @@ namespace turbo::jam::machine {
             return _regs;
         }
 
-        [[nodiscard]] std::optional<uint8_vector> mem(const size_t offset, const size_t sz) const
+        uint8_vector mem_read(const size_t offset, const size_t sz) const
         {
             uint8_vector res {};
             res.reserve(sz);
-            try {
-                for (size_t p = offset, end = offset + sz; p < end; ++p) {
-                    res.emplace_back(_load_unsigned(p, 1));
-                }
-                return res;
-            } catch (...) {
-                return {};
+            for (size_t p = offset, end = offset + sz; p < end; ++p) {
+                // _load_unsigned throws page_fault on error
+                res.emplace_back(static_cast<uint8_t>(_load_unsigned(p, 1)));
             }
+            return res;
         }
 
-        bool mem_write(const size_t offset, const buffer data)
+        void mem_write(const size_t offset, const buffer data)
         {
-            try {
-                for (size_t p = offset, end = offset + data.size(); p < end; ++p) {
-                    _store_unsigned(p, data[p - offset]);
-                }
-                return true;
-            } catch (...) {
-                return false;
+            for (size_t p = offset, end = offset + data.size(); p < end; ++p) {
+                // _store_unsigned throws page_fault on error
+                _store_unsigned(p, data[p - offset]);
             }
         }
 
@@ -1769,14 +1762,23 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl_ptr()->regs();
     }
 
-    bool machine_t::mem_write(const size_t offset, const buffer data)
+    void machine_t::mem_write(const size_t offset, const buffer data)
     {
-        return _impl_ptr()->mem_write(offset, data);
+        _impl_ptr()->mem_write(offset, data);
     }
 
-    std::optional<uint8_vector> machine_t::mem(size_t offset, size_t sz) const
+    uint8_vector machine_t::mem_read(const size_t offset, const size_t sz) const
     {
-        return const_cast<machine_t *>(this)->_impl_ptr()->mem(offset, sz);
+        return const_cast<machine_t *>(this)->_impl_ptr()->mem_read(offset, sz);
+    }
+
+    std::optional<uint8_vector> machine_t::try_mem_read(const size_t offset, const size_t sz) const noexcept
+    {
+        try {
+            return mem_read(offset, sz);
+        } catch (...) {
+            return {};
+        }
     }
 
     state_t machine_t::state() const
@@ -1864,7 +1866,7 @@ namespace turbo::jam::machine {
         if (!m)
             return { 0, exit_panic_t {} };
         const auto halt_status = [&] {
-            auto data = m->mem(m->regs().at(7), m->regs().at(8));
+            auto data = m->try_mem_read(m->regs().at(7), m->regs().at(8));
             return data ? std::move(*data) : uint8_vector {};
         };
         const auto gas_begin = m->gas();
@@ -1900,6 +1902,6 @@ namespace turbo::jam::machine {
         } catch (const std::exception &) {
             status = exit_panic_t {};
         }
-        return { numeric_cast<gas_t>(gas_begin - m->gas()), std::get<invocation_result_base_t>(status) };
+        return { numeric_cast<gas_t::base_type>(gas_begin - m->gas()), std::get<invocation_result_base_t>(status) };
     }
 }
