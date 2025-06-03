@@ -11,6 +11,7 @@
 #include <turbo/crypto/ed25519.hpp>
 #include "types/errors.hpp"
 #include "accumulate.hpp"
+#include "host-service.hpp"
 #include "machine.hpp"
 #include "merkle.hpp"
 #include "shuffle.hpp"
@@ -406,61 +407,32 @@ namespace turbo::jam {
                 static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes(),
                 [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
                     std::cout << fmt::format("host call service_id: {} id: {}\n", service_id, id) << std::flush;
+                    host_service_t<CONSTANTS> host_service { m, *this, service_id, slot };
                     try
                     {
                         switch (id) {
-                            // gas
-                        case 0:
-                            m.consume_gas(10);
-                            m.set_reg(7, m.gas());
-                            return std::monostate {};
-                        // lookup
-                        case 1: return machine::exit_panic_t {};
-                        // read
-                        case 2: return machine::exit_panic_t {};
-                        // write
-                        case 3: {
-                            if (service.info.balance >= service.balance_threshold()) {
-                                const auto k_o = m.regs()[7];
-                                const auto k_z = m.regs()[8];
-                                const auto key_data = m.mem(k_o, k_z);
-                                if (!key_data) [[unlikely]]
-                                    return machine::exit_panic_t {};
-                                encoder enc {};
-                                enc.uint_fixed(4, service_id);
-                                enc.bytes() << *key_data;
-                                opaque_hash_t key_hash;
-                                crypto::blake2b::digest(key_hash, enc.bytes());
-                                std::cout << fmt::format("write key: {} size: {} hash: {}\n", key_data, key_data->size(),  key_hash) << std::flush;
-                                const auto v_o = m.regs()[9];
-                                const auto v_z = m.regs()[10];
-                                if (v_z == 0) {
-                                    service.erase(slot, key_hash, k_z);
-                                    m.set_reg(7, machine::host_call_res_t::none);
-                                } else {
-                                    const auto val_data = m.mem(v_o, v_z);
-                                    if (!val_data) [[unlikely]]
-                                        return machine::exit_panic_t {};
-                                    std::cout << fmt::format("write data: {} size: {}\n", val_data, val_data->size()) << std::flush;
-                                    service.insert(slot, key_hash, k_z, *val_data);
-                                    m.set_reg(7, v_z);
-                                }
-                                service.info.balance -= service.info.min_memo_gas;
-                            } else {
-                                m.set_reg(7, machine::host_call_res_t::full);
-                            }
-                            m.consume_gas(10);
-                            return std::monostate {};
-                        }
-                        // info
-                        case 4: return machine::exit_panic_t {};
-                        // fetch
-                        case 18:
-                            return machine::exit_panic_t {};
-                        default:
-                            m.consume_gas(10);
-                            m.set_reg(7, machine::host_call_res_t::what);
-                            return std::monostate {};
+                            case 0: return host_service.gas();
+                            case 1: return host_service.lookup();
+                            case 2: return host_service.read();
+                            case 3: return host_service.write();
+                            case 4: return host_service.info();
+                            case 5: return host_service.bless();
+                            case 6: return host_service.assign();
+                            case 7: return host_service.designate();
+                            case 8: return host_service.checkpoint();
+                            case 9: return host_service.new_();
+                            case 10: return host_service.upgrade();
+                            case 11: return host_service.transfer();
+                            case 12: return host_service.eject();
+                            case 13: return host_service.query();
+                            case 14: return host_service.solicit();
+                            case 15: return host_service.forget();
+                            case 16: return host_service.yield();
+                            case 17: return host_service.provide();
+                            default:
+                                m.consume_gas(10);
+                                m.set_reg(7, machine::host_call_res_t::what);
+                                return std::monostate {};
                         }
                     } catch (machine::exit_out_of_gas_t &ex) {
                         return ex;

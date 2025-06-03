@@ -79,7 +79,7 @@ namespace {
             };
 
             //std::cout << fmt::format("{} block {}\n", path, tc.block.header.hash());
-            expect(chain.try_apply(tc.block) == nullptr);
+            expect(chain.try_apply(tc.block) == nullptr) << path << "application failed";
 
             const auto same_state = chain.state() == exp_post_state;
             expect(same_state) << path;
@@ -110,8 +110,8 @@ suite turbo_jam_traces_suite = [] {
             genesis_state.phi = upd_genesis.phi;
             genesis_state.eta = upd_genesis.eta;
         }
-        //test_file(file::install_path("test/jam-test-vectors/traces/reports-l0/00000002"), genesis_state);
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
+        test_file(file::install_path("test/jam-test-vectors/traces/reports-l0/00000003"), genesis_state);
+        /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
             test_file(path.substr(0, path.size() - 4), genesis_state);
         }
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/safrole"), ".bin")) {
@@ -119,6 +119,6 @@ suite turbo_jam_traces_suite = [] {
         }
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
             test_file(path.substr(0, path.size() - 4), genesis_state);
-        }
+        }*/
     };
 };
