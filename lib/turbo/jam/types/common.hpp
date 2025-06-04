@@ -1354,10 +1354,12 @@ namespace turbo::jam {
     template<typename CONSTANTS=config_prod>
     using guarantees_extrinsic_t = sequence_t<report_guarantee_t<CONSTANTS>, 0, CONSTANTS::core_count>;
 
+    using report_deps_t = set_t<work_package_hash_t>;
+
     template<typename CONSTANTS>
     struct ready_record_t {
         work_report_t<CONSTANTS> report;
-        set_t<work_package_hash_t> dependencies;
+        report_deps_t dependencies;
 
         void serialize(auto &archive)
         {

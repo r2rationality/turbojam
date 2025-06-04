@@ -190,8 +190,8 @@ namespace turbo::jam {
         privileges_t chi {};
         disputes_records_t psi {}; // judgements
         statistics_t<CONSTANTS> pi {};
-        ready_queue_t<CONSTANTS> nu {}; // work reports ready to be accumulated
-        accumulated_queue_t<CONSTANTS> ksi {}; // recently accumulated reports
+        ready_queue_t<CONSTANTS> nu {}; // JAM (12.3): work reports ready to be accumulated
+        accumulated_queue_t<CONSTANTS> ksi {}; // JAM (12.1): recently accumulated reports
 
         state_t() =default;
 

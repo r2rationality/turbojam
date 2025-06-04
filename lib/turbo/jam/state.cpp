@@ -332,12 +332,29 @@ namespace turbo::jam {
         return res;
     }
 
+    // JAM (12.7)
     template<typename CONSTANTS>
-    bool should_accumulate_immediately(const work_report_t<CONSTANTS> &r)
+    static void accumulate_update_deps(ready_queue_item_t<CONSTANTS> &queue, const set_t<work_package_hash_t> &known_reports)
     {
-        return static_cast<int>(r.context.prerequisites.empty()) & static_cast<int>(r.segment_root_lookup.empty());
+        for (auto &rq: queue) {
+            for (auto d_it = rq.dependencies.begin(); d_it != rq.dependencies.end();) {
+                if (known_reports.contains(*d_it)) {
+                    d_it = rq.dependencies.erase(d_it);
+                } else {
+                    ++d_it;
+                }
+            }
+        }
     }
 
+    // JAM (12.8)
+    template<typename CONSTANTS>
+    static void accumulate_q(std::vector<ready_queue_item_t<CONSTANTS> *>work_waiting, const work_report_t<CONSTANTS> &work_queued)
+    {
+
+    }
+
+    // produces: accumulate_root, iota', psi' and chi'
     template<typename CONSTANTS>
     accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports)
     {
@@ -348,47 +365,90 @@ namespace turbo::jam {
             known_reports.reserve(known_reports.size() + er.size());
             known_reports.insert_unique(er.begin(), er.end());
         }
-        work_reports_t<CONSTANTS> work_immediate {}; // JAM Paper (12.4) W^!
-        work_reports_t<CONSTANTS> work_queued {};    // JAM Paper (12.5) W^Q
-        std::map<work_package_hash_t, set_t<work_package_hash_t>> dependencies {};  // JAM Paper (12.6) D(w)
+
+        work_reports_t<CONSTANTS> work_immediate {}; // JAM (12.4) W^!
+        ready_queue_item_t<CONSTANTS> work_queued {}; // JAM (12.5) W^Q
+        work_queued.reserve(reports.size());
+
         for (const auto &r: reports) {
-            auto &deps = dependencies[r.package_spec.hash];
-            deps.reserve(deps.size() + r.context.prerequisites.size() + r.segment_root_lookup.size());
-            for (const auto &h: r.context.prerequisites) {
+            report_deps_t deps {};
+            for (const auto &h: r.context.prerequisites)
                 deps.emplace_hint(deps.end(), h);
-            }
-            for (const auto &l: r.segment_root_lookup) {
+            for (const auto &l: r.segment_root_lookup)
                 deps.emplace_hint(deps.end(), l.work_package_hash);
-            }
-            auto &queue = should_accumulate_immediately(r) ? work_immediate : work_queued;
-            queue.emplace_back(r);
+            if (deps.empty())
+                work_immediate.emplace_back(r);
+            else
+                work_queued.emplace_back(r, std::move(deps));
         }
-        for (const auto &rl: nu) {
-            for (const auto &r: rl) {
-                auto &queue = should_accumulate_immediately(r.report) ? work_immediate : work_queued;
-                queue.emplace_back(r.report);
+
+        set_t<work_package_hash_t> immediate_hashes {};
+        for (const auto &r: work_immediate)
+            immediate_hashes.emplace(r.package_spec.hash);
+
+        // JAM (12.10)
+        const auto m = slot.epoch_slot();
+
+        // (12.11) - work immediate is w_star after this point
+
+        accumulate_update_deps(work_queued, known_reports);
+        for (auto &q: nu)
+            accumulate_update_deps(q, immediate_hashes);
+        accumulate_update_deps(work_queued, immediate_hashes);
+        for (;;) {
+            set_t<work_package_hash_t> new_hashes {};
+            for (size_t i = 0; i < nu.size(); ++i) {
+                for (const auto &rq: nu[(m + i) % nu.size()]) {
+                    if (rq.dependencies.empty()) {
+                        work_immediate.emplace_back(rq.report);
+                        new_hashes.emplace(rq.report.package_spec.hash);
+                    }
+                }
             }
+            if (new_hashes.empty())
+                break;
+            for (auto &q: nu)
+                accumulate_update_deps(q, new_hashes);
+            accumulate_update_deps(work_queued, new_hashes);
         }
 
         std::map<service_id_t, sequence_t<accumulate_operand_t>> service_ops {};
+        std::map<service_id_t, gas_t> service_gas {};
 
-        for (const auto &q: { work_immediate, work_queued }) {
-            for (const auto &r: q) {
-                for (const auto &r_res: r.results) {
-                    service_ops[r_res.service_id].emplace_back(
-                        accumulate_operand_t {
-                            .work_package_hash=r.package_spec.hash,
-                            .exports_root=r.package_spec.exports_root,
-                            .authorizer_hash=r.authorizer_hash,
-                            .auth_output=r.auth_output,
-                            .payload_hash=r_res.payload_hash,
-                            .accumulate_gas=r_res.accumulate_gas,
-                            .result=r_res.result
-                        }
-                    );
-                }
+        for (const auto &r: work_immediate) {
+            for (const auto &r_res: r.results) {
+                service_ops[r_res.service_id].emplace_back(
+                    accumulate_operand_t {
+                        .work_package_hash=r.package_spec.hash,
+                        .exports_root=r.package_spec.exports_root,
+                        .authorizer_hash=r.authorizer_hash,
+                        .auth_output=r.auth_output,
+                        .payload_hash=r_res.payload_hash,
+                        .accumulate_gas=r_res.accumulate_gas,
+                        .result=r_res.result
+                    }
+                );
+                service_gas[r_res.service_id] += r_res.accumulate_gas;
             }
         }
+
+        // transfers
+        struct transfer_info_t {
+            balance_t amount;
+            gas_t gas;
+        };
+        struct service_context_t {
+            service_id_t service_id;
+            // new_service_id is updated by the new host call
+            service_id_t new_service_id;
+            // transfers are updated with the transfer host call
+            std::vector<transfer_info_t> transfers {};
+            // commitment is updated by the yield host call
+            std::optional<opaque_hash_t> commitment {};
+            // preimages are updated by the provide host call
+            std::map<service_id_t, uint8_vector> preimages {};
+        };
+        std::map<service_id_t, service_context_t> service_ctxs {};
 
         for (const auto &[service_id, ops]: service_ops) {
             auto &service = delta.at(service_id);
@@ -396,10 +456,7 @@ namespace turbo::jam {
             const auto code_hash = crypto::blake2b::digest(code);
             if (code_hash != service.info.code_hash) [[unlikely]]
                 throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
-            encoder arg_enc {};
-            arg_enc.process(slot);
-            arg_enc.process(service_id);
-            arg_enc.process(ops);
+            encoder arg_enc { slot, service_id, ops };
 
             // JAM (B.9): bold psi_a
             const auto inv_res = machine::invoke(
@@ -418,6 +475,13 @@ namespace turbo::jam {
                     return std::monostate {};
                 }
             );
+
+            if (!std::holds_alternative<uint8_vector>(inv_res.result)) [[unlikely]]
+                throw error(fmt::format("accumulation for service {} has failed", service_id));
+
+            // JAM (12.2)
+            for (const auto &o: ops)
+                ksi[slot.slot()].emplace(o.work_package_hash);
         }
         return res;
     }
@@ -542,8 +606,7 @@ namespace turbo::jam {
             uint8_vector msg {};
             msg << std::string_view { "jam_guarantee" };
             {
-                encoder enc {};
-                enc.process(g.report);
+                encoder enc { g.report };
                 msg << crypto::blake2b::digest(enc.bytes());
             }
             std::optional<validator_index_t> prev_validator {};
@@ -757,8 +820,7 @@ namespace turbo::jam {
         // JAM (10.15)
         for (auto &ra: rho) {
             if (ra) {
-                encoder enc {};
-                enc.process(ra->report);
+                encoder enc { ra->report };
                 work_report_hash_t report_hash;
                 crypto::blake2b::digest(report_hash, enc.bytes());
                 if (const auto ok_it = report_oks.find(report_hash); ok_it != report_oks.end() && ok_it->second < CONSTANTS::validator_super_majority) [[unlikely]]
@@ -916,8 +978,7 @@ namespace turbo::jam {
     template<typename T>
     static byte_sequence_t encode(const T &v)
     {
-        encoder enc {};
-        enc.process(v);
+        encoder enc { v };
         return { std::move(enc.bytes()) };
     }
 
