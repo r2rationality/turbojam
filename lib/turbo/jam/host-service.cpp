@@ -200,7 +200,7 @@ namespace turbo::jam {
     [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CONFIG>::call(const machine::register_val_t id) noexcept
     {
         return base_type::_safe_call([&] {
-            base_type::_m.consume_gas(10);
+            gas_t::base_type gas_used = 10;
             switch (id) {
                 case 0: base_type::gas(); break;
                 case 1: base_type::lookup(); break;
@@ -220,11 +220,15 @@ namespace turbo::jam {
                 case 15: forget(); break;
                 case 16: yield(); break;
                     //case ??: return provide(); break;
-                case 100: base_type::log(); break;
+                case 100:
+                    base_type::log();
+                    gas_used = 0;
+                    break;
                 default:
                     base_type::_m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
+            base_type::_m.consume_gas(gas_used);
         });
     }
 
@@ -307,21 +311,25 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    machine::host_call_res_t host_service_on_transfer_t<CONFIG>::call(machine::register_val_t id) noexcept
+    machine::host_call_res_t host_service_on_transfer_t<CONFIG>::call(const machine::register_val_t id) noexcept
     {
         return base_type::_safe_call([&] {
-            base_type::_m.consume_gas(10);
+            gas_t::base_type gas_used = 10;
             switch (id) {
                 case 0: base_type::gas(); break;
                 case 1: base_type::lookup(); break;
                 case 2: base_type::read(); break;
                 case 3: base_type::write(); break;
                 case 4: base_type::info(); break;
-                case 100: base_type::log(); break;
+                case 100:
+                    base_type::log();
+                    gas_used = 0;
+                    break;
                 default:
                     base_type::_m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
+            base_type::_m.consume_gas(gas_used);
         });
     }
 
