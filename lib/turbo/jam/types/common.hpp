@@ -1543,19 +1543,10 @@ namespace turbo::jam {
                 + config_base::min_balance_per_elective * num_electives();
         }
 
-        void insert(const time_slot_t<CONSTANTS> &/*slot*/, const opaque_hash_t &key_hash, const uint32_t /*key_len*/, const buffer data)
-        {
-
-        }
-
-        void erase(const time_slot_t<CONSTANTS> &/*slot*/, const opaque_hash_t &key_hash, const uint32_t /*key_len*/)
-        {
-
-        }
-
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
+            archive.process("storage", storage);
             archive.process("preimages", preimages);
             archive.process("lookup_metas", lookup_metas);
             archive.process("info", info);
@@ -1563,6 +1554,8 @@ namespace turbo::jam {
 
         bool operator==(const account_t &o) const
         {
+            if (storage != o.storage)
+                return false;
             if (preimages != o.preimages)
                 return false;
             if (lookup_metas != o.lookup_metas)

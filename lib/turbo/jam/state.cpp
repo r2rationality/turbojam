@@ -412,7 +412,10 @@ namespace turbo::jam {
         const auto code_hash = crypto::blake2b::digest(code);
         if (code_hash != service.info.code_hash) [[unlikely]]
             throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
-        const encoder arg_enc { slot, service_id, ops };
+        encoder arg_enc {};
+        arg_enc.uint_varlen(slot.slot());
+        arg_enc.uint_varlen(service_id);
+        arg_enc.process(ops);
 
         accumulate::mutable_services_state_t<CONFIG> service_state {};
         service_state.try_emplace(service_id, service.storage, service.preimages, service.lookup_metas);
@@ -425,9 +428,17 @@ namespace turbo::jam {
         };
         auto ctx_err = ctx_ok;
 
+        gas_t::base_type gas_limit = 0;
+        for (const auto &fs: chi.always_acc) {
+            if (fs.id == service_id)
+                gas_limit += fs.gas;
+        }
+        for (const auto &op: ops)
+            gas_limit += op.accumulate_gas;
+
         // JAM (B.9): bold psi_a
         const auto inv_res = machine::invoke(
-            static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes(),
+            static_cast<buffer>(code), 5U, gas_limit, arg_enc.bytes(),
             [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
                 host_service_accumulate_t<CONFIG> host_service { m, *this, service_id, slot, ctx_ok, ctx_err };
                 return host_service.call(id);
@@ -454,7 +465,9 @@ namespace turbo::jam {
         if (const auto code_hash = crypto::blake2b::digest(code); code_hash != service.info.code_hash) [[unlikely]]
             throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
         gas_t::base_type gas_limit = 0;
-        encoder arg_enc { slot, service_id };
+        encoder arg_enc {};
+        arg_enc.uint_varlen(slot.slot());
+        arg_enc.uint_varlen(service_id);
         arg_enc.uint_varlen(transfers.size());
         for (const auto &t: transfers) {
             gas_limit += t->gas_limit;

@@ -136,6 +136,7 @@ namespace turbo::jam {
             const auto v_z = _m.regs()[10];
             if (v_z == 0) {
                 if (const auto p_it = _service.storage.find(key_hash); p_it != _service.storage.end()) {
+                    _service.info.bytes -= sizeof(p_it->first);
                     _service.info.bytes -= p_it->second.size();
                     --_service.info.items;
                 }
@@ -148,12 +149,13 @@ namespace turbo::jam {
                     _service.info.bytes -= p_it->second.size();
                     p_it->second = byte_sequence_t { std::move(val_data) };
                 } else {
+                    _service.info.bytes += sizeof(p_it->first);
                     ++_service.info.items;
                 }
                 _service.info.bytes += v_z;
                 _m.set_reg(7, v_z);
             }
-            _service.info.balance -= _service.info.min_memo_gas;
+            //_service.info.balance -= _service.info.min_memo_gas;
         } else {
             _m.set_reg(7, machine::host_call_res_t::full);
         }
@@ -213,6 +215,7 @@ namespace turbo::jam {
     [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CONFIG>::call(const machine::register_val_t id) noexcept
     {
         return base_type::_safe_call([&] {
+            std::cout << fmt::format("PVM: host call #{}\n", id) << std::flush;
             gas_t::base_type gas_used = 10;
             switch (id) {
                 case 0: base_type::gas(); break;

@@ -106,8 +106,7 @@ namespace turbo::jam::accumulate {
         opaque_hash_t authorizer_hash;
         byte_sequence_t auth_output;
         opaque_hash_t payload_hash;
-        // gas_t accumulate_gas; gas_t is variable length, but currently the value is fixed length
-        gas_t::base_type accumulate_gas;
+        gas_t accumulate_gas;
         work_exec_result_t result;
 
         void serialize(auto &archive)

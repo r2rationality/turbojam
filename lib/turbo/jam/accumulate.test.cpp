@@ -93,7 +93,15 @@ namespace {
             archive.process(name, taccs);
             accs.clear();
             for (auto &&[id, tacc]: taccs) {
+                preimages_t storage {};
+                for (auto &&[k, v]: tacc.storage) {
+                    encoder enc {};
+                    enc.uint_fixed(4, id);
+                    enc.next_bytes(k);
+                    storage[crypto::blake2b::digest<opaque_hash_t>(enc.bytes())] = std::move(v);
+                }
                 account_t<CONSTANTS> acc {
+                    .storage=std::move(storage),
                     .preimages=std::move(tacc.preimages),
                     .info=std::move(tacc.service)
                 };
@@ -151,13 +159,17 @@ namespace {
         try {
             auto tmp_st = tc.pre;
             out.emplace(tmp_st.accumulate(tc.in.slot, tc.in.reports));
+            tmp_st.update_time(tc.in.slot);
             res_st = std::move(tmp_st);
         } catch (const error &) {
             out.emplace(err_code_t {});
         }
         if (out.has_value()) {
             expect(out == tc.out) << path;
-            expect(res_st == tc.post) << path;
+            const auto same_state = res_st == tc.post;
+            expect(same_state) << path;
+            if (!same_state)
+                std::cout << fmt::format("{} state diff: {}\n", path, res_st.diff(tc.post));
         } else {
             expect(false) << path;
         }
