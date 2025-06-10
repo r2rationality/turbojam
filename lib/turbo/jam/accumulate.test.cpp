@@ -10,15 +10,23 @@
 namespace {
     using namespace turbo;
     using namespace turbo::jam;
+    using namespace std::string_view_literals;
+
+    struct stored_items_config_t {
+        std::string key_name = "key";
+        std::string val_name = "value";
+    };
+    using stored_items_t = map_t<byte_sequence_t, byte_sequence_t, stored_items_config_t>;
 
     struct tmp_account_t {
         service_info_t service;
+        stored_items_t storage;
         preimages_t preimages;
 
         void serialize(auto &archive)
         {
-            using namespace std::string_view_literals;
             archive.process("service"sv, service);
+            archive.process("storage"sv, storage);
             archive.process("preimages"sv, preimages);
         }
     };
@@ -32,7 +40,6 @@ namespace {
 
         void serialize(auto &archive)
         {
-            using namespace std::string_view_literals;
             archive.process("slot"sv, slot);
             archive.process("reports"sv, reports);
         }
@@ -50,7 +57,6 @@ namespace {
     struct err_code_t {
         void serialize(auto &)
         {
-            // do nothing
         }
 
         bool operator==(const err_code_t &) const
@@ -66,7 +72,6 @@ namespace {
 
         void serialize(auto &archive)
         {
-            using namespace std::string_view_literals;
             static codec::variant_names_t<base_type> names {
                 "ok"sv,
                 "err"sv
@@ -98,9 +103,9 @@ namespace {
             }
         }
 
-        static void serialize_state(auto &archive, state_t<CONSTANTS> &st)
+        static void serialize_state(const std::string_view name, auto &archive, state_t<CONSTANTS> &st)
         {
-            using namespace std::string_view_literals;
+            archive.push(name);
             archive.process("slot"sv, st.tau);
             archive.process("entropy"sv, st.eta[0]);
             archive.process("ready_queue"sv, st.nu);
@@ -108,19 +113,15 @@ namespace {
             archive.process("privileges"sv, st.chi);
             archive.process("statistics"sv, st.pi.services);
             serialize_accounts(archive, "accounts"sv, st.delta);
+            archive.pop();
         }
 
         void serialize(auto &archive)
         {
-            using namespace std::string_view_literals;
             archive.process("input"sv, in);
-            archive.push("pre_state"sv);
-            serialize_state(archive, pre);
-            archive.pop();
+            serialize_state("pre_state"sv, archive, pre);
             archive.process("output"sv, out);
-            archive.push("post_state"sv);
-            serialize_state(archive, post);
-            archive.pop();
+            serialize_state("post_state"sv, archive, post);
         }
 
         bool operator==(const test_case_t &o) const
