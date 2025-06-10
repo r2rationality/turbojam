@@ -172,7 +172,7 @@ namespace {
 
 suite turbo_jam_preimages_suite = [] {
     "turbo::jam::preimages"_test = [] {
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/preimages/data"), ".bin")) {
+        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/preimages/data"), ".bin")) {
             test_file<config_tiny>(path.substr(0, path.size() - 4));
         }
     };

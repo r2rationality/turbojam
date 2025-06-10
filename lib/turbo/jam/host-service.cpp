@@ -233,7 +233,7 @@ namespace turbo::jam {
                     //case ??: return provide(); break;
                 case 100:
                     base_type::log();
-                    //gas_used = 0;
+                    gas_used = 0;
                     break;
                 default:
                     base_type::_m.set_reg(7, machine::host_call_res_t::what);
@@ -334,7 +334,7 @@ namespace turbo::jam {
                 case 4: base_type::info(); break;
                 case 100:
                     base_type::log();
-                    //gas_used = 0;
+                    gas_used = 0;
                     break;
                 default:
                     base_type::_m.set_reg(7, machine::host_call_res_t::what);

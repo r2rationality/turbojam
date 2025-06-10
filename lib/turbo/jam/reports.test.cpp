@@ -227,12 +227,12 @@ namespace {
 suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
         "tiny"_test = [] {
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/tiny"), ".bin")) {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/reports/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
         };
         "full"_test = [] {
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/reports/full"), ".bin")) {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/reports/full"), ".bin")) {
                 test_file<config_prod>(path.substr(0, path.size() - 4));
             }
         };

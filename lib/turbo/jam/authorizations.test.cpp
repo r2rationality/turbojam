@@ -84,12 +84,12 @@ namespace {
 suite turbo_jam_authorizations_suite = [] {
     "turbo::jam::authorizations"_test = [] {
         "tiny"_test = [] {
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/authorizations/tiny"), ".bin")) {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/authorizations/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
         };
         "full"_test = [] {
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/authorizations/full"), ".bin")) {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/authorizations/full"), ".bin")) {
                 test_file<config_prod>(path.substr(0, path.size() - 4));
             }
         };

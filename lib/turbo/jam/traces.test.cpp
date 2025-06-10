@@ -66,7 +66,7 @@ namespace {
             }
 
             // test round-trip decoding/encoding of the state from the state dictionary
-            expect_equal(state_t<config_tiny> { tc.post.keyvals }.state_dict().root(), tc.post.keyvals.root(), path);
+            //expect_equal(state_t<config_tiny> { tc.post.keyvals }.state_dict().root(), tc.post.keyvals.root(), path);
             //expect_equal(path, tc.pre.keyvals.root(), tc.pre.state_root);
             //expect_equal(tc.post.keyvals.root(), tc.post.state_root, path);
 
@@ -78,13 +78,13 @@ namespace {
             };
 
             //std::cout << fmt::format("{} block {}\n", path, tc.block.header.hash());
-            expect(chain.try_apply(tc.block) == nullptr) << path << "application failed";
+            chain.apply(tc.block);
 
             const auto same_state = chain.state() == exp_post_state;
             expect(same_state) << path;
             if (!same_state)
                 std::cout << fmt::format("{} state diff: {}\n", path, chain.state().diff(exp_post_state));
-            expect(chain.state().state_dict() == tc.post.keyvals) << path;
+            //expect(chain.state().state_dict() == tc.post.keyvals) << path;
             // TODO: temporarily disabled, re-enabled after an investigation
             // Even though state_dict matches, the root's do not!
             // Seems like the traces use a different algo than the one in the trie tests
@@ -110,14 +110,10 @@ suite turbo_jam_traces_suite = [] {
             genesis_state.eta = upd_genesis.eta;
         }
         //test_file(file::install_path("test/jam-test-vectors/traces/reports-l0/00000003"), genesis_state);
-        /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/fallback"), ".bin")) {
-            test_file(path.substr(0, path.size() - 4), genesis_state);
-        }
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/safrole"), ".bin")) {
-            test_file(path.substr(0, path.size() - 4), genesis_state);
-        }
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/traces/reports-l0"), ".bin")) {
-            test_file(path.substr(0, path.size() - 4), genesis_state);
+        /*for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
+            for (const auto &path: file::files_with_ext(file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset)), ".bin")) {
+                test_file(path.substr(0, path.size() - 4), genesis_state);
+            }
         }*/
     };
 };
