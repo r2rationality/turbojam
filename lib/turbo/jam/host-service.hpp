@@ -33,6 +33,7 @@ namespace turbo::jam {
         void read();
         void write();
         void info();
+        void log();
 
     protected:
         using call_func = std::function<void()>;

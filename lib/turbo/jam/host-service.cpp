@@ -175,6 +175,19 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
+    void host_service_base_t<CONFIG>::log()
+    {
+        std::cout << fmt::format("host::log\n") << std::flush;
+        const auto &omega = _m.regs();
+        const auto level = omega[7];
+        std::optional<uint8_vector> target {};
+        if (omega[8] != 0 || omega[9] != 0)
+            target.emplace(_m.mem_read(omega[8], omega[9]));
+        const auto msg = _m.mem_read(omega[10], omega[11]);
+        std::cout << fmt::format("host::log target={}: {}\n", target, msg) << std::flush;
+    }
+
+    template<typename CONFIG>
     host_service_accumulate_t<CONFIG>::host_service_accumulate_t(machine::machine_t &m, state_t<CONFIG> &st, service_id_t service_id, time_slot_t<CONFIG> slot,
             accumulate::context_t<CONFIG> &ctx_ok, accumulate::context_t<CONFIG> &ctx_err):
         base_type { m, st, service_id, slot },
@@ -207,6 +220,7 @@ namespace turbo::jam {
                 case 15: forget(); break;
                 case 16: yield(); break;
                     //case ??: return provide(); break;
+                case 100: base_type::log(); break;
                 default:
                     base_type::_m.set_reg(7, machine::host_call_res_t::what);
                     break;
@@ -303,6 +317,7 @@ namespace turbo::jam {
                 case 2: base_type::read(); break;
                 case 3: base_type::write(); break;
                 case 4: base_type::info(); break;
+                case 100: base_type::log(); break;
                 default:
                     base_type::_m.set_reg(7, machine::host_call_res_t::what);
                     break;
