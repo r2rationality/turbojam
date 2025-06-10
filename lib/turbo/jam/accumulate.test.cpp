@@ -149,6 +149,7 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
+        std::cout << path << std::endl;
         const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
         {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
@@ -163,6 +164,10 @@ namespace {
             res_st = std::move(tmp_st);
         } catch (const error &) {
             out.emplace(err_code_t {});
+        } catch (const std::exception &ex) {
+            expect(false) << ex.what() << path;
+        } catch (...) {
+            expect(false) << "An unknown error occured" << path;
         }
         if (out.has_value()) {
             expect(out == tc.out) << path;
@@ -178,13 +183,13 @@ namespace {
 
 suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
-        test_file<config_tiny>(file::install_path("test/jam-test-vectors/accumulate/tiny/process_one_immediate_report-1"));
+        test_file<config_tiny>(file::install_path("test/jam-test-vectors/accumulate/tiny/same_code_different_services-1"));
         /*"tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/accumulate/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
         };
-        "full test vectors"_test = [] {
+        /*"full test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/accumulate/full"), ".bin")) {
                 test_file<config_prod>(path.substr(0, path.size() - 4));
             }

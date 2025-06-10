@@ -77,13 +77,13 @@ namespace turbo::jam::machine {
                         throw exit_panic_t {}; // equivalent to executing the trap instruction
                     if (!_program.bitmasks.test(_pc)) [[unlikely]]
                         throw exit_panic_t {};
+                    consume_gas(1);
                     const uint8_t opcode = _program.code[_pc];
                     const auto len = _skip_len(_pc, _program.bitmasks);
                     const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
                     const auto &op = _opcode_info(opcode);
-                    const auto res = (this->*op.exec)(data);
-                    _pc = res.new_pc.value_or(_pc + len + 1);
-                    _gas -= res.gas_used;
+                    const auto new_pc = (this->*op.exec)(data);
+                    _pc = new_pc.value_or(_pc + len + 1);
                 }
             } catch (exit_halt_t &ex) {
                 return { std::move(ex) };
@@ -200,11 +200,7 @@ namespace turbo::jam::machine {
         register_val_t _heap_end = 0;
         register_val_t _stack_begin = 0;
 
-        struct op_res_t {
-            std::optional<register_val_t> new_pc {};
-            gas_remaining_t gas_used = 1;
-        };
-
+        using op_res_t = std::optional<register_val_t>;
         using op_exec_t = op_res_t(impl::*)(buffer);
 
         enum class op_arg_t {

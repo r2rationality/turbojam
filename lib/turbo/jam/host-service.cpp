@@ -78,14 +78,12 @@ namespace turbo::jam {
     template<typename CONFIG>
     void host_service_base_t<CONFIG>::gas()
     {
-        std::cout << fmt::format("host::gas\n") << std::flush;
         _m.set_reg(7, _m.gas());
     }
 
     template<typename CONFIG>
     void host_service_base_t<CONFIG>::lookup()
     {
-        std::cout << fmt::format("host::lookup\n") << std::flush;
         const auto &omega = _m.regs();
         const auto &[s_id, a] = _get_service(omega[7]);
         const auto h = omega[8];
@@ -101,7 +99,6 @@ namespace turbo::jam {
     template<typename CONFIG>
     void host_service_base_t<CONFIG>::read()
     {
-        std::cout << fmt::format("host::read\n") << std::flush;
         const auto &omega = _m.regs();
         const auto &[s_id, a] = _get_service(omega[7]);
         const auto ko = omega[8];
@@ -121,7 +118,6 @@ namespace turbo::jam {
     template<typename CONFIG>
     void host_service_base_t<CONFIG>::write()
     {
-        std::cout << fmt::format("host::write\n") << std::flush;
         if (_service.info.balance >= _service.balance_threshold()) {
             const auto k_o = _m.regs()[7];
             const auto k_z = _m.regs()[8];
@@ -131,10 +127,10 @@ namespace turbo::jam {
             enc.next_bytes(key_data);
             opaque_hash_t key_hash;
             crypto::blake2b::digest(key_hash, enc.bytes());
-            std::cout << fmt::format("write key: {} size: {} hash: {}\n", key_data, key_data.size(),  key_hash) << std::flush;
             const auto v_o = _m.regs()[9];
             const auto v_z = _m.regs()[10];
             if (v_z == 0) {
+                //std::cout << fmt::format("service {} write: delete key: {}\n", _service_id, key_hash) << std::flush;
                 if (const auto p_it = _service.storage.find(key_hash); p_it != _service.storage.end()) {
                     _service.info.bytes -= sizeof(p_it->first);
                     _service.info.bytes -= p_it->second.size();
@@ -143,7 +139,7 @@ namespace turbo::jam {
                 _m.set_reg(7, machine::host_call_res_t::none);
             } else {
                 auto val_data = _m.mem_read(v_o, v_z);
-                std::cout << fmt::format("write data: {} size: {}\n", val_data, val_data.size()) << std::flush;
+                //std::cout << fmt::format("service {} write: set key: {} val: {}\n", _service_id, key_hash, val_data) << std::flush;
                 auto [p_it, p_created] = _service.storage.try_emplace(key_hash, val_data);
                 if (!p_created) {
                     _service.info.bytes -= p_it->second.size();
@@ -164,7 +160,6 @@ namespace turbo::jam {
     template<typename CONFIG>
     void host_service_base_t<CONFIG>::info()
     {
-        std::cout << fmt::format("host::info\n") << std::flush;
         const auto &omega = _m.regs();
         const auto &[t_id, t] = _get_service(omega[7]);
         // JAM 0.6.5 mentions an element t_t which is not part of the service's info - not clear what it means
@@ -215,7 +210,7 @@ namespace turbo::jam {
     [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CONFIG>::call(const machine::register_val_t id) noexcept
     {
         return base_type::_safe_call([&] {
-            std::cout << fmt::format("PVM: host call #{}\n", id) << std::flush;
+            //std::cout << fmt::format("PVM: host call #{}\n", id) << std::flush;
             gas_t::base_type gas_used = 10;
             switch (id) {
                 case 0: base_type::gas(); break;
@@ -238,7 +233,7 @@ namespace turbo::jam {
                     //case ??: return provide(); break;
                 case 100:
                     base_type::log();
-                    gas_used = 0;
+                    //gas_used = 0;
                     break;
                 default:
                     base_type::_m.set_reg(7, machine::host_call_res_t::what);
@@ -339,7 +334,7 @@ namespace turbo::jam {
                 case 4: base_type::info(); break;
                 case 100:
                     base_type::log();
-                    gas_used = 0;
+                    //gas_used = 0;
                     break;
                 default:
                     base_type::_m.set_reg(7, machine::host_call_res_t::what);
