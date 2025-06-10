@@ -33,6 +33,11 @@ namespace turbo::jam {
         void read();
         void write();
         void info();
+
+    protected:
+        using call_func = std::function<void()>;
+
+        [[nodiscard]] machine::host_call_res_t _safe_call(const call_func &f) noexcept;
     };
 
     template<typename CONFIG>
@@ -60,5 +65,13 @@ namespace turbo::jam {
         void forget();
         void yield();
         void provide();
+    };
+
+    template<typename CONFIG>
+    struct host_service_on_transfer_t: protected host_service_base_t<CONFIG> {
+        using base_type = host_service_base_t<CONFIG>;
+        using base_type::base_type;
+
+        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     };
 }

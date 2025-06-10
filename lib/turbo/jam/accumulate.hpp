@@ -77,6 +77,7 @@ namespace turbo::jam::accumulate {
         gas_t gas_limit;
     };
     using deferred_transfers_t = sequence_t<deferred_transfer_t>;
+    using deferred_transfer_ptrs_t = std::vector<const deferred_transfer_t *>;
 
     template<typename CONSTANTS>
     using service_code_preimages_t = map_t<service_id_t, byte_sequence_t, CONSTANTS>;

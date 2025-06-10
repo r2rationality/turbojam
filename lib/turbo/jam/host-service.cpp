@@ -49,6 +49,31 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
+    machine::host_call_res_t host_service_base_t<CONFIG>::_safe_call(const call_func &f) noexcept
+    {
+        try {
+            f();
+        } catch (const err_unknown_key_t &) {
+            _m.set_reg(7, machine::host_call_res_t::none);
+            return std::monostate {};
+        } catch (const err_bad_service_id_t &) {
+            _m.set_reg(7, machine::host_call_res_t::none);
+            return std::monostate {};
+        } catch (machine::exit_out_of_gas_t &ex) {
+            return machine::exit_out_of_gas_t { std::move(ex) };
+        } catch (machine::exit_page_fault_t &ex) {
+            return machine::exit_panic_t {};
+        } catch (const std::exception &ex) {
+            std::cerr << fmt::format("host call failed with error: {}", ex.what());
+            return machine::exit_panic_t {};
+        } catch (...) {
+            std::cerr << fmt::format("host call failed with unknown error");
+            return machine::exit_panic_t {};
+        }
+        return std::monostate {};
+    }
+
+    template<typename CONFIG>
     void host_service_base_t<CONFIG>::gas()
     {
         std::cout << fmt::format("host::gas\n") << std::flush;
@@ -161,7 +186,7 @@ namespace turbo::jam {
     template<typename CONFIG>
     [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CONFIG>::call(const machine::register_val_t id) noexcept
     {
-        try {
+        return base_type::_safe_call([&] {
             base_type::_m.consume_gas(10);
             switch (id) {
                 case 0: base_type::gas(); break;
@@ -186,24 +211,7 @@ namespace turbo::jam {
                     base_type::_m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
-        } catch (const err_unknown_key_t &) {
-            base_type::_m.set_reg(7, machine::host_call_res_t::none);
-            return std::monostate {};
-        } catch (const err_bad_service_id_t &) {
-            base_type::_m.set_reg(7, machine::host_call_res_t::none);
-            return std::monostate {};
-        } catch (machine::exit_out_of_gas_t &ex) {
-            return machine::exit_out_of_gas_t { std::move(ex) };
-        } catch (machine::exit_page_fault_t &ex) {
-            return machine::exit_panic_t {};
-        } catch (const std::exception &ex) {
-            std::cerr << fmt::format("host call failed with error: {}", ex.what());
-            return machine::exit_panic_t {};
-        } catch (...) {
-            std::cerr << fmt::format("host call failed with unknown error");
-            return machine::exit_panic_t {};
-        }
-        return std::monostate {};
+        });
     }
 
     template<typename CONFIG>
@@ -284,6 +292,27 @@ namespace turbo::jam {
         throw machine::exit_panic_t {};
     }
 
+    template<typename CONFIG>
+    machine::host_call_res_t host_service_on_transfer_t<CONFIG>::call(machine::register_val_t id) noexcept
+    {
+        return base_type::_safe_call([&] {
+            base_type::_m.consume_gas(10);
+            switch (id) {
+                case 0: base_type::gas(); break;
+                case 1: base_type::lookup(); break;
+                case 2: base_type::read(); break;
+                case 3: base_type::write(); break;
+                case 4: base_type::info(); break;
+                default:
+                    base_type::_m.set_reg(7, machine::host_call_res_t::what);
+                    break;
+            }
+        });
+    }
+
     template host_service_accumulate_t<config_prod>;
     template host_service_accumulate_t<config_tiny>;
+
+    template host_service_on_transfer_t<config_prod>;
+    template host_service_on_transfer_t<config_tiny>;
 }

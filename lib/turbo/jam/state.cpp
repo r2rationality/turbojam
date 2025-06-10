@@ -397,7 +397,7 @@ namespace turbo::jam {
 
         accumulate::delta_star_result_t<CONFIG> res {};
         for (const auto &[service_id, ops]: service_ops) {
-            auto acc_res = accumulate_invoke(slot, service_id, ops);
+            auto acc_res = invoke_accumulate(slot, service_id, ops);
             res.results.try_emplace(service_id, std::move(acc_res));
             res.num_accumulated += ops.size();
         }
@@ -405,7 +405,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    accumulate::result_t<CONFIG> state_t<CONFIG>::accumulate_invoke(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate::operands_t &ops)
+    accumulate::result_t<CONFIG> state_t<CONFIG>::invoke_accumulate(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate::operands_t &ops)
     {
         auto &service = delta.at(service_id);
         const auto &code = service.preimages.at(service.info.code_hash);
@@ -441,6 +441,33 @@ namespace turbo::jam {
             inv_res.gas_used,
             ops.size()
         };
+    }
+
+    template<typename CONFIG>
+    gas_t state_t<CONFIG>::invoke_on_transfer(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate::deferred_transfer_ptrs_t &transfers)
+    {
+        auto &service = delta.at(service_id);
+        const auto code_it = service.preimages.find(service.info.code_hash);
+        if (code_it == service.preimages.end())
+            return 0;
+        const auto &code = code_it->second;
+        if (const auto code_hash = crypto::blake2b::digest(code); code_hash != service.info.code_hash) [[unlikely]]
+            throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
+        gas_t::base_type gas_limit = 0;
+        encoder arg_enc { slot, service_id };
+        arg_enc.uint_varlen(transfers.size());
+        for (const auto &t: transfers) {
+            gas_limit += t->gas_limit;
+            arg_enc.process(*t);
+        }
+        const auto inv_res = machine::invoke(
+            static_cast<buffer>(code), 10U, gas_limit, arg_enc.bytes(),
+            [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
+                host_service_on_transfer_t<CONFIG> host_service { m, *this, service_id, slot };
+                return host_service.call(id);
+            }
+        );
+        return inv_res.gas_used;
     }
 
     // produces: accumulate_root, iota', psi' and chi'
@@ -538,18 +565,18 @@ namespace turbo::jam {
             s_stats.accumulate_gas_used += work_info.gas_used;
         }
 
-        // (7.3)
-        accumulate_root_t res;
-        {
-            std::vector<merkle::hash_t> nodes {};
-            nodes.reserve(plus_res.commitments.size());
-            for (const auto &[s_id, s_hash]: plus_res.commitments) {
-                encoder enc {};
-                enc.uint_fixed(4, s_id);
-                enc.next_bytes(s_hash);
-                nodes.emplace_back(crypto::keccak::digest(enc.bytes()));
-            }
-            res = merkle::binary::encode_keccak(nodes);
+        // (12.27)
+        std::map<service_id_t, accumulate::deferred_transfer_ptrs_t> dst_transfers {};
+        for (const auto &t: plus_res.transfers) {
+            dst_transfers[t.destination].emplace_back(&t);
+        }
+
+        // (12.28) (12.29) (12.30) (12.31)
+        for (const auto &[s_id, s_transfers]: dst_transfers) {
+            const auto gas_used = invoke_on_transfer(slot, s_id, s_transfers);
+            auto &stats = pi.services[s_id];
+            stats.on_transfers_count += s_transfers.size();
+            stats.on_transfers_gas_used += gas_used;
         }
 
         // (12.33)
@@ -570,7 +597,17 @@ namespace turbo::jam {
             const auto nu_i = (m + nu.size() - i) % nu.size();
             accumulate_update_deps(nu[i], ksi.back());
         }
-        return res;
+
+        // (7.3)
+        std::vector<merkle::hash_t> nodes {};
+        nodes.reserve(plus_res.commitments.size());
+        for (const auto &[s_id, s_hash]: plus_res.commitments) {
+            encoder enc {};
+            enc.uint_fixed(4, s_id);
+            enc.next_bytes(s_hash);
+            nodes.emplace_back(crypto::keccak::digest(enc.bytes()));
+        }
+        return merkle::binary::encode_keccak(nodes);
     }
 
     template<typename CONSTANTS>

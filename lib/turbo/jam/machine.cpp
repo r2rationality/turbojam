@@ -202,7 +202,7 @@ namespace turbo::jam::machine {
 
         struct op_res_t {
             std::optional<register_val_t> new_pc {};
-            gas_remaining_t gas_used = 0;
+            gas_remaining_t gas_used = 1;
         };
 
         using op_exec_t = op_res_t(impl::*)(buffer);

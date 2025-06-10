@@ -269,6 +269,7 @@ namespace turbo::jam {
 
         accumulate::delta_plus_result_t<CONFIG> accumulate_plus(time_slot_t<CONFIG> slot, gas_t gas_limit, const work_reports_t<CONFIG> &reports);
         accumulate::delta_star_result_t<CONFIG> accumulate_star(time_slot_t<CONFIG> slot, std::span<const work_report_t<CONFIG>> reports);
-        accumulate::result_t<CONFIG> accumulate_invoke(time_slot_t<CONFIG> slot, service_id_t service_id, const accumulate::operands_t &ops);
+        accumulate::result_t<CONFIG> invoke_accumulate(time_slot_t<CONFIG> slot, service_id_t service_id, const accumulate::operands_t &ops);
+        gas_t invoke_on_transfer(time_slot_t<CONFIG> slot, service_id_t service_id, const accumulate::deferred_transfer_ptrs_t &transfers);
     };
 }
