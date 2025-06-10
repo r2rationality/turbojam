@@ -7,6 +7,8 @@
 #include "host-service.hpp"
 
 namespace turbo::jam {
+    using namespace std::string_view_literals;
+
     struct err_unknown_key_t: error {
         using error::error;
     };
@@ -174,17 +176,28 @@ namespace turbo::jam {
         _m.set_reg(7, machine::host_call_res_t::ok);
     }
 
+    static std::string_view log_level_name(const machine::register_val_t level)
+    {
+        switch (level) {
+            case 0: return "error"sv;
+            case 1: return "warning"sv;
+            case 2: return "info"sv;
+            case 3: return "debug"sv;
+            case 4: return "trace"sv;
+            default: return "unknown"sv;
+        }
+    }
+
     template<typename CONFIG>
     void host_service_base_t<CONFIG>::log()
     {
-        std::cout << fmt::format("host::log\n") << std::flush;
         const auto &omega = _m.regs();
         const auto level = omega[7];
-        std::optional<uint8_vector> target {};
+        std::optional<std::string> target {};
         if (omega[8] != 0 || omega[9] != 0)
-            target.emplace(_m.mem_read(omega[8], omega[9]));
+            target.emplace(_m.mem_read(omega[8], omega[9]).str());
         const auto msg = _m.mem_read(omega[10], omega[11]);
-        std::cout << fmt::format("host::log target={}: {}\n", target, msg) << std::flush;
+        std::cout << fmt::format("[PVM/{}] [{}]: {}\n", target, log_level_name(level), msg.str()) << std::flush;
     }
 
     template<typename CONFIG>
