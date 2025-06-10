@@ -16,9 +16,15 @@ namespace {
     template<typename T>
     void test_decode(const std::string &prefix)
     {
-        const auto b_val = jam::load_obj<T>(prefix + ".bin");
-        const auto j_val = codec::json::load_obj<T>(prefix + ".json");
-        expect(j_val == b_val) << prefix;
+        try {
+            const auto b_val = jam::load_obj<T>(prefix + ".bin");
+            const auto j_val = codec::json::load_obj<T>(prefix + ".json");
+            expect(j_val == b_val) << prefix;
+        } catch (const std::exception &ex) {
+            expect(false) << prefix << ex.what();
+        } catch (...) {
+            expect(false) << prefix << "Unknown exception";
+        }
     }
 
     template<typename T>
@@ -37,47 +43,43 @@ namespace {
             expect(false) << prefix << "Unknown exception";
         }
     }
+
+    template<typename T>
+    void test_all(const std::string &prefix)
+    {
+        test_decode<T>(prefix);
+        test_roundtrip<T>(prefix);
+    }
+
+    template<template <typename> typename T>
+    void test_all(const std::string &prefix)
+    {
+        test_all<T<config_tiny>>(file::install_path(fmt::format(fmt::runtime(prefix), "tiny")));
+        test_all<T<config_prod>>(file::install_path(fmt::format(fmt::runtime(prefix), "full")));
+    }
 }
 
 suite turbo_jam_types_suite = [] {
     "turbo::jam::types"_test = [] {
-        for (const auto *testset: { "tiny", "full" }) {
-            test(testset) = [&] {
-                "serialization roundtrip"_test = [&] {
-                    test_roundtrip<assurances_extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/assurances_extrinsic", testset)));
-                    test_roundtrip<block_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/block", testset)));
-                    test_roundtrip<disputes_extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/disputes_extrinsic", testset)));
-                    test_roundtrip<extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/extrinsic", testset)));
-                    test_roundtrip<guarantees_extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/guarantees_extrinsic", testset)));
-                    test_roundtrip<header_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/header_0", testset)));
-                    test_roundtrip<header_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/header_1", testset)));
-                    test_roundtrip<preimages_extrinsic_t>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/preimages_extrinsic", testset)));
-                    test_roundtrip<refine_context_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/refine_context", testset)));
-                    test_roundtrip<tickets_extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/tickets_extrinsic", testset)));
-                    test_roundtrip<work_item_t>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_item", testset)));
-                    test_roundtrip<work_package_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_package", testset)));
-                    test_roundtrip<work_report_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_report", testset)));
-                    test_roundtrip<work_result_t>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_result_0", testset)));
-                    test_roundtrip<work_result_t>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_result_1", testset)));
-                };
-                "decode"_test = [&] {
-                    test_decode<assurances_extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/assurances_extrinsic", testset)));
-                    test_decode<block_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/block", testset)));
-                    test_decode<disputes_extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/disputes_extrinsic", testset)));
-                    test_decode<extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/extrinsic", testset)));
-                    test_decode<guarantees_extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/guarantees_extrinsic", testset)));
-                    test_decode<header_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/header_0", testset)));
-                    test_decode<header_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/header_1", testset)));
-                    test_decode<preimages_extrinsic_t>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/preimages_extrinsic", testset)));
-                    test_decode<refine_context_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/refine_context", testset)));
-                    test_decode<tickets_extrinsic_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/tickets_extrinsic", testset)));
-                    test_decode<work_item_t>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_item", testset)));
-                    test_decode<work_package_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_package", testset)));
-                    test_decode<work_report_t<config_tiny>>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_report", testset)));
-                    test_decode<work_result_t>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_result_0", testset)));
-                    test_decode<work_result_t>(file::install_path(fmt::format("test/jam-test-vectors/codec/{}/work_result_1", testset)));
-                };
-            };
-        }
+        test_all<assurances_extrinsic_t>("test/jam-test-vectors/codec/{}/assurances_extrinsic");
+        test_all<block_t>("test/jam-test-vectors/codec/{}/block");
+        test_all<disputes_extrinsic_t>("test/jam-test-vectors/codec/{}/disputes_extrinsic");
+        test_all<extrinsic_t>("test/jam-test-vectors/codec/{}/extrinsic");
+        test_all<guarantees_extrinsic_t>("test/jam-test-vectors/codec/{}/guarantees_extrinsic");
+        test_all<header_t>("test/jam-test-vectors/codec/{}/header_0");
+        test_all<header_t>("test/jam-test-vectors/codec/{}/header_1");
+        test_all<refine_context_t>("test/jam-test-vectors/codec/{}/refine_context");
+        test_all<tickets_extrinsic_t>("test/jam-test-vectors/codec/{}/tickets_extrinsic");
+        test_all<work_package_t>("test/jam-test-vectors/codec/{}/work_package");
+        test_all<work_report_t>("test/jam-test-vectors/codec/{}/work_report");
+        // config independent
+        test_all<preimages_extrinsic_t>("test/jam-test-vectors/codec/tiny/preimages_extrinsic");
+        test_all<preimages_extrinsic_t>("test/jam-test-vectors/codec/full/preimages_extrinsic");
+        test_all<work_item_t>("test/jam-test-vectors/codec/tiny/work_item");
+        test_all<work_item_t>("test/jam-test-vectors/codec/full/work_item");
+        test_all<work_result_t>("test/jam-test-vectors/codec/tiny/work_result_0");
+        test_all<work_result_t>("test/jam-test-vectors/codec/full/work_result_0");
+        test_all<work_result_t>("test/jam-test-vectors/codec/tiny/work_result_1");
+        test_all<work_result_t>("test/jam-test-vectors/codec/full/work_result_1");
     };
 };
