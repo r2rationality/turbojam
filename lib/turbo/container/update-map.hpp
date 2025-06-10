@@ -5,6 +5,8 @@
 #include <map>
 #include <ranges>
 #include <boost/container/static_vector.hpp>
+#include <turbo/common/error.hpp>
+#include <turbo/common/format.hpp>
 
 namespace turbo::container {
     template<typename T>
@@ -51,6 +53,16 @@ namespace turbo::container {
                 return it->second;
             }
             return empty_val;
+        }
+
+        void merge_from(update_map_t &&o)
+        {
+            if (&_base != &o._base) [[unlikely]]
+                throw error("update_map_t::merge_from requires the argument to have the same base!");
+            for (auto &&[k, vers]: o._updates) {
+                for (auto &&val: vers)
+                    set(k, std::move(val));
+            }
         }
 
         void merge()

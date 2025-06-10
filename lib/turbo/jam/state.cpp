@@ -9,6 +9,7 @@
 #include <numeric>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
+#include <turbo/crypto/keccak.hpp>
 #include "types/errors.hpp"
 #include "accumulate.hpp"
 #include "host-service.hpp"
@@ -347,18 +348,105 @@ namespace turbo::jam {
         }
     }
 
-    // JAM (12.8)
-    template<typename CONSTANTS>
-    static void accumulate_q(std::vector<ready_queue_item_t<CONSTANTS> *>work_waiting, const work_report_t<CONSTANTS> &work_queued)
+    // JAM (12.16)
+    template<typename CONFIG>
+    accumulate::delta_plus_result_t<CONFIG> state_t<CONFIG>::accumulate_plus(const time_slot_t<CONFIG> slot, const gas_t gas_limit, const work_reports_t<CONFIG> &reports)
     {
+        accumulate::delta_plus_result_t<CONFIG> res {};
 
+        if (!reports.empty()) {
+            size_t num_ok = 0;
+            gas_t total_gas = 0;
+            for (const auto &r: reports) {
+                for (const auto &rr: r.results)
+                    total_gas += rr.accumulate_gas;
+                if (total_gas > gas_limit)
+                    break;
+                ++num_ok;
+            }
+
+            res.merge_from(accumulate_star(slot, std::span { reports.data(), num_ok }));
+        }
+        return res;
+    }
+
+    // JAM (12.17)
+    template<typename CONFIG>
+    accumulate::delta_star_result_t<CONFIG> state_t<CONFIG>::accumulate_star(const time_slot_t<CONFIG> slot, const std::span<const work_report_t<CONFIG>> reports)
+    {
+        accumulate::service_operands_t service_ops {};
+        for (const auto &r: reports) {
+            for (const auto &r_res: r.results) {
+                service_ops[r_res.service_id].emplace_back(
+                    accumulate::operand_t {
+                        .work_package_hash=r.package_spec.hash,
+                        .exports_root=r.package_spec.exports_root,
+                        .authorizer_hash=r.authorizer_hash,
+                        .auth_output=r.auth_output,
+                        .payload_hash=r_res.payload_hash,
+                        .accumulate_gas=r_res.accumulate_gas,
+                        .result=r_res.result
+                    }
+                );
+            }
+        }
+
+        // JAM (12.17) - Ensure that free services are always accumulated
+        for (const auto &fs: chi.always_acc)
+            service_ops.try_emplace(fs.id);
+
+        accumulate::delta_star_result_t<CONFIG> res {};
+        for (const auto &[service_id, ops]: service_ops) {
+            auto acc_res = accumulate_invoke(slot, service_id, ops);
+            res.results.try_emplace(service_id, std::move(acc_res));
+            res.num_accumulated += ops.size();
+        }
+        return res;
+    }
+
+    template<typename CONFIG>
+    accumulate::result_t<CONFIG> state_t<CONFIG>::accumulate_invoke(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate::operands_t &ops)
+    {
+        auto &service = delta.at(service_id);
+        const auto &code = service.preimages.at(service.info.code_hash);
+        const auto code_hash = crypto::blake2b::digest(code);
+        if (code_hash != service.info.code_hash) [[unlikely]]
+            throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
+        const encoder arg_enc { slot, service_id, ops };
+
+        accumulate::mutable_services_state_t<CONFIG> service_state {};
+        service_state.try_emplace(service_id, service.storage, service.preimages, service.lookup_metas);
+
+        accumulate::context_t<CONFIG> ctx_ok {
+            service_id,
+            {
+                .services=std::move(service_state),
+            }
+        };
+        auto ctx_err = ctx_ok;
+
+        // JAM (B.9): bold psi_a
+        const auto inv_res = machine::invoke(
+            static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes(),
+            [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
+                host_service_accumulate_t<CONFIG> host_service { m, *this, service_id, slot, ctx_ok, ctx_err };
+                return host_service.call(id);
+            }
+        );
+        auto &ctx = std::holds_alternative<uint8_vector>(inv_res.result) ? ctx_ok : ctx_err;
+        return {
+            std::move(ctx.state),
+            std::move(ctx.transfers),
+            ctx.result,
+            inv_res.gas_used,
+            ops.size()
+        };
     }
 
     // produces: accumulate_root, iota', psi' and chi'
     template<typename CONSTANTS>
     accumulate_root_t state_t<CONSTANTS>::accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports)
     {
-        accumulate_root_t res {};
         // JAM Paper (12.2)
         set_t<work_package_hash_t> known_reports {};
         for (const auto &er: ksi) {
@@ -412,76 +500,75 @@ namespace turbo::jam {
             accumulate_update_deps(work_queued, new_hashes);
         }
 
-        std::map<service_id_t, sequence_t<accumulate_operand_t>> service_ops {};
-        std::map<service_id_t, gas_t> service_gas {};
+        // (12.21)
+        boost::container::flat_set<service_id_t> free_services {};
+        gas_t::base_type gas_limit = CONSTANTS::max_work_report_accumulate_gas * CONSTANTS::core_count;
 
-        for (const auto &r: work_immediate) {
-            for (const auto &r_res: r.results) {
-                service_ops[r_res.service_id].emplace_back(
-                    accumulate_operand_t {
-                        .work_package_hash=r.package_spec.hash,
-                        .exports_root=r.package_spec.exports_root,
-                        .authorizer_hash=r.authorizer_hash,
-                        .auth_output=r.auth_output,
-                        .payload_hash=r_res.payload_hash,
-                        .accumulate_gas=r_res.accumulate_gas,
-                        .result=r_res.result
-                    }
-                );
-                service_gas[r_res.service_id] += r_res.accumulate_gas;
+        free_services.reserve(chi.always_acc.size());
+        for (auto &fs: chi.always_acc)
+            free_services.emplace_hint(free_services.end(), fs.id);
+
+        for (const auto &re: nu) {
+            for (const auto &ri: re) {
+                for (const auto &rr: ri.report.results) {
+                    if (free_services.contains(rr.service_id))
+                        gas_limit += rr.accumulate_gas;
+                }
             }
         }
+        if (gas_limit < CONSTANTS::max_total_accumulation_gas)
+            gas_limit = CONSTANTS::max_total_accumulation_gas;
 
-        // transfers
-        struct transfer_info_t {
-            balance_t amount;
-            gas_t gas;
-        };
-        struct service_context_t {
-            service_id_t service_id;
-            // new_service_id is updated by the new host call
-            service_id_t new_service_id;
-            // transfers are updated with the transfer host call
-            std::vector<transfer_info_t> transfers {};
-            // commitment is updated by the yield host call
-            std::optional<opaque_hash_t> commitment {};
-            // preimages are updated by the provide host call
-            std::map<service_id_t, uint8_vector> preimages {};
-        };
-        std::map<service_id_t, service_context_t> service_ctxs {};
+        // (12.22)
+        auto plus_res = accumulate_plus(slot, gas_limit, work_immediate);
+        // (12.23)
+        for (auto &[s_id, s_state]: plus_res.state.services)
+            s_state.commit();
+        if (plus_res.state.privileges)
+            chi = *plus_res.state.privileges;
+        if (plus_res.state.iota)
+            iota = *plus_res.state.iota;
+        if (plus_res.state.queue)
+            phi = *plus_res.state.queue;
 
-        for (const auto &[service_id, ops]: service_ops) {
-            auto &service = delta.at(service_id);
-            const auto &code = service.preimages.at(service.info.code_hash);
-            const auto code_hash = crypto::blake2b::digest(code);
-            if (code_hash != service.info.code_hash) [[unlikely]]
-                throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
-            encoder arg_enc { slot, service_id, ops };
+        // (12.24) (12.25) (12.26)
+        for (const auto &[s_id, work_info]: plus_res.work_items) {
+            auto &s_stats = pi.services[s_id];
+            s_stats.accumulate_count += work_info.num_reports;
+            s_stats.accumulate_gas_used += work_info.gas_used;
+        }
 
-            // JAM (B.9): bold psi_a
-            const auto inv_res = machine::invoke(
-                static_cast<buffer>(code), 5U, 100ULL, arg_enc.bytes(),
-                [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                    static std::set<machine::register_val_t> allowed_calls {
-                        0, 1, 2, 3, 4, // general
-                        5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 // accumulate-specific
-                    };
-                    if (allowed_calls.contains(id)) {
-                        host_service_t<CONSTANTS> host_service { m, *this, service_id, slot };
-                        return host_service.call(id);
-                    }
-                    m.consume_gas(10);
-                    m.set_reg(7, machine::host_call_res_t::what);
-                    return std::monostate {};
-                }
-            );
+        // (7.3)
+        accumulate_root_t res;
+        {
+            std::vector<merkle::hash_t> nodes {};
+            nodes.reserve(plus_res.commitments.size());
+            for (const auto &[s_id, s_hash]: plus_res.commitments) {
+                encoder enc {};
+                enc.uint_fixed(4, s_id);
+                enc.next_bytes(s_hash);
+                nodes.emplace_back(crypto::keccak::digest(enc.bytes()));
+            }
+            res = merkle::binary::encode_keccak(nodes);
+        }
 
-            if (!std::holds_alternative<uint8_vector>(inv_res.result)) [[unlikely]]
-                throw error(fmt::format("accumulation for service {} has failed", service_id));
+        // (12.33)
+        for (size_t i = 0; i < ksi.size() - 1; ++i)
+            ksi[i] = std::move(ksi[i + 1]);
+        // (12.32)
+        const auto accumulated_report_hashes = std::ranges::to<std::vector>(work_immediate
+            | std::views::take(plus_res.num_accumulated)
+            | std::views::transform([](const auto &wr) { return wr.package_spec.hash; }));
+        ksi.back().clear();
+        ksi.back().reserve(accumulated_report_hashes.size());
+        for (const auto &wrh: accumulated_report_hashes)
+            ksi.back().emplace(wrh);
 
-            // JAM (12.2)
-            for (const auto &o: ops)
-                ksi[slot.slot()].emplace(o.work_package_hash);
+        // (12.34)
+        accumulate_update_deps(nu[m], ksi.back());
+        for (size_t i = std::min(nu.size(), numeric_cast<size_t>(slot.slot() - tau.slot())); i < nu.size(); ++i) {
+            const auto nu_i = (m + nu.size() - i) % nu.size();
+            accumulate_update_deps(nu[i], ksi.back());
         }
         return res;
     }
@@ -665,7 +752,7 @@ namespace turbo::jam {
                 service_stats.extrinsic_count += r.refine_load.extrinsic_count;
             }
             // JAM (11.30) part 2
-            if (total_accumulate_gas > CONSTANTS::max_accumulate_gas) [[unlikely]]
+            if (total_accumulate_gas > CONSTANTS::max_work_report_accumulate_gas) [[unlikely]]
                 throw err_work_report_gas_too_high_t {};
 
             // JAM Paper (11.8)

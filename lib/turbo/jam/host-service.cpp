@@ -12,7 +12,7 @@ namespace turbo::jam {
     };
 
     template<typename CONFIG>
-    host_service_t<CONFIG>::host_service_t(machine::machine_t &m, state_t<CONFIG> &st, const service_id_t service_id, time_slot_t<CONFIG> slot):
+    host_service_base_t<CONFIG>::host_service_base_t(machine::machine_t &m, state_t<CONFIG> &st, const service_id_t service_id, time_slot_t<CONFIG> slot):
         _m { m },
         _st { st },
         _service_id { service_id },
@@ -22,65 +22,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    [[nodiscard]] machine::host_call_res_t host_service_t<CONFIG>::call(const machine::register_val_t id) noexcept
-    {
-        try {
-            _m.consume_gas(10);
-            switch (id) {
-                case 0: gas(); break;
-                case 1: lookup(); break;
-                case 2: read(); break;
-                case 3: write(); break;
-                case 4: info(); break;
-                case 5: bless(); break;
-                case 6: assign(); break;
-                case 7: designate(); break;
-                case 8: checkpoint(); break;
-                case 9: new_(); break;
-                case 10: upgrade(); break;
-                case 11: transfer(); break;
-                case 12: eject(); break;
-                case 13: query(); break;
-                case 14: solicit(); break;
-                case 15: forget(); break;
-                case 16: yield(); break;
-                //case ??: return provide(); break;
-                case 17: historical_lookup(); break;
-                case 18: fetch(); break;
-                case 19: export_(); break;
-                case 20: machine(); break;
-                case 21: peek(); break;
-                case 22: poke(); break;
-                case 23: zero(); break;
-                case 24: void_(); break;
-                case 25: invoke(); break;
-                case 26: expunge(); break;
-                default:
-                    _m.set_reg(7, machine::host_call_res_t::what);
-                    break;
-            }
-        } catch (const err_unknown_key_t &) {
-            _m.set_reg(7, machine::host_call_res_t::none);
-            return std::monostate {};
-        } catch (const err_bad_service_id_t &) {
-            _m.set_reg(7, machine::host_call_res_t::none);
-            return std::monostate {};
-        } catch (machine::exit_out_of_gas_t &ex) {
-            return machine::exit_out_of_gas_t { std::move(ex) };
-        } catch (machine::exit_page_fault_t &ex) {
-            return machine::exit_panic_t {};
-        } catch (const std::exception &ex) {
-            std::cerr << fmt::format("host call failed with error: {}", ex.what());
-            return machine::exit_panic_t {};
-        } catch (...) {
-            std::cerr << fmt::format("host call failed with unknown error");
-            return machine::exit_panic_t {};
-        }
-        return std::monostate {};
-    }
-
-    template<typename CONFIG>
-    typename accounts_t<CONFIG>::value_type &host_service_t<CONFIG>::_get_service(machine::register_val_t id)
+    typename accounts_t<CONFIG>::value_type &host_service_base_t<CONFIG>::_get_service(machine::register_val_t id)
     {
         if (id == std::numeric_limits<machine::register_val_t>::max())
             id = _service_id;
@@ -92,7 +34,7 @@ namespace turbo::jam {
 
     template<typename CONFIG>
     template<typename M>
-    const typename M::mapped_type &host_service_t<CONFIG>::_get_value(const M &m, const typename M::key_type &key)
+    const typename M::mapped_type &host_service_base_t<CONFIG>::_get_value(const M &m, const typename M::key_type &key)
     {
         if (const auto p_it = m.find(key); p_it != m.end()) [[likely]]
             return p_it->second;
@@ -101,20 +43,20 @@ namespace turbo::jam {
 
     template<typename CONFIG>
     template<typename M>
-    typename M::mapped_type &host_service_t<CONFIG>::_get_value(M &m, const typename M::key_type &key)
+    typename M::mapped_type &host_service_base_t<CONFIG>::_get_value(M &m, const typename M::key_type &key)
     {
         return const_cast<typename M::mapped_type &>(_get_value(static_cast<const M &>(m), key));
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::gas()
+    void host_service_base_t<CONFIG>::gas()
     {
         std::cout << fmt::format("host::gas\n") << std::flush;
         _m.set_reg(7, _m.gas());
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::lookup()
+    void host_service_base_t<CONFIG>::lookup()
     {
         std::cout << fmt::format("host::lookup\n") << std::flush;
         const auto &omega = _m.regs();
@@ -130,7 +72,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::read()
+    void host_service_base_t<CONFIG>::read()
     {
         std::cout << fmt::format("host::read\n") << std::flush;
         const auto &omega = _m.regs();
@@ -150,7 +92,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::write()
+    void host_service_base_t<CONFIG>::write()
     {
         std::cout << fmt::format("host::write\n") << std::flush;
         if (_service.info.balance >= _service.balance_threshold()) {
@@ -191,7 +133,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::info()
+    void host_service_base_t<CONFIG>::info()
     {
         std::cout << fmt::format("host::info\n") << std::flush;
         const auto &omega = _m.regs();
@@ -208,143 +150,140 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::bless()
+    host_service_accumulate_t<CONFIG>::host_service_accumulate_t(machine::machine_t &m, state_t<CONFIG> &st, service_id_t service_id, time_slot_t<CONFIG> slot,
+            accumulate::context_t<CONFIG> &ctx_ok, accumulate::context_t<CONFIG> &ctx_err):
+        base_type { m, st, service_id, slot },
+        _ok { ctx_ok },
+        _err { ctx_err }
+    {
+    }
+
+    template<typename CONFIG>
+    [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CONFIG>::call(const machine::register_val_t id) noexcept
+    {
+        try {
+            base_type::_m.consume_gas(10);
+            switch (id) {
+                case 0: base_type::gas(); break;
+                case 1: base_type::lookup(); break;
+                case 2: base_type::read(); break;
+                case 3: base_type::write(); break;
+                case 4: base_type::info(); break;
+                case 5: bless(); break;
+                case 6: assign(); break;
+                case 7: designate(); break;
+                case 8: checkpoint(); break;
+                case 9: new_(); break;
+                case 10: upgrade(); break;
+                case 11: transfer(); break;
+                case 12: eject(); break;
+                case 13: query(); break;
+                case 14: solicit(); break;
+                case 15: forget(); break;
+                case 16: yield(); break;
+                    //case ??: return provide(); break;
+                default:
+                    base_type::_m.set_reg(7, machine::host_call_res_t::what);
+                    break;
+            }
+        } catch (const err_unknown_key_t &) {
+            base_type::_m.set_reg(7, machine::host_call_res_t::none);
+            return std::monostate {};
+        } catch (const err_bad_service_id_t &) {
+            base_type::_m.set_reg(7, machine::host_call_res_t::none);
+            return std::monostate {};
+        } catch (machine::exit_out_of_gas_t &ex) {
+            return machine::exit_out_of_gas_t { std::move(ex) };
+        } catch (machine::exit_page_fault_t &ex) {
+            return machine::exit_panic_t {};
+        } catch (const std::exception &ex) {
+            std::cerr << fmt::format("host call failed with error: {}", ex.what());
+            return machine::exit_panic_t {};
+        } catch (...) {
+            std::cerr << fmt::format("host call failed with unknown error");
+            return machine::exit_panic_t {};
+        }
+        return std::monostate {};
+    }
+
+    template<typename CONFIG>
+    void host_service_accumulate_t<CONFIG>::bless()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::assign()
+    void host_service_accumulate_t<CONFIG>::assign()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::designate()
+    void host_service_accumulate_t<CONFIG>::designate()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::checkpoint()
+    void host_service_accumulate_t<CONFIG>::checkpoint()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::new_()
+    void host_service_accumulate_t<CONFIG>::new_()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::upgrade()
+    void host_service_accumulate_t<CONFIG>::upgrade()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::transfer()
+    void host_service_accumulate_t<CONFIG>::transfer()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::eject()
+    void host_service_accumulate_t<CONFIG>::eject()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::query()
+    void host_service_accumulate_t<CONFIG>::query()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::solicit()
+    void host_service_accumulate_t<CONFIG>::solicit()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::forget()
+    void host_service_accumulate_t<CONFIG>::forget()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::yield()
+    void host_service_accumulate_t<CONFIG>::yield()
     {
         throw machine::exit_panic_t {};
     }
 
     template<typename CONFIG>
-    void host_service_t<CONFIG>::provide()
+    void host_service_accumulate_t<CONFIG>::provide()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::historical_lookup()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::fetch()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::export_()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::machine()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::peek()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::poke()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::zero()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::void_()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::invoke()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template<typename CONFIG>
-    void host_service_t<CONFIG>::expunge()
-    {
-        throw machine::exit_panic_t {};
-    }
-
-    template host_service_t<config_prod>;
-    template host_service_t<config_tiny>;
+    template host_service_accumulate_t<config_prod>;
+    template host_service_accumulate_t<config_tiny>;
 }

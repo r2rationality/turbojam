@@ -9,10 +9,9 @@
 
 namespace turbo::jam {
     template<typename CONFIG>
-    struct host_service_t {
-        host_service_t(machine::machine_t &m, state_t<CONFIG> &st, service_id_t service_id, time_slot_t<CONFIG> slot);
-        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
-    private:
+    struct host_service_base_t {
+        host_service_base_t(machine::machine_t &m, state_t<CONFIG> &st, service_id_t service_id, time_slot_t<CONFIG> slot);
+    protected:
         machine::machine_t &_m;
         state_t<CONFIG> &_st;
         service_id_t _service_id;
@@ -34,6 +33,18 @@ namespace turbo::jam {
         void read();
         void write();
         void info();
+    };
+
+    template<typename CONFIG>
+    struct host_service_accumulate_t: protected host_service_base_t<CONFIG> {
+        using base_type = host_service_base_t<CONFIG>;
+
+        host_service_accumulate_t(machine::machine_t &m, state_t<CONFIG> &st, service_id_t service_id, time_slot_t<CONFIG> slot,
+            accumulate::context_t<CONFIG> &ctx_ok, accumulate::context_t<CONFIG> &ctx_err);
+        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
+    private:
+        accumulate::context_t<CONFIG> &_ok;
+        accumulate::context_t<CONFIG> &_err;
 
         // Accumulate functions
         void bless();
@@ -49,17 +60,5 @@ namespace turbo::jam {
         void forget();
         void yield();
         void provide();
-
-        // Refine functions
-        void historical_lookup();
-        void fetch();
-        void export_();
-        void machine();
-        void peek();
-        void poke();
-        void zero();
-        void void_();
-        void invoke();
-        void expunge();
     };
 }

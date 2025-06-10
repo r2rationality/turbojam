@@ -98,33 +98,28 @@ namespace turbo::jam::merkle {
     }
 
     namespace binary {
-        static hash_t encode(const value_list::const_iterator first, const value_list::const_iterator last, const hash_func &hash_f)
+        static hash_t encode(const value_list items, const hash_func &hash_f)
         {
-            const auto sz = last - first;
+            const auto sz = items.size();
             if (sz == 0)
                 return {};
             if (sz == 1)
-                return *first;
-            const auto mid = first + (sz / 2);
+                return items.front();
+            const auto mid_i = sz / 2;
             std::array<hash_t, 2> hashes;
-            hashes[0] = encode(first, mid, hash_f);
-            hashes[1] = encode(mid, last, hash_f);
+            hashes[0] = encode(items.subspan(0, mid_i), hash_f);
+            hashes[1] = encode(items.subspan(mid_i), hash_f);
             hash_t res;
             hash_f(res, buffer { reinterpret_cast<const uint8_t *>(hashes.data()), sizeof(hashes) });
             return res;
         }
 
-        static hash_t encode(const value_list &items, const hash_func &hash_f)
-        {
-            return encode(items.begin(), items.end(), hash_f);
-        }
-
-        hash_t encode_blake2b(const value_list &items)
+        hash_t encode_blake2b(const value_list items)
         {
             return encode(items, [](const hash_span_t &out, const buffer bytes) { crypto::blake2b::digest(out, bytes); });
         }
 
-        hash_t encode_keccak(const value_list &items)
+        hash_t encode_keccak(const value_list items)
         {
             return encode(items, [](const hash_span_t &out,const buffer bytes) { crypto::keccak::digest(out, bytes); });
         }

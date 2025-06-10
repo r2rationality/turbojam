@@ -48,9 +48,9 @@ namespace turbo::jam::merkle {
     }
 
     namespace binary {
-        using value_list = std::vector<hash_t>;
+        using value_list = std::span<const hash_t>;
 
-        extern hash_t encode_blake2b(const value_list &items);
-        extern hash_t encode_keccak(const value_list &items);
+        extern hash_t encode_blake2b(value_list items);
+        extern hash_t encode_keccak(value_list items);
     }
 }

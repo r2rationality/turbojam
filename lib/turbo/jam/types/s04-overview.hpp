@@ -4,7 +4,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include "common.hpp"
+#include <turbo/jam/accumulate.hpp>
 #include "state-dict.hpp"
 
 namespace turbo::jam {
@@ -174,24 +174,24 @@ namespace turbo::jam {
     };
 
     // JAM (4.4) - lowercase sigma
-    template<typename CONSTANTS=config_prod>
+    template<typename CONFIG=config_prod>
     struct state_t {
-        auth_pools_t<CONSTANTS> alpha {}; // authorizations
-        blocks_history_t<CONSTANTS> beta {}; // most recent blocks
-        safrole_state_t<CONSTANTS> gamma {};
-        accounts_t<CONSTANTS> delta {}; // services
+        auth_pools_t<CONFIG> alpha {}; // authorizations
+        blocks_history_t<CONFIG> beta {}; // most recent blocks
+        safrole_state_t<CONFIG> gamma {};
+        accounts_t<CONFIG> delta {}; // services
         entropy_buffer_t eta {}; // JAM (6.21)
-        validators_data_t<CONSTANTS> iota {}; // next validators JAM (6.7)
-        validators_data_t<CONSTANTS> kappa {}; // active validators JAM (6.7)
-        validators_data_t<CONSTANTS> lambda {}; // prev validators JAM (6.7)
-        availability_assignments_t<CONSTANTS> rho {}; // assigned work reports
-        time_slot_t<CONSTANTS> tau {};
-        auth_queues_t<CONSTANTS> phi {}; // work authorizer queue
+        validators_data_t<CONFIG> iota {}; // next validators JAM (6.7)
+        validators_data_t<CONFIG> kappa {}; // active validators JAM (6.7)
+        validators_data_t<CONFIG> lambda {}; // prev validators JAM (6.7)
+        availability_assignments_t<CONFIG> rho {}; // assigned work reports
+        time_slot_t<CONFIG> tau {};
+        auth_queues_t<CONFIG> phi {}; // work authorizer queue
         privileges_t chi {};
         disputes_records_t psi {}; // judgements
-        statistics_t<CONSTANTS> pi {};
-        ready_queue_t<CONSTANTS> nu {}; // JAM (12.3): work reports ready to be accumulated
-        accumulated_queue_t<CONSTANTS> ksi {}; // JAM (12.1): recently accumulated reports
+        statistics_t<CONFIG> pi {};
+        ready_queue_t<CONFIG> nu {}; // JAM (12.3): work reports ready to be accumulated
+        accumulated_queue_t<CONFIG> ksi {}; // JAM (12.1): recently accumulated reports
 
         state_t() =default;
 
@@ -226,14 +226,14 @@ namespace turbo::jam {
         state_t &operator=(const state_dict_t &);
 
         // JAM (4.1): Kapital upsilon
-        void apply(const block_t<CONSTANTS> &);
-        std::exception_ptr try_apply(const block_t<CONSTANTS> &) noexcept;
+        void apply(const block_t<CONFIG> &);
+        std::exception_ptr try_apply(const block_t<CONFIG> &) noexcept;
 
         // Methods internally used by the apply and in unit tests
         // Todo: make them protected and the respective unit test classes friends?
 
         // JAM (4.5)
-        void update_time(const time_slot_t<CONSTANTS> &slot);
+        void update_time(const time_slot_t<CONFIG> &slot);
         // JAM (4.6)
         void update_history_1(const state_root_t &sr);
         void update_history_2(const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
@@ -241,30 +241,34 @@ namespace turbo::jam {
         // JAM (4.8)
         // JAM (4.9)
         // JAM (4.10)
-        safrole_output_data_t<CONSTANTS> update_safrole(const time_slot_t<CONSTANTS> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONSTANTS> &extrinsic);
+        safrole_output_data_t<CONFIG> update_safrole(const time_slot_t<CONFIG> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONFIG> &extrinsic);
         // JAM (4.12)
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
-        reports_output_data_t update_reports(const time_slot_t<CONSTANTS> &slot, const guarantees_extrinsic_t<CONSTANTS> &guarantees);
+        reports_output_data_t update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees);
         // JAM (4.11)
-        offenders_mark_t update_disputes(const disputes_extrinsic_t<CONSTANTS> &disputes);
+        offenders_mark_t update_disputes(const disputes_extrinsic_t<CONFIG> &disputes);
         // JAM (4.18)
-        void provide_preimages(const time_slot_t<CONSTANTS> &slot, const preimages_extrinsic_t &preimages);
+        void provide_preimages(const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.20)
-        void update_statistics(const time_slot_t<CONSTANTS> &slot, validator_index_t val_idx, const extrinsic_t<CONSTANTS> &extrinsic);
+        void update_statistics(const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
         // JAM (4.16)
-        accumulate_root_t accumulate(const time_slot_t<CONSTANTS> &slot, const work_reports_t<CONSTANTS> &reports);
+        accumulate_root_t accumulate(const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports);
         // JAM (4.19)
-        void update_auth_pools(const time_slot_t<CONSTANTS> &slot, const core_authorizers_t &cas);
+        void update_auth_pools(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas);
         bool operator==(const state_t &o) const noexcept;
     private:
-        using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONSTANTS::validator_count>;
+        using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONFIG::validator_count>;
 
-        static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CONSTANTS> &);
-        static validators_data_t<CONSTANTS> _capital_phi(const validators_data_t<CONSTANTS> &iota, const offenders_mark_t &psi_o);
-        static keys_t<CONSTANTS> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CONSTANTS> &kappa);
-        static tickets_t<CONSTANTS> _permute_tickets(const tickets_accumulator_t<CONSTANTS> &gamma_a);
-        static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CONSTANTS> &slot);
+        static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CONFIG> &);
+        static validators_data_t<CONFIG> _capital_phi(const validators_data_t<CONFIG> &iota, const offenders_mark_t &psi_o);
+        static keys_t<CONFIG> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CONFIG> &kappa);
+        static tickets_t<CONFIG> _permute_tickets(const tickets_accumulator_t<CONFIG> &gamma_a);
+        static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CONFIG> &slot);
+
+        accumulate::delta_plus_result_t<CONFIG> accumulate_plus(time_slot_t<CONFIG> slot, gas_t gas_limit, const work_reports_t<CONFIG> &reports);
+        accumulate::delta_star_result_t<CONFIG> accumulate_star(time_slot_t<CONFIG> slot, std::span<const work_report_t<CONFIG>> reports);
+        accumulate::result_t<CONFIG> accumulate_invoke(time_slot_t<CONFIG> slot, service_id_t service_id, const accumulate::operands_t &ops);
     };
 }

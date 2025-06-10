@@ -204,6 +204,11 @@ namespace turbo::jam {
         {
             return _bytes;
         }
+
+        const uint8_vector &bytes() const
+        {
+            return _bytes;
+        }
     private:
         uint8_vector _bytes {};
     };
