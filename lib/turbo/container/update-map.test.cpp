@@ -20,10 +20,13 @@ suite turbo_container_versioned_map_suite = [] {
             expect_equal(uint8_vector {}, m.get(22));
             m.set(33, uint8_vector::from_hex("00112233"));
             expect_equal(uint8_vector::from_hex("00112233"), m.get(33));
+            expect_equal(0, base.size());
+            m.merge();
+            expect_equal(1, base.size());
         };
-        "revert: 3 versions"_test = [] {
+        "revert"_test = [] {
             std::map<size_t, uint8_vector> base {};
-            update_map_t<decltype(base)> m { base };
+            update_map_t m { base };
             m.set(22, uint8_vector {});
             expect_equal(uint8_vector {}, m.get(22));
             m.set(22, uint8_vector::from_hex("00112233"));
