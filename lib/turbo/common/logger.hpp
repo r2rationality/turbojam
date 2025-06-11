@@ -4,23 +4,40 @@
 
 #include <exception>
 #include <functional>
-#include <turbo/common/format.hpp>
+
+#if defined(__GNUC__) && !defined(__clang__)
+#   pragma GCC diagnostic push
+#   pragma GCC diagnostic ignored "-Warray-bounds"
+#   pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
+#ifndef SPDLOG_FMT_EXTERNAL
+#   define SPDLOG_FMT_EXTERNAL 1
+#endif
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#if defined(__GNUC__) && !defined(__clang__)
+#   pragma GCC diagnostic pop
+#endif
+#include "format.hpp"
 
 namespace turbo::logger {
-    enum class level {
-        trace, debug, info, warn, error
-    };
+    using level = spdlog::level::level_enum;
 
-    extern std::shared_ptr<std::string> last_error();
-    extern void reset_last_error();
-
+    extern std::string log_path();
     extern bool &tracing_enabled();
-    extern void log(level lev, const std::string &msg);
+    extern spdlog::logger create(const std::string &path);
+
+    inline spdlog::logger &get()
+    {
+        static spdlog::logger logger = create(log_path());
+        return logger;
+    }
 
     template<typename... Args>
     void log(const level lev, const std::string_view &fmt, Args&&... a)
     {
-        log(lev, format(fmt::runtime(fmt), std::forward<Args>(a)...));
+        get().log(lev, format(fmt::runtime(fmt), std::forward<Args>(a)...));
     }
 
     template<typename... Args>
@@ -50,7 +67,7 @@ namespace turbo::logger {
     template<typename... Args>
     void error(const std::string_view &fmt, Args&&... a)
     {
-        log(level::error, fmt, std::forward<Args>(a)...);
+        log(level::err, fmt, std::forward<Args>(a)...);
     }
 
     using action = std::function<void()>;

@@ -3,7 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <iostream>
+#include <turbo/common/logger.hpp>
 #include "host-service.hpp"
 
 namespace turbo::jam {
@@ -66,10 +66,10 @@ namespace turbo::jam {
         } catch (machine::exit_page_fault_t &ex) {
             return machine::exit_panic_t {};
         } catch (const std::exception &ex) {
-            std::cerr << fmt::format("host call failed with error: {}", ex.what());
+            logger::error("host call failed with error: {}", ex.what());
             return machine::exit_panic_t {};
         } catch (...) {
-            std::cerr << fmt::format("host call failed with unknown error");
+            logger::error("host call failed with unknown error");
             return machine::exit_panic_t {};
         }
         return std::monostate {};
@@ -125,12 +125,11 @@ namespace turbo::jam {
             encoder enc {};
             enc.uint_fixed(4, _service_id);
             enc.next_bytes(key_data);
-            opaque_hash_t key_hash;
-            crypto::blake2b::digest(key_hash, enc.bytes());
+            const auto key_hash = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
             const auto v_o = _m.regs()[9];
             const auto v_z = _m.regs()[10];
             if (v_z == 0) {
-                //std::cout << fmt::format("service {} write: delete key: {}\n", _service_id, key_hash) << std::flush;
+                logger::trace("service {} write: delete key: {}", _service_id, key_data);
                 if (const auto p_it = _service.storage.find(key_hash); p_it != _service.storage.end()) {
                     _service.info.bytes -= sizeof(p_it->first);
                     _service.info.bytes -= p_it->second.size();
@@ -139,7 +138,7 @@ namespace turbo::jam {
                 _m.set_reg(7, machine::host_call_res_t::none);
             } else {
                 auto val_data = _m.mem_read(v_o, v_z);
-                //std::cout << fmt::format("service {} write: set key: {} val: {}\n", _service_id, key_hash, val_data) << std::flush;
+                logger::trace("service {} write: set key: {} hash: {} val: {}", _service_id, key_data, key_hash, val_data);
                 auto [p_it, p_created] = _service.storage.try_emplace(key_hash, val_data);
                 if (!p_created) {
                     _service.info.bytes -= p_it->second.size();
@@ -173,15 +172,15 @@ namespace turbo::jam {
         _m.set_reg(7, machine::host_call_res_t::ok);
     }
 
-    static std::string_view log_level_name(const machine::register_val_t level)
+    static logger::level log_level(const machine::register_val_t level)
     {
         switch (level) {
-            case 0: return "error"sv;
-            case 1: return "warning"sv;
-            case 2: return "info"sv;
-            case 3: return "debug"sv;
-            case 4: return "trace"sv;
-            default: return "unknown"sv;
+            case 0: return logger::level::err;
+            case 1: return logger::level::warn;
+            case 2: return logger::level::info;
+            case 3: return logger::level::debug;
+            case 4: return logger::level::trace;
+            default: return logger::level::warn;
         }
     }
 
@@ -194,7 +193,7 @@ namespace turbo::jam {
         if (omega[8] != 0 || omega[9] != 0)
             target.emplace(_m.mem_read(omega[8], omega[9]).str());
         const auto msg = _m.mem_read(omega[10], omega[11]);
-        std::cout << fmt::format("[PVM/{}] [{}]: {}\n", target, log_level_name(level), msg.str()) << std::flush;
+        logger::log(log_level(level), "[PVM/{}]: {}", target, msg.str());
     }
 
     template<typename CONFIG>
@@ -210,7 +209,7 @@ namespace turbo::jam {
     [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CONFIG>::call(const machine::register_val_t id) noexcept
     {
         return base_type::_safe_call([&] {
-            //std::cout << fmt::format("PVM: host call #{}\n", id) << std::flush;
+            logger::trace("PVM: host call #{}", id);
             gas_t::base_type gas_used = 10;
             switch (id) {
                 case 0: base_type::gas(); break;

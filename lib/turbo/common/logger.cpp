@@ -24,16 +24,10 @@
 #include "logger.hpp"
 
 namespace turbo::logger {
-    bool &tracing_enabled()
+    std::string log_path()
     {
-        static bool enabled = std::getenv("TURBO_DEBUG") != nullptr;
-        return enabled;
-    }
-
-    static std::string log_path()
-    {
-        const char *env_log_path = std::getenv("TURBO_LOG");
-        return file::install_path(env_log_path ? env_log_path : "./log/turbo.log");
+        const char *env_log_path = std::getenv("TURBO_LOG_PATH");
+        return file::install_path(env_log_path ? env_log_path : "log/turbo.log");
     }
 
     static bool console_enabled()
@@ -41,7 +35,13 @@ namespace turbo::logger {
         return !std::getenv("TURBO_LOG_NO_CONSOLE");
     }
 
-    static spdlog::logger create(const std::string &path)
+    bool &tracing_enabled()
+    {
+        static bool enabled = std::getenv("TURBO_LOG_TRACE") != nullptr;
+        return enabled;
+    }
+
+    spdlog::logger create(const std::string &path)
     {
         std::cerr << fmt::format("INIT: log path: {}\n", path);
         {
@@ -72,37 +72,5 @@ namespace turbo::logger {
         logger.flush_on(spdlog::level::debug);
         logger.log(spdlog::level::debug, fmt::format("Installation directory: {}", file::install_path("")));
         return logger;
-    }
-
-    static spdlog::logger &get()
-    {
-        static spdlog::logger logger = create(log_path());
-        return logger;
-    }
-
-    void log(level lev, const std::string &msg)
-    {
-        // A supposed bug in GCC leads to false positive warnings in several open source libraries
-        // with spdlog being one of them
-        switch (lev) {
-            case level::trace:
-                get().log(spdlog::level::trace, msg);
-                break;
-            case level::debug:
-                get().log(spdlog::level::debug, msg);
-                break;
-            case level::info:
-                get().log(spdlog::level::info, msg);
-                break;
-            case level::warn:
-                get().log(spdlog::level::warn, msg);
-                break;
-            case level::error: {
-                get().log(spdlog::level::err, msg);
-                break;
-            }
-            default:
-                throw turbo::error(fmt::format("unsupported log level: {}", static_cast<int>(lev)));
-        }
     }
 }
