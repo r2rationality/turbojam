@@ -70,9 +70,10 @@ namespace {
             //expect_equal(path, tc.pre.keyvals.root(), tc.pre.state_root);
             //expect_equal(tc.post.keyvals.root(), tc.post.state_root, path);
 
-            const state_t<config_tiny> exp_post_state { tc.post.keyvals };
+            file::tmp_directory data_dir { "test-jam-traces" };
             chain_t<config_tiny> chain {
                 "dev",
+                data_dir.path(),
                 genesis_state,
                 !tc.pre.keyvals.empty() ? std::optional { state_t<config_tiny> { tc.pre.keyvals } } : std::nullopt
             };
@@ -80,10 +81,15 @@ namespace {
             //std::cout << fmt::format("{} block {}\n", path, tc.block.header.hash());
             chain.apply(tc.block);
 
-            const auto same_state = chain.state() == exp_post_state;
+            const auto post_keyvals = chain.state().state_dict();
+            const auto same_state = post_keyvals == tc.post.keyvals;
             expect(same_state) << path;
-            if (!same_state)
-                std::cout << fmt::format("{} state diff: {}\n", path, chain.state().diff(exp_post_state));
+            if (!same_state) {
+                std::cout << fmt::format("{} state diff: {}\n", path, post_keyvals.diff(tc.post.keyvals));
+                const auto k = merkle::trie::key_t::from_hex<merkle::trie::key_t>("0D000000000000000000000000000000000000000000000000000000000000");
+                std::cout << fmt::format("L pi: {}\n", chain.state().pi);
+                std::cout << fmt::format("R pi: {}\n", from_bytes<decltype(chain.state().pi)>(tc.post.keyvals.at(k)));
+            }
             //expect(chain.state().state_dict() == tc.post.keyvals) << path;
             // TODO: temporarily disabled, re-enabled after an investigation
             // Even though state_dict matches, the root's do not!
@@ -109,8 +115,9 @@ suite turbo_jam_traces_suite = [] {
             genesis_state.phi = upd_genesis.phi;
             genesis_state.eta = upd_genesis.eta;
         }
-        //test_file(file::install_path("test/jam-test-vectors/traces/reports-l0/00000003"), genesis_state);
-        /*for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
+        test_file(file::install_path("test/jam-test-vectors/traces/reports-l0/00000003"), genesis_state);
+        //for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
+        /*for (const auto testset: { "reports-l0" }) {
             for (const auto &path: file::files_with_ext(file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset)), ".bin")) {
                 test_file(path.substr(0, path.size() - 4), genesis_state);
             }
