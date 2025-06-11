@@ -29,6 +29,9 @@ target_link_libraries(lib PUBLIC
 )
 target_link_directories(lib PUBLIC ${SODIUM_LIBRARY_DIRS})
 
+find_package(spdlog CONFIG REQUIRED)
+target_link_libraries(lib PUBLIC spdlog::spdlog)
+
 if (WIN32)
     target_compile_options(lib PUBLIC "-DBOOST_STACKTRACE_USE_WINDBG")
     target_compile_options(lib PUBLIC "-DBOOST_STACKTRACE_LINK")

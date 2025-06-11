@@ -4,7 +4,8 @@
     "fmt",
     "libsodium",
     "openssl",
-    "pkgconf"
+    "pkgconf",
+    "spdlog"
   ],
   "builtin-baseline": "a9eee3b18df395dbb8be71a31bd78ea441056e42"
 }
