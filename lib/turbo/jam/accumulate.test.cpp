@@ -149,7 +149,6 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        std::cout << path << std::endl;
         const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
         {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
@@ -167,14 +166,14 @@ namespace {
         } catch (const std::exception &ex) {
             expect(false) << ex.what() << path;
         } catch (...) {
-            expect(false) << "An unknown error occured" << path;
+            expect(false) << "An unknown error occurred" << path;
         }
         if (out.has_value()) {
             expect(out == tc.out) << path;
             const auto same_state = res_st == tc.post;
             expect(same_state) << path;
-            if (!same_state)
-                std::cout << fmt::format("{} state diff: {}\n", path, res_st.diff(tc.post));
+            //if (!same_state)
+            //    std::cout << fmt::format("{} state diff: {}\n", path, res_st.diff(tc.post));
         } else {
             expect(false) << path;
         }
