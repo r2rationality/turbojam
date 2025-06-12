@@ -33,25 +33,32 @@ namespace turbo::jam::merkle {
         struct value_t: value_base_t {
             using base_type = value_base_t;
 
+            value_t(uint8_vector val, const hash_func &hf):
+                base_type { from_byte_sequence(std::move(val), hf) }
+            {
+            }
+
             value_t(const buffer &val, const hash_func &hf):
-                base_type { from_byte_sequence(val, hf) }
+                base_type { from_byte_sequence(uint8_vector { val }, hf) }
             {
             }
         private:
-            static value_base_t from_byte_sequence(const buffer &v, const hash_func &hf)
+            static value_base_t from_byte_sequence(uint8_vector v, const hash_func &hf)
             {
                 if (v.size() <= sizeof(hash_t))
-                    return { byte_sequence_t { v } };
+                    return { byte_sequence_t { std::move(v) } };
                 hash_t h;
                 hf(h, v);
                 return { h };
             }
         };
+        using opt_value_t = std::optional<value_t>;
 
         trie_t(const hash_func &hf);
         ~trie_t();
 
         void erase(const key_t& key);
+        const opt_value_t& get(const key_t& key) const;
         void set(const key_t &key, const value_t &value);
         [[nodiscard]] hash_t root() const;
     private:

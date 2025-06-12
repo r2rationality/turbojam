@@ -1,8 +1,11 @@
 /* Copyright (c) 2022-2023 Alex Sierkov (alex dot sierkov at gmail dot com)
  * Copyright (c) 2024-2025 R2 Rationality OÜ (info at r2rationality dot com) */
 
+#include <algorithm>
+#include <random>
 #include <turbo/common/benchmark.hpp>
 #include <turbo/codec/json.hpp>
+#include <turbo/jam/types/state-dict.hpp>
 #include "merkle.hpp"
 
 namespace {
@@ -12,8 +15,22 @@ namespace {
 
 suite turbo_jam_merkle_bench_suite = [] {
     "turbo::jam::merkle"_test = [] {
-        const auto test_vector = codec::json::load(file::install_path("test/jam-test-vectors/trie/trie.json")).at(10);
-        const auto &input = test_vector.at("input").as_object();
+        struct test_vector_t {
+            trie::key_t key;
+            uint8_vector value;
+        };
+
+        std::vector<test_vector_t> input {};
+        for (size_t i = 0; i < 0x200; ++i) {
+            input.emplace_back(
+                jam::state_dict_t::make_key(i, jam::state_key_subhash_t {}),
+                uint8_vector { fmt::format("{}", i) }
+            );
+        }
+        std::random_device rd {};
+        std::mt19937 g { rd() };
+        std::shuffle(input.begin(), input.end(), g);
+
         ankerl::nanobench::Bench b {};
         b.title("turbo::jam::merkle")
             .output(&std::cerr)
@@ -22,22 +39,22 @@ suite turbo_jam_merkle_bench_suite = [] {
             .batch(input.size())
             .relative(true);
         {
-            b.run("naive",[&] {
+            b.run("vector - construct & compute root",[&] {
                 trie::input_map_t input_m {};
-                for (const auto &[k, v]: input) {
-                    const auto tk = trie::key_t::from_hex(k.substr(0, 62));
-                    input_m.emplace(tk, uint8_vector::from_hex(boost::json::value_to<std::string_view>(v)));
+                for (const auto &[k, v]: input) {;
+                    input_m.emplace(k, v);
+                    ankerl::nanobench::doNotOptimizeAway(trie::encode_blake2b(input_m));
                 }
-                ankerl::nanobench::doNotOptimizeAway(trie::encode_blake2b(input_m));
             });
+        }
+        {
             const hash_func hf { static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::blake2b::digest) };
-            b.run("shared prefix skipping",[&] {
+            b.run("shared prefix - construct & compute root",[&] {
                 trie_t trie { hf };
                 for (const auto &[k, v]: input) {
-                    const auto tk = trie::key_t::from_hex<trie::key_t>(k.substr(0, 62));
-                    trie.set(tk, trie_t::value_t { uint8_vector::from_hex(boost::json::value_to<std::string_view>(v)), hf });
+                    trie.set(k, trie_t::value_t { v, hf });
+                    ankerl::nanobench::doNotOptimizeAway(trie.root());
                 }
-                ankerl::nanobench::doNotOptimizeAway(trie.root());
             });
         }
     };
