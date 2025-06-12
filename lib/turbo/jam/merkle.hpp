@@ -8,7 +8,8 @@
 
 namespace turbo::jam::merkle {
     using hash_t = byte_array_t<32>;
-    using hash_span_t = std::span<uint8_t, sizeof(hash_t)>;
+    using hash_span_t = crypto::blake2b::hash_span_t;
+    using hash_func = std::function<void(const hash_span_t &, const buffer &)>;
 
     struct node_t {
         hash_t left;
@@ -23,6 +24,39 @@ namespace turbo::jam::merkle {
     struct input_map_config_t {
         std::string key_name = "key";
         std::string val_name = "value";
+    };
+
+    struct trie_t {
+        using key_t = byte_array_t<31>;
+
+        using value_base_t = std::variant<byte_sequence_t, hash_t>;
+        struct value_t: value_base_t {
+            using base_type = value_base_t;
+
+            value_t(const buffer &val, const hash_func &hf):
+                base_type { from_byte_sequence(val, hf) }
+            {
+            }
+        private:
+            static value_base_t from_byte_sequence(const buffer &v, const hash_func &hf)
+            {
+                if (v.size() <= sizeof(hash_t))
+                    return { byte_sequence_t { v } };
+                hash_t h;
+                hf(h, v);
+                return { h };
+            }
+        };
+
+        trie_t(const hash_func &hf);
+        ~trie_t();
+
+        void erase(const key_t& key);
+        void set(const key_t &key, const value_t &value);
+        [[nodiscard]] hash_t root() const;
+    private:
+        struct impl;
+        std::unique_ptr<impl> _impl;
     };
 
     namespace trie {

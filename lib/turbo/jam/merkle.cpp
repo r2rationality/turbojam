@@ -9,9 +9,40 @@
 #include "merkle.hpp"
 
 namespace turbo::jam::merkle {
-    using hash_func = std::function<void(const hash_span_t &, buffer bytes)>;
-
     namespace trie {
+        // JAM Paper D.2.1 "Bit encoding": The bit order is the least significant first.
+        static hash_t encode(const hash_t &l, const hash_t &r, const hash_func &hf)
+        {
+            node_t res { l, r };
+            res.left[0] &= 0xFE;
+            hash_t res_hash;
+            hf(res_hash, res);
+            return res_hash;
+        }
+
+        static hash_t encode(const key_t &k, const trie_t::value_t &v, const hash_func &hf)
+        {
+            node_t res;
+            static_assert(sizeof(res.left) == sizeof(k) + 1);
+            static_assert(sizeof(res.right) == 32);
+            std::visit([&](const auto &vv) {
+                using T = std::decay_t<decltype(vv)>;
+                if constexpr (std::is_same_v<T, hash_t>) {
+                    res.left[0] = 0x03;
+                    memcpy(res.left.data() + 1, k.data(), k.size());
+                    res.right = vv;
+                } else {
+                    memcpy(res.right.data(), vv.data(), vv.size());
+                    memset(res.right.data() + vv.size(), 0, res.right.size() - vv.size());
+                    res.left[0] = 0x01 | vv.size() << 2;
+                    memcpy(res.left.data() + 1, k.data(), k.size());
+                }
+            }, v);
+            hash_t res_hash;
+            hf(res_hash, res);
+            return res_hash;
+        }
+
         // JAM Paper D.2.1 "Bit encoding": The bit order is the least significant first.
         static node_t encode(const hash_t &l, const hash_t &r)
         {
@@ -64,7 +95,9 @@ namespace turbo::jam::merkle {
                         auto &list = n->first.bit(bit_no) ? r : l;
                         list.emplace_back(n);
                     }
-                    hash_f(out, encode(encode(l, bit_no + 1, hash_f), encode(r, bit_no + 1, hash_f)));
+                    const auto h_l = encode(l, bit_no + 1, hash_f);
+                    const auto h_r = encode(r, bit_no + 1, hash_f);
+                    hash_f(out, encode(h_l, h_r));
                     break;
                 }
             }
@@ -96,6 +129,153 @@ namespace turbo::jam::merkle {
             encode_any(out, tree, [](const hash_span_t &out, const buffer bytes) { crypto::keccak::digest(out, bytes); });
         }
     }
+
+    struct trie_t::impl {
+        explicit impl(const hash_func &hf):
+            _hash_func { hf }
+        {
+        }
+
+        void erase(const key_t &key)
+        {
+            throw error("not implemented");
+        }
+
+        void set(const key_t &key, value_t val)
+        {
+            static constexpr auto prefix_max = numeric_cast<uint8_t>(key_t::num_bits());
+            auto new_node = std::make_shared<node_t>(key, prefix_max, std::move(val));
+            if (_root) {
+                auto node = _root;
+                uint8_t shared_sz;
+                for (;;) {
+                    shared_sz = _shared_prefix_size(node->key, key);
+                    if (shared_sz < node->prefix_sz)
+                        break;
+                    const auto right = key.bit(node->prefix_sz);
+                    auto &child = right ? node->right : node->left;
+                    if (child) {
+                        node = child;
+                    } else {
+                        child = std::move(new_node);
+                        break;
+                    }
+                }
+
+                if (shared_sz < prefix_max) {
+                    auto split_node = std::make_shared<node_t>(node->key, node->prefix_sz, std::move(node->value), std::move(node->left), std::move(node->right));
+                    node->prefix_sz = shared_sz;
+                    node->value.reset();
+                    node->_hash.reset();
+                    if (key.bit(shared_sz)) {
+                        node->left = std::move(split_node);
+                        node->right = std::move(new_node);
+                    } else {
+                        node->left = std::move(new_node);
+                        node->right = std::move(split_node);
+                    }
+                } else {
+                    node->value = std::move(new_node->value);
+                }
+            } else {
+                _root = std::move(new_node);
+            }
+        }
+
+        [[nodiscard]] const hash_t &root() const
+        {
+            if (_root)
+                return _root->hash(_hash_func, 0);
+            return _empty_hash();
+        }
+    private:
+        struct node_t;
+        using node_ptr_t = std::shared_ptr<node_t>;
+        struct node_t {
+            key_t key;
+            uint8_t prefix_sz;
+            std::optional<value_t> value;
+            node_ptr_t left;
+            node_ptr_t right;
+            std::optional<hash_t> _hash {};
+
+            [[nodiscard]] const hash_t &hash(const hash_func &hf, const uint8_t bit_start)
+            {
+                if (!_hash)
+                    _hash.emplace(branch_hash(this, hf, 0));
+                return *_hash;
+            }
+        private:
+            static [[nodiscard]] hash_t branch_hash(const node_t *ptr, const hash_func &hf, const uint8_t bit_start)
+            {
+                hash_t res;
+                if (!ptr) {
+                    res = _empty_hash();
+                } else if (ptr->_hash) {
+                    res = *ptr->_hash;
+                } else if (ptr->value) {
+                    res = trie::encode(ptr->key, ptr->value.value(), hf);
+                } else {
+                    const auto item_hash = trie::encode(
+                        branch_hash(ptr->left.get(), hf, ptr->prefix_sz + 1),
+                        branch_hash(ptr->right.get(), hf, ptr->prefix_sz + 1),
+                        hf
+                    );
+                    res = item_hash;
+                    for (uint8_t bit = ptr->prefix_sz; bit > bit_start; --bit) {
+                        if (ptr->key.bit(bit - 1)) {
+                            res = trie::encode(_empty_hash(), res, hf);
+                        } else {
+                            res = trie::encode(res, _empty_hash(), hf);
+                        }
+                    }
+                }
+                return res;
+            }
+        };
+
+        const hash_func _hash_func;
+        node_ptr_t _root {};
+
+        static const hash_t &_empty_hash()
+        {
+            static hash_t empty {};
+            return empty;
+        }
+
+        static [[nodiscard]] uint8_t _shared_prefix_size(const key_t &a, const key_t &b)
+        {
+            static_assert(key_t::num_bits() <= std::numeric_limits<uint8_t>::max());
+            uint8_t bit_idx = 0;
+            while (bit_idx < key_t::num_bits() && a.bit(bit_idx) == b.bit(bit_idx)) {
+                ++bit_idx;
+            }
+            return bit_idx;
+        }
+    };
+
+    trie_t::trie_t(const hash_func &hf):
+        _impl { std::make_unique<impl>(hf) }
+    {
+    }
+
+    trie_t::~trie_t() = default;
+
+    void trie_t::erase(const key_t &key)
+    {
+        _impl->erase(key);
+    }
+
+    void trie_t::set(const key_t &key, const value_t &value)
+    {
+        _impl->set(key, value);
+    }
+
+    hash_t trie_t::root() const
+    {
+        return _impl->root();
+    }
+
 
     namespace binary {
         static hash_t encode(const value_list items, const hash_func &hash_f)

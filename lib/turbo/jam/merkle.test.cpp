@@ -18,18 +18,35 @@ namespace {
 suite turbo_jam_merkle_suite = [] {
     "turbo::jam::merkle"_test = [] {
         const auto test_vectors = json::load(file::install_path("test/jam-test-vectors/trie/trie.json"));
-        size_t case_no = 0;
-        for (const auto &vector: test_vectors.as_array()) {
-            const auto &input = vector.at("input").as_object();
-            const auto exp_out = hash_t::from_hex(json::value_to<std::string_view>(vector.at("output")));
-            trie::input_map_t input_m {};
-            for (const auto &[k, v]: input) {
-                const auto tk = trie::key_t::from_hex(k.substr(0, 62));
-                input_m.emplace(tk, uint8_vector::from_hex(json::value_to<std::string_view>(v)));
+        "new"_test = [&] {
+            size_t case_no = 0;
+            for (const auto &vector: test_vectors.as_array()) {
+                const auto &input = vector.at("input").as_object();
+                const auto exp_out = hash_t::from_hex(json::value_to<std::string_view>(vector.at("output")));
+                const hash_func hf { static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::blake2b::digest) };
+                trie_t trie { hf };
+                for (const auto &[k, v]: input) {
+                    const auto tk = trie::key_t::from_hex<trie::key_t>(k.substr(0, 62));
+                    trie.set(tk, trie_t::value_t { uint8_vector::from_hex(json::value_to<std::string_view>(v)), hf });
+                }
+                expect_equal(exp_out, trie.root(), fmt::format("#{}", case_no));
+                ++case_no;
             }
-            const auto act_out = trie::encode_blake2b(input_m);
-            expect_equal(exp_out, act_out, fmt::format("#{}", case_no));
-            ++case_no;
-        }
+        };
+        "old"_test = [&] {
+            size_t case_no = 0;
+            for (const auto &vector: test_vectors.as_array()) {
+                const auto &input = vector.at("input").as_object();
+                const auto exp_out = hash_t::from_hex(json::value_to<std::string_view>(vector.at("output")));
+                trie::input_map_t input_m {};
+                for (const auto &[k, v]: input) {
+                    const auto tk = trie::key_t::from_hex(k.substr(0, 62));
+                    input_m.emplace(tk, uint8_vector::from_hex(json::value_to<std::string_view>(v)));
+                }
+                const auto act_out = trie::encode_blake2b(input_m);
+                expect_equal(exp_out, act_out, fmt::format("#{}", case_no));
+                ++case_no;
+            }
+        };
     };
 };
