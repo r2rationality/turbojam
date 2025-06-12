@@ -29,5 +29,27 @@ namespace turbo::jam {
                 merkle::trie::encode_blake2b(root, *this);
             return root;
         }
+
+        [[nodiscard]] std::string diff(const state_dict_t &o) const
+        {
+            std::string res {};
+            auto it = std::back_inserter(res);
+            for (const auto &[k, v]: *this) {
+                const auto o_it = o.find(k);
+                if (o_it != o.end()) {
+                    if (v != o_it->second)
+                        it = fmt::format_to(it, "value mismatch for key: {}\n    L: {}\n    R: {}\n", k, v, o_it->second);
+                } else {
+                    it = fmt::format_to(it, "right missing key: {}\n", k);
+                }
+            }
+            for (const auto &[k, v]: o) {
+                const auto my_it = find(k);
+                if (my_it == end()) {
+                    it = fmt::format_to(it, "left missing key: {}\n", k);
+                }
+            }
+            return res;
+        }
     };
 }
