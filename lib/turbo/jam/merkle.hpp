@@ -4,6 +4,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <boost/container/static_vector.hpp>
 #include <turbo/jam/types/common.hpp>
 
 namespace turbo::jam::merkle {
@@ -28,25 +29,21 @@ namespace turbo::jam::merkle {
 
     struct trie_t {
         using key_t = byte_array_t<31>;
+        using value_inplace_t = boost::container::static_vector<uint8_t, 32>;
 
-        using value_base_t = std::variant<byte_sequence_t, hash_t>;
+        using value_base_t = std::variant<value_inplace_t, hash_t>;
         struct value_t: value_base_t {
             using base_type = value_base_t;
 
-            value_t(uint8_vector val, const hash_func &hf):
-                base_type { from_byte_sequence(std::move(val), hf) }
-            {
-            }
-
             value_t(const buffer &val, const hash_func &hf):
-                base_type { from_byte_sequence(uint8_vector { val }, hf) }
+                base_type { from_byte_sequence(val, hf) }
             {
             }
         private:
-            static value_base_t from_byte_sequence(uint8_vector v, const hash_func &hf)
+            static value_base_t from_byte_sequence(const buffer &v, const hash_func &hf)
             {
                 if (v.size() <= sizeof(hash_t))
-                    return { byte_sequence_t { std::move(v) } };
+                    return value_inplace_t { v.begin(), v.end() };
                 hash_t h;
                 hf(h, v);
                 return { h };
