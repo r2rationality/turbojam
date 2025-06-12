@@ -5,12 +5,16 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <boost/container/static_vector.hpp>
+#include <turbo/crypto/keccak.hpp>
 #include <turbo/jam/types/common.hpp>
 
 namespace turbo::jam::merkle {
     using hash_t = byte_array_t<32>;
     using hash_span_t = crypto::blake2b::hash_span_t;
     using hash_func = std::function<void(const hash_span_t &, const buffer &)>;
+
+    static constexpr auto blake2b_hash_func = static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::blake2b::digest);
+    static constexpr auto keccak_hash_func = static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::keccak::digest);
 
     struct node_t {
         hash_t left;
@@ -51,12 +55,15 @@ namespace turbo::jam::merkle {
         };
         using opt_value_t = std::optional<value_t>;
 
-        trie_t(const hash_func &hf);
+        trie_t(trie_t &&o);
+        trie_t(const hash_func &hf=blake2b_hash_func);
         ~trie_t();
 
+        void clear();
+        bool empty() const;
         void erase(const key_t& key);
         const opt_value_t& get(const key_t& key) const;
-        void set(const key_t &key, const value_t &value);
+        void set(const key_t &key, const buffer &value);
         [[nodiscard]] hash_t root() const;
     private:
         struct impl;

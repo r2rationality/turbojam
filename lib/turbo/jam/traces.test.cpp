@@ -12,7 +12,7 @@ namespace {
 
     struct raw_state_t {
         state_root_t state_root;
-        state_dict_t keyvals;
+        state_snapshot_t keyvals;
 
         void serialize(auto &archive)
         {
@@ -56,7 +56,7 @@ namespace {
         }
     };
 
-    void test_file(const std::string &path, const state_t<config_tiny> &genesis_state)
+    void test_file(const std::string &path, const state_snapshot_t &genesis_state)
     {
         try {
             const auto tc = jam::load_obj<test_case_t>(path + ".bin");
@@ -75,7 +75,7 @@ namespace {
                 "dev",
                 data_dir.path(),
                 genesis_state,
-                !tc.pre.keyvals.empty() ? std::optional { state_t<config_tiny> { tc.pre.keyvals } } : std::nullopt
+                tc.pre.keyvals
             };
 
             //std::cout << fmt::format("{} block {}\n", path, tc.block.header.hash());
@@ -85,7 +85,7 @@ namespace {
             const auto same_state = post_keyvals == tc.post.keyvals;
             expect(same_state) << path;
             if (!same_state) {
-                std::cout << fmt::format("{} state diff: {}\n", path, post_keyvals.diff(tc.post.keyvals));
+                //std::cout << fmt::format("{} state diff: {}\n", path, post_keyvals.diff(tc.post.keyvals));
                 const auto k = merkle::trie::key_t::from_hex<merkle::trie::key_t>("0D000000000000000000000000000000000000000000000000000000000000");
                 std::cout << fmt::format("L pi: {}\n", chain.state().pi);
                 std::cout << fmt::format("R pi: {}\n", from_bytes<decltype(chain.state().pi)>(tc.post.keyvals.at(k)));
@@ -103,17 +103,17 @@ namespace {
 
 suite turbo_jam_traces_suite = [] {
     "turbo::jam::traces"_test = [] {
-        state_t<config_tiny> genesis_state {};
+        state_snapshot_t genesis_state;
         {
-            const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
-            genesis_state = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
+            //const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
+            //genesis_state = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
             const auto j_tc = codec::json::load_obj<test_case_t>(file::install_path("test/jam-test-vectors/traces/fallback/00000000.json"));
-            const state_t<config_tiny> upd_genesis { j_tc.post.keyvals };
-            genesis_state.alpha = upd_genesis.alpha;
+            genesis_state = j_tc.post.keyvals;
+            /*genesis_state.alpha = upd_genesis.alpha;
             genesis_state.gamma.s = upd_genesis.gamma.s;
             genesis_state.delta = upd_genesis.delta;
             genesis_state.phi = upd_genesis.phi;
-            genesis_state.eta = upd_genesis.eta;
+            genesis_state.eta = upd_genesis.eta;*/
         }
         test_file(file::install_path("test/jam-test-vectors/traces/reports-l0/00000003"), genesis_state);
         //for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {

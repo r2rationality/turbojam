@@ -52,7 +52,7 @@ suite turbo_jam_merkle_bench_suite = [] {
             b.run("shared prefix - construct & compute root",[&] {
                 trie_t trie { hf };
                 for (const auto &[k, v]: input) {
-                    trie.set(k, trie_t::value_t { v, hf });
+                    trie.set(k, v);
                     ankerl::nanobench::doNotOptimizeAway(trie.root());
                 }
             });

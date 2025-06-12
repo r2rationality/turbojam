@@ -71,7 +71,7 @@ suite turbo_jam_chain_suite = [] {
             );
             expect_equal(
                 state_root_t::from_hex("957C2FDE59ED6EC1249BBE4CAB260B29BE0A03504181A491CE8C9522661CD3A6"),
-                chain.genesis_state().state_dict().root()
+                chain.genesis_state().root()
             );
         };
     };

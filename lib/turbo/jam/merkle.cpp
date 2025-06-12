@@ -136,6 +136,11 @@ namespace turbo::jam::merkle {
         {
         }
 
+        void clear()
+        {
+            _root.reset();
+        }
+
         const std::optional<value_t> &get(const key_t &k) const
         {
             static std::optional<value_t> empty {};
@@ -148,14 +153,19 @@ namespace turbo::jam::merkle {
             return empty;
         }
 
+        bool empty() const
+        {
+            return !_root;
+        }
+
         void erase(const key_t &key)
         {
             _erase(_root, key);
         }
 
-        void set(const key_t &key, value_t val)
+        void set(const key_t &key, const buffer &val_bytes)
         {
-            auto new_node = std::make_unique<node_t>(key, prefix_max, std::move(val));
+            auto new_node = std::make_unique<node_t>(key, prefix_max, value_t { val_bytes, _hash_func });
             if (!_root) {
                 _root = std::move(new_node);
                 return;
@@ -303,7 +313,22 @@ namespace turbo::jam::merkle {
     {
     }
 
+    trie_t::trie_t(trie_t &&o):
+        _impl { std::move(o._impl) }
+    {
+    }
+
     trie_t::~trie_t() = default;
+
+    void trie_t::clear()
+    {
+        _impl->clear();
+    }
+
+    bool trie_t::empty() const
+    {
+        return _impl->empty();
+    }
 
     void trie_t::erase(const key_t &key)
     {
@@ -315,7 +340,7 @@ namespace turbo::jam::merkle {
         return _impl->get(key);
     }
 
-    void trie_t::set(const key_t &key, const value_t &value)
+    void trie_t::set(const key_t &key, const buffer &value)
     {
         _impl->set(key, value);
     }

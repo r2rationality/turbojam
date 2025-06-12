@@ -7,12 +7,12 @@
 #include "state-dict.hpp"
 
 namespace turbo::jam {
-    state_dict_t state_dict_t::from_genesis_json(const boost::json::value &j)
+    state_snapshot_t state_dict_t::from_genesis_json(const boost::json::value &j)
     {
         const auto &j_state = j.as_object();
-        state_dict_t st {};
+        state_snapshot_t st {};
         for (const auto &[jk, jv]: j_state) {
-            st[state_key_t::from_hex<state_key_t>(jk)] = uint8_vector::from_hex(boost::json::value_to<std::string_view>(jv));
+            st.emplace(state_key_t::from_hex<state_key_t>(jk), uint8_vector::from_hex(boost::json::value_to<std::string_view>(jv)));
         }
         return st;
     }

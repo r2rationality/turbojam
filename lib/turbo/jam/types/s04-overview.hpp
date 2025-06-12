@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/jam/accumulate.hpp>
+#include <turbo/storage/filedb.hpp>
 #include "state-dict.hpp"
 
 namespace turbo::jam {
@@ -173,6 +174,9 @@ namespace turbo::jam {
         }
     };
 
+    using kv_store_t = storage::filedb::client_t;
+    using kv_store_ptr_t = std::shared_ptr<kv_store_t>;
+
     // JAM (4.4) - lowercase sigma
     template<typename CONFIG=config_prod>
     struct state_t {
@@ -192,13 +196,6 @@ namespace turbo::jam {
         statistics_t<CONFIG> pi {};
         ready_queue_t<CONFIG> nu {}; // JAM (12.3): work reports ready to be accumulated
         accumulated_queue_t<CONFIG> ksi {}; // JAM (12.1): recently accumulated reports
-
-        state_t() =default;
-
-        state_t(const state_dict_t &state_dict)
-        {
-            *this = state_dict;
-        }
 
         [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
 
@@ -223,7 +220,19 @@ namespace turbo::jam {
 
         // export & import
         state_dict_t state_dict() const;
-        state_t &operator=(const state_dict_t &);
+        state_t &operator=(const state_snapshot_t &o);
+
+        void kv_store(kv_store_ptr_t kv_store)
+        {
+            _kv_store = std::move(kv_store);
+        }
+
+        kv_store_t &kv_store()
+        {
+            if (!_kv_store) [[unlikely]]
+                throw error("state_t::kv_store has not been yet configured!");
+            return *_kv_store;
+        }
 
         // JAM (4.1): Kapital upsilon
         void apply(const block_t<CONFIG> &);
@@ -260,6 +269,8 @@ namespace turbo::jam {
         bool operator==(const state_t &o) const noexcept;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONFIG::validator_count>;
+
+        kv_store_ptr_t _kv_store {};
 
         static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CONFIG> &);
         static validators_data_t<CONFIG> _capital_phi(const validators_data_t<CONFIG> &iota, const offenders_mark_t &psi_o);

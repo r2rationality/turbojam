@@ -10,7 +10,18 @@ namespace turbo::jam {
     // JAM D.1
     using state_key_t = merkle::trie::key_t;
     using state_key_subhash_t = byte_array_t<27>;
-    using state_dict_base_t = merkle::trie::input_map_t;
+    using state_dict_base_t = merkle::trie_t;
+
+    struct state_snapshot_t: merkle::trie::input_map_t
+    {
+        using base_type = merkle::trie::input_map_t;
+        using base_type::base_type;
+
+        [[nodiscard]] merkle::hash_t root() const
+        {
+            return merkle::trie::encode_blake2b(*this);
+        }
+    };
 
     struct state_dict_t: state_dict_base_t {
         using base_type = state_dict_base_t;
@@ -19,37 +30,28 @@ namespace turbo::jam {
         static state_key_t make_key(uint8_t id);
         static state_key_t make_key(uint8_t id, uint32_t service_id);
         static state_key_t make_key(uint32_t service_id, const state_key_subhash_t &subhash);
+        static state_snapshot_t from_genesis_json(const boost::json::value &);
 
-        static state_dict_t from_genesis_json(const boost::json::value &);
-
-        [[nodiscard]] state_root_t root() const
+        state_dict_t(const state_snapshot_t &o)
         {
-            state_root_t root {};
-            if (!empty()) [[likely]]
-                merkle::trie::encode_blake2b(root, *this);
-            return root;
+
         }
 
-        [[nodiscard]] std::string diff(const state_dict_t &o) const
+        state_dict_t &operator=(const state_snapshot_t &o)
         {
-            std::string res {};
-            auto it = std::back_inserter(res);
-            for (const auto &[k, v]: *this) {
-                const auto o_it = o.find(k);
-                if (o_it != o.end()) {
-                    if (v != o_it->second)
-                        it = fmt::format_to(it, "value mismatch for key: {}\n    L: {}\n    R: {}\n", k, v, o_it->second);
-                } else {
-                    it = fmt::format_to(it, "right missing key: {}\n", k);
-                }
-            }
-            for (const auto &[k, v]: o) {
-                const auto my_it = find(k);
-                if (my_it == end()) {
-                    it = fmt::format_to(it, "left missing key: {}\n", k);
-                }
-            }
-            return res;
+            clear();
+            for (const auto &[k, v]: o)
+                set(k, v);
+        }
+
+        void emplace(const key_t &k, const buffer &v)
+        {
+            set(k, v);
+        }
+
+        bool operator==(const state_dict_t &o) const
+        {
+            return root() == o.root();
         }
     };
 }

@@ -81,7 +81,8 @@ namespace {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "the json test case does not match the binary one" << path;
         }
-        auto new_st = tc.pre;
+        const file::tmp_directory state_dir { "test-jam-statistics" };
+        state_t<CFG> new_st { tc.pre };
         new_st.update_statistics(tc.in.slot, tc.in.author_index, tc.in.extrinsic);
         new_st.update_time(tc.in.slot);
         expect(new_st.pi.current == tc.post.pi.current) << path;

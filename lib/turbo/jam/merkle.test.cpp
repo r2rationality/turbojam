@@ -28,7 +28,7 @@ suite turbo_jam_merkle_suite = [] {
             for (size_t i = 0; i < num_nodes; ++i) {
                 const auto k = state_dict_t::make_key(i);
                 const uint8_vector v { static_cast<std::string_view>(fmt::format("{:02X}", i)) };
-                trie.set(k, trie_t::value_t { v, hf });
+                trie.set(k, v);
                 expect(trie_t::value_t { v, hf } == trie.get(k)) << i;
                 const auto new_root = trie.root();
                 if (prev_root)
@@ -40,7 +40,7 @@ suite turbo_jam_merkle_suite = [] {
             for (size_t i = 0; i < num_nodes; ++i) {
                 const auto k = state_dict_t::make_key(i);
                 const uint8_vector v { static_cast<std::string_view>(fmt::format("{:02X}", i + 1)) };
-                trie.set(k, trie_t::value_t { v, hf });
+                trie.set(k, v);
                 expect(trie_t::value_t { v, hf } == trie.get(k)) << i;
                 const auto new_root = trie.root();
                 if (prev_root)
@@ -65,7 +65,7 @@ suite turbo_jam_merkle_suite = [] {
             for (size_t i = 0; i < 0x200; ++i) {
                 const auto k = state_dict_t::make_key(i, state_key_subhash_t {});
                 const uint8_vector v { fmt::format("{}", i) };
-                trie.set(k, { v, hf });
+                trie.set(k, v);
                 input.emplace(k, v);
                 expect(trie.root() == trie::encode_blake2b(input)) << i;
             }
@@ -79,7 +79,7 @@ suite turbo_jam_merkle_suite = [] {
                 trie_t trie { hf };
                 for (const auto &[k, v]: input) {
                     const auto tk = trie::key_t::from_hex<trie::key_t>(k.substr(0, 62));
-                    trie.set(tk, trie_t::value_t { uint8_vector::from_hex(json::value_to<std::string_view>(v)), hf });
+                    trie.set(tk, uint8_vector::from_hex(json::value_to<std::string_view>(v)));
                 }
                 expect_equal(exp_out, trie.root(), fmt::format("#{}", case_no));
                 ++case_no;

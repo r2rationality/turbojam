@@ -1184,7 +1184,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    state_t<CONFIG> &state_t<CONFIG>::operator=(const state_dict_t &st)
+    state_t<CONFIG> &state_t<CONFIG>::operator=(const state_snapshot_t &st)
     {
         using preimage_hh_t = byte_array_t<23>;
         struct lookup_request_t {

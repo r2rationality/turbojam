@@ -3,20 +3,24 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <iostream>
 #include <turbo/common/logger.hpp>
+#include <turbo/storage/filedb.hpp>
 #include "chain.hpp"
 
 namespace turbo::jam {
     template<typename CONFIG>
     struct chain_t<CONFIG>::impl {
-        explicit impl(const std::string_view &id, const std::string_view &path, state_t<CONFIG> genesis_state, std::optional<state_t<CONFIG>> prev_state):
+        explicit impl(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state):
             _id { id },
             _path { path },
-            _genesis_state { std::move(genesis_state) },
-            _genesis_header { make_genesis_header(_genesis_state) },
-            _state { std::move(prev_state) }
+            _genesis_state { genesis_state },
+            _genesis_header { make_genesis_header(_genesis_state) }
         {
+            if (!prev_state.empty()) {
+                _state.emplace();
+                *_state = prev_state;
+                _state->kv_store(_kv_store);
+            }
         }
 
         void apply(const block_t<CONFIG> &blk)
@@ -24,7 +28,9 @@ namespace turbo::jam {
             if (!_state) [[unlikely]] {
                 //if (blk.header != _genesis_header) [[unlikely]]
                 //   throw error("the genesis header does not match the genesis state!");
-                _state.emplace(_genesis_state);
+                _state.emplace();
+                *_state = _genesis_state;
+                _state->kv_store(_kv_store);
                 _state->beta.clear();
                 logger::run_log_errors([&] {
                     _state->update_history_2(blk.header.hash(), {}, {});
@@ -49,7 +55,7 @@ namespace turbo::jam {
             return _genesis_header;
         }
 
-        [[nodiscard]] const state_t<CONFIG> &genesis_state() const
+        [[nodiscard]] const state_snapshot_t &genesis_state() const
         {
             return _genesis_state;
         }
@@ -63,7 +69,8 @@ namespace turbo::jam {
     private:
         std::string _id;
         std::string _path;
-        state_t<CONFIG> _genesis_state;
+        kv_store_ptr_t _kv_store = std::make_shared<storage::filedb::client_t>((std::filesystem::path { _path } / "kv").string());
+        state_snapshot_t _genesis_state;
         header_t<CONFIG> _genesis_header;
         std::optional<state_t<CONFIG>> _state {};
     };
@@ -81,22 +88,24 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    header_t<CONFIG> chain_t<CONFIG>::make_genesis_header(const state_t<CONFIG> &genesis_state)
+    header_t<CONFIG> chain_t<CONFIG>::make_genesis_header(const state_snapshot_t &genesis_state)
     {
+        state_t<CONFIG> g_state {};
+        g_state = genesis_state;
         // Genesis Block Header expectations from here: https://docs.jamcha.in/basics/genesis-config
         header_t<CONFIG> h {};
         h.epoch_mark.emplace(
-            genesis_state.eta[1],
-            genesis_state.eta[2],
-            genesis_state.gamma.k
+            g_state.eta[1],
+            g_state.eta[2],
+            g_state.gamma.k
         );
         h.author_index = 0xFFFFU;
         return h;
     }
 
     template<typename CONFIG>
-    chain_t<CONFIG>::chain_t(const std::string_view &id, const std::string_view &path, state_t<CONFIG> genesis_state, std::optional<state_t<CONFIG>> prev_state):
-        _impl { std::make_unique<impl>(id, path, std::move(genesis_state), std::move(prev_state)) }
+    chain_t<CONFIG>::chain_t(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state):
+        _impl { std::make_unique<impl>(id, path, genesis_state, prev_state) }
     {
     }
 
@@ -110,7 +119,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    const state_t<CONFIG> &chain_t<CONFIG>::genesis_state() const
+    const state_snapshot_t &chain_t<CONFIG>::genesis_state() const
     {
         return _impl->genesis_state();
     }
