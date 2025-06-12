@@ -4,7 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <ark-vrf-cpp.hpp>
-#include "s04-overview.hpp"
+#include "header.hpp"
 
 namespace turbo::jam {
     template<typename CONSTANTS>

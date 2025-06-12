@@ -5,7 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include "machine.hpp"
-#include "types/s04-overview.hpp"
+#include "types/state.hpp"
 
 namespace turbo::jam {
     template<typename CONFIG>

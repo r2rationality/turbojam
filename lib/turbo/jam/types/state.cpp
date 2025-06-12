@@ -10,12 +10,12 @@
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
 #include <turbo/crypto/keccak.hpp>
-#include "types/errors.hpp"
-#include "accumulate.hpp"
-#include "host-service.hpp"
-#include "machine.hpp"
-#include "merkle.hpp"
-#include "shuffle.hpp"
+#include "errors.hpp"
+#include "../accumulate.hpp"
+#include "../host-service.hpp"
+#include "../machine.hpp"
+#include "../merkle.hpp"
+#include "../shuffle.hpp"
 
 namespace turbo::jam {
     template<typename CONFIG>

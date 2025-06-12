@@ -4,5 +4,4 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include "types/common.hpp"
-#include "types/s04-overview.hpp"
+#include "types/state.hpp"
