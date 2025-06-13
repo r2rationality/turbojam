@@ -14,33 +14,41 @@ namespace turbo::jam {
     };
 
     template<typename CONFIG>
-    host_service_base_t<CONFIG>::host_service_base_t(machine::machine_t &m, state_t<CONFIG> &st, const service_id_t service_id, time_slot_t<CONFIG> slot):
+    static mutable_service_state_t<CONFIG> make_mutable_service(account_t<CONFIG> &service)
+    {
+        return {
+            container::std_map_update_api_t { service.storage },
+            container::std_map_update_api_t { service.preimages },
+            container::std_map_update_api_t { service.lookup_metas },
+            service_info_update_t { service.info }
+        };
+    }
+
+    template<typename CONFIG>
+    host_service_base_t<CONFIG>::host_service_base_t(machine::machine_t &m, mutable_services_state_t<CONFIG> &services, const service_id_t service_id, const time_slot_t<CONFIG> slot):
         _m { m },
-        _st { st },
+        _services { services },
         _service_id { service_id },
-        _service { _st.delta.at(service_id) },
+        _service { _services.get_mutable(service_id) },
         _slot { std::move(slot) }
     {
     }
 
     template<typename CONFIG>
-    typename accounts_t<CONFIG>::value_type &host_service_base_t<CONFIG>::_get_service(machine::register_val_t id)
+    typename host_service_base_t<CONFIG>::service_lookup_res_t host_service_base_t<CONFIG>::_get_service(machine::register_val_t id)
     {
         if (id == std::numeric_limits<machine::register_val_t>::max())
             id = _service_id;
-        const auto a_it = _st.delta.find(numeric_cast<service_id_t>(id));
-        if (a_it == _st.delta.end()) [[unlikely]]
-            throw err_bad_service_id_t {};
-        return *a_it;
+        return { numeric_cast<service_id_t>(id), _services.get_mutable(id) };
     }
 
     template<typename CONFIG>
     template<typename M>
     const typename M::mapped_type &host_service_base_t<CONFIG>::_get_value(const M &m, const typename M::key_type &key)
     {
-        if (const auto p_it = m.find(key); p_it != m.end()) [[likely]]
-            return p_it->second;
-        throw err_unknown_key_t { fmt::format("cannot find a service with id {}", key) };
+        if (const auto &v = m.get(key); !v.empty()) [[likely]]
+            return v;
+        throw err_unknown_key_t { fmt::format("cannot find an element with id {}", key) };
     }
 
     template<typename CONFIG>
@@ -118,42 +126,41 @@ namespace turbo::jam {
     template<typename CONFIG>
     void host_service_base_t<CONFIG>::write()
     {
-        if (_service.info.balance >= _service.balance_threshold()) {
-            const auto k_o = _m.regs()[7];
-            const auto k_z = _m.regs()[8];
-            const auto key_data = _m.mem_read(k_o, k_z);
-            encoder enc {};
-            enc.uint_fixed(4, _service_id);
-            enc.next_bytes(key_data);
-            const auto key_hash = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
-            const auto v_o = _m.regs()[9];
-            const auto v_z = _m.regs()[10];
-            if (v_z == 0) {
-                logger::trace("service {} write: delete key: {}", _service_id, key_data);
-                if (const auto p_it = _service.storage.find(key_hash); p_it != _service.storage.end()) {
-                    _service.info.bytes -= sizeof(p_it->first);
-                    _service.info.bytes -= p_it->second.size();
-                    --_service.info.items;
-                }
-                _m.set_reg(7, machine::host_call_res_t::none);
-            } else {
-                auto val_data = _m.mem_read(v_o, v_z);
-                logger::trace("service {} write: set key: {} hash: {} val: {}", _service_id, key_data, key_hash, val_data);
-                auto [p_it, p_created] = _service.storage.try_emplace(key_hash, val_data);
-                if (!p_created) {
-                    _service.info.bytes -= p_it->second.size();
-                    p_it->second = byte_sequence_t { std::move(val_data) };
-                } else {
-                    _service.info.bytes += sizeof(p_it->first);
-                    ++_service.info.items;
-                }
-                _service.info.bytes += v_z;
-                _m.set_reg(7, v_z);
+        const auto k_o = _m.regs()[7];
+        const auto k_z = _m.regs()[8];
+        const auto key_data = _m.mem_read(k_o, k_z);
+        encoder enc {};
+        enc.uint_fixed(4, _service_id);
+        enc.next_bytes(key_data);
+        const auto key_hash = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+        const auto v_o = _m.regs()[9];
+        const auto v_z = _m.regs()[10];
+        const auto &prev_val = _service.storage.get(key_hash);
+        if (v_z == 0) {
+            logger::trace("service {} write: delete key: {}", _service_id, key_data);
+            if (!prev_val.empty()) {
+                _service.info.bytes -= sizeof(key_hash);
+                _service.info.bytes -= prev_val.size();
+                --_service.info.items;
+                _service.storage.erase(key_hash);
             }
-            //_service.info.balance -= _service.info.min_memo_gas;
+            _m.set_reg(7, machine::host_call_res_t::none);
         } else {
-            _m.set_reg(7, machine::host_call_res_t::full);
+            auto val_data = _m.mem_read(v_o, v_z);
+            logger::trace("service {} write: set key: {} hash: {} val: {}", _service_id, key_data, key_hash, val_data);
+            if (!prev_val.empty()) {
+                _service.info.bytes -= prev_val.size();
+            } else {
+                _service.info.bytes += sizeof(key_data);
+                ++_service.info.items;
+            }
+            _service.storage.set(key_hash, std::move(val_data));
+            _service.info.bytes += v_z;
+            _m.set_reg(7, v_z);
         }
+        const auto balance_threshold = account_balance_threshold(_service.lookup_metas, _service.storage);
+        if (_service.info.base.balance < balance_threshold)
+            _m.set_reg(7, machine::host_call_res_t::full);
     }
 
     template<typename CONFIG>
@@ -197,9 +204,9 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    host_service_accumulate_t<CONFIG>::host_service_accumulate_t(machine::machine_t &m, state_t<CONFIG> &st, service_id_t service_id, time_slot_t<CONFIG> slot,
-            accumulate::context_t<CONFIG> &ctx_ok, accumulate::context_t<CONFIG> &ctx_err):
-        base_type { m, st, service_id, slot },
+    host_service_accumulate_t<CONFIG>::host_service_accumulate_t(machine::machine_t &m, service_id_t service_id, time_slot_t<CONFIG> slot,
+            accumulate_context_t<CONFIG> &ctx_ok, accumulate_context_t<CONFIG> &ctx_err):
+        base_type { m, ctx_ok.state.services, service_id, slot },
         _ok { ctx_ok },
         _err { ctx_err }
     {

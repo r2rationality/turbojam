@@ -33,7 +33,7 @@ namespace turbo::jam {
         // B_I
         static constexpr size_t min_balance_per_item = 10;
         // B_L
-        static constexpr size_t min_balance_per_elective = 1;
+        static constexpr size_t min_balance_per_octet = 1;
         // B_S
         static constexpr size_t min_balance_per_service = 100;
 

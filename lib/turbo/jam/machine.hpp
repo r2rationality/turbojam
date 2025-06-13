@@ -6,9 +6,9 @@
 
 #include <cstdint>
 #include <variant>
+#include "types/common.hpp"
 #include "types/constants.hpp"
 #include "encoding.hpp"
-#include "types.hpp"
 
 namespace turbo::jam::machine {
     using register_val_t = uint64_t;

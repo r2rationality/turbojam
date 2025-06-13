@@ -10,22 +10,30 @@
 namespace turbo::jam {
     template<typename CONFIG>
     struct host_service_base_t {
-        host_service_base_t(machine::machine_t &m, state_t<CONFIG> &st, service_id_t service_id, time_slot_t<CONFIG> slot);
+        host_service_base_t(machine::machine_t &m, mutable_services_state_t<CONFIG> &services, service_id_t service_id, time_slot_t<CONFIG> slot);
     protected:
+        using call_func = std::function<void()>;
+        struct service_lookup_res_t {
+            service_id_t id;
+            mutable_service_state_t<CONFIG> &account;
+        };
+
         machine::machine_t &_m;
-        state_t<CONFIG> &_st;
+        mutable_services_state_t<CONFIG> &_services;
         service_id_t _service_id;
-        account_t<CONFIG> &_service;
+        mutable_service_state_t<CONFIG> &_service;
         time_slot_t<CONFIG> _slot;
 
         // helper methods
-        typename accounts_t<CONFIG>::value_type &_get_service(machine::register_val_t id);
+        service_lookup_res_t _get_service(machine::register_val_t id);
 
         template<typename M>
         static typename M::mapped_type &_get_value(M &m, const typename M::key_type &key);
 
         template<typename M>
         static const typename M::mapped_type &_get_value(const M &m, const typename M::key_type &key);
+
+        [[nodiscard]] machine::host_call_res_t _safe_call(const call_func &f) noexcept;
 
         // General functions
         void gas();
@@ -34,23 +42,18 @@ namespace turbo::jam {
         void write();
         void info();
         void log();
-
-    protected:
-        using call_func = std::function<void()>;
-
-        [[nodiscard]] machine::host_call_res_t _safe_call(const call_func &f) noexcept;
     };
 
     template<typename CONFIG>
     struct host_service_accumulate_t: protected host_service_base_t<CONFIG> {
         using base_type = host_service_base_t<CONFIG>;
 
-        host_service_accumulate_t(machine::machine_t &m, state_t<CONFIG> &st, service_id_t service_id, time_slot_t<CONFIG> slot,
-            accumulate::context_t<CONFIG> &ctx_ok, accumulate::context_t<CONFIG> &ctx_err);
+        host_service_accumulate_t(machine::machine_t &m, service_id_t service_id, time_slot_t<CONFIG> slot,
+            accumulate_context_t<CONFIG> &ctx_ok, accumulate_context_t<CONFIG> &ctx_err);
         [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     private:
-        accumulate::context_t<CONFIG> &_ok;
-        accumulate::context_t<CONFIG> &_err;
+        accumulate_context_t<CONFIG> &_ok;
+        accumulate_context_t<CONFIG> &_err;
 
         // Accumulate functions
         void bless();

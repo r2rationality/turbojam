@@ -5,8 +5,8 @@
 
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
+#include "types/common.hpp"
 #include "types/errors.hpp"
-#include "types.hpp"
 
 namespace turbo::jam {
     template<typename CONSTANTS>

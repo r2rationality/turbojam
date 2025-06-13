@@ -4,7 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/crypto/keccak.hpp>
-#include "types.hpp"
+#include "types/common.hpp"
 
 namespace turbo::jam {
     using hash_t = crypto::keccak::hash_t;

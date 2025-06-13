@@ -10,12 +10,10 @@
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
 #include <turbo/crypto/keccak.hpp>
+#include <turbo/jam/shuffle.hpp>
+#include <turbo/jam/host-service.hpp>
 #include "errors.hpp"
-#include "../accumulate.hpp"
-#include "../host-service.hpp"
-#include "../machine.hpp"
-#include "../merkle.hpp"
-#include "../shuffle.hpp"
+#include "state.hpp"
 
 namespace turbo::jam {
     template<typename CONFIG>
@@ -360,9 +358,9 @@ namespace turbo::jam {
 
     // JAM (12.16)
     template<typename CONFIG>
-    accumulate::delta_plus_result_t<CONFIG> state_t<CONFIG>::accumulate_plus(const time_slot_t<CONFIG> slot, const gas_t gas_limit, const work_reports_t<CONFIG> &reports)
+    delta_plus_result_t<CONFIG> state_t<CONFIG>::accumulate_plus(const time_slot_t<CONFIG> slot, const gas_t gas_limit, const work_reports_t<CONFIG> &reports)
     {
-        accumulate::delta_plus_result_t<CONFIG> res {};
+        delta_plus_result_t<CONFIG> res { delta };
 
         if (!reports.empty()) {
             size_t num_ok = 0;
@@ -375,20 +373,20 @@ namespace turbo::jam {
                 ++num_ok;
             }
 
-            res.merge_from(accumulate_star(slot, std::span { reports.data(), num_ok }));
+            res.consume_from(accumulate_star(slot, std::span { reports.data(), num_ok }));
         }
         return res;
     }
 
     // JAM (12.17)
     template<typename CONFIG>
-    accumulate::delta_star_result_t<CONFIG> state_t<CONFIG>::accumulate_star(const time_slot_t<CONFIG> slot, const std::span<const work_report_t<CONFIG>> reports)
+    delta_star_result_t<CONFIG> state_t<CONFIG>::accumulate_star(const time_slot_t<CONFIG> slot, const std::span<const work_report_t<CONFIG>> reports)
     {
-        accumulate::service_operands_t service_ops {};
+        accumulate_service_operands_t service_ops {};
         for (const auto &r: reports) {
             for (const auto &r_res: r.results) {
                 service_ops[r_res.service_id].emplace_back(
-                    accumulate::operand_t {
+                    accumulate_operand_t {
                         .work_package_hash=r.package_spec.hash,
                         .exports_root=r.package_spec.exports_root,
                         .authorizer_hash=r.authorizer_hash,
@@ -405,7 +403,7 @@ namespace turbo::jam {
         for (const auto &fs: chi.always_acc)
             service_ops.try_emplace(fs.id);
 
-        accumulate::delta_star_result_t<CONFIG> res {};
+        delta_star_result_t<CONFIG> res {};
         for (const auto &[service_id, ops]: service_ops) {
             auto acc_res = invoke_accumulate(slot, service_id, ops);
             if (acc_res.num_reports) {
@@ -417,12 +415,12 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    accumulate::result_t<CONFIG> state_t<CONFIG>::invoke_accumulate(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate::operands_t &ops)
+    accumulate_result_t<CONFIG> state_t<CONFIG>::invoke_accumulate(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate_operands_t &ops)
     {
         auto &service = delta.at(service_id);
         const auto code_it = service.preimages.find(service.info.code_hash);
         if (code_it == service.preimages.end())
-            return {};
+            return { delta };
         const auto &code = code_it->second;
         const auto code_hash = crypto::blake2b::digest(code);
         if (code_hash != service.info.code_hash) [[unlikely]]
@@ -432,14 +430,9 @@ namespace turbo::jam {
         arg_enc.uint_varlen(service_id);
         arg_enc.process(ops);
 
-        accumulate::mutable_services_state_t<CONFIG> service_state {};
-        service_state.try_emplace(service_id, service.storage, service.preimages, service.lookup_metas);
-
-        accumulate::context_t<CONFIG> ctx_ok {
+        accumulate_context_t<CONFIG> ctx_ok {
             service_id,
-            {
-                .services=std::move(service_state),
-            }
+            delta
         };
         auto ctx_err = ctx_ok;
 
@@ -455,7 +448,7 @@ namespace turbo::jam {
         const auto inv_res = machine::invoke(
             static_cast<buffer>(code), 5U, gas_limit, arg_enc.bytes(),
             [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                host_service_accumulate_t<CONFIG> host_service { m, *this, service_id, slot, ctx_ok, ctx_err };
+                host_service_accumulate_t<CONFIG> host_service { m, service_id, slot, ctx_ok, ctx_err };
                 return host_service.call(id);
             }
         );
@@ -470,7 +463,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    gas_t state_t<CONFIG>::invoke_on_transfer(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate::deferred_transfer_ptrs_t &transfers)
+    gas_t state_t<CONFIG>::invoke_on_transfer(const time_slot_t<CONFIG> slot, const service_id_t service_id, const deferred_transfer_ptrs_t &transfers)
     {
         auto &service = delta.at(service_id);
         const auto code_it = service.preimages.find(service.info.code_hash);
@@ -488,10 +481,11 @@ namespace turbo::jam {
             gas_limit += t->gas_limit;
             arg_enc.process(*t);
         }
+        mutable_services_state_t<CONFIG> services_state { delta };
         const auto inv_res = machine::invoke(
             static_cast<buffer>(code), 10U, gas_limit, arg_enc.bytes(),
             [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                host_service_on_transfer_t<CONFIG> host_service { m, *this, service_id, slot };
+                host_service_on_transfer_t<CONFIG> host_service { m, services_state, service_id, slot };
                 return host_service.call(id);
             }
         );
@@ -568,8 +562,7 @@ namespace turbo::jam {
         // (12.22)
         auto plus_res = accumulate_plus(slot, gas_limit, work_immediate);
         // (12.23)
-        for (auto &[s_id, s_state]: plus_res.state.services)
-            s_state.commit();
+        plus_res.state.services.commit();
         if (plus_res.state.privileges)
             chi = *plus_res.state.privileges;
         if (plus_res.state.iota)
@@ -590,7 +583,7 @@ namespace turbo::jam {
         }
 
         // (12.27)
-        std::map<service_id_t, accumulate::deferred_transfer_ptrs_t> dst_transfers {};
+        std::map<service_id_t, deferred_transfer_ptrs_t> dst_transfers {};
         for (const auto &t: plus_res.transfers) {
             dst_transfers[t.destination].emplace_back(&t);
         }

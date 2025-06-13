@@ -313,6 +313,53 @@ namespace turbo::jam {
     using service_id_t = uint32_t;
     using balance_t = uint64_t;
 
+    struct service_info_t;
+
+    // This structure captures updates rather than absolute values.
+    // For this reason int64_t types are used to track potential decreases of the aboslute values.
+    struct service_info_update_t {
+        service_info_t &base;
+        std::optional<opaque_hash_t> code_hash {};
+        int64_t balance = 0;
+        // gas saved in the fixed format form
+        std::optional<gas_t::base_type> min_item_gas {};
+        std::optional<gas_t::base_type> min_memo_gas {};
+        int64_t bytes = 0;
+        int32_t items = 0;
+
+        bool empty() const
+        {
+            if (code_hash)
+                return false;
+            if (balance)
+                return false;
+            if (min_item_gas)
+                return false;
+            if (min_memo_gas)
+                return false;
+            if (bytes)
+                return false;
+            if (items)
+                return false;
+            return true;
+        }
+
+        void consume_from(service_info_update_t &&o)
+        {
+            if (o.code_hash)
+                code_hash = o.code_hash;
+            balance += o.balance;
+            if (o.min_item_gas)
+                min_item_gas = o.min_item_gas;
+            if (o.min_memo_gas)
+                min_memo_gas = o.min_memo_gas;
+            bytes += o.bytes;
+            items += o.items;
+        }
+
+        inline void commit();
+    };
+
     struct service_info_t {
         opaque_hash_t code_hash {};
         balance_t balance = 0;
@@ -333,6 +380,19 @@ namespace turbo::jam {
             archive.process("items"sv, items);
         }
 
+        void consume_from(service_info_update_t &&o)
+        {
+            if (o.code_hash)
+                code_hash = *o.code_hash;
+            balance += o.balance;
+            if (o.min_item_gas)
+                min_item_gas = *o.min_item_gas;
+            if (o.min_memo_gas)
+                min_memo_gas = *o.min_memo_gas;
+            bytes += o.bytes;
+            items += o.items;
+        }
+
         bool operator==(const service_info_t &o) const noexcept
         {
             if (code_hash != o.code_hash)
@@ -350,6 +410,11 @@ namespace turbo::jam {
             return true;
         }
     };
+
+    inline void service_info_update_t::commit()
+    {
+        base.consume_from(std::move(*this));
+    }
 
     using prerequisites_t = sequence_t<opaque_hash_t>;
 
@@ -1509,39 +1574,31 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     using lookup_metas_t = map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CONSTANTS>, lookup_metas_config_t>;
 
+    // (9.8)
+    template<typename L, typename S>
+    balance_t account_balance_threshold(const L &l, const S &s)
+    {
+        size_t a_i = 0;
+        size_t a_o = 0;
+        l.foreach([&](const auto &k, const auto &) {
+            a_i += 2;
+            a_o += 81 + k.length;
+        });
+        s.foreach([&](const auto &, const auto &v) {
+            a_i += 1;
+            a_o += 32 + v.size();
+        });
+        return config_base::min_balance_per_service
+            + config_base::min_balance_per_item * a_i
+            + config_base::min_balance_per_octet * a_o;
+    }
+
     template<typename CONSTANTS>
     struct account_t {
         preimages_t storage {};
         preimages_t preimages {};
         lookup_metas_t<CONSTANTS> lookup_metas {};
         service_info_t info {};
-
-        // JAM (9.8) a_i
-        size_t num_items() const
-        {
-            return 2 * lookup_metas.size() + storage.size();
-        }
-
-        // JAM (9.8) a_o
-        size_t num_electives() const
-        {
-            // TODO:
-            size_t res = 0;
-            for (const auto &[lk, lv]: lookup_metas) {
-                res += 81 + lk.length;
-            }
-            for (const auto &[h, bytes]: storage) {
-                res += 32 + bytes.size();
-            }
-            return res;
-        }
-
-        balance_t balance_threshold() const
-        {
-            return config_base::min_balance_per_service
-                + config_base::min_balance_per_item * num_items()
-                + config_base::min_balance_per_elective * num_electives();
-        }
 
         void serialize(auto &archive)
         {
