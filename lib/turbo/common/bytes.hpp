@@ -352,8 +352,25 @@ namespace turbo {
 
     // Intended to be used as the target for IO operations. Does not initialize newly allocated memory.
     struct write_vector {
+        static write_vector from_hex(const std::string_view hex)
+        {
+            write_vector res(hex.size() / 2);
+            init_from_hex(res, hex);
+            return res;
+        }
+
         write_vector(const write_vector &) =delete;
+
         write_vector() =default;
+
+        write_vector(write_vector &&o) noexcept:
+            _capacity { o._capacity },
+            _size { o._size },
+            _ptr { std::move(o._ptr) }
+        {
+            o._capacity = 0;
+            o._size = 0;
+        }
 
         write_vector(const size_t sz)
         {
@@ -364,13 +381,6 @@ namespace turbo {
         {
             resize(bytes.size());
             memcpy(data(), bytes.data(), _size);
-        }
-
-        write_vector(write_vector &&o):
-            _capacity { o._capacity },
-            _size { o._size },
-            _ptr { std::move(o._ptr) }
-        {
         }
 
         write_vector &operator=(write_vector &&o)

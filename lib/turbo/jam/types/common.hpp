@@ -94,6 +94,23 @@ namespace turbo::jam {
         }
     };
 
+    template<typename K, typename V, typename CFG>
+    struct filedb_map_t: std::map<K, V> {
+        using base_type = std::map<K, V>;
+        using base_type::base_type;
+
+        static CFG config()
+        {
+            static CFG cfg;
+            return cfg;
+        }
+
+        void serialize(auto &archive)
+        {
+            archive.process_map(*this, config().key_name, config().val_name);
+        }
+    };
+
     template<typename T>
     struct optional_t: std::optional<T> {
         using base_type = std::optional<T>;
@@ -1540,6 +1557,9 @@ namespace turbo::jam {
     };
     using preimages_t = map_t<opaque_hash_t, byte_sequence_t, preimages_config_t>;
 
+    using storage_items_config_t = preimages_config_t;
+    using storage_items_t = map_t<opaque_hash_t, byte_sequence_t, storage_items_config_t>;
+
     struct lookup_meta_map_key_t {
         opaque_hash_t hash;
         uint32_t length;
@@ -1595,7 +1615,7 @@ namespace turbo::jam {
 
     template<typename CONSTANTS>
     struct account_t {
-        preimages_t storage {};
+        storage_items_t storage {};
         preimages_t preimages {};
         lookup_metas_t<CONSTANTS> lookup_metas {};
         service_info_t info {};

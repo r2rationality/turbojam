@@ -337,8 +337,7 @@ namespace turbo::jam {
             for (size_t i = 0; i < sz; ++i) {
                 auto k = decode<typename T::key_type>();
                 auto v = decode<typename T::mapped_type>();
-                const auto [it, created] = m.try_emplace(std::move(k), std::move(v));
-                if (!created) [[unlikely]]
+                if (const auto [it, created] = m.try_emplace(std::move(k), std::move(v)); !created) [[unlikely]]
                     throw error(fmt::format("a map contains non-unique items: {}", typeid(m).name()));
             }
         }

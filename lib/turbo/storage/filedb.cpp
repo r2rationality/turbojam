@@ -34,13 +34,20 @@ namespace turbo::storage::filedb {
             std::filesystem::remove(_key_path(key));
         }
 
-        void set(const buffer key, const buffer val)
+        void foreach(const observer_t &obs)
         {
-            const auto final_path = _key_path(key);
-            const auto tmp_path = final_path + ".tmp";
-            // write into a temporary file + rename ensures partial values are never kept/returned.
-            file::write(tmp_path, val);
-            std::filesystem::rename(tmp_path, final_path);
+            for (const auto &e: std::filesystem::recursive_directory_iterator(_dir_path)) {
+                if (!e.is_regular_file())
+                    continue;
+                const auto p = e.path();
+                if (p.extension() != "")
+                    continue;
+                const auto key = uint8_vector::from_hex(p.filename().string());
+                auto val = get(key);
+                if (!val) [[unlikely]]
+                    throw error(fmt::format("filedb: unable to get data for the key: {}", key));
+                obs(std::move(key), std::move(*val));
+            }
         }
 
         std::optional<write_vector> get(const buffer key) const
@@ -50,12 +57,21 @@ namespace turbo::storage::filedb {
                 return file::read(key_path);
             return {};
         }
+
+        void set(const buffer key, const buffer val)
+        {
+            const auto final_path = _key_path(key);
+            const auto tmp_path = final_path + ".tmp";
+            // write into a temporary file + rename ensures partial values are never kept/returned.
+            file::write(tmp_path, val);
+            std::filesystem::rename(tmp_path, final_path);
+        }
     private:
         std::filesystem::path _dir_path;
 
         std::filesystem::path _subdir_path(const uint8_t byte0) const
         {
-            return _dir_path / fmt::format("{}", byte0);
+            return _dir_path / fmt::format("{:02X}", byte0);
         }
 
         std::string _key_path(const buffer key) const
@@ -66,7 +82,7 @@ namespace turbo::storage::filedb {
         }
     };
 
-    client_t::client_t(std::string_view dir_path):
+    client_t::client_t(const std::string_view dir_path):
         _impl { std::make_unique<impl>(dir_path) }
     {
     }
@@ -78,13 +94,18 @@ namespace turbo::storage::filedb {
         _impl->erase(key);
     }
 
-    void client_t::set(const buffer key, const buffer val)
+    void client_t::foreach(const observer_t &obs)
     {
-        _impl->set(key, val);
+        _impl->foreach(obs);
     }
 
     std::optional<write_vector> client_t::get(const buffer key) const
     {
         return _impl->get(key);
+    }
+
+    void client_t::set(const buffer key, const buffer val)
+    {
+        _impl->set(key, val);
     }
 }
