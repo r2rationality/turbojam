@@ -285,14 +285,22 @@ namespace turbo::jam {
         T _val {};
     };
 
+    template<typename T>
+    byte_sequence_t encode(const T &v)
+    {
+        encoder enc { v };
+        return { std::move(enc.bytes()) };
+    }
+
     template<typename S>
     struct persistent_value_t {
         using element_type = typename S::element_type;
         using serialize_func_t = std::function<void(const element_type &)>;
 
-        persistent_value_t(S storage, serialize_func_t serialize):
+        persistent_value_t(S storage, const std::shared_ptr<state_dict_t> &state_dict, const uint8_t code):
             _storage { std::move(storage) },
-            _serialize { std::move(serialize) }
+            _state_dict { state_dict },
+            _code { code }
         {
         }
 
@@ -313,11 +321,12 @@ namespace turbo::jam {
         void set(element_type new_val)
         {
             *_storage = std::move(new_val);
-            _serialize(*_storage);
+            _state_dict->set(state_dict_t::make_key(_code), encode(new_val));
         }
     private:
         S _storage;
-        serialize_func_t _serialize;
+        std::shared_ptr<state_dict_t> _state_dict;
+        uint8_t _code;
     };
 
     template<typename CFG>
@@ -328,22 +337,16 @@ namespace turbo::jam {
     template<typename CONFIG=config_prod>
     class state_t {
         kv_store_ptr_t _kv_store {};
-        state_dict_t _state_dict {};
+        std::shared_ptr<state_dict_t> _state_dict {};
     public:
         // authorizations
         persistent_value_t<std::shared_ptr<auth_pools_t<CONFIG>>> alpha {
-            std::make_shared<auth_pools_t<CONFIG>>(),
-            [this](const auto &new_val) {
-                _state_dict.set(state_dict_t::make_key(1), encode(new_val));
-            }
+            std::make_shared<auth_pools_t<CONFIG>>(), _state_dict, 1U
         };
 
         // most recent blocks
         block_history_val_t<CONFIG> beta {
-            std::make_shared<blocks_history_t<CONFIG>>(),
-            [this](const auto &new_val) {
-                _state_dict.set(state_dict_t::make_key(3), encode(new_val));
-            }
+            std::make_shared<blocks_history_t<CONFIG>>(), _state_dict, 3U
         };
         safrole_state_t<CONFIG> gamma {};
         accounts_t<CONFIG> delta {}; // services
@@ -354,10 +357,7 @@ namespace turbo::jam {
         availability_assignments_t<CONFIG> rho {}; // assigned work reports
 
         persistent_value_t<value_ptr_t<time_slot_t<CONFIG>>> tau {
-            value_ptr_t<time_slot_t<CONFIG>> {},
-            [this](const auto &new_val) {
-                _state_dict.set(state_dict_t::make_key(11), encode(new_val));
-            }
+            value_ptr_t<time_slot_t<CONFIG>> {}, _state_dict, 11U
         };
 
         auth_queues_t<CONFIG> phi {}; // work authorizer queue
@@ -366,13 +366,6 @@ namespace turbo::jam {
         statistics_t<CONFIG> pi {};
         ready_queue_t<CONFIG> nu {}; // JAM (12.3): work reports ready to be accumulated
         accumulated_queue_t<CONFIG> ksi {}; // JAM (12.1): recently accumulated reports
-
-        template<typename T>
-        static byte_sequence_t encode(const T &v)
-        {
-            encoder enc { v };
-            return { std::move(enc.bytes()) };
-        }
 
         [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
 
