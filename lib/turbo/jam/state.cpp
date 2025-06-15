@@ -637,14 +637,12 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::update_time(const time_slot_t<CONFIG> &slot)
+    void state_t<CONFIG>::update_tau(time_slot_t<CONFIG> &new_tau, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot)
     {
-        // JAM (5.7)
-        // Bootstrapping: allow slot 0 when the history is empty
-        if (slot <= tau || slot > time_slot_t<CONFIG>::current()) [[unlikely]]
+        if (blk_slot <= prev_tau || blk_slot > time_slot_t<CONFIG>::current()) [[unlikely]]
             throw err_bad_slot_t {};
         // JAM (6.1)
-        tau = slot;
+        new_tau = blk_slot;
     }
 
     template<typename CONFIG>
@@ -1037,7 +1035,7 @@ namespace turbo::jam {
     void state_t<CONFIG>::apply(const block_t<CONFIG> &blk)
     {
         using namespace std::string_view_literals;
-        // Work on a copy so that in case of exceptions the original state remains intact
+        // Work on a copy so that in case of errors the original state remains intact
         // In addition, this makes it easier to differentiate between the original and intermediate state values
         auto new_st = *this;
 
@@ -1105,7 +1103,7 @@ namespace turbo::jam {
         new_st.update_statistics(blk.header.slot, blk.header.author_index, blk.extrinsic);
 
         // JAM (4.5) update tau
-        new_st.update_time(blk.header.slot);
+        state_t::update_tau(new_st.tau, tau, blk.header.slot);
 
         *this = std::move(new_st);
     }

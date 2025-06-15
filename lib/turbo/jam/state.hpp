@@ -328,7 +328,7 @@ namespace turbo::jam {
         // Todo: make them protected and the respective unit test classes friends?
 
         // JAM (4.5)
-        void update_time(const time_slot_t<CONFIG> &slot);
+        static void update_tau(time_slot_t<CONFIG> &new_tau, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot);
         // JAM (4.6)
         void update_history_1(const state_root_t &sr);
         void update_history_2(const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);

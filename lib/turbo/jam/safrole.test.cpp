@@ -144,7 +144,7 @@ namespace {
             [&] {
                 auto tmp_st = tc.pre;
                 out.emplace(tmp_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic));
-                tmp_st.update_time(tc.in.slot);
+                state_t<CFG>::update_tau(tmp_st.tau, tc.pre.tau, tc.in.slot);
                 res_st = std::move(tmp_st);
             },
             [&](err_code_t err) {
