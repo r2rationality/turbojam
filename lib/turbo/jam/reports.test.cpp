@@ -158,12 +158,7 @@ namespace {
             archive.process("prev_validators"sv, self.lambda);
             archive.process("entropy"sv, self.eta);
             archive.process("offenders"sv, self.psi.offenders);
-            {
-                auto tmp_beta = self.beta.get();
-                archive.process("recent_blocks"sv, tmp_beta);
-                if (tmp_beta != self.beta.get())
-                    self.beta.set(std::move(tmp_beta));
-            }
+            archive.process("recent_blocks"sv, self.beta);
             archive.process("auth_pools"sv, self.alpha);
             serialize_accounts(archive, "accounts"sv, self.delta);
             archive.process("cores_statistics"sv, self.pi.cores);

@@ -159,7 +159,7 @@ namespace {
         try {
             auto tmp_st = tc.pre;
             out.emplace(tmp_st.accumulate(tc.in.slot, tc.in.reports));
-            state_t<CFG>::tau_prime(tmp_st.tau, tc.pre.tau, tc.in.slot);
+            tmp_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
             res_st = std::move(tmp_st);
         } catch (const error &) {
             out.emplace(err_code_t {});

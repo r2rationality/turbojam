@@ -60,7 +60,7 @@ namespace turbo::jam {
             return false;
         if (rho != o.rho)
             return false;
-        if (tau != o.tau)
+        if (tau.get() != o.tau.get())
             return false;
         if (phi != o.phi)
             return false;
@@ -93,7 +93,7 @@ namespace turbo::jam {
         compare_item("ksi"sv, ksi, o.ksi);
         compare_item("pi"sv, pi, o.pi);
         compare_item("rho"sv, rho, o.rho);
-        compare_item("tau"sv, tau, o.tau);
+        compare_item("tau"sv, tau.get(), o.tau.get());
         compare_item("phi"sv, phi, o.phi);
         compare_item("chi"sv, chi, o.chi);
         compare_item("psi"sv, psi, o.psi);
@@ -198,12 +198,13 @@ namespace turbo::jam {
     template<typename CONFIG>
     safrole_output_data_t<CONFIG> state_t<CONFIG>::update_safrole(const time_slot_t<CONFIG> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONFIG> &extrinsic)
     {
+        const auto &prev_tau = tau.get();
         if (slot.epoch_slot() >= CONFIG::ticket_submission_end && !extrinsic.empty()) [[unlikely]]
             throw err_unexpected_ticket_t {};
         safrole_output_data_t<CONFIG> res {};
 
         // Epoch transition
-        if (slot.epoch() > tau.epoch()) [[unlikely]] {
+        if (slot.epoch() > prev_tau.epoch()) [[unlikely]] {
             // JAM Paper (6.13)
             lambda = kappa;
             kappa = gamma.k;
@@ -226,21 +227,21 @@ namespace turbo::jam {
         }
 
         // JAM (6.24)
-        if (slot.epoch() == tau.epoch() + 1 && tau.epoch_slot() >= CONFIG::ticket_submission_end && gamma.a.size() == CONFIG::epoch_length) {
+        if (slot.epoch() == prev_tau.epoch() + 1 && prev_tau.epoch_slot() >= CONFIG::ticket_submission_end && gamma.a.size() == CONFIG::epoch_length) {
             gamma.s = _permute_tickets(gamma.a);
-        } else if (slot.epoch() != tau.epoch()) {
+        } else if (slot.epoch() != prev_tau.epoch()) {
             // since the update operates on a copy of the state
             // eta[2] and kappa are the updated "prime" values
             gamma.s = _fallback_key_sequence(eta[2], kappa);
         }
 
-        if (slot.epoch() > tau.epoch()) [[unlikely]] {
+        if (slot.epoch() > prev_tau.epoch()) [[unlikely]] {
         // JAM Paper (6.34)
             gamma.a.clear();
         }
 
         // JAM Paper (6.28) - winning-tickets marker
-        if (slot.epoch() == tau.epoch() && tau.epoch_slot() < CONFIG::ticket_submission_end
+        if (slot.epoch() == prev_tau.epoch() && prev_tau.epoch_slot() < CONFIG::ticket_submission_end
                 && slot.epoch_slot() >= CONFIG::ticket_submission_end && gamma.a.size() == CONFIG::epoch_length) {
             res.tickets_mark.emplace(_permute_tickets(gamma.a));
         }
@@ -291,7 +292,8 @@ namespace turbo::jam {
     template<typename CONFIG>
     void state_t<CONFIG>::update_statistics(const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic)
     {
-        if (slot.epoch() > tau.epoch()) {
+        const auto &prev_tau = tau.get();
+        if (slot.epoch() > prev_tau.epoch()) {
             pi.last = pi.current;
             pi.current = decltype(pi.current) {};
         }
@@ -496,6 +498,7 @@ namespace turbo::jam {
     template<typename CONFIG>
     accumulate_root_t state_t<CONFIG>::accumulate(const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports)
     {
+        const auto &prev_tau = tau.get();
         // JAM Paper (12.2)
         set_t<work_package_hash_t> known_reports {};
         for (const auto &er: ksi) {
@@ -613,7 +616,7 @@ namespace turbo::jam {
 
         // (12.34)
         accumulate_update_deps(nu[m], ksi.back());
-        const auto time_step = slot.slot() - tau.slot();
+        const auto time_step = slot.slot() - prev_tau.slot();
         for (size_t i = 0; i < nu.size(); ++i) {
             const auto nu_i = (m + nu.size() - i) % nu.size();
             if (i == 0) {
@@ -637,12 +640,12 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::tau_prime(time_slot_t<CONFIG> &new_tau, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot)
+    time_slot_t<CONFIG> state_t<CONFIG>::tau_prime(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot)
     {
         if (blk_slot <= prev_tau || blk_slot > time_slot_t<CONFIG>::current()) [[unlikely]]
             throw err_bad_slot_t {};
         // JAM (6.1)
-        new_tau = blk_slot;
+        return blk_slot;
     }
 
     template<typename CONFIG>
@@ -831,6 +834,7 @@ namespace turbo::jam {
     template<typename CONFIG>
     offenders_mark_t state_t<CONFIG>::update_disputes(const disputes_extrinsic_t<CONFIG> &disputes)
     {
+        const auto &prev_tau = tau.get();
         set_t<ed25519_public_t> known_vkeys {};
         known_vkeys.reserve(kappa.size() + lambda.size());
         for (const auto &validator_set: { kappa, lambda }) {
@@ -849,7 +853,7 @@ namespace turbo::jam {
         uint8_vector msg {};
 
         // JAM (10.3)
-        const auto cur_epoch = tau.epoch();
+        const auto cur_epoch = prev_tau.epoch();
         const verdict_t<CONFIG> *prev_verdict = nullptr;
         std::map<work_report_hash_t, size_t> report_oks {};
         for (const auto &v: disputes.verdicts) {
@@ -1107,7 +1111,7 @@ namespace turbo::jam {
         new_st.update_statistics(blk.header.slot, blk.header.author_index, blk.extrinsic);
 
         // JAM (4.5) update tau
-        state_t::tau_prime(new_st.tau, tau, blk.header.slot);
+        new_st.tau.set(state_t::tau_prime(tau.get(), blk.header.slot));
 
         *this = std::move(new_st);
     }
@@ -1125,14 +1129,6 @@ namespace turbo::jam {
             std::cerr << fmt::format("state_t::try_apply failed: unknown exception\n");
             return std::current_exception();
         }
-    }
-
-    template<typename CONFIG>
-    template<typename T>
-    byte_sequence_t state_t<CONFIG>::encode(const T &v)
-    {
-        encoder enc { v };
-        return { std::move(enc.bytes()) };
     }
 
     template<typename CONFIG>

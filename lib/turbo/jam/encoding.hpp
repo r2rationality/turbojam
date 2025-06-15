@@ -264,22 +264,22 @@ namespace turbo::jam {
         }
 
         template<typename T>
-        T decode()
+        void decode(T &val)
         {
             if constexpr (from_bytes_c<T>) {
-                return T::from_bytes(*this);
+                val = T::from_bytes(*this);
             } else if constexpr (codec::serializable_c<T>) {
-                return codec::from<T>(*this);
+                val.serialize(*this);
             } else if constexpr (std::is_same_v<uint64_t, T>) {
-                return uint_fixed<T>(8);
+                val = uint_fixed<T>(8);
             } else if constexpr (std::is_same_v<uint32_t, T>) {
-                return uint_fixed<T>(4);
+                val = uint_fixed<T>(4);
             } else if constexpr (std::is_same_v<uint16_t, T>) {
-                return uint_fixed<T>(2);
+                val = uint_fixed<T>(2);
             } else if constexpr (std::is_same_v<uint8_t, T>) {
-                return uint_fixed<T>(1);
+                val = uint_fixed<T>(1);
             } else if constexpr (std::is_same_v<bool, T>) {
-                return static_cast<T>(uint_fixed<uint8_t>(1));
+                val = static_cast<T>(uint_fixed<uint8_t>(1));
             } else {
                 throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
             }
@@ -300,7 +300,7 @@ namespace turbo::jam {
         template<typename T>
         void process(T &val)
         {
-            val = decode<T>();
+            decode(val);
         }
 
         template<typename T>
@@ -335,8 +335,10 @@ namespace turbo::jam {
             const auto sz = uint_varlen<size_t>();
             m.clear();
             for (size_t i = 0; i < sz; ++i) {
-                auto k = decode<typename T::key_type>();
-                auto v = decode<typename T::mapped_type>();
+                typename T::key_type k;
+                decode(k);
+                typename T::mapped_type v;
+                decode(v);
                 if (const auto [it, created] = m.try_emplace(std::move(k), std::move(v)); !created) [[unlikely]]
                     throw error(fmt::format("a map contains non-unique items: {}", typeid(m).name()));
             }

@@ -265,17 +265,17 @@ namespace turbo::jam {
 
     // A smart_pointer-compatible API for pure value storage
     template<typename T>
-    struct value_ptr {
+    struct value_ptr_t {
         using element_type = T;
 
-        value_ptr() = default;
-        value_ptr(const T& v) : _val { v } {}
-        value_ptr(T&& v) : _val { std::move(v) } {}
+        value_ptr_t() = default;
+        value_ptr_t(const T& v) : _val { v } {}
+        value_ptr_t(T&& v) : _val { std::move(v) } {}
 
-        value_ptr(const value_ptr &o) = default;
-        value_ptr(value_ptr &&o) = default;
-        value_ptr& operator=(const value_ptr &o) = default;
-        value_ptr& operator=(value_ptr &&o) = default;
+        value_ptr_t(const value_ptr_t &o) = default;
+        value_ptr_t(value_ptr_t &&o) = default;
+        value_ptr_t& operator=(const value_ptr_t &o) = default;
+        value_ptr_t& operator=(value_ptr_t &&o) = default;
 
         T& operator*() { return _val; }
         const T& operator*() const { return _val; }
@@ -294,6 +294,15 @@ namespace turbo::jam {
             _storage { std::move(storage) },
             _serialize { std::move(serialize) }
         {
+        }
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            // TODO: can be optimized for the decoding case. That happens only unit tests though.
+            auto tmp = get();
+            archive.process(tmp);
+            set(std::move(tmp));
         }
 
         const element_type &get() const
@@ -322,9 +331,10 @@ namespace turbo::jam {
         state_dict_t _state_dict {};
     public:
         auth_pools_t<CONFIG> alpha {}; // authorizations
-        block_history_val_t<CONFIG> beta { // most recent blocks
+        // most recent blocks
+        block_history_val_t<CONFIG> beta {
             std::make_shared<blocks_history_t<CONFIG>>(),
-            [this](const typename block_history_val_t<CONFIG>::element_type &new_val) {
+            [this](const auto &new_val) {
                 _state_dict.set(state_dict_t::make_key(3), encode(new_val));
             }
         };
@@ -335,7 +345,14 @@ namespace turbo::jam {
         validators_data_t<CONFIG> kappa {}; // active validators JAM (6.7)
         validators_data_t<CONFIG> lambda {}; // prev validators JAM (6.7)
         availability_assignments_t<CONFIG> rho {}; // assigned work reports
-        time_slot_t<CONFIG> tau {};
+
+        persistent_value_t<value_ptr_t<time_slot_t<CONFIG>>> tau {
+            value_ptr_t<time_slot_t<CONFIG>> {},
+            [this](const auto &new_val) {
+                _state_dict.set(state_dict_t::make_key(11), encode(new_val));
+            }
+        };
+
         auth_queues_t<CONFIG> phi {}; // work authorizer queue
         privileges_t chi {};
         disputes_records_t psi {}; // judgements
@@ -344,7 +361,11 @@ namespace turbo::jam {
         accumulated_queue_t<CONFIG> ksi {}; // JAM (12.1): recently accumulated reports
 
         template<typename T>
-        static byte_sequence_t encode(const T &v);
+        static byte_sequence_t encode(const T &v)
+        {
+            encoder enc { v };
+            return { std::move(enc.bytes()) };
+        }
 
         [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
 
@@ -372,7 +393,7 @@ namespace turbo::jam {
         // Todo: make them protected and the respective unit test classes friends?
 
         // (4.5)
-        static void tau_prime(time_slot_t<CONFIG> &new_tau, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot);
+        static time_slot_t<CONFIG> tau_prime(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot);
         // (4.6)
         static blocks_history_t<CONFIG> beta_dagger(const blocks_history_t<CONFIG> &prev_beta, const state_root_t &sr);
         // (4.17)

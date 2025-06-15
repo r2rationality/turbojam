@@ -82,6 +82,11 @@ namespace turbo::codec::json {
             process_varlen_uint(val);
         }
 
+        void process(auto &val)
+        {
+            decode(_top(), val);
+        }
+
         void process(const std::string_view name, auto &val)
         {
             using T = std::decay_t<decltype(val)>;
