@@ -330,7 +330,14 @@ namespace turbo::jam {
         kv_store_ptr_t _kv_store {};
         state_dict_t _state_dict {};
     public:
-        auth_pools_t<CONFIG> alpha {}; // authorizations
+        // authorizations
+        persistent_value_t<std::shared_ptr<auth_pools_t<CONFIG>>> alpha {
+            std::make_shared<auth_pools_t<CONFIG>>(),
+            [this](const auto &new_val) {
+                _state_dict.set(state_dict_t::make_key(1), encode(new_val));
+            }
+        };
+
         // most recent blocks
         block_history_val_t<CONFIG> beta {
             std::make_shared<blocks_history_t<CONFIG>>(),
@@ -407,7 +414,8 @@ namespace turbo::jam {
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
-        reports_output_data_t update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees, const blocks_history_t<CONFIG> &prev_beta);
+        reports_output_data_t update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees,
+            const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta);
         // JAM (4.11)
         offenders_mark_t update_disputes(const time_slot_t<CONFIG> &prev_tau, const disputes_extrinsic_t<CONFIG> &disputes);
         // JAM (4.18)
@@ -417,7 +425,8 @@ namespace turbo::jam {
         // JAM (4.16)
         accumulate_root_t accumulate(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports);
         // JAM (4.19)
-        void update_auth_pools(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas);
+        static auth_pools_t<CONFIG> alpha_prime(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas,
+            const auth_queues_t<CONFIG> &new_phi, const auth_pools_t<CONFIG> &prev_alpha);
         bool operator==(const state_t &o) const noexcept;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONFIG::validator_count>;

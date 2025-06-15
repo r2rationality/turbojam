@@ -205,7 +205,8 @@ namespace {
             err_code_t::catch_into(
                 [&] {
                     auto tmp_st = tc.pre;
-                    out.emplace(tmp_st.update_reports(tc.in.slot, tc.in.guarantees, tc.pre.beta.get()));
+                    out.emplace(tmp_st.update_reports(tc.in.slot, tc.in.guarantees,
+                        tc.pre.alpha.get(), tc.pre.beta.get()));
                     res_st = std::move(tmp_st);
                 },
                 [&](err_code_t err) {

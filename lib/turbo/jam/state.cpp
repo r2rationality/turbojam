@@ -36,7 +36,7 @@ namespace turbo::jam {
     template<typename CONFIG>
     bool state_t<CONFIG>::operator==(const state_t &o) const noexcept
     {
-        if (alpha != o.alpha)
+        if (alpha.get() != o.alpha.get())
             return false;
         if (beta.get() != o.beta.get())
             return false;
@@ -81,7 +81,7 @@ namespace turbo::jam {
             if (a != b)
                 oit = fmt::format_to(oit, "{} left: {}\n{} right {}\n", name, a, name, b);
         };
-        compare_item("alpha"sv, alpha, o.alpha);
+        compare_item("alpha"sv, alpha.get(), o.alpha.get());
         compare_item("beta"sv, beta.get(), o.beta.get());
         compare_item("gamma"sv, gamma, o.gamma);
         compare_item("delta"sv, delta, o.delta);
@@ -646,7 +646,8 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    reports_output_data_t state_t<CONFIG>::update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees, const blocks_history_t<CONFIG> &prev_beta)
+    reports_output_data_t state_t<CONFIG>::update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees,
+        const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta)
     {
         reports_output_data_t res {};
 
@@ -740,7 +741,7 @@ namespace turbo::jam {
             {
                 if (rho[g.report.core_index])
                     throw err_core_engaged_t {};
-                const auto &auth_pool = alpha[g.report.core_index];
+                const auto &auth_pool = prev_alpha[g.report.core_index];
                 const auto auth_it = std::find(auth_pool.begin(), auth_pool.end(), g.report.authorizer_hash);
                 if (auth_it == auth_pool.end()) [[unlikely]]
                     throw err_core_unauthorized_t {};
@@ -1013,10 +1014,12 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::update_auth_pools(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas)
+    auth_pools_t<CONFIG> state_t<CONFIG>::alpha_prime(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas,
+        const auth_queues_t<CONFIG> &new_phi, const auth_pools_t<CONFIG> &prev_alpha)
     {
+        auth_pools_t<CONFIG> new_alpha = prev_alpha;
         for (const auto &ca: cas) {
-            auto &pool = alpha.at(ca.core);
+            auto &pool = new_alpha.at(ca.core);
             auto pool_it = std::find(pool.begin(), pool.end(), ca.auth_hash);
             if (pool_it == pool.end()) [[unlikely]]
                 throw error(fmt::format("a work report for core {} mentions an unknown auth_hash: {}", ca.core, ca.auth_hash));
@@ -1025,13 +1028,14 @@ namespace turbo::jam {
         }
 
         // JAM (8.2)
-        for (size_t core = 0; core < alpha.size(); ++core) {
-            auto &pool = alpha.at(core);
+        for (size_t core = 0; core < new_alpha.size(); ++core) {
+            auto &pool = new_alpha.at(core);
             if (pool.size() == pool.max_size)
                 pool.erase(pool.begin());
-            const auto &queue = phi.at(core);
+            const auto &queue = new_phi.at(core);
             pool.emplace_back(queue.at(slot.slot() % queue.size()));
         }
+        return new_alpha;
     }
 
     // JAM (4.1): Kapital upsilon
@@ -1071,7 +1075,7 @@ namespace turbo::jam {
         new_st.update_disputes(tau.get(), blk.extrinsic.disputes);
 
         // JAM (4.12)
-        new_st.update_reports(blk.header.slot, blk.extrinsic.guarantees, beta.get());
+        new_st.update_reports(blk.header.slot, blk.extrinsic.guarantees, alpha.get(), beta.get());
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
@@ -1100,7 +1104,7 @@ namespace turbo::jam {
             for (const auto &g: blk.extrinsic.guarantees) {
                 cas.emplace_back(g.report.core_index, g.report.authorizer_hash);
             }
-            new_st.update_auth_pools(blk.header.slot, cas);
+            new_st.alpha.set(state_t::alpha_prime(blk.header.slot, cas, new_st.phi, alpha.get()));
         }
 
         // JAM (4.20): pi' <- (E_G, E_P, E_A, E_T, taz, kappa', pi, H)
@@ -1131,7 +1135,7 @@ namespace turbo::jam {
     state_dict_t state_t<CONFIG>::state_dict() const
     {
         state_dict_t st {};
-        st.emplace(state_dict_t::make_key(1), encode(alpha));
+        st.emplace(state_dict_t::make_key(1), encode(alpha.get()));
         st.emplace(state_dict_t::make_key(2), encode(phi));
         st.emplace(state_dict_t::make_key(3), encode(beta.get()));
         st.emplace(state_dict_t::make_key(4), encode(gamma));
@@ -1227,12 +1231,7 @@ namespace turbo::jam {
             switch (const auto typ = key[0]; typ) {
                 case 1: decode_state_item_or_service_data(key, dec, ksum, alpha); break;
                 case 2: decode_state_item_or_service_data(key, dec, ksum, phi); break;
-                case 3: {
-                    auto tmp_beta = beta.get();
-                    decode_state_item_or_service_data(key, dec, ksum, tmp_beta);
-                    beta.set(std::move(tmp_beta));
-                    break;
-                }
+                case 3: decode_state_item_or_service_data(key, dec, ksum, beta); break;
                 case 4: decode_state_item_or_service_data(key, dec, ksum, gamma); break;
                 case 5: decode_state_item_or_service_data(key, dec, ksum, psi); break;
                 case 6: decode_state_item_or_service_data(key, dec, ksum, eta); break;
