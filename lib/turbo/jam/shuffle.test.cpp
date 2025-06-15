@@ -6,7 +6,7 @@
 #include <boost/json.hpp>
 #include <turbo/common/test.hpp>
 #include <turbo/codec/json.hpp>
-#include "types/state.hpp"
+#include "state.hpp"
 #include "shuffle.hpp"
 
 namespace {

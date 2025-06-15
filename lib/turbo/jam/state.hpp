@@ -6,8 +6,8 @@
 
 #include <turbo/container/update-map.hpp>
 #include <turbo/storage/filedb.hpp>
-#include "header.hpp"
-#include "state-dict.hpp"
+#include "types/header.hpp"
+#include "types/state-dict.hpp"
 
 namespace turbo::jam {
     using kv_store_t = storage::filedb::client_t;

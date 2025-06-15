@@ -12,7 +12,7 @@
 #include <turbo/crypto/keccak.hpp>
 #include <turbo/jam/shuffle.hpp>
 #include <turbo/jam/host-service.hpp>
-#include "errors.hpp"
+#include "types/errors.hpp"
 #include "state.hpp"
 
 namespace turbo::jam {
