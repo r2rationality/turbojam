@@ -196,9 +196,8 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    safrole_output_data_t<CONFIG> state_t<CONFIG>::update_safrole(const time_slot_t<CONFIG> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONFIG> &extrinsic)
+    safrole_output_data_t<CONFIG> state_t<CONFIG>::update_safrole(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONFIG> &extrinsic)
     {
-        const auto &prev_tau = tau.get();
         if (slot.epoch_slot() >= CONFIG::ticket_submission_end && !extrinsic.empty()) [[unlikely]]
             throw err_unexpected_ticket_t {};
         safrole_output_data_t<CONFIG> res {};
@@ -290,9 +289,8 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::update_statistics(const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic)
+    void state_t<CONFIG>::update_statistics(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic)
     {
-        const auto &prev_tau = tau.get();
         if (slot.epoch() > prev_tau.epoch()) {
             pi.last = pi.current;
             pi.current = decltype(pi.current) {};
@@ -496,9 +494,8 @@ namespace turbo::jam {
 
     // produces: accumulate_root, iota', psi' and chi'
     template<typename CONFIG>
-    accumulate_root_t state_t<CONFIG>::accumulate(const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports)
+    accumulate_root_t state_t<CONFIG>::accumulate(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports)
     {
-        const auto &prev_tau = tau.get();
         // JAM Paper (12.2)
         set_t<work_package_hash_t> known_reports {};
         for (const auto &er: ksi) {
@@ -832,9 +829,8 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    offenders_mark_t state_t<CONFIG>::update_disputes(const disputes_extrinsic_t<CONFIG> &disputes)
+    offenders_mark_t state_t<CONFIG>::update_disputes(const time_slot_t<CONFIG> &prev_tau, const disputes_extrinsic_t<CONFIG> &disputes)
     {
-        const auto &prev_tau = tau.get();
         set_t<ed25519_public_t> known_vkeys {};
         known_vkeys.reserve(kappa.size() + lambda.size());
         for (const auto &validator_set: { kappa, lambda }) {
@@ -1058,7 +1054,7 @@ namespace turbo::jam {
         entropy_t entropy_vrf_output;
         if (ark_vrf_cpp::ietf_vrf_output(entropy_vrf_output, blk.header.entropy_source) != 0) [[unlikely]]
             throw err_bad_signature_t {};
-        const auto safrole_res = new_st.update_safrole(blk.header.slot, entropy_vrf_output, blk.extrinsic.tickets);
+        const auto safrole_res = new_st.update_safrole(tau.get(), blk.header.slot, entropy_vrf_output, blk.extrinsic.tickets);
         if (safrole_res.epoch_mark != blk.header.epoch_mark) [[unlikely]]
             throw error("supplied epoch_mark does not match the computed one!");
         if (safrole_res.tickets_mark != blk.header.tickets_mark) [[unlikely]]
@@ -1072,7 +1068,7 @@ namespace turbo::jam {
         );
 
         // JAM (4.11) -> psi'
-        new_st.update_disputes(blk.extrinsic.disputes);
+        new_st.update_disputes(tau.get(), blk.extrinsic.disputes);
 
         // JAM (4.12)
         new_st.update_reports(blk.header.slot, blk.extrinsic.guarantees, beta.get());
@@ -1083,7 +1079,7 @@ namespace turbo::jam {
         new_st.rho = new_st.rho.apply(ready_reports, new_st.kappa, blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
 
         // accumulate
-        accumulate_root_t accumulate_res = new_st.accumulate(blk.header.slot, ready_reports);
+        accumulate_root_t accumulate_res = new_st.accumulate(tau.get(), blk.header.slot, ready_reports);
 
         // JAM (4.18)
         new_st.provide_preimages(blk.header.slot, blk.extrinsic.preimages);
@@ -1108,7 +1104,7 @@ namespace turbo::jam {
         }
 
         // JAM (4.20): pi' <- (E_G, E_P, E_A, E_T, taz, kappa', pi, H)
-        new_st.update_statistics(blk.header.slot, blk.header.author_index, blk.extrinsic);
+        new_st.update_statistics(tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic);
 
         // JAM (4.5) update tau
         new_st.tau.set(state_t::tau_prime(tau.get(), blk.header.slot));

@@ -169,7 +169,7 @@ namespace {
         err_code_t::catch_into(
             [&] {
                 auto tmp_st = tc.pre;
-                out.emplace(output_data_t { .offenders_mark=tmp_st.update_disputes(tc.in.disputes) });
+                out.emplace(output_data_t { .offenders_mark=tmp_st.update_disputes(tc.pre.tau.get(), tc.in.disputes) });
                 res_st = std::move(tmp_st);
             },
             [&](err_code_t err) {

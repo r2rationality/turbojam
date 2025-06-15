@@ -402,20 +402,20 @@ namespace turbo::jam {
         // JAM (4.8)
         // JAM (4.9)
         // JAM (4.10)
-        safrole_output_data_t<CONFIG> update_safrole(const time_slot_t<CONFIG> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONFIG> &extrinsic);
+        safrole_output_data_t<CONFIG> update_safrole(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONFIG> &extrinsic);
         // JAM (4.12)
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
         reports_output_data_t update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees, const blocks_history_t<CONFIG> &prev_beta);
         // JAM (4.11)
-        offenders_mark_t update_disputes(const disputes_extrinsic_t<CONFIG> &disputes);
+        offenders_mark_t update_disputes(const time_slot_t<CONFIG> &prev_tau, const disputes_extrinsic_t<CONFIG> &disputes);
         // JAM (4.18)
         void provide_preimages(const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.20)
-        void update_statistics(const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
+        void update_statistics(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
         // JAM (4.16)
-        accumulate_root_t accumulate(const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports);
+        accumulate_root_t accumulate(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports);
         // JAM (4.19)
         void update_auth_pools(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas);
         bool operator==(const state_t &o) const noexcept;

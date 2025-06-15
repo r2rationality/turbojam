@@ -143,7 +143,7 @@ namespace {
         err_code_t::catch_into(
             [&] {
                 auto tmp_st = tc.pre;
-                out.emplace(tmp_st.update_safrole(tc.in.slot, tc.in.entropy, tc.in.extrinsic));
+                out.emplace(tmp_st.update_safrole(tc.pre.tau.get(), tc.in.slot, tc.in.entropy, tc.in.extrinsic));
                 tmp_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
                 res_st = std::move(tmp_st);
             },
