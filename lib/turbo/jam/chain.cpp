@@ -31,9 +31,8 @@ namespace turbo::jam {
                 _state.emplace();
                 *_state = _genesis_state;
                 _state->kv_store(_kv_store);
-                _state->beta.clear();
                 logger::run_log_errors([&] {
-                    _state->update_history_2(blk.header.hash(), {}, {});
+                    _state->beta.set(state_t<CONFIG>::beta_prime(_state->beta.get(), blk.header.hash(), {}, {}));
                 });
             } else {
                 _state->apply(blk);

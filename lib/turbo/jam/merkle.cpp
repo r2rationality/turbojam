@@ -136,6 +136,12 @@ namespace turbo::jam::merkle {
         {
         }
 
+        impl(const impl &o):
+            _hash_func { o._hash_func },
+            _root { o._root }
+        {
+        }
+
         void clear()
         {
             _root.reset();
@@ -165,7 +171,7 @@ namespace turbo::jam::merkle {
 
         void set(const key_t &key, const buffer &val_bytes)
         {
-            auto new_node = std::make_unique<node_t>(key, prefix_max, value_t { val_bytes, _hash_func });
+            auto new_node = std::make_shared<node_t>(key, prefix_max, value_t { val_bytes, _hash_func });
             if (!_root) {
                 _root = std::move(new_node);
                 return;
@@ -173,7 +179,7 @@ namespace turbo::jam::merkle {
             auto [shared_sz, node_ptr] = _find(_root, key, true);
             auto &node = *node_ptr;
             if (shared_sz < prefix_max) {
-                auto split_node = std::make_unique<node_t>(node->key, node->prefix_sz, std::move(node->value), std::move(node->left), std::move(node->right));
+                auto split_node = std::make_shared<node_t>(node->key, node->prefix_sz, std::move(node->value), std::move(node->left), std::move(node->right));
                 node->prefix_sz = shared_sz;
                 node->value.reset();
                 if (key.bit(shared_sz)) {
@@ -198,7 +204,7 @@ namespace turbo::jam::merkle {
         }
     private:
         struct node_t;
-        using node_ptr_t = std::unique_ptr<node_t>;
+        using node_ptr_t = std::shared_ptr<node_t>;
         struct node_t {
             key_t key;
             uint8_t prefix_sz;
@@ -269,7 +275,7 @@ namespace turbo::jam::merkle {
             return res;
         }
 
-        static bool _erase(std::unique_ptr<node_t> &root, const key_t &key)
+        static bool _erase(std::shared_ptr<node_t> &root, const key_t &key)
         {
             if (!root)
                 return false;
@@ -313,12 +319,29 @@ namespace turbo::jam::merkle {
     {
     }
 
+    trie_t::trie_t(const trie_t &o):
+        _impl { std::make_unique<impl>(*o._impl) }
+    {
+    }
+
     trie_t::trie_t(trie_t &&o):
         _impl { std::move(o._impl) }
     {
     }
 
     trie_t::~trie_t() = default;
+
+    trie_t &trie_t::operator=(trie_t &&o)
+    {
+        _impl = std::move(o._impl);
+        return *this;
+    }
+
+    trie_t &trie_t::operator=(const trie_t &o)
+    {
+        _impl = std::make_unique<impl>(*o._impl);
+        return *this;
+    }
 
     void trie_t::clear()
     {

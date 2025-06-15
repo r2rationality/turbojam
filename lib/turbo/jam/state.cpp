@@ -38,7 +38,7 @@ namespace turbo::jam {
     {
         if (alpha != o.alpha)
             return false;
-        if (beta != o.beta)
+        if (beta.get() != o.beta.get())
             return false;
         if (gamma != o.gamma)
             return false;
@@ -82,7 +82,7 @@ namespace turbo::jam {
                 oit = fmt::format_to(oit, "{} left: {}\n{} right {}\n", name, a, name, b);
         };
         compare_item("alpha"sv, alpha, o.alpha);
-        compare_item("beta"sv, beta, o.beta);
+        compare_item("beta"sv, beta.get(), o.beta.get());
         compare_item("gamma"sv, gamma, o.gamma);
         compare_item("delta"sv, delta, o.delta);
         compare_item("eta"sv, eta, o.eta);
@@ -637,7 +637,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::update_tau(time_slot_t<CONFIG> &new_tau, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot)
+    void state_t<CONFIG>::tau_prime(time_slot_t<CONFIG> &new_tau, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot)
     {
         if (blk_slot <= prev_tau || blk_slot > time_slot_t<CONFIG>::current()) [[unlikely]]
             throw err_bad_slot_t {};
@@ -646,13 +646,13 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    reports_output_data_t state_t<CONFIG>::update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees)
+    reports_output_data_t state_t<CONFIG>::update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees, const blocks_history_t<CONFIG> &prev_beta)
     {
         reports_output_data_t res {};
 
         std::set<opaque_hash_t> known_packages {};
         std::set<opaque_hash_t> known_segment_roots {};
-        for (const auto &blk: beta) {
+        for (const auto &blk: prev_beta) {
             for (const auto &wr: blk.reported) {
                 known_packages.insert(wr.hash);
                 known_segment_roots.insert(wr.exports_root);
@@ -672,10 +672,10 @@ namespace turbo::jam {
         const auto prev_guarantor_sigs = _capital_phi(lambda, psi.offenders);
         for (const auto &g: guarantees) {
             // JAM Paper (11.33)
-            const auto blk_it = std::find_if(beta.begin(), beta.end(), [&g](const auto &blk) {
+            const auto blk_it = std::find_if(prev_beta.begin(), prev_beta.end(), [&g](const auto &blk) {
                 return blk.header_hash == g.report.context.anchor;
             });
-            if (blk_it == beta.end()) [[unlikely]]
+            if (blk_it == prev_beta.end()) [[unlikely]]
                 throw err_anchor_not_recent_t {};
             if (blk_it->state_root != g.report.context.state_root) [[unlikely]]
                 throw err_bad_state_root_t {};
@@ -707,10 +707,10 @@ namespace turbo::jam {
                 throw err_segment_root_lookup_invalid_t {};
 
             // JAM Paper (11.35)
-            const auto lblk_it = std::find_if(beta.begin(), beta.end(), [&g](const auto &blk) {
+            const auto lblk_it = std::find_if(prev_beta.begin(), prev_beta.end(), [&g](const auto &blk) {
                 return blk.header_hash == g.report.context.lookup_anchor;
             });
-            if (lblk_it == beta.end()) [[unlikely]]
+            if (lblk_it == prev_beta.end()) [[unlikely]]
                 throw err_segment_root_lookup_invalid_t {};
 
             // JAM Paper (11.38)
@@ -987,25 +987,29 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::update_history_1(const state_root_t &state_root)
+    blocks_history_t<CONFIG> state_t<CONFIG>::beta_dagger(const blocks_history_t<CONFIG> &prev_beta, const state_root_t &sr)
     {
-        if (!beta.empty()) [[likely]]
-            beta.back().state_root = state_root;
+        blocks_history_t<CONFIG> new_beta = prev_beta;
+        if (!new_beta.empty())
+            new_beta.back().state_root = sr;
+        return new_beta;
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::update_history_2(const header_hash_t &hh, const std::optional<opaque_hash_t> &accumulation_result, const reported_work_seq_t &wp)
+    blocks_history_t<CONFIG> state_t<CONFIG>::beta_prime(blocks_history_t<CONFIG> tmp_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &accumulation_result, const reported_work_seq_t &wp)
     {
+        blocks_history_t<CONFIG> new_beta = std::move(tmp_beta);
         static mmr_t empty_mmr {};
-        const mmr_t &prev_mmr = beta.empty() ? empty_mmr : beta.at(beta.size() - 1).mmr;
+        const mmr_t &prev_mmr = new_beta.empty() ? empty_mmr : new_beta.at(new_beta.size() - 1).mmr;
         block_info_t bi {
             .header_hash=hh,
             .mmr=accumulation_result ? prev_mmr.append(*accumulation_result) : prev_mmr,
             .reported=wp
         };
-        if (beta.size() == beta.max_size) [[likely]]
-            beta.erase(beta.begin());
-        beta.emplace_back(std::move(bi));
+        if (new_beta.size() == new_beta.max_size) [[likely]]
+            new_beta.erase(new_beta.begin());
+        new_beta.emplace_back(std::move(bi));
+        return new_beta;
     }
 
     template<typename CONFIG>
@@ -1040,7 +1044,7 @@ namespace turbo::jam {
         auto new_st = *this;
 
         // JAM (4.6)
-        new_st.update_history_1(blk.header.parent_state_root);
+        auto tmp_beta = new_st.beta_dagger(beta.get(), blk.header.parent_state_root);
 
         // JAM (4.7) update gamma
         // JAM (4.8) update eta
@@ -1067,7 +1071,7 @@ namespace turbo::jam {
         new_st.update_disputes(blk.extrinsic.disputes);
 
         // JAM (4.12)
-        new_st.update_reports(blk.header.slot, blk.extrinsic.guarantees);
+        new_st.update_reports(blk.header.slot, blk.extrinsic.guarantees, beta.get());
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
@@ -1088,7 +1092,7 @@ namespace turbo::jam {
         }
 
         // JAM (4.17)
-        new_st.update_history_2(blk.header.hash(), accumulate_res, reported_work);
+        state_t::beta_prime(std::move(tmp_beta), blk.header.hash(), accumulate_res, reported_work);
 
         // (4.19): alpha' <- (H, E_G, psi', and alpha)
         {
@@ -1103,7 +1107,7 @@ namespace turbo::jam {
         new_st.update_statistics(blk.header.slot, blk.header.author_index, blk.extrinsic);
 
         // JAM (4.5) update tau
-        state_t::update_tau(new_st.tau, tau, blk.header.slot);
+        state_t::tau_prime(new_st.tau, tau, blk.header.slot);
 
         *this = std::move(new_st);
     }
@@ -1123,8 +1127,9 @@ namespace turbo::jam {
         }
     }
 
+    template<typename CONFIG>
     template<typename T>
-    static byte_sequence_t encode(const T &v)
+    byte_sequence_t state_t<CONFIG>::encode(const T &v)
     {
         encoder enc { v };
         return { std::move(enc.bytes()) };
@@ -1136,7 +1141,7 @@ namespace turbo::jam {
         state_dict_t st {};
         st.emplace(state_dict_t::make_key(1), encode(alpha));
         st.emplace(state_dict_t::make_key(2), encode(phi));
-        st.emplace(state_dict_t::make_key(3), encode(beta));
+        st.emplace(state_dict_t::make_key(3), encode(beta.get()));
         st.emplace(state_dict_t::make_key(4), encode(gamma));
         st.emplace(state_dict_t::make_key(5), encode(psi));
         st.emplace(state_dict_t::make_key(6), encode(eta));
@@ -1230,7 +1235,12 @@ namespace turbo::jam {
             switch (const auto typ = key[0]; typ) {
                 case 1: decode_state_item_or_service_data(key, dec, ksum, alpha); break;
                 case 2: decode_state_item_or_service_data(key, dec, ksum, phi); break;
-                case 3: decode_state_item_or_service_data(key, dec, ksum, beta); break;
+                case 3: {
+                    auto tmp_beta = beta.get();
+                    decode_state_item_or_service_data(key, dec, ksum, tmp_beta);
+                    beta.set(std::move(tmp_beta));
+                    break;
+                }
                 case 4: decode_state_item_or_service_data(key, dec, ksum, gamma); break;
                 case 5: decode_state_item_or_service_data(key, dec, ksum, psi); break;
                 case 6: decode_state_item_or_service_data(key, dec, ksum, eta); break;

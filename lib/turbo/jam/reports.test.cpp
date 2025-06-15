@@ -158,7 +158,12 @@ namespace {
             archive.process("prev_validators"sv, self.lambda);
             archive.process("entropy"sv, self.eta);
             archive.process("offenders"sv, self.psi.offenders);
-            archive.process("recent_blocks"sv, self.beta);
+            {
+                auto tmp_beta = self.beta.get();
+                archive.process("recent_blocks"sv, tmp_beta);
+                if (tmp_beta != self.beta.get())
+                    self.beta.set(std::move(tmp_beta));
+            }
             archive.process("auth_pools"sv, self.alpha);
             serialize_accounts(archive, "accounts"sv, self.delta);
             archive.process("cores_statistics"sv, self.pi.cores);
@@ -205,7 +210,7 @@ namespace {
             err_code_t::catch_into(
                 [&] {
                     auto tmp_st = tc.pre;
-                    out.emplace(tmp_st.update_reports(tc.in.slot, tc.in.guarantees));
+                    out.emplace(tmp_st.update_reports(tc.in.slot, tc.in.guarantees, tc.pre.beta.get()));
                     res_st = std::move(tmp_st);
                 },
                 [&](err_code_t err) {

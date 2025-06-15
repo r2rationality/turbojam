@@ -263,11 +263,71 @@ namespace turbo::jam {
         }
     };
 
+    // A smart_pointer-compatible API for pure value storage
+    template<typename T>
+    struct value_ptr {
+        using element_type = T;
+
+        value_ptr() = default;
+        value_ptr(const T& v) : _val { v } {}
+        value_ptr(T&& v) : _val { std::move(v) } {}
+
+        value_ptr(const value_ptr &o) = default;
+        value_ptr(value_ptr &&o) = default;
+        value_ptr& operator=(const value_ptr &o) = default;
+        value_ptr& operator=(value_ptr &&o) = default;
+
+        T& operator*() { return _val; }
+        const T& operator*() const { return _val; }
+        T* operator->() { return &_val; }
+        const T* operator->() const { return &_val; }
+    private:
+        T _val {};
+    };
+
+    template<typename S>
+    struct persistent_value_t {
+        using element_type = typename S::element_type;
+        using serialize_func_t = std::function<void(const element_type &)>;
+
+        persistent_value_t(S storage, serialize_func_t serialize):
+            _storage { std::move(storage) },
+            _serialize { std::move(serialize) }
+        {
+        }
+
+        const element_type &get() const
+        {
+            return *_storage;
+        }
+
+        void set(element_type new_val)
+        {
+            *_storage = std::move(new_val);
+            _serialize(*_storage);
+        }
+    private:
+        S _storage;
+        serialize_func_t _serialize;
+    };
+
+    template<typename CFG>
+    using block_history_val_t = persistent_value_t<std::shared_ptr<blocks_history_t<CFG>>>;
+
     // JAM (4.4) - lowercase sigma
+    // objects that are expensive to copy are represented with std::shared_ptr
     template<typename CONFIG=config_prod>
-    struct state_t {
+    class state_t {
+        kv_store_ptr_t _kv_store {};
+        state_dict_t _state_dict {};
+    public:
         auth_pools_t<CONFIG> alpha {}; // authorizations
-        blocks_history_t<CONFIG> beta {}; // most recent blocks
+        block_history_val_t<CONFIG> beta { // most recent blocks
+            std::make_shared<blocks_history_t<CONFIG>>(),
+            [this](const typename block_history_val_t<CONFIG>::element_type &new_val) {
+                _state_dict.set(state_dict_t::make_key(3), encode(new_val));
+            }
+        };
         safrole_state_t<CONFIG> gamma {};
         accounts_t<CONFIG> delta {}; // services
         entropy_buffer_t eta {}; // JAM (6.21)
@@ -283,26 +343,10 @@ namespace turbo::jam {
         ready_queue_t<CONFIG> nu {}; // JAM (12.3): work reports ready to be accumulated
         accumulated_queue_t<CONFIG> ksi {}; // JAM (12.1): recently accumulated reports
 
-        [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
+        template<typename T>
+        static byte_sequence_t encode(const T &v);
 
-        void serialize(auto &archive)
-        {
-            using namespace std::string_view_literals;
-            archive.process("alpha"sv, alpha);
-            archive.process("beta"sv, beta);
-            archive.process("gamma"sv, gamma);
-            archive.process("delta"sv, delta);
-            archive.process("eta"sv, eta);
-            archive.process("kappa"sv, kappa);
-            archive.process("lambda"sv, lambda);
-            archive.process("rho"sv, rho);
-            archive.process("tau"sv, tau);
-            archive.process("chi"sv, chi);
-            archive.process("psi"sv, psi);
-            archive.process("pi"sv, pi);
-            archive.process("nu"sv, nu);
-            archive.process("ksi"sv, ksi);
-        }
+        [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
 
         // export & import
         state_dict_t state_dict() const;
@@ -320,18 +364,19 @@ namespace turbo::jam {
             return *_kv_store;
         }
 
-        // JAM (4.1): Kapital upsilon
+        // (4.1): Kapital upsilon
         void apply(const block_t<CONFIG> &);
         std::exception_ptr try_apply(const block_t<CONFIG> &) noexcept;
 
         // Methods internally used by the apply and in unit tests
         // Todo: make them protected and the respective unit test classes friends?
 
-        // JAM (4.5)
-        static void update_tau(time_slot_t<CONFIG> &new_tau, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot);
-        // JAM (4.6)
-        void update_history_1(const state_root_t &sr);
-        void update_history_2(const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
+        // (4.5)
+        static void tau_prime(time_slot_t<CONFIG> &new_tau, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot);
+        // (4.6)
+        static blocks_history_t<CONFIG> beta_dagger(const blocks_history_t<CONFIG> &prev_beta, const state_root_t &sr);
+        // (4.17)
+        static blocks_history_t<CONFIG> beta_prime(blocks_history_t<CONFIG> tmp_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
         // JAM (4.7)
         // JAM (4.8)
         // JAM (4.9)
@@ -341,7 +386,7 @@ namespace turbo::jam {
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
-        reports_output_data_t update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees);
+        reports_output_data_t update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees, const blocks_history_t<CONFIG> &prev_beta);
         // JAM (4.11)
         offenders_mark_t update_disputes(const disputes_extrinsic_t<CONFIG> &disputes);
         // JAM (4.18)
@@ -355,8 +400,6 @@ namespace turbo::jam {
         bool operator==(const state_t &o) const noexcept;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONFIG::validator_count>;
-
-        kv_store_ptr_t _kv_store {};
 
         static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CONFIG> &);
         static validators_data_t<CONFIG> _capital_phi(const validators_data_t<CONFIG> &iota, const offenders_mark_t &psi_o);

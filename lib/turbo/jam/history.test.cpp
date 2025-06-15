@@ -83,8 +83,8 @@ namespace {
         }
         state_t<CFG> new_st;
         new_st = tc.pre;
-        new_st.update_history_1(tc.in.parent_state_root);
-        new_st.update_history_2(tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages);
+        auto tmp_beta = new_st.beta_dagger(tc.pre.beta.get(), tc.in.parent_state_root);
+        new_st.beta.set(state_t<CFG>::beta_prime(std::move(tmp_beta), tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages));
         expect(new_st == tc.post) << path;
     }
 }

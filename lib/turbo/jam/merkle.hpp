@@ -55,9 +55,13 @@ namespace turbo::jam::merkle {
         };
         using opt_value_t = std::optional<value_t>;
 
-        trie_t(trie_t &&o);
         trie_t(const hash_func &hf=blake2b_hash_func);
+        trie_t(const trie_t &o);
+        trie_t(trie_t &&o);
         ~trie_t();
+
+        trie_t &operator=(const trie_t &o);
+        trie_t &operator=(trie_t &&o);
 
         void clear();
         bool empty() const;
