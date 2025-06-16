@@ -93,9 +93,9 @@ namespace turbo::jam {
         // Genesis Block Header expectations from here: https://docs.jamcha.in/basics/genesis-config
         header_t<CONFIG> h {};
         h.epoch_mark.emplace(
-            g_state.eta[1],
-            g_state.eta[2],
-            g_state.gamma.k
+            g_state.eta.get()[1],
+            g_state.eta.get()[2],
+            g_state.gamma.get().k
         );
         h.author_index = 0xFFFFU;
         return h;

@@ -460,28 +460,6 @@ namespace turbo::jam {
         }
     };
 
-    // A smart_pointer-compatible API for pure value storage
-    template<typename T>
-    struct value_ptr_t {
-        using element_type = T;
-
-        value_ptr_t() = default;
-        value_ptr_t(const T& v) : _val { v } {}
-        value_ptr_t(T&& v) : _val { std::move(v) } {}
-
-        value_ptr_t(const value_ptr_t &o) = default;
-        value_ptr_t(value_ptr_t &&o) = default;
-        value_ptr_t& operator=(const value_ptr_t &o) = default;
-        value_ptr_t& operator=(value_ptr_t &&o) = default;
-
-        T& operator*() { return _val; }
-        const T& operator*() const { return _val; }
-        T* operator->() { return &_val; }
-        const T* operator->() const { return &_val; }
-    private:
-        T _val {};
-    };
-
     template<typename T>
     byte_sequence_t encode(const T &v)
     {
@@ -489,15 +467,16 @@ namespace turbo::jam {
         return { std::move(enc.bytes()) };
     }
 
-    template<typename S>
+    template<typename T>
     struct persistent_value_t {
-        using element_type = typename S::element_type;
+        using element_type = T;
+        using ptr_type = std::shared_ptr<element_type>;
         using serialize_func_t = std::function<void(const element_type &)>;
 
-        persistent_value_t(S storage, const std::shared_ptr<state_dict_t> &state_dict, const uint8_t code):
-            _storage { std::move(storage) },
+        persistent_value_t(const std::shared_ptr<state_dict_t> &state_dict, const uint8_t code, element_type val={}):
             _state_dict { state_dict },
-            _code { code }
+            _code { code },
+            _ptr { std::make_shared<T>(std::move(val)) }
         {
             if (!_state_dict) [[unlikely]]
                 throw error("a persistent value requires an initialized state_dict!");
@@ -514,54 +493,60 @@ namespace turbo::jam {
 
         const element_type &get() const
         {
-            return *_storage;
+            return *_ptr;
+        }
+
+        const ptr_type &storage() const
+        {
+            return _ptr;
         }
 
         void set(element_type new_val)
         {
-            *_storage = std::move(new_val);
-            _state_dict->set(state_dict_t::make_key(_code), encode(new_val));
+            // allocation of a new shared pointer ensures that other copies are not affected
+            _ptr = std::make_shared<element_type>(std::move(new_val));
+            _state_dict->set(state_dict_t::make_key(_code), encode(*_ptr));
+        }
+
+        void set(ptr_type new_ptr)
+        {
+            _ptr = std::move(new_ptr);
+            _state_dict->set(state_dict_t::make_key(_code), encode(*_ptr));
         }
     private:
-        S _storage;
         std::shared_ptr<state_dict_t> _state_dict;
         uint8_t _code;
+        ptr_type _ptr;
     };
 
-    template<typename CFG>
-    using block_history_val_t = persistent_value_t<std::shared_ptr<blocks_history_t<CFG>>>;
-
     // JAM (4.4) - lowercase sigma
-    // objects that are expensive to copy are represented with std::shared_ptr
+    // persistent_value with std::shared_ptr ensures that:
+    // 1) the state is cheap to copy
+    // 2) automatically searialized into the state_dict on updates
     template<typename CONFIG=config_prod>
     class state_t {
         kv_store_ptr_t _kv_store;
         std::shared_ptr<state_dict_t> _state_dict = std::make_shared<state_dict_t>();
     public:
         // authorizations
-        persistent_value_t<std::shared_ptr<auth_pools_t<CONFIG>>> alpha {
-            std::make_shared<auth_pools_t<CONFIG>>(), _state_dict, 1U
-        };
-
+        persistent_value_t<auth_pools_t<CONFIG>> alpha { _state_dict, 1U };
         // most recent blocks
-        block_history_val_t<CONFIG> beta {
-            std::make_shared<blocks_history_t<CONFIG>>(), _state_dict, 3U
-        };
-        safrole_state_t<CONFIG> gamma {};
+        persistent_value_t<blocks_history_t<CONFIG>> beta { _state_dict, 3U };
+        // safrole state
+        persistent_value_t<safrole_state_t<CONFIG>> gamma { _state_dict, 4U };
         accounts_t<CONFIG> delta {}; // services
-        entropy_buffer_t eta {}; // JAM (6.21)
-        validators_data_t<CONFIG> iota {}; // next validators JAM (6.7)
-        validators_data_t<CONFIG> kappa {}; // active validators JAM (6.7)
-        validators_data_t<CONFIG> lambda {}; // prev validators JAM (6.7)
+        persistent_value_t<entropy_buffer_t> eta { _state_dict, 6U };
+        persistent_value_t<validators_data_t<CONFIG>> iota { _state_dict, 7U };
+        persistent_value_t<validators_data_t<CONFIG>> kappa { _state_dict, 8U };
+        persistent_value_t<validators_data_t<CONFIG>> lambda { _state_dict, 9U };
         availability_assignments_t<CONFIG> rho {}; // assigned work reports
 
-        persistent_value_t<value_ptr_t<time_slot_t<CONFIG>>> tau {
-            value_ptr_t<time_slot_t<CONFIG>> {}, _state_dict, 11U
-        };
+        persistent_value_t<time_slot_t<CONFIG>> tau { _state_dict, 11U };
 
         auth_queues_t<CONFIG> phi {}; // work authorizer queue
         privileges_t chi {};
-        disputes_records_t psi {}; // judgements
+        // judgements
+        persistent_value_t<disputes_records_t> psi { _state_dict, 5U };
         statistics_t<CONFIG> pi {};
         ready_queue_t<CONFIG> nu {}; // JAM (12.3): work reports ready to be accumulated
         accumulated_queue_t<CONFIG> ksi {}; // JAM (12.1): recently accumulated reports
@@ -593,10 +578,16 @@ namespace turbo::jam {
         // (4.17)
         static blocks_history_t<CONFIG> beta_prime(blocks_history_t<CONFIG> tmp_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
         // JAM (4.7)
+        static entropy_buffer_t eta_prime(const time_slot_t<CONFIG> &prev_tau, const entropy_buffer_t &prev_eta, const time_slot_t<CONFIG> &blk_slot, const entropy_t &blk_entropy);
         // JAM (4.8)
         // JAM (4.9)
         // JAM (4.10)
-        safrole_output_data_t<CONFIG> update_safrole(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const entropy_t &entropy, const tickets_extrinsic_t<CONFIG> &extrinsic);
+        static safrole_output_data_t<CONFIG> update_safrole(
+            const time_slot_t<CONFIG> &prev_tau, const safrole_state_t<CONFIG> &prev_gamma,
+            const entropy_buffer_t &new_eta,
+            const std::shared_ptr<validators_data_t<CONFIG>> &prev_kappa_ptr, const std::shared_ptr<validators_data_t<CONFIG>> &prev_lambda_ptr,
+            const validators_data_t<CONFIG> &prev_iota, const disputes_records_t &prev_psi,
+            const time_slot_t<CONFIG> &slot, const tickets_extrinsic_t<CONFIG> &extrinsic);
         // JAM (4.12)
         // JAM (4.13)
         // JAM (4.14)

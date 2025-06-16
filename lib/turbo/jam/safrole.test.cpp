@@ -69,9 +69,31 @@ namespace {
         }
     };
 
+    template<typename CFG>
+    struct safrole_test_output_data_t {
+        optional_t<epoch_mark_t<CFG>> epoch_mark {};
+        optional_t<tickets_mark_t<CFG>> tickets_mark {};
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("epoch_mark"sv, epoch_mark);
+            archive.process("tickets_mark"sv, tickets_mark);
+        }
+
+        bool operator==(const safrole_test_output_data_t &o) const
+        {
+            if (epoch_mark != o.epoch_mark)
+                return false;
+            if (tickets_mark != o.tickets_mark)
+                return false;
+            return true;
+        }
+    };
+
     template<typename CONSTANTS>
-    struct output_t: std::variant<safrole_output_data_t<CONSTANTS>, err_code_t> {
-        using base_type = std::variant<safrole_output_data_t<CONSTANTS>, err_code_t>;
+    struct output_t: std::variant<safrole_test_output_data_t<CONSTANTS>, err_code_t> {
+        using base_type = std::variant<safrole_test_output_data_t<CONSTANTS>, err_code_t>;
 
         void serialize(auto &archive)
         {
@@ -101,12 +123,20 @@ namespace {
             archive.process("eta"sv, self.eta);
             archive.process("lambda"sv, self.lambda);
             archive.process("kappa"sv, self.kappa);
-            archive.process("gamma_k"sv, self.gamma.k);
-            archive.process("iota"sv, self.iota);
-            archive.process("gamma_a"sv, self.gamma.a);
-            archive.process("gamma_s"sv, self.gamma.s);
-            archive.process("gamma_z"sv, self.gamma.z);
-            archive.process("post_offenders"sv, self.psi.offenders);
+            {
+                auto new_gamma = self.gamma.get();
+                archive.process("gamma_k"sv, new_gamma.k);
+                archive.process("iota"sv, self.iota);
+                archive.process("gamma_a"sv, new_gamma.a);
+                archive.process("gamma_s"sv, new_gamma.s);
+                archive.process("gamma_z"sv, new_gamma.z);
+                self.gamma.set(std::move(new_gamma));
+            }
+            {
+                auto new_psi = self.psi.get();
+                archive.process("post_offenders"sv, new_psi.offenders);
+                self.psi.set(std::move(new_psi));
+            }
             archive.pop();
         }
 
@@ -145,7 +175,18 @@ namespace {
         err_code_t::catch_into(
             [&] {
                 auto tmp_st = tc.pre;
-                out.emplace(tmp_st.update_safrole(tc.pre.tau.get(), tc.in.slot, tc.in.entropy, tc.in.extrinsic));
+                tmp_st.eta.set(tmp_st.eta_prime(tc.pre.tau.get(), tc.pre.eta.get(), tc.in.slot, tc.in.entropy));
+                auto new_gamma = tmp_st.update_safrole(
+                    tc.pre.tau.get(), tc.pre.gamma.get(),
+                    tmp_st.eta.get(),
+                    tc.pre.kappa.storage(), tc.pre.lambda.storage(),
+                    tc.pre.iota.get(), tc.pre.psi.get(),
+                    tc.in.slot, tc.in.extrinsic
+                );
+                tmp_st.gamma.set(std::move(new_gamma.gamma_ptr));
+                tmp_st.kappa.set(std::move(new_gamma.kappa_ptr));
+                tmp_st.lambda.set(std::move(new_gamma.lambda_ptr));
+                out.emplace(safrole_test_output_data_t<CFG> { std::move(new_gamma.epoch_mark), std::move(new_gamma.tickets_mark) });
                 tmp_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
                 res_st = std::move(tmp_st);
             },
@@ -165,6 +206,7 @@ namespace {
 suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         "conformance test vectors"_test = [] {
+            //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/safrole/tiny/enact-epoch-change-with-no-tickets-4"));
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/safrole/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
             }

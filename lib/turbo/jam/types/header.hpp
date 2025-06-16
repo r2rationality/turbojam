@@ -100,26 +100,13 @@ namespace turbo::jam {
         bool operator==(const safrole_state_t &o) const noexcept;
     };
 
-    template<typename CONSTANTS>
+    template<typename CFG>
     struct safrole_output_data_t {
-        optional_t<epoch_mark_t<CONSTANTS>> epoch_mark;
-        optional_t<tickets_mark_t<CONSTANTS>> tickets_mark;
-
-        void serialize(auto &archive)
-        {
-            using namespace std::string_view_literals;
-            archive.process("epoch_mark"sv, epoch_mark);
-            archive.process("tickets_mark"sv, tickets_mark);
-        }
-
-        bool operator==(const safrole_output_data_t &o) const
-        {
-            if (epoch_mark != o.epoch_mark)
-                return false;
-            if (tickets_mark != o.tickets_mark)
-                return false;
-            return true;
-        }
+        std::shared_ptr<safrole_state_t<CFG>> gamma_ptr {};
+        std::shared_ptr<validators_data_t<CFG>> kappa_ptr {};
+        std::shared_ptr<validators_data_t<CFG>> lambda_ptr {};
+        optional_t<epoch_mark_t<CFG>> epoch_mark {};
+        optional_t<tickets_mark_t<CFG>> tickets_mark {};
     };
 
     // This data structure is need only because the json names in reports_output_items_t

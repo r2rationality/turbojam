@@ -127,7 +127,11 @@ namespace {
         {
             archive.push(name);
             archive.process("slot"sv, st.tau);
-            archive.process("entropy"sv, st.eta[0]);
+            {
+                auto new_eta = st.eta.get();
+                archive.process("entropy"sv, new_eta[0]);
+                st.eta.set(std::move(new_eta));
+            }
             archive.process("ready_queue"sv, st.nu);
             archive.process("accumulated"sv, st.ksi);
             archive.process("privileges"sv, st.chi);

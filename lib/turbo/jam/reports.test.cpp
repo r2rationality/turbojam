@@ -160,7 +160,11 @@ namespace {
             archive.process("curr_validators"sv, self.kappa);
             archive.process("prev_validators"sv, self.lambda);
             archive.process("entropy"sv, self.eta);
-            archive.process("offenders"sv, self.psi.offenders);
+            {
+                auto new_psi = self.psi.get();
+                archive.process("offenders"sv, new_psi.offenders);
+                self.psi.set(std::move(new_psi));
+            }
             archive.process("recent_blocks"sv, self.beta);
             archive.process("auth_pools"sv, self.alpha);
             serialize_accounts(archive, "accounts"sv, self.delta);
