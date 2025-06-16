@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/container/update-map.hpp>
+#include <turbo/common/logger.hpp>
 #include <turbo/storage/filedb.hpp>
 #include "types/header.hpp"
 #include "types/state-dict.hpp"
@@ -13,13 +14,209 @@ namespace turbo::jam {
     using kv_store_t = storage::filedb::client_t;
     using kv_store_ptr_t = std::shared_ptr<kv_store_t>;
 
+    struct preimages_t {
+        using keys_t = std::set<opaque_hash_t>;
+        using key_type = opaque_hash_t;
+        using mapped_type = write_vector;
+        using observer_t = std::function<void(const opaque_hash_t &k, mapped_type v)>;
+
+        preimages_t(const kv_store_ptr_t &kv_store):
+            _kv_store { kv_store }
+        {
+        }
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process_map(*this, "hash"sv, "blob"sv);
+        }
+
+        std::pair<keys_t::const_iterator, bool> try_emplace(const opaque_hash_t &key, const buffer &val)
+        {
+            auto [it, created] = _keys.emplace(key);
+            if (created)
+                _kv_store->set(key, val);
+            return std::make_pair(it, created);
+        }
+
+        bool empty() const
+        {
+            return _keys.empty();
+        }
+
+        void erase(const opaque_hash_t &key)
+        {
+            if (const auto it = _keys.find(key); it != _keys.end()) {
+                _kv_store->erase(key);
+                _keys.erase(it);
+            }
+        }
+
+        void foreach(const observer_t &obs) const
+        {
+            for (const auto &k: _keys) {
+                auto val = _kv_store->get(k);
+                //logger::info("preimages_t::foreach k: {} v: {}", k, val);
+                if (!val) [[unlikely]]
+                    throw error(fmt::format("internal error: a missing preimage value for hash: {}", k));
+                obs(k, std::move(*val));
+            }
+        }
+
+        // preimages for a single service are expected to be called from a single thread at a time
+        mapped_type get(const opaque_hash_t &hash) const
+        {
+            if (_keys.contains(hash)) {
+                if (auto val = _kv_store->get(hash); val)
+                    return std::move(*val);
+            }
+            return write_vector(0);
+        }
+
+        void set(const buffer &key, const buffer &val)
+        {
+            _keys.emplace(key);
+            _kv_store->set(key, val);
+        }
+
+        void set(const opaque_hash_t &key, const mapped_type val)
+        {
+            if (val.empty()) [[unlikely]]
+                throw error("preimages_t::set expects only non-null values!");
+            set(static_cast<buffer>(key), static_cast<buffer>(val));
+        }
+
+        size_t size() const
+        {
+            return _keys.size();
+        }
+
+        bool operator==(const preimages_t &o) const
+        {
+            size_t num_diff = 0;
+            foreach([&](const auto &k, const auto &v) {
+                const auto &o_v = o.get(k);
+                if (o_v != v)
+                    ++num_diff;
+            });
+            o.foreach([&](const auto &k, const auto &v) {
+                if (!container::has_value(get(k)))
+                    ++num_diff;
+            });
+            return num_diff == 0;
+        }
+    private:
+        kv_store_ptr_t _kv_store;
+        keys_t _keys {};
+    };
+    static_assert(codec::has_foreach_c<preimages_t>);
+
+    struct storage_items_config_t {
+        std::string key_name = "hash";
+        std::string val_name = "blob";
+    };
+    using storage_items_t = map_t<opaque_hash_t, byte_sequence_t, storage_items_config_t>;
+
+    struct lookup_meta_map_key_t {
+        opaque_hash_t hash;
+        uint32_t length;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::placeholders;
+            archive.process("hash", hash);
+            archive.process("length", length);
+        }
+
+        std::strong_ordering operator<=>(const lookup_meta_map_key_t &o) const noexcept
+        {
+            const auto cmp = hash <=> o.hash;
+            if (cmp != std::strong_ordering::equal)
+                return cmp;
+            return length <=> o.length;
+        }
+
+        bool operator==(const lookup_meta_map_key_t &o) const
+        {
+            return (*this <=> o) == std::strong_ordering::equal;
+        }
+    };
+
+    struct lookup_metas_config_t {
+        std::string key_name = "key";
+        std::string val_name = "value";
+    };
+    template<typename CONSTANTS>
+    using lookup_meta_map_val_t = sequence_t<time_slot_t<CONSTANTS>, 0, 3>;
+    template<typename CONSTANTS>
+    using lookup_metas_t = map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CONSTANTS>, lookup_metas_config_t>;
+
+    // (9.8)
+    template<typename L, typename S>
+    balance_t account_balance_threshold(const L &l, const S &s)
+    {
+        size_t a_i = 0;
+        size_t a_o = 0;
+        l.foreach([&](const auto &k, const auto &) {
+            a_i += 2;
+            a_o += 81 + k.length;
+        });
+        s.foreach([&](const auto &, const auto &v) {
+            a_i += 1;
+            a_o += 32 + v.size();
+        });
+        return config_base::min_balance_per_service
+            + config_base::min_balance_per_item * a_i
+            + config_base::min_balance_per_octet * a_o;
+    }
+
+    template<typename CONSTANTS>
+    struct account_t {
+        // preimages comes first since it requires an argument to be initialized
+        preimages_t preimages;
+        storage_items_t storage {};
+        lookup_metas_t<CONSTANTS> lookup_metas {};
+        service_info_t info {};
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("storage", storage);
+            archive.process("preimages", preimages);
+            archive.process("lookup_metas", lookup_metas);
+            archive.process("info", info);
+        }
+
+        bool operator==(const account_t &o) const
+        {
+            if (storage != o.storage)
+                return false;
+            if (preimages != o.preimages)
+                return false;
+            if (lookup_metas != o.lookup_metas)
+                return false;
+            if (info != o.info)
+                return false;
+            return true;
+        }
+    };
+
+    struct accounts_config_t {
+        std::string key_name = "id";
+        std::string val_name = "data";
+    };
+
+    template<typename CONSTANTS>
+    using accounts_t = map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t>;
+
     template<typename CONFIG>
     struct mutable_service_state_t {
-        using update_value_map_t = container::update_map_t<container::std_map_update_api_t<preimages_t>>;
+        using update_preimage_map_t = container::update_map_t<container::direct_update_api_t<preimages_t>>;
+        using update_storage_map_t = container::update_map_t<container::std_map_update_api_t<storage_items_t>>;
         using update_lookup_map_t = container::update_map_t<container::std_map_update_api_t<lookup_metas_t<CONFIG>>>;
 
-        update_value_map_t storage;
-        update_value_map_t preimages;
+        update_storage_map_t storage;
+        update_preimage_map_t preimages;
         update_lookup_map_t lookup_metas;
         service_info_update_t info;
 
@@ -83,7 +280,7 @@ namespace turbo::jam {
                 const auto [d_it, created] = _derived.try_emplace(
                     k,
                     container::std_map_update_api_t { b_it->second.storage },
-                    container::std_map_update_api_t { b_it->second.preimages },
+                    container::direct_update_api_t { b_it->second.preimages },
                     container::std_map_update_api_t { b_it->second.lookup_metas },
                     service_info_update_t { b_it->second.info }
                 );
@@ -302,6 +499,8 @@ namespace turbo::jam {
             _state_dict { state_dict },
             _code { code }
         {
+            if (!_state_dict) [[unlikely]]
+                throw error("a persistent value requires an initialized state_dict!");
         }
 
         void serialize(auto &archive)
@@ -336,8 +535,8 @@ namespace turbo::jam {
     // objects that are expensive to copy are represented with std::shared_ptr
     template<typename CONFIG=config_prod>
     class state_t {
-        kv_store_ptr_t _kv_store {};
-        std::shared_ptr<state_dict_t> _state_dict {};
+        kv_store_ptr_t _kv_store;
+        std::shared_ptr<state_dict_t> _state_dict = std::make_shared<state_dict_t>();
     public:
         // authorizations
         persistent_value_t<std::shared_ptr<auth_pools_t<CONFIG>>> alpha {
@@ -367,23 +566,18 @@ namespace turbo::jam {
         ready_queue_t<CONFIG> nu {}; // JAM (12.3): work reports ready to be accumulated
         accumulated_queue_t<CONFIG> ksi {}; // JAM (12.1): recently accumulated reports
 
+        state_t(kv_store_ptr_t kv_store):
+            _kv_store { std::move(kv_store) }
+        {
+            if (!_kv_store) [[unlikely]]
+                throw error("a state requires a non-null kv_store!");
+        }
+
         [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
 
         // export & import
         state_dict_t state_dict() const;
         state_t &operator=(const state_snapshot_t &o);
-
-        void kv_store(kv_store_ptr_t kv_store)
-        {
-            _kv_store = std::move(kv_store);
-        }
-
-        kv_store_t &kv_store()
-        {
-            if (!_kv_store) [[unlikely]]
-                throw error("state_t::kv_store has not been yet configured!");
-            return *_kv_store;
-        }
 
         // (4.1): Kapital upsilon
         void apply(const block_t<CONFIG> &);

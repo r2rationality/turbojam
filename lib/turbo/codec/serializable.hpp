@@ -2,6 +2,9 @@
 /* Copyright (c) 2022-2023 Alex Sierkov (alex dot sierkov at gmail dot com)
  * Copyright (c) 2024-2025 R2 Rationality OÜ (info at r2rationality dot com) */
 
+#include <span>
+#include <string>
+#include <string_view>
 #include <variant>
 
 namespace turbo::codec {
@@ -60,6 +63,12 @@ namespace turbo::codec {
     };
 
     template<typename T>
+    concept has_foreach_c = requires(T t, typename T::observer_t obs)
+    {
+        { t.foreach(obs) };
+    };
+
+    template<typename T>
     concept not_serializable_c = !serializable_c<T>;
 
     template<typename OUT_IT>
@@ -93,7 +102,8 @@ namespace turbo::codec {
                     || std::is_same_v<T, int64_t>
                     || std::is_same_v<T, bool>
                     || std::is_same_v<T, std::string_view>
-                    || std::is_same_v<T, std::string>) {
+                    || std::is_same_v<T, std::string>
+                    || std::is_convertible_v<T, std::span<const uint8_t>>) {
                 _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
                 _it = fmt::format_to(_it, "{}", val);
                 _it = fmt::format_to(_it, "\n");
@@ -126,16 +136,30 @@ namespace turbo::codec {
             --_depth;
         }
 
+        void process_map_item(const auto &k, const auto &v)
+        {
+            format(k);
+            _it = fmt::format_to(_it, ": ");
+            format(v);
+        }
+
         void process_map(const auto &m, const std::string_view, const std::string_view)
         {
             _it = fmt::format_to(_it, "{:{}}{{", "", _depth * shift);
             if (!m.empty()) {
                 ++_depth;
                 _it = fmt::format_to(_it, "\n");
-                for (const auto &[k, v]: m) {
-                    format(k);
-                    _it = fmt::format_to(_it, ": ");
-                    format(v);
+                using T = std::decay_t<decltype(m)>;
+                if constexpr (has_foreach_c<T>) {
+                    m.foreach([&](const auto &k, const auto &v) {
+                        process_map_item(k, v);
+                    });
+                } else if constexpr (std::ranges::range<T>) {
+                    for (const auto &[k, v]: m) {
+                        process_map_item(k, v);
+                    }
+                } else {
+                    throw error(fmt::format("process_map does not support type: {}", typeid(decltype(m)).name()));
                 }
                 --_depth;
                 _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);

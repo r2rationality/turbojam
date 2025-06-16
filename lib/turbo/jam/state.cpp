@@ -418,13 +418,6 @@ namespace turbo::jam {
     accumulate_result_t<CONFIG> state_t<CONFIG>::invoke_accumulate(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate_operands_t &ops)
     {
         auto &service = delta.at(service_id);
-        const auto code_it = service.preimages.find(service.info.code_hash);
-        if (code_it == service.preimages.end())
-            return { delta };
-        const auto &code = code_it->second;
-        const auto code_hash = crypto::blake2b::digest(code);
-        if (code_hash != service.info.code_hash) [[unlikely]]
-            throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
         encoder arg_enc {};
         arg_enc.uint_varlen(slot.slot());
         arg_enc.uint_varlen(service_id);
@@ -436,28 +429,41 @@ namespace turbo::jam {
         };
         auto ctx_err = ctx_ok;
 
-        gas_t::base_type gas_limit = 0;
-        for (const auto &fs: chi.always_acc) {
-            if (fs.id == service_id)
-                gas_limit += fs.gas;
-        }
-        for (const auto &op: ops)
-            gas_limit += op.accumulate_gas;
+        if (const auto code = service.preimages.get(service.info.code_hash); container::has_value(code)) {
+            const auto code_hash = crypto::blake2b::digest(code);
+            if (code_hash != service.info.code_hash) [[unlikely]]
+                throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
 
-        // JAM (B.9): bold psi_a
-        const auto inv_res = machine::invoke(
-            static_cast<buffer>(code), 5U, gas_limit, arg_enc.bytes(),
-            [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                host_service_accumulate_t<CONFIG> host_service { m, service_id, slot, ctx_ok, ctx_err };
-                return host_service.call(id);
+            gas_t::base_type gas_limit = 0;
+            for (const auto &fs: chi.always_acc) {
+                if (fs.id == service_id)
+                    gas_limit += fs.gas;
             }
-        );
-        auto &ctx = std::holds_alternative<uint8_vector>(inv_res.result) ? ctx_ok : ctx_err;
+            for (const auto &op: ops)
+                gas_limit += op.accumulate_gas;
+
+            // JAM (B.9): bold psi_a
+            const auto inv_res = machine::invoke(
+                static_cast<buffer>(code), 5U, gas_limit, arg_enc.bytes(),
+                [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
+                    host_service_accumulate_t<CONFIG> host_service { m, service_id, slot, ctx_ok, ctx_err };
+                    return host_service.call(id);
+                }
+            );
+            auto &ctx = std::holds_alternative<uint8_vector>(inv_res.result) ? ctx_ok : ctx_err;
+            return {
+                std::move(ctx.state),
+                std::move(ctx.transfers),
+                ctx.result,
+                inv_res.gas_used,
+                ops.size()
+            };
+        }
         return {
-            std::move(ctx.state),
-            std::move(ctx.transfers),
-            ctx.result,
-            inv_res.gas_used,
+            std::move(ctx_err.state),
+            std::move(ctx_err.transfers),
+            ctx_err.result,
+            0,
             ops.size()
         };
     }
@@ -466,10 +472,9 @@ namespace turbo::jam {
     gas_t state_t<CONFIG>::invoke_on_transfer(const time_slot_t<CONFIG> slot, const service_id_t service_id, const deferred_transfer_ptrs_t &transfers)
     {
         auto &service = delta.at(service_id);
-        const auto code_it = service.preimages.find(service.info.code_hash);
-        if (code_it == service.preimages.end())
-            return 0;
-        const auto &code = code_it->second;
+        const auto code = service.preimages.get(service.info.code_hash);
+        if (!container::has_value(code))
+            return {};
         if (const auto code_hash = crypto::blake2b::digest(code); code_hash != service.info.code_hash) [[unlikely]]
             throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
         gas_t::base_type gas_limit = 0;
@@ -1158,12 +1163,12 @@ namespace turbo::jam {
                 memcpy(kh.data() + 4, k.data(), kh.size() - 4);
                 st.emplace(state_dict_t::make_key(s_id, kh), v);
             }
-            for (const auto &[k, v]: s.preimages) {
+            s.preimages.foreach([&](const auto &k, const auto &v) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 2ULL);
                 memcpy(kh.data() + 4, k.data() + 1, kh.size() - 4);
                 st.emplace(state_dict_t::make_key(s_id, kh), v);
-            }
+            });
             for (const auto &[k, v]: s.lookup_metas) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, k.length);
@@ -1189,11 +1194,13 @@ namespace turbo::jam {
         std::vector<lookup_request_t> lookup_requests {};
         const auto decode_service_info = [&](const state_key_t &key, decoder &dec) {
             const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
-            dec.process(delta[service_id].info);
+            const auto [it, created] = delta.try_emplace(service_id, _kv_store);
+            dec.process(it->second.info);
         };
         const auto decode_service_data = [&](const state_key_t &key, decoder &dec) {
             const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[0], key[2], key[4], key[6] });
-            auto &service = delta[service_id];
+            const auto [s_it, created] = delta.try_emplace(service_id, _kv_store);
+            auto &service = s_it->second;
             const auto typ = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
             switch (typ) {
                 case 0xFFFFFFFFU: {
@@ -1202,9 +1209,9 @@ namespace turbo::jam {
                     break;
                 }
                 case 0xFFFFFFFEU: {
-                    byte_sequence_t data { dec.next_bytes(dec.size()) };
+                    const auto data= dec.next_bytes(dec.size());
                     const auto h = crypto::blake2b::digest<opaque_hash_t>(data);
-                    service.preimages[h] = std::move(data);
+                    service.preimages.set(static_cast<buffer>(h), data);
                     break;
                 }
                 default: {
@@ -1258,15 +1265,19 @@ namespace turbo::jam {
         // Resolve metadata hashes
         // Slow!!! But this is OK for genesis_state decoding
         for (auto &&lr: lookup_requests) {
-            auto &service = delta[lr.service_id];
+            auto s_it = delta.find(lr.service_id);
+            if (s_it == delta.end()) [[unlikely]]
+                throw error(fmt::format("lookup request for unknown service: {}", lr.service_id));
+            auto &service = s_it->second;
             std::optional<opaque_hash_t> meta_hash {};
-            for (const auto &[h, p]: service.preimages) {
+            service.preimages.foreach([&](const auto &h, const auto &) {
                 const auto hh = crypto::blake2b::digest<opaque_hash_t>(h);
                 if (buffer { hh }.subbuf(2, 23) == lr.hh) {
+                    if (meta_hash) [[unlikely]]
+                        throw error(fmt::format("multiple preimages with the same hash: {}", lr.hh));
                     meta_hash.emplace(h);
-                    break;
                 }
-            }
+            });
             if (!meta_hash) [[unlikely]]
                 throw error(fmt::format("failed to recover preimage with its hash's hash: {}", lr.hh));
             lookup_meta_map_key_t meta_key { *meta_hash, lr.l };

@@ -133,25 +133,28 @@ namespace {
 
     template<typename CONSTANTS>
     struct test_case_t {
+        file::tmp_directory tmp_store_dir { fmt::format("test-jam-reports-{}", static_cast<void *>(this)) };
+        kv_store_ptr_t kv_store = std::make_shared<kv_store_t>(tmp_store_dir.path());
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre;
+        state_t<CONSTANTS> pre { kv_store };
         output_t out;
-        state_t<CONSTANTS> post;
+        state_t<CONSTANTS> post { kv_store };
 
-        static void serialize_accounts(auto &archive, const std::string_view name, accounts_t<CONSTANTS> &self)
+        void serialize_accounts(auto &archive, const std::string_view name, accounts_t<CONSTANTS> &self)
         {
             tmp_accounts_t taccs;
             archive.process(name, taccs);
             self.clear();
             for (auto &&[id, tacc]: taccs) {
                 account_t<CONSTANTS> acc {
+                    .preimages=preimages_t { kv_store },
                     .info=std::move(tacc.service)
                 };
                 self.try_emplace(std::move(id), std::move(acc));
             }
         }
 
-        static void serialize_state(auto &archive, state_t<CONSTANTS> &self)
+        void serialize_state(auto &archive, state_t<CONSTANTS> &self)
         {
             archive.process("avail_assignments"sv, self.rho);
             archive.process("curr_validators"sv, self.kappa);

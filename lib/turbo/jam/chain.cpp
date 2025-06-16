@@ -17,9 +17,8 @@ namespace turbo::jam {
             _genesis_header { make_genesis_header(_genesis_state) }
         {
             if (!prev_state.empty()) {
-                _state.emplace();
+                _state.emplace(_kv_store);
                 *_state = prev_state;
-                _state->kv_store(_kv_store);
             }
         }
 
@@ -28,9 +27,8 @@ namespace turbo::jam {
             if (!_state) [[unlikely]] {
                 //if (blk.header != _genesis_header) [[unlikely]]
                 //   throw error("the genesis header does not match the genesis state!");
-                _state.emplace();
+                _state.emplace(_kv_store);
                 *_state = _genesis_state;
-                _state->kv_store(_kv_store);
                 logger::run_log_errors([&] {
                     _state->beta.set(state_t<CONFIG>::beta_prime(_state->beta.get(), blk.header.hash(), {}, {}));
                 });
@@ -89,7 +87,8 @@ namespace turbo::jam {
     template<typename CONFIG>
     header_t<CONFIG> chain_t<CONFIG>::make_genesis_header(const state_snapshot_t &genesis_state)
     {
-        state_t<CONFIG> g_state {};
+        const file::tmp_directory tmp_store { "make-genesis-header" };
+        state_t<CONFIG> g_state { std::make_shared<kv_store_t>(tmp_store.path()) };
         g_state = genesis_state;
         // Genesis Block Header expectations from here: https://docs.jamcha.in/basics/genesis-config
         header_t<CONFIG> h {};

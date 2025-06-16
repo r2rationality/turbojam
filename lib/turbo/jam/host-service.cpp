@@ -46,7 +46,7 @@ namespace turbo::jam {
     template<typename M>
     const typename M::mapped_type &host_service_base_t<CONFIG>::_get_value(const M &m, const typename M::key_type &key)
     {
-        if (const auto &v = m.get(key); !v.empty()) [[likely]]
+        if (const auto &v = m.get(key); container::has_value(v)) [[likely]]
             return v;
         throw err_unknown_key_t { fmt::format("cannot find an element with id {}", key) };
     }

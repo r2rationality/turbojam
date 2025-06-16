@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <turbo/common/file.hpp>
+#include <turbo/common/logger.hpp>
 #include "filedb.hpp"
 
 namespace turbo::storage::filedb {
@@ -87,7 +88,7 @@ namespace turbo::storage::filedb {
     {
     }
 
-    client_t::~client_t() =default;
+    client_t::~client_t() = default;
 
     void client_t::erase(const buffer key)
     {

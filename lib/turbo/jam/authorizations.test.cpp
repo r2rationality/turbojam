@@ -34,9 +34,11 @@ namespace {
 
     template<typename CONSTANTS=config_prod>
     struct test_case_t {
+        file::tmp_directory tmp_store_dir { fmt::format("test-jam-authorizations-{}", static_cast<void *>(this)) };
+        kv_store_ptr_t kv_store = std::make_shared<kv_store_t>(tmp_store_dir.path());
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre;
-        state_t<CONSTANTS> post;
+        state_t<CONSTANTS> pre { kv_store };
+        state_t<CONSTANTS> post { kv_store };
 
         static void serialize_state(auto &archive, const std::string_view &name, state_t<CONSTANTS> &st)
         {

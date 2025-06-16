@@ -13,7 +13,7 @@ namespace {
 
     template<typename CONSTANTS>
     struct tmp_account_t {
-        preimages_t preimages;
+        storage_items_t preimages;
         lookup_metas_t<CONSTANTS> lookup_metas;
 
         void serialize(auto &archive)
@@ -99,19 +99,25 @@ namespace {
 
     template<typename CONSTANTS>
     struct test_case_t {
+        file::tmp_directory tmp_store_dir { fmt::format("test-jam-preimages-{}", static_cast<void *>(this)) };
+        kv_store_ptr_t kv_store = std::make_shared<kv_store_t>(tmp_store_dir.path());
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre;
+        state_t<CONSTANTS> pre { kv_store };
         output_t out;
-        state_t<CONSTANTS> post;
+        state_t<CONSTANTS> post { kv_store };
 
-        static void serialize_state(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
+        void serialize_state(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
         {
             using namespace std::string_view_literals;
             archive.push(name);
             tmp_accounts_t<CONSTANTS> taccs;
             archive.process("accounts"sv, taccs);
             for (auto &&[id, tacc]: taccs) {
-                st.delta.try_emplace(std::move(id), account_t<CONSTANTS> { .preimages=std::move(tacc.preimages), .lookup_metas=std::move(tacc.lookup_metas) });
+                preimages_t preimages { kv_store };
+                for (auto &&[k, v]: tacc.preimages) {
+                    preimages.set(k, v);
+                }
+                st.delta.try_emplace(std::move(id), account_t<CONSTANTS> { .preimages=std::move(preimages), .lookup_metas=std::move(tacc.lookup_metas) });
             }
             archive.process("statistics"sv, st.pi.services);
             archive.pop();

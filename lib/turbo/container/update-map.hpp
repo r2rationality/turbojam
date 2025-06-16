@@ -4,6 +4,7 @@
 
 #include <map>
 #include <ranges>
+#include <type_traits>
 #include <turbo/common/error.hpp>
 
 namespace turbo::container {
@@ -27,6 +28,30 @@ namespace turbo::container {
     {
         { t.empty() };
     };
+
+    template <typename T>
+    struct is_shared_ptr : std::false_type {};
+
+    template <typename U>
+    struct is_shared_ptr<std::shared_ptr<U>> : std::true_type {};
+
+    template<typename T>
+    concept shared_ptr_c = is_shared_ptr<T>::value;
+
+    template<typename T>
+    concept has_empty_or_shared_ptr_c = has_empty_c<T> || shared_ptr_c<T>;
+
+    template<typename T>
+    bool has_value(const T &v)
+    {
+        if constexpr (has_empty_c<T>) {
+            return !v.empty();
+        } else if constexpr (shared_ptr_c<T>) {
+            return static_cast<bool>(v);
+        } else {
+            throw error(fmt::format("has_value is not supported for type: {}", typeid(T).name()));
+        }
+    }
 
     template<typename M>
     struct std_map_update_api_t {
@@ -67,6 +92,42 @@ namespace turbo::container {
         M &_base;
     };
 
+    template<typename M>
+    struct direct_update_api_t {
+        using key_type = typename M::key_type;
+        using mapped_type = typename M::mapped_type;
+        using observer_t = std::function<void(const key_type &k, const mapped_type &v)>;
+
+        direct_update_api_t(M &base):
+            _base { base }
+        {
+        }
+
+        void erase(const key_type &k)
+        {
+            _base.erase(k);
+        }
+
+        void foreach(const observer_t & obs) const
+        {
+            _base.foreach([&](const auto &k, const auto &v) {
+                obs(k, v);
+            });
+        }
+
+        auto get(const key_type &k) const
+        {
+            return _base.get(k);
+        }
+
+        void set(const key_type &k, mapped_type v)
+        {
+            _base.set(k, std::move(v));
+        }
+    private:
+        M &_base;
+    };
+
     /*
      * This container is designed to keep updates separately from the main map so that they can be easily discarded.
      */
@@ -76,8 +137,8 @@ namespace turbo::container {
         using key_type = typename M::key_type;
         using mapped_type = typename M::mapped_type;
         using observer_t = std::function<void(const key_type &k, const mapped_type &v)>;
-        static_assert(has_empty_c<mapped_type>);
-        static_assert(has_get_erase_set_c<M>);
+        static_assert(has_empty_or_shared_ptr_c<mapped_type>);
+        //static_assert(has_get_erase_set_c<M>);
 
         update_map_t(base_map_api_type base):
             _base { std::move(base) }
@@ -97,11 +158,11 @@ namespace turbo::container {
         void foreach(const observer_t &obs) const
         {
             for (auto it = _updates.begin(); it != _updates.end(); ++it) {
-                if (!it->second.empty())
+                if (has_value(it->second))
                     obs(it->first, it->second);
             }
             _base.foreach([&](const auto &k, const auto &v) {
-                if (!v.empty() && !_updates.contains(k))
+                if (has_value(v) && !_updates.contains(k))
                     obs(k, v);
             });
         }
@@ -111,15 +172,22 @@ namespace turbo::container {
             static mapped_type empty_val {};
             if (const auto it = _updates.find(k); it != _updates.end())
                 return it->second;
-            return _base.get(k);
+            auto val = _base.get(k);
+            if constexpr (std::is_reference_v<decltype(val)>) {
+                return val;
+            } else {
+                thread_local decltype(val) tmp {};
+                tmp = std::move(val);
+                return tmp;
+            }
         }
 
         mapped_type &get_mutable(const key_type &k)
         {
-            auto &v = get(k);
-            if (v.empty()) [[unlikely]]
-                throw error("update_map_t::get_mutable requested a missing element!");
-            return const_cast<mapped_type &>(v);
+            static mapped_type empty_val {};
+            if (const auto it = _updates.find(k); it != _updates.end())
+                return it->second;
+            return _base.get_mutable(k);
         }
 
         void set(const key_type &k, mapped_type v)
@@ -140,7 +208,7 @@ namespace turbo::container {
         void commit()
         {
             for (auto it = _updates.begin(); it != _updates.end(); ++it) {
-                if (!it->second.empty()) {
+                if (has_value(it->second)) {
                     _base.set(it->first, std::move(it->second));
                 } else {
                     _base.erase(it->first);

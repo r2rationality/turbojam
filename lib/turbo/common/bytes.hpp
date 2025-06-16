@@ -359,7 +359,10 @@ namespace turbo {
             return res;
         }
 
-        write_vector(const write_vector &) =delete;
+        write_vector(const write_vector &o):
+            write_vector { static_cast<buffer>(o) }
+        {
+        }
 
         write_vector() =default;
 
@@ -383,12 +386,17 @@ namespace turbo {
             memcpy(data(), bytes.data(), _size);
         }
 
-        write_vector &operator=(write_vector &&o)
+        write_vector &operator=(write_vector &&o) noexcept
         {
             _capacity = o._capacity;
             _size = o._size;
             _ptr = std::move(o._ptr);
             return *this;
+        }
+
+        write_vector &operator=(const write_vector &o)
+        {
+            return *this = static_cast<const buffer>(o);
         }
 
         write_vector &operator=(const buffer bytes)
@@ -401,6 +409,11 @@ namespace turbo {
         void clear()
         {
             resize(0);
+        }
+
+        bool empty() const
+        {
+            return _size == 0;
         }
 
         void reserve(const size_t new_cap)

@@ -18,10 +18,16 @@ namespace {
     };
     using stored_items_t = map_t<byte_sequence_t, byte_sequence_t, stored_items_config_t>;
 
+    struct preimage_items_config_t {
+        std::string key_name = "hash";
+        std::string val_name = "blob";
+    };
+    using preimage_items_t = map_t<opaque_hash_t, byte_sequence_t, preimage_items_config_t>;
+
     struct tmp_account_t {
         service_info_t service;
         stored_items_t storage;
-        preimages_t preimages;
+        preimage_items_t preimages;
 
         void serialize(auto &archive)
         {
@@ -82,27 +88,33 @@ namespace {
 
     template<typename CONSTANTS>
     struct test_case_t {
+        file::tmp_directory tmp_store_dir { fmt::format("test-jam-accumulate-{}", static_cast<void *>(this)) };
+        kv_store_ptr_t kv_store = std::make_shared<kv_store_t>(tmp_store_dir.path());
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre;
+        state_t<CONSTANTS> pre { kv_store };
         output_t out;
-        state_t<CONSTANTS> post;
+        state_t<CONSTANTS> post { kv_store };
 
-        static void serialize_accounts(auto &archive, const std::string_view name, accounts_t<CONSTANTS> &accs)
+        void serialize_accounts(auto &archive, const std::string_view name, accounts_t<CONSTANTS> &accs)
         {
             tmp_accounts_t taccs;
             archive.process(name, taccs);
             accs.clear();
             for (auto &&[id, tacc]: taccs) {
-                preimages_t storage {};
+                storage_items_t storage {};
                 for (auto &&[k, v]: tacc.storage) {
                     encoder enc {};
                     enc.uint_fixed(4, id);
                     enc.next_bytes(k);
                     storage[crypto::blake2b::digest<opaque_hash_t>(enc.bytes())] = std::move(v);
                 }
+                preimages_t preimages { kv_store };
+                for (auto &&[k, v]: tacc.preimages) {
+                    preimages.set(k, v);
+                }
                 account_t<CONSTANTS> acc {
+                    .preimages=std::move(preimages),
                     .storage=std::move(storage),
-                    .preimages=std::move(tacc.preimages),
                     .info=std::move(tacc.service)
                 };
                 const auto [it, created] = accs.try_emplace(std::move(id), std::move(acc));
@@ -111,7 +123,7 @@ namespace {
             }
         }
 
-        static void serialize_state(const std::string_view name, auto &archive, state_t<CONSTANTS> &st)
+        void serialize_state(const std::string_view name, auto &archive, state_t<CONSTANTS> &st)
         {
             archive.push(name);
             archive.process("slot"sv, st.tau);
@@ -172,8 +184,8 @@ namespace {
             expect(out == tc.out) << path;
             const auto same_state = res_st == tc.post;
             expect(same_state) << path;
-            //if (!same_state)
-            //    std::cout << fmt::format("{} state diff: {}\n", path, res_st.diff(tc.post));
+            if (!same_state)
+                std::cout << fmt::format("{} state diff: {}\n", path, res_st.diff(tc.post));
         } else {
             expect(false) << path;
         }
@@ -182,7 +194,7 @@ namespace {
 
 suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
-        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/accumulate_ready_queued_reports-1"));
+        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/same_code_different_services-1"));
         "tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/accumulate/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
