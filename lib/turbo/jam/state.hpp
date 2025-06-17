@@ -14,14 +14,191 @@ namespace turbo::jam {
     using kv_store_t = storage::filedb::client_t;
     using kv_store_ptr_t = std::shared_ptr<kv_store_t>;
 
-    struct preimages_t {
-        using keys_t = std::set<opaque_hash_t>;
-        using key_type = opaque_hash_t;
-        using mapped_type = write_vector;
-        using observer_t = std::function<void(const opaque_hash_t &k, mapped_type v)>;
+    template<typename T>
+    byte_sequence_t encode(const T &v)
+    {
+        encoder enc { v };
+        return { std::move(enc.bytes()) };
+    }
 
-        preimages_t(const kv_store_ptr_t &kv_store):
-            _kv_store { kv_store }
+    template<typename T>
+    struct persistent_value_t {
+        using element_type = T;
+        using ptr_type = std::shared_ptr<element_type>;
+        using serialize_func_t = std::function<void(const element_type &)>;
+
+        persistent_value_t(const std::shared_ptr<state_dict_t> &state_dict, const uint8_t code, element_type val={}):
+            _state_dict { state_dict },
+            _key { state_dict_t::make_key(code) },
+            _ptr { std::make_shared<T>(std::move(val)) }
+        {
+            if (!_state_dict) [[unlikely]]
+                throw error("a persistent value requires an initialized state_dict!");
+        }
+
+        persistent_value_t(const std::shared_ptr<state_dict_t> &state_dict, const state_dict_t::key_t &key, element_type val={}):
+            _state_dict { state_dict },
+            _key { key },
+            _ptr { std::make_shared<T>(std::move(val)) }
+        {
+            if (!_state_dict) [[unlikely]]
+                throw error("a persistent value requires an initialized state_dict!");
+        }
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            // TODO: can be optimized for the decoding case. That happens only unit tests though.
+            auto tmp = get();
+            archive.process(tmp);
+            set(std::move(tmp));
+        }
+
+        const element_type &get() const
+        {
+            return *_ptr;
+        }
+
+        const ptr_type &storage() const
+        {
+            return _ptr;
+        }
+
+        void set(element_type new_val)
+        {
+            // allocation of a new shared pointer ensures that other copies are not affected
+            _ptr = std::make_shared<element_type>(std::move(new_val));
+            _state_dict->set(_key, encode(*_ptr));
+        }
+
+        void set(ptr_type new_ptr)
+        {
+            _ptr = std::move(new_ptr);
+            _state_dict->set(_key, encode(*_ptr));
+        }
+    private:
+        std::shared_ptr<state_dict_t> _state_dict;
+        state_dict_t::key_t _key;
+        ptr_type _ptr;
+    };
+
+    struct service_info_t;
+
+    // This structure captures updates rather than absolute values.
+    // For this reason int64_t types are used to track potential decreases of the aboslute values.
+    struct service_info_update_t {
+        persistent_value_t<service_info_t> &base;
+        std::optional<opaque_hash_t> code_hash {};
+        int64_t balance = 0;
+        // gas saved in the fixed format form
+        std::optional<gas_t::base_type> min_item_gas {};
+        std::optional<gas_t::base_type> min_memo_gas {};
+        int64_t bytes = 0;
+        int32_t items = 0;
+
+        bool empty() const
+        {
+            if (code_hash)
+                return false;
+            if (balance)
+                return false;
+            if (min_item_gas)
+                return false;
+            if (min_memo_gas)
+                return false;
+            if (bytes)
+                return false;
+            if (items)
+                return false;
+            return true;
+        }
+
+        void consume_from(service_info_update_t &&o)
+        {
+            if (o.code_hash)
+                code_hash = o.code_hash;
+            balance += o.balance;
+            if (o.min_item_gas)
+                min_item_gas = o.min_item_gas;
+            if (o.min_memo_gas)
+                min_memo_gas = o.min_memo_gas;
+            bytes += o.bytes;
+            items += o.items;
+        }
+
+        void commit();
+    };
+
+    struct service_info_t {
+        opaque_hash_t code_hash {};
+        balance_t balance = 0;
+        // gas saved in the fixed format form
+        gas_t::base_type min_item_gas = 0;
+        gas_t::base_type min_memo_gas = 0;
+        uint64_t bytes = 0;
+        uint32_t items = 0;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("code_hash"sv, code_hash);
+            archive.process("balance"sv, balance);
+            archive.process("min_item_gas"sv, min_item_gas);
+            archive.process("min_memo_gas"sv, min_memo_gas);
+            archive.process("bytes"sv, bytes);
+            archive.process("items"sv, items);
+        }
+
+        void consume_from(service_info_update_t &&o)
+        {
+            if (o.code_hash)
+                code_hash = *o.code_hash;
+            balance += o.balance;
+            if (o.min_item_gas)
+                min_item_gas = *o.min_item_gas;
+            if (o.min_memo_gas)
+                min_memo_gas = *o.min_memo_gas;
+            bytes += o.bytes;
+            items += o.items;
+        }
+
+        bool operator==(const service_info_t &o) const noexcept
+        {
+            if (code_hash != o.code_hash)
+                return false;
+            if (balance != o.balance)
+                return false;
+            if (min_item_gas != o.min_item_gas)
+                return false;
+            if (min_memo_gas != o.min_memo_gas)
+                return false;
+            if (bytes != o.bytes)
+                return false;
+            if (items != o.items)
+                return false;
+            return true;
+        }
+    };
+
+    inline void service_info_update_t::commit()
+    {
+        auto new_val = base.get();
+        new_val.consume_from(std::move(*this));
+        base.set(std::move(new_val));
+    }
+
+    template<typename K, typename V>
+    struct state_dict_based_map_t {
+        using key_type = K;
+        using mapped_type = V;
+        using keys_t = std::map<key_type, state_dict_t::key_t>;
+        using observer_t = std::function<void(const key_type &k, mapped_type v)>;
+        using trie_key_func_t = std::function<state_dict_t::key_t(const key_type &)>;
+
+        state_dict_based_map_t(const kv_store_ptr_t &kv_store, const state_dict_ptr_t &state_dict, const trie_key_func_t &try_key_func):
+            _kv_store { kv_store },
+            _state_dict { state_dict },
+            _try_key_func { try_key_func }
         {
         }
 
@@ -31,59 +208,79 @@ namespace turbo::jam {
             archive.process_map(*this, "hash"sv, "blob"sv);
         }
 
-        std::pair<keys_t::const_iterator, bool> try_emplace(const opaque_hash_t &key, const buffer &val)
-        {
-            auto [it, created] = _keys.emplace(key);
-            if (created)
-                _kv_store->set(key, val);
-            return std::make_pair(it, created);
-        }
-
         bool empty() const
         {
             return _keys.empty();
         }
 
-        void erase(const opaque_hash_t &key)
+        void erase(const key_type &key)
         {
             if (const auto it = _keys.find(key); it != _keys.end()) {
-                _kv_store->erase(key);
+                const auto &sd_val = _state_dict->get(it->second);
+                if (sd_val) {
+                    std::visit([&](const auto &sv) {
+                        using T = std::decay_t<decltype(sv)>;
+                        if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
+                            _kv_store->erase(sv);
+                        }
+                    }, *sd_val);
+                    _state_dict->erase(it->second);
+                }
                 _keys.erase(it);
             }
         }
 
         void foreach(const observer_t &obs) const
         {
-            for (const auto &k: _keys) {
-                auto val = _kv_store->get(k);
-                //logger::info("preimages_t::foreach k: {} v: {}", k, val);
-                if (!val) [[unlikely]]
-                    throw error(fmt::format("internal error: a missing preimage value for hash: {}", k));
-                obs(k, std::move(*val));
+            for (const auto &[k, trie_k]: _keys) {
+                const auto &sd_v = _state_dict->get(trie_k);
+                if (sd_v) {
+                    auto val = std::visit([&](const auto &v) -> std::optional<write_vector> {
+                        using T = std::decay_t<decltype(v)>;
+                        if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
+                            return _kv_store->get(v);
+                        } else {
+                            return write_vector { buffer { v.data(), v.size() } };
+                        }
+                    }, *sd_v);
+                    if (val)
+                        obs(k, _decode(std::move(*val)));
+                }
             }
         }
 
         // preimages for a single service are expected to be called from a single thread at a time
-        mapped_type get(const opaque_hash_t &hash) const
+        std::optional<mapped_type> get(const key_type &key) const
         {
-            if (_keys.contains(hash)) {
-                if (auto val = _kv_store->get(hash); val)
-                    return std::move(*val);
+            if (const auto k_it = _keys.find(key); k_it != _keys.end()) {
+                const auto &sd_v = _state_dict->get(k_it->second);
+                auto val = std::visit([&](const auto &v) -> std::optional<write_vector> {
+                    using T = std::decay_t<decltype(v)>;
+                    if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
+                        return _kv_store->get(v);
+                    } else {
+                        return write_vector { buffer { v.data(), v.size() } };
+                    }
+                }, *sd_v);
+                if (val)
+                    return _decode(std::move(*val));
             }
-            return write_vector(0);
+            return {};
         }
 
-        void set(const buffer &key, const buffer &val)
+        void set(const key_type &key, mapped_type val)
         {
-            _keys.emplace(key);
-            _kv_store->set(key, val);
-        }
-
-        void set(const opaque_hash_t &key, const mapped_type val)
-        {
-            if (val.empty()) [[unlikely]]
-                throw error("preimages_t::set expects only non-null values!");
-            set(static_cast<buffer>(key), static_cast<buffer>(val));
+            auto trie_key = _try_key_func(key);
+            auto [it, created] = _keys.try_emplace(key, trie_key);
+            // Always update the stored value - necessary for service_storage_t
+            auto raw_val = _encode(val);
+            const auto &sd_val = _state_dict->emplace(trie_key, raw_val);
+            std::visit([&](const auto &sv) {
+                using T = std::decay_t<decltype(sv)>;
+                if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
+                    _kv_store->set(sv, raw_val);
+                }
+            }, sd_val);
         }
 
         size_t size() const
@@ -91,7 +288,7 @@ namespace turbo::jam {
             return _keys.size();
         }
 
-        bool operator==(const preimages_t &o) const
+        bool operator==(const state_dict_based_map_t &o) const
         {
             size_t num_diff = 0;
             foreach([&](const auto &k, const auto &v) {
@@ -100,22 +297,62 @@ namespace turbo::jam {
                     ++num_diff;
             });
             o.foreach([&](const auto &k, const auto &v) {
-                if (!container::has_value(get(k)))
+                if (!get(k))
                     ++num_diff;
             });
             return num_diff == 0;
         }
     private:
         kv_store_ptr_t _kv_store;
+        state_dict_ptr_t _state_dict;
+        trie_key_func_t _try_key_func;
         keys_t _keys {};
+
+        static write_vector _encode(V v)
+        {
+            if constexpr (std::is_same_v<V, write_vector>) {
+                return std::move(v);
+            } else {
+                encoder enc { v };
+                return { static_cast<buffer>(enc.bytes()) };
+            }
+        }
+
+        static V _decode(write_vector bytes)
+        {
+            if constexpr (std::is_same_v<V, write_vector>) {
+                return std::move(bytes);
+            } else {
+                decoder dec { bytes };
+                V res;
+                dec.process(res);
+                return res;
+            }
+        }
     };
-    static_assert(codec::has_foreach_c<preimages_t>);
+
+    struct preimages_t: state_dict_based_map_t<opaque_hash_t, write_vector> {
+        using base_type = state_dict_based_map_t<opaque_hash_t, write_vector>;
+        using base_type::base_type;
+
+        static trie_key_func_t make_trie_key_func(const service_id_t service_id)
+        {
+            return [service_id](const key_type &k) {
+                state_key_subhash_t kh;
+                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 2ULL);
+                memcpy(kh.data() + 4, k.data() + 1, kh.size() - 4);
+                return state_dict_t::make_key(service_id, kh);
+            };
+        }
+    };
 
     struct storage_items_config_t {
         std::string key_name = "hash";
         std::string val_name = "blob";
     };
     using storage_items_t = map_t<opaque_hash_t, byte_sequence_t, storage_items_config_t>;
+
+    using preimage_items_t = map_t<opaque_hash_t, byte_sequence_t, storage_items_config_t>;
 
     struct lookup_meta_map_key_t {
         opaque_hash_t hash;
@@ -148,8 +385,41 @@ namespace turbo::jam {
     };
     template<typename CONSTANTS>
     using lookup_meta_map_val_t = sequence_t<time_slot_t<CONSTANTS>, 0, 3>;
+
     template<typename CONSTANTS>
-    using lookup_metas_t = map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CONSTANTS>, lookup_metas_config_t>;
+    using lookup_meta_items_t = map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CONSTANTS>, lookup_metas_config_t>;
+
+    template<typename CFG>
+    struct lookup_metas_t: state_dict_based_map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CFG>> {
+        using base_type = state_dict_based_map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CFG>>;
+        using base_type::base_type;
+
+        static typename base_type::trie_key_func_t make_trie_key_func(const service_id_t service_id)
+        {
+            return [service_id](const typename base_type::key_type &k) {
+                state_key_subhash_t kh;
+                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, k.length);
+                const auto hh = crypto::blake2b::digest(k.hash);
+                memcpy(kh.data() + 4, hh.data() + 2, kh.size() - 4);
+                return state_dict_t::make_key(service_id, kh);
+            };
+        }
+    };
+
+    struct service_storage_t: state_dict_based_map_t<opaque_hash_t, write_vector> {
+        using base_type = state_dict_based_map_t<opaque_hash_t, write_vector>;
+        using base_type::base_type;
+
+        static typename base_type::trie_key_func_t make_trie_key_func(const service_id_t service_id)
+        {
+            return [service_id](const typename base_type::key_type &k) {
+                state_key_subhash_t kh;
+                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 1ULL);
+                memcpy(kh.data() + 4, k.data(), kh.size() - 4);
+                return state_dict_t::make_key(service_id, kh);
+            };
+        }
+    };
 
     // (9.8)
     template<typename L, typename S>
@@ -170,21 +440,21 @@ namespace turbo::jam {
             + config_base::min_balance_per_octet * a_o;
     }
 
-    template<typename CONSTANTS>
+    template<typename CFG>
     struct account_t {
         // preimages comes first since it requires an argument to be initialized
         preimages_t preimages;
-        storage_items_t storage {};
-        lookup_metas_t<CONSTANTS> lookup_metas {};
-        service_info_t info {};
+        lookup_metas_t<CFG> lookup_metas;
+        service_storage_t storage;
+        persistent_value_t<service_info_t> info;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("storage", storage);
-            archive.process("preimages", preimages);
-            archive.process("lookup_metas", lookup_metas);
-            archive.process("info", info);
+            archive.process("preimages"sv, preimages);
+            archive.process("storage"sv, storage);
+            archive.process("lookup_metas"sv, lookup_metas);
+            archive.process("info"sv, info);
         }
 
         bool operator==(const account_t &o) const
@@ -195,7 +465,7 @@ namespace turbo::jam {
                 return false;
             if (lookup_metas != o.lookup_metas)
                 return false;
-            if (info != o.info)
+            if (info.get() != o.info.get())
                 return false;
             return true;
         }
@@ -209,11 +479,14 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     using accounts_t = map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t>;
 
-    template<typename CONFIG>
+    template<typename CFG>
     struct mutable_service_state_t {
-        using update_preimage_map_t = container::update_map_t<container::direct_update_api_t<preimages_t>>;
-        using update_storage_map_t = container::update_map_t<container::std_map_update_api_t<storage_items_t>>;
-        using update_lookup_map_t = container::update_map_t<container::std_map_update_api_t<lookup_metas_t<CONFIG>>>;
+        using update_preimage_base_map_t = container::direct_update_api_t<preimages_t>;
+        using update_preimage_map_t = container::update_map_t<update_preimage_base_map_t>;
+        using update_lookup_base_map_t = container::direct_update_api_t<lookup_metas_t<CFG>>;
+        using update_lookup_map_t = container::update_map_t<update_lookup_base_map_t>;
+        using update_storage_base_map_t = container::direct_update_api_t<service_storage_t>;
+        using update_storage_map_t = container::update_map_t<update_storage_base_map_t>;
 
         update_storage_map_t storage;
         update_preimage_map_t preimages;
@@ -276,12 +549,12 @@ namespace turbo::jam {
         {
             if (const auto d_it = _derived.find(k); d_it != _derived.end())
                 return d_it->second;
-            if (const auto b_it = _base.find(k); b_it != _base.end()) {
+            if (auto b_it = _base.find(k); b_it != _base.end()) {
                 const auto [d_it, created] = _derived.try_emplace(
                     k,
-                    container::std_map_update_api_t { b_it->second.storage },
-                    container::direct_update_api_t { b_it->second.preimages },
-                    container::std_map_update_api_t { b_it->second.lookup_metas },
+                    container::direct_update_api_t<service_storage_t> { b_it->second.storage },
+                    container::direct_update_api_t<preimages_t> { b_it->second.preimages },
+                    container::direct_update_api_t<lookup_metas_t<CONFIG>> { b_it->second.lookup_metas },
                     service_info_update_t { b_it->second.info }
                 );
                 return d_it->second;
@@ -460,103 +733,33 @@ namespace turbo::jam {
         }
     };
 
-    template<typename T>
-    byte_sequence_t encode(const T &v)
-    {
-        encoder enc { v };
-        return { std::move(enc.bytes()) };
-    }
-
-    template<typename T>
-    struct persistent_value_t {
-        using element_type = T;
-        using ptr_type = std::shared_ptr<element_type>;
-        using serialize_func_t = std::function<void(const element_type &)>;
-
-        persistent_value_t(const std::shared_ptr<state_dict_t> &state_dict, const uint8_t code, element_type val={}):
-            _state_dict { state_dict },
-            _code { code },
-            _ptr { std::make_shared<T>(std::move(val)) }
-        {
-            if (!_state_dict) [[unlikely]]
-                throw error("a persistent value requires an initialized state_dict!");
-        }
-
-        void serialize(auto &archive)
-        {
-            using namespace std::string_view_literals;
-            // TODO: can be optimized for the decoding case. That happens only unit tests though.
-            auto tmp = get();
-            archive.process(tmp);
-            set(std::move(tmp));
-        }
-
-        const element_type &get() const
-        {
-            return *_ptr;
-        }
-
-        const ptr_type &storage() const
-        {
-            return _ptr;
-        }
-
-        void set(element_type new_val)
-        {
-            // allocation of a new shared pointer ensures that other copies are not affected
-            _ptr = std::make_shared<element_type>(std::move(new_val));
-            _state_dict->set(state_dict_t::make_key(_code), encode(*_ptr));
-        }
-
-        void set(ptr_type new_ptr)
-        {
-            _ptr = std::move(new_ptr);
-            _state_dict->set(state_dict_t::make_key(_code), encode(*_ptr));
-        }
-    private:
-        std::shared_ptr<state_dict_t> _state_dict;
-        uint8_t _code;
-        ptr_type _ptr;
-    };
-
     // JAM (4.4) - lowercase sigma
     // persistent_value with std::shared_ptr ensures that:
     // 1) the state is cheap to copy
     // 2) automatically searialized into the state_dict on updates
     // TODO: state_dict should use copy_on_write_ptr_t instead of std::shared_ptr
     template<typename CONFIG=config_prod>
-    class state_t {
-        kv_store_ptr_t _kv_store;
-        std::shared_ptr<state_dict_t> _state_dict = std::make_shared<state_dict_t>();
-    public:
-        persistent_value_t<auth_pools_t<CONFIG>> alpha { _state_dict, 1U }; // authorizations
-        persistent_value_t<auth_queues_t<CONFIG>> phi {  _state_dict, 2U }; // work authorizer queue
-        persistent_value_t<blocks_history_t<CONFIG>> beta { _state_dict, 3U }; // most recent blocks
-        persistent_value_t<safrole_state_t<CONFIG>> gamma { _state_dict, 4U }; // safrole state
-        persistent_value_t<disputes_records_t> psi { _state_dict, 5U }; // judgements
-        persistent_value_t<entropy_buffer_t> eta { _state_dict, 6U };
-        persistent_value_t<validators_data_t<CONFIG>> iota { _state_dict, 7U };
-        persistent_value_t<validators_data_t<CONFIG>> kappa { _state_dict, 8U };
-        persistent_value_t<validators_data_t<CONFIG>> lambda { _state_dict, 9U };
-        persistent_value_t<availability_assignments_t<CONFIG>> rho { _state_dict, 10U }; // assigned work reports
-        persistent_value_t<time_slot_t<CONFIG>> tau { _state_dict, 11U };
-        persistent_value_t<privileges_t> chi { _state_dict, 12U };
-        persistent_value_t<statistics_t<CONFIG>> pi { _state_dict, 13U };
-        persistent_value_t<ready_queue_t<CONFIG>> nu { _state_dict, 14U }; // JAM (12.3): work reports ready to be accumulated
-        persistent_value_t<accumulated_queue_t<CONFIG>> ksi { _state_dict, 15U }; // JAM (12.1): recently accumulated reports
+    struct state_t {
+        kv_store_ptr_t kv_store;
+        state_dict_ptr_t state_dict = std::make_shared<state_dict_ptr_t::element_type>();
+        persistent_value_t<auth_pools_t<CONFIG>> alpha { state_dict, 1U }; // authorizations
+        persistent_value_t<auth_queues_t<CONFIG>> phi {  state_dict, 2U }; // work authorizer queue
+        persistent_value_t<blocks_history_t<CONFIG>> beta { state_dict, 3U }; // most recent blocks
+        persistent_value_t<safrole_state_t<CONFIG>> gamma { state_dict, 4U }; // safrole state
+        persistent_value_t<disputes_records_t> psi { state_dict, 5U }; // judgements
+        persistent_value_t<entropy_buffer_t> eta { state_dict, 6U };
+        persistent_value_t<validators_data_t<CONFIG>> iota { state_dict, 7U };
+        persistent_value_t<validators_data_t<CONFIG>> kappa { state_dict, 8U };
+        persistent_value_t<validators_data_t<CONFIG>> lambda { state_dict, 9U };
+        persistent_value_t<availability_assignments_t<CONFIG>> rho { state_dict, 10U }; // assigned work reports
+        persistent_value_t<time_slot_t<CONFIG>> tau { state_dict, 11U };
+        persistent_value_t<privileges_t> chi { state_dict, 12U };
+        persistent_value_t<statistics_t<CONFIG>> pi { state_dict, 13U };
+        persistent_value_t<ready_queue_t<CONFIG>> nu { state_dict, 14U }; // JAM (12.3): work reports ready to be accumulated
+        persistent_value_t<accumulated_queue_t<CONFIG>> ksi { state_dict, 15U }; // JAM (12.1): recently accumulated reports
         accounts_t<CONFIG> delta {}; // services
 
-        state_t(kv_store_ptr_t kv_store):
-            _kv_store { std::move(kv_store) }
-        {
-            if (!_kv_store) [[unlikely]]
-                throw error("a state requires a non-null kv_store!");
-        }
-
         [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
-
-        // export & import
-        state_dict_t state_dict() const;
         state_t &operator=(const state_snapshot_t &o);
 
         // (4.1): Kapital upsilon

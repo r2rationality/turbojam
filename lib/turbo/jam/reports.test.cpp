@@ -140,17 +140,19 @@ namespace {
         output_t out;
         state_t<CONSTANTS> post { kv_store };
 
-        void serialize_accounts(auto &archive, const std::string_view name, accounts_t<CONSTANTS> &self)
+        void serialize_accounts(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
         {
             tmp_accounts_t taccs;
             archive.process(name, taccs);
-            self.clear();
+            st.delta.clear();
             for (auto &&[id, tacc]: taccs) {
                 account_t<CONSTANTS> acc {
-                    .preimages=preimages_t { kv_store },
-                    .info=std::move(tacc.service)
+                    .preimages=preimages_t { st.kv_store, st.state_dict, preimages_t::make_trie_key_func(id) },
+                    .lookup_metas=lookup_metas_t<CONSTANTS> { st.kv_store, st.state_dict, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) },
+                    .storage=service_storage_t { st.kv_store, st.state_dict, service_storage_t::make_trie_key_func(id) },
+                    .info={ st.state_dict, state_dict_t::make_key(255U, id), std::move(tacc.service) }
                 };
-                self.try_emplace(std::move(id), std::move(acc));
+                st.delta.try_emplace(std::move(id), std::move(acc));
             }
         }
 
@@ -167,7 +169,7 @@ namespace {
             }
             archive.process("recent_blocks"sv, self.beta);
             archive.process("auth_pools"sv, self.alpha);
-            serialize_accounts(archive, "accounts"sv, self.delta);
+            serialize_accounts(archive, "accounts"sv, self);
             {
                 auto new_pi = self.pi.get();
                 archive.process("cores_statistics"sv, new_pi.cores);

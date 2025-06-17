@@ -110,8 +110,8 @@ namespace turbo::container {
 
         void foreach(const observer_t & obs) const
         {
-            _base.foreach([&](const auto &k, const auto &v) {
-                obs(k, v);
+            _base.foreach([&](const auto &k, auto v) {
+                obs(k, std::move(v));
             });
         }
 
@@ -167,27 +167,12 @@ namespace turbo::container {
             });
         }
 
-        const mapped_type &get(const key_type &k) const
+        std::optional<mapped_type> get(const key_type &k) const
         {
-            static mapped_type empty_val {};
+            static std::optional<mapped_type> empty_val {};
             if (const auto it = _updates.find(k); it != _updates.end())
                 return it->second;
-            auto val = _base.get(k);
-            if constexpr (std::is_reference_v<decltype(val)>) {
-                return val;
-            } else {
-                thread_local decltype(val) tmp {};
-                tmp = std::move(val);
-                return tmp;
-            }
-        }
-
-        mapped_type &get_mutable(const key_type &k)
-        {
-            static mapped_type empty_val {};
-            if (const auto it = _updates.find(k); it != _updates.end())
-                return it->second;
-            return _base.get_mutable(k);
+            return _base.get(k);
         }
 
         void set(const key_type &k, mapped_type v)

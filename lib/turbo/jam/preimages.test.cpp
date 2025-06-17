@@ -13,8 +13,8 @@ namespace {
 
     template<typename CONSTANTS>
     struct tmp_account_t {
-        storage_items_t preimages;
-        lookup_metas_t<CONSTANTS> lookup_metas;
+        preimage_items_t preimages;
+        lookup_meta_items_t<CONSTANTS> lookup_metas;
 
         void serialize(auto &archive)
         {
@@ -113,11 +113,20 @@ namespace {
             tmp_accounts_t<CONSTANTS> taccs;
             archive.process("accounts"sv, taccs);
             for (auto &&[id, tacc]: taccs) {
-                preimages_t preimages { kv_store };
+                preimages_t preimages { st.kv_store, st.state_dict, preimages_t::make_trie_key_func(id) };
                 for (auto &&[k, v]: tacc.preimages) {
-                    preimages.set(k, v);
+                    preimages.set(k, write_vector { static_cast<buffer>(v) });
                 }
-                st.delta.try_emplace(std::move(id), account_t<CONSTANTS> { .preimages=std::move(preimages), .lookup_metas=std::move(tacc.lookup_metas) });
+                lookup_metas_t<CONSTANTS> lookup_metas { st.kv_store, st.state_dict, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) };
+                for (auto &&[k, v]: tacc.lookup_metas) {
+                    lookup_metas.set(k, std::move(v));
+                }
+                st.delta.try_emplace(std::move(id), account_t<CONSTANTS> {
+                    .preimages=std::move(preimages),
+                    .lookup_metas=std::move(lookup_metas),
+                    .storage=service_storage_t { st.kv_store, st.state_dict, service_storage_t::make_trie_key_func(id) },
+                    .info={ st.state_dict, state_dict_t::make_key(255U, id) }
+                });
             }
             {
                 auto new_pi = st.pi.get();
@@ -184,6 +193,7 @@ namespace {
 
 suite turbo_jam_preimages_suite = [] {
     "turbo::jam::preimages"_test = [] {
+        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/preimages/data/preimage_not_needed-2"));
         for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/preimages/data"), ".bin")) {
             test_file<config_tiny>(path.substr(0, path.size() - 4));
         }

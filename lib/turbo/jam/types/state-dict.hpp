@@ -34,7 +34,6 @@ namespace turbo::jam {
 
         state_dict_t(const state_snapshot_t &o)
         {
-
         }
 
         state_dict_t &operator=(const state_snapshot_t &o)
@@ -44,9 +43,9 @@ namespace turbo::jam {
                 set(k, v);
         }
 
-        void emplace(const key_t &k, const buffer &v)
+        const value_t &emplace(const key_t &k, const buffer &v)
         {
-            set(k, v);
+            return set(k, v);
         }
 
         bool operator==(const state_dict_t &o) const
@@ -54,4 +53,6 @@ namespace turbo::jam {
             return root() == o.root();
         }
     };
+    using state_dict_ptr_t = std::shared_ptr<state_dict_t>;
+    using state_dict_cptr_t = std::shared_ptr<const state_dict_t>;
 }

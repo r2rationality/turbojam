@@ -9,8 +9,8 @@ namespace {
     using namespace turbo::container;
 }
 
-suite turbo_container_versioned_map_suite = [] {
-    "turbo::container::versioned_map"_test = [] {
+suite turbo_container_update_map_suite = [] {
+    "turbo::container::update_map"_test = [] {
         "update & merge"_test = [] {
             std::map<size_t, uint8_vector> base {};
             update_map_t m { std_map_update_api_t { base } };

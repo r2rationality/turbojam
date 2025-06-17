@@ -44,18 +44,11 @@ namespace turbo::jam {
 
     template<typename CONFIG>
     template<typename M>
-    const typename M::mapped_type &host_service_base_t<CONFIG>::_get_value(const M &m, const typename M::key_type &key)
+    typename M::mapped_type host_service_base_t<CONFIG>::_get_value(const M &m, const typename M::key_type &key)
     {
-        if (const auto &v = m.get(key); container::has_value(v)) [[likely]]
-            return v;
+        if (auto v = m.get(key); v) [[likely]]
+            return std::move(*v);
         throw err_unknown_key_t { fmt::format("cannot find an element with id {}", key) };
-    }
-
-    template<typename CONFIG>
-    template<typename M>
-    typename M::mapped_type &host_service_base_t<CONFIG>::_get_value(M &m, const typename M::key_type &key)
-    {
-        return const_cast<typename M::mapped_type &>(_get_value(static_cast<const M &>(m), key));
     }
 
     template<typename CONFIG>
@@ -97,7 +90,7 @@ namespace turbo::jam {
         const auto h = omega[8];
         const auto o = omega[9];
         const opaque_hash_t key { _m.mem_read(h, 32) };
-        const auto &val = _get_value(_service.preimages, key);
+        auto val = _get_value(_service.preimages, key);
         const auto f = std::min(omega[10], val.size());
         const auto l = std::min(omega[11], val.size() - f);
         _m.mem_write(o, static_cast<buffer>(val).subbuf(0, l));
@@ -138,9 +131,9 @@ namespace turbo::jam {
         const auto &prev_val = _service.storage.get(key_hash);
         if (v_z == 0) {
             logger::trace("service {} write: delete key: {}", _service_id, key_data);
-            if (!prev_val.empty()) {
+            if (prev_val) {
                 _service.info.bytes -= sizeof(key_hash);
-                _service.info.bytes -= prev_val.size();
+                _service.info.bytes -= prev_val->size();
                 --_service.info.items;
                 _service.storage.erase(key_hash);
             }
@@ -148,18 +141,18 @@ namespace turbo::jam {
         } else {
             auto val_data = _m.mem_read(v_o, v_z);
             logger::trace("service {} write: set key: {} hash: {} val: {}", _service_id, key_data, key_hash, val_data);
-            if (!prev_val.empty()) {
-                _service.info.bytes -= prev_val.size();
+            if (prev_val) {
+                _service.info.bytes -= prev_val->size();
             } else {
                 _service.info.bytes += sizeof(key_data);
                 ++_service.info.items;
             }
-            _service.storage.set(key_hash, std::move(val_data));
+            _service.storage.set(key_hash, static_cast<buffer>(val_data));
             _service.info.bytes += v_z;
             _m.set_reg(7, v_z);
         }
         const auto balance_threshold = account_balance_threshold(_service.lookup_metas, _service.storage);
-        if (_service.info.base.balance < balance_threshold)
+        if (_service.info.base.get().balance < balance_threshold)
             _m.set_reg(7, machine::host_call_res_t::full);
     }
 

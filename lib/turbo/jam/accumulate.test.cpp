@@ -95,29 +95,31 @@ namespace {
         output_t out;
         state_t<CONSTANTS> post { kv_store };
 
-        void serialize_accounts(auto &archive, const std::string_view name, accounts_t<CONSTANTS> &accs)
+        void serialize_accounts(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
         {
             tmp_accounts_t taccs;
             archive.process(name, taccs);
-            accs.clear();
+            st.delta.clear();
             for (auto &&[id, tacc]: taccs) {
-                storage_items_t storage {};
+                service_storage_t storage { st.kv_store, st.state_dict, service_storage_t::make_trie_key_func(id) };
                 for (auto &&[k, v]: tacc.storage) {
                     encoder enc {};
                     enc.uint_fixed(4, id);
                     enc.next_bytes(k);
-                    storage[crypto::blake2b::digest<opaque_hash_t>(enc.bytes())] = std::move(v);
+                    storage.set(crypto::blake2b::digest<opaque_hash_t>(enc.bytes()), static_cast<buffer>(v));
                 }
-                preimages_t preimages { kv_store };
+                preimages_t preimages { st.kv_store, st.state_dict, preimages_t::make_trie_key_func(id) };
                 for (auto &&[k, v]: tacc.preimages) {
-                    preimages.set(k, v);
+                    preimages.set(k, write_vector { v });
                 }
+                lookup_metas_t<CONSTANTS> lookup_metas { st.kv_store, st.state_dict, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) };
                 account_t<CONSTANTS> acc {
                     .preimages=std::move(preimages),
+                    .lookup_metas=std::move(lookup_metas),
                     .storage=std::move(storage),
-                    .info=std::move(tacc.service)
+                    .info={ st.state_dict, state_dict_t::make_key(255U, id), std::move(tacc.service) }
                 };
-                const auto [it, created] = accs.try_emplace(std::move(id), std::move(acc));
+                const auto [it, created] = st.delta.try_emplace(std::move(id), std::move(acc));
                 if (!created) [[unlikely]]
                     throw error(fmt::format("a duplicate account in the service map!"));
             }
@@ -140,7 +142,7 @@ namespace {
                 archive.process("statistics"sv, new_pi.services);
                 st.pi.set(std::move(new_pi));
             }
-            serialize_accounts(archive, "accounts"sv, st.delta);
+            serialize_accounts(archive, "accounts"sv, st);
             archive.pop();
         }
 
@@ -204,7 +206,7 @@ namespace {
 
 suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
-        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/same_code_different_services-1"));
+        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/enqueue_and_unlock_chain-4"));
         "tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/accumulate/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

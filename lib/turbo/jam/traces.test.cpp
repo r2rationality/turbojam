@@ -81,7 +81,7 @@ namespace {
             //std::cout << fmt::format("{} block {}\n", path, tc.block.header.hash());
             chain.apply(tc.block);
 
-            const auto post_keyvals = chain.state().state_dict();
+            const auto post_keyvals = *chain.state().state_dict;
             const auto same_state = post_keyvals == tc.post.keyvals;
             expect(same_state) << path;
             if (!same_state) {

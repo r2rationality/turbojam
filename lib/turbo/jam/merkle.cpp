@@ -138,7 +138,7 @@ namespace turbo::jam::merkle {
 
         impl(const impl &o):
             _hash_func { o._hash_func },
-            _root { o._root }
+            _root { o._root ? std::make_shared<node_t>(*o._root) : nullptr }
         {
         }
 
@@ -169,12 +169,12 @@ namespace turbo::jam::merkle {
             _erase(_root, key);
         }
 
-        void set(const key_t &key, const buffer &val_bytes)
+        const value_t &set(const key_t &key, const buffer &val_bytes)
         {
             auto new_node = std::make_shared<node_t>(key, prefix_max, value_t { val_bytes, _hash_func });
             if (!_root) {
                 _root = std::move(new_node);
-                return;
+                return _root->value.value();
             }
             auto [shared_sz, node_ptr] = _find(_root, key, true);
             auto &node = *node_ptr;
@@ -185,15 +185,17 @@ namespace turbo::jam::merkle {
                 if (key.bit(shared_sz)) {
                     node->left = std::move(split_node);
                     node->right = std::move(new_node);
+                    return node->right->value.value();
                 } else {
                     node->left = std::move(new_node);
                     node->right = std::move(split_node);
-                }
-            } else {
-                if (node->value != new_node->value) {
-                    node->value = std::move(new_node->value);
+                    return node->left->value.value();
                 }
             }
+            if (node->value != new_node->value) {
+                node->value = std::move(new_node->value);
+            }
+            return node->value.value();
         }
 
         [[nodiscard]] const hash_t &root() const
@@ -363,9 +365,9 @@ namespace turbo::jam::merkle {
         return _impl->get(key);
     }
 
-    void trie_t::set(const key_t &key, const buffer &value)
+    const trie_t::value_t &trie_t::set(const key_t &key, const buffer &value)
     {
-        _impl->set(key, value);
+        return _impl->set(key, value);
     }
 
     hash_t trie_t::root() const

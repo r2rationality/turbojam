@@ -28,10 +28,7 @@ namespace turbo::jam {
         service_lookup_res_t _get_service(machine::register_val_t id);
 
         template<typename M>
-        static typename M::mapped_type &_get_value(M &m, const typename M::key_type &key);
-
-        template<typename M>
-        static const typename M::mapped_type &_get_value(const M &m, const typename M::key_type &key);
+        static typename M::mapped_type _get_value(const M &m, const typename M::key_type &key);
 
         [[nodiscard]] machine::host_call_res_t _safe_call(const call_func &f) noexcept;
 

@@ -32,10 +32,12 @@ namespace turbo::jam::merkle {
     };
 
     struct trie_t {
+        static constexpr size_t max_in_place_value_size = 32;
         using key_t = byte_array_t<31>;
-        using value_inplace_t = boost::container::static_vector<uint8_t, 32>;
+        using value_inplace_t = boost::container::static_vector<uint8_t, max_in_place_value_size>;
+        using value_hash_t = hash_t;
 
-        using value_base_t = std::variant<value_inplace_t, hash_t>;
+        using value_base_t = std::variant<value_inplace_t, value_hash_t>;
         struct value_t: value_base_t {
             using base_type = value_base_t;
 
@@ -67,7 +69,7 @@ namespace turbo::jam::merkle {
         bool empty() const;
         void erase(const key_t& key);
         const opt_value_t& get(const key_t& key) const;
-        void set(const key_t &key, const buffer &value);
+        const value_t &set(const key_t &key, const buffer &value);
         [[nodiscard]] hash_t root() const;
     private:
         struct impl;

@@ -172,27 +172,30 @@ namespace turbo::jam {
     template<typename CONFIG>
     void state_t<CONFIG>::provide_preimages(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages)
     {
+        mutable_services_state_t<CONFIG> mutable_services { delta };
         const preimage_t *prev = nullptr;
         for (const auto &p: preimages) {
             if (prev && *prev >= p) [[unlikely]]
                 throw err_preimages_not_sorted_or_unique_t {};
             prev = &p;
-            auto &service = delta.at(p.requester);
+            auto &service = mutable_services.get_mutable(p.requester);
             lookup_meta_map_key_t key;
             static_assert(sizeof(key.hash) == sizeof(crypto::blake2b::hash_t));
             key.length = numeric_cast<decltype(lookup_meta_map_key_t::length)>(p.blob.size());
             crypto::blake2b::digest(*reinterpret_cast<crypto::blake2b::hash_t *>(&key.hash), p.blob);
-            const auto meta_it = service.lookup_metas.find(key);
-            if (meta_it == service.lookup_metas.end()) [[unlikely]]
+            auto l_val = service.lookup_metas.get(key);
+            if (!l_val) [[unlikely]]
                 throw err_preimage_unneeded_t {};
-            const auto [it, created] = service.preimages.try_emplace(key.hash, p.blob);
-            if (!created) [[unlikely]]
+            if (service.preimages.get(key.hash)) [[unlikely]]
                 throw err_preimage_unneeded_t {};
-            meta_it->second.emplace_back(slot);
+            service.preimages.set(key.hash, write_vector { p.blob });
+            l_val->emplace_back(slot);
+            service.lookup_metas.set(key, std::move(*l_val));
             auto &service_stats = new_pi.services[p.requester];
             ++service_stats.provided_count;
             service_stats.provided_size += p.blob.size();
         }
+        mutable_services.commit();
     }
 
     template<typename CFG>
@@ -445,10 +448,11 @@ namespace turbo::jam {
         };
         auto ctx_err = ctx_ok;
 
-        if (const auto code = service.preimages.get(service.info.code_hash); container::has_value(code)) {
-            const auto code_hash = crypto::blake2b::digest(code);
-            if (code_hash != service.info.code_hash) [[unlikely]]
-                throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
+        const auto &prev_service_info = service.info.get();
+        if (const auto code = service.preimages.get(prev_service_info.code_hash); code) {
+            const auto code_hash = crypto::blake2b::digest(*code);
+            if (code_hash != prev_service_info.code_hash) [[unlikely]]
+                throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
 
             gas_t::base_type gas_limit = 0;
             for (const auto &fs: prev_free_services) {
@@ -460,7 +464,7 @@ namespace turbo::jam {
 
             // JAM (B.9): bold psi_a
             const auto inv_res = machine::invoke(
-                static_cast<buffer>(code), 5U, gas_limit, arg_enc.bytes(),
+                static_cast<buffer>(*code), 5U, gas_limit, arg_enc.bytes(),
                 [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
                     host_service_accumulate_t<CONFIG> host_service { m, service_id, slot, ctx_ok, ctx_err };
                     return host_service.call(id);
@@ -488,11 +492,12 @@ namespace turbo::jam {
     gas_t state_t<CONFIG>::invoke_on_transfer(const time_slot_t<CONFIG> slot, const service_id_t service_id, const deferred_transfer_ptrs_t &transfers)
     {
         auto &service = delta.at(service_id);
-        const auto code = service.preimages.get(service.info.code_hash);
-        if (!container::has_value(code))
+        const auto &prev_service_info = service.info.get();
+        const auto code = service.preimages.get(prev_service_info.code_hash);
+        if (!code)
             return {};
-        if (const auto code_hash = crypto::blake2b::digest(code); code_hash != service.info.code_hash) [[unlikely]]
-            throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
+        if (const auto code_hash = crypto::blake2b::digest(*code); code_hash != prev_service_info.code_hash) [[unlikely]]
+            throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
         gas_t::base_type gas_limit = 0;
         encoder arg_enc {};
         arg_enc.uint_varlen(slot.slot());
@@ -504,7 +509,7 @@ namespace turbo::jam {
         }
         mutable_services_state_t<CONFIG> services_state { delta };
         const auto inv_res = machine::invoke(
-            static_cast<buffer>(code), 10U, gas_limit, arg_enc.bytes(),
+            static_cast<buffer>(*code), 10U, gas_limit, arg_enc.bytes(),
             [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
                 host_service_on_transfer_t<CONFIG> host_service { m, services_state, service_id, slot };
                 return host_service.call(id);
@@ -826,11 +831,11 @@ namespace turbo::jam {
                     const auto s_it = delta.find(r.service_id);
                     if (s_it == delta.end()) [[unlikely]]
                         throw err_bad_service_id_t {};
-                    if (s_it->second.info.code_hash != r.code_hash) [[unlikely]]
+                    if (s_it->second.info.get().code_hash != r.code_hash) [[unlikely]]
                         throw err_bad_code_hash_t {};
 
                     // JAM (11.30) part 1
-                    if (r.accumulate_gas < s_it->second.info.min_item_gas) [[unlikely]]
+                    if (r.accumulate_gas < s_it->second.info.get().min_item_gas) [[unlikely]]
                         throw err_service_item_gas_too_low_t {};
                     total_accumulate_gas += r.accumulate_gas;
 
@@ -1186,49 +1191,33 @@ namespace turbo::jam {
         }
     }
 
-    template<typename CONFIG>
-    state_dict_t state_t<CONFIG>::state_dict() const
+    /*template<typename CONFIG>
+    const state_dict_cptr_t &state_t<CONFIG>::state_dict() const
     {
-        state_dict_t st {};
-        st.emplace(state_dict_t::make_key(1), encode(alpha));
-        st.emplace(state_dict_t::make_key(2), encode(phi));
-        st.emplace(state_dict_t::make_key(3), encode(beta));
-        st.emplace(state_dict_t::make_key(4), encode(gamma));
-        st.emplace(state_dict_t::make_key(5), encode(psi));
-        st.emplace(state_dict_t::make_key(6), encode(eta));
-        st.emplace(state_dict_t::make_key(7), encode(iota));
-        st.emplace(state_dict_t::make_key(8), encode(kappa));
-        st.emplace(state_dict_t::make_key(9), encode(lambda));
-        st.emplace(state_dict_t::make_key(10), encode(rho));
-        st.emplace(state_dict_t::make_key(11), encode(tau));
-        st.emplace(state_dict_t::make_key(12), encode(chi));
-        st.emplace(state_dict_t::make_key(13), encode(pi));
-        st.emplace(state_dict_t::make_key(14), encode(nu));
-        st.emplace(state_dict_t::make_key(15), encode(ksi));
         for (const auto &[s_id, s]: delta) {
-            st.emplace(state_dict_t::make_key(255, s_id), encode(s.info));
+            _state_dict->emplace(state_dict_t::make_key(255, s_id), encode(s.info));
             for (const auto &[k, v]: s.storage) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 1ULL);
                 memcpy(kh.data() + 4, k.data(), kh.size() - 4);
-                st.emplace(state_dict_t::make_key(s_id, kh), v);
+                _state_dict->emplace(state_dict_t::make_key(s_id, kh), v);
             }
             s.preimages.foreach([&](const auto &k, const auto &v) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 2ULL);
                 memcpy(kh.data() + 4, k.data() + 1, kh.size() - 4);
-                st.emplace(state_dict_t::make_key(s_id, kh), v);
+                _state_dict->emplace(state_dict_t::make_key(s_id, kh), v);
             });
             for (const auto &[k, v]: s.lookup_metas) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, k.length);
                 const auto hh = crypto::blake2b::digest(k.hash);
                 memcpy(kh.data() + 4, hh.data() + 2, kh.size() - 4);
-                st.emplace(state_dict_t::make_key(s_id, kh), encode(v));
+                _state_dict->emplace(state_dict_t::make_key(s_id, kh), encode(v));
             }
         }
-        return st;
-    }
+        return _state_dict;
+    }*/
 
     template<typename CONFIG>
     state_t<CONFIG> &state_t<CONFIG>::operator=(const state_snapshot_t &st)
@@ -1244,18 +1233,30 @@ namespace turbo::jam {
         std::vector<lookup_request_t> lookup_requests {};
         const auto decode_service_info = [&](const state_key_t &key, decoder &dec) {
             const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
-            const auto [it, created] = delta.try_emplace(service_id, _kv_store);
+            const auto [it, created] = delta.try_emplace(
+                service_id,
+                preimages_t { kv_store, state_dict, preimages_t::make_trie_key_func(service_id) },
+                lookup_metas_t<CONFIG> { kv_store, state_dict, lookup_metas_t<CONFIG>::make_trie_key_func(service_id) },
+                service_storage_t { kv_store, state_dict, service_storage_t::make_trie_key_func(service_id) },
+                persistent_value_t<service_info_t> { state_dict, state_dict_t::make_key(255U, service_id) }
+            );
             dec.process(it->second.info);
         };
         const auto decode_service_data = [&](const state_key_t &key, decoder &dec) {
             const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[0], key[2], key[4], key[6] });
-            const auto [s_it, created] = delta.try_emplace(service_id, _kv_store);
+            const auto [s_it, created] = delta.try_emplace(
+                service_id,
+                preimages_t { kv_store, state_dict, preimages_t::make_trie_key_func(service_id) },
+                lookup_metas_t<CONFIG> { kv_store, state_dict, lookup_metas_t<CONFIG>::make_trie_key_func(service_id) },
+                service_storage_t { kv_store, state_dict, service_storage_t::make_trie_key_func(service_id) },
+                persistent_value_t<service_info_t> { state_dict, state_dict_t::make_key(255U, service_id) }
+            );
             auto &service = s_it->second;
             const auto typ = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
             switch (typ) {
                 case 0xFFFFFFFFU: {
-                    byte_sequence_t data { dec.next_bytes(dec.size()) };
-                    service.storage[crypto::blake2b::digest<opaque_hash_t>(data)] = std::move(data);
+                    const auto data = dec.next_bytes(dec.size());
+                    service.storage.set(crypto::blake2b::digest<opaque_hash_t>(data), std::move(data));
                     break;
                 }
                 case 0xFFFFFFFEU: {
@@ -1273,6 +1274,7 @@ namespace turbo::jam {
                 }
             }
         };
+        state_dict->clear();
         const auto decode_state_item_or_service_data = [&](const state_key_t &key, decoder &dec, const size_t ksum, auto &item) {
             if (ksum == 0)
                 dec.process(item);
@@ -1282,6 +1284,7 @@ namespace turbo::jam {
         // TODO: verify that deserialization always clears the previous state!
         using namespace std::string_view_literals;
         for (const auto &[key, bytes]: st) {
+            state_dict->emplace(key, bytes);
             decoder dec { bytes };
             const auto ksum = std::accumulate(key.begin() + 1, key.end(), size_t { 0 });
             const auto k2sum = key[2] + key[4] + key[6] + std::accumulate(key.begin() + 8, key.end(), size_t { 0 });
@@ -1331,7 +1334,7 @@ namespace turbo::jam {
             if (!meta_hash) [[unlikely]]
                 throw error(fmt::format("failed to recover preimage with its hash's hash: {}", lr.hh));
             lookup_meta_map_key_t meta_key { *meta_hash, lr.l };
-            service.lookup_metas[std::move(meta_key)] = std::move(lr.meta);
+            service.lookup_metas.set(std::move(meta_key), std::move(lr.meta));
         }
         return *this;
     }
