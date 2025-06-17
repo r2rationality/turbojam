@@ -144,7 +144,7 @@ namespace turbo::jam {
             if (prev_val) {
                 _service.info.bytes -= prev_val->size();
             } else {
-                _service.info.bytes += sizeof(key_data);
+                _service.info.bytes += sizeof(key_hash);
                 ++_service.info.items;
             }
             _service.storage.set(key_hash, static_cast<buffer>(val_data));

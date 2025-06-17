@@ -76,6 +76,11 @@ namespace turbo::jam {
             _ptr = std::move(new_ptr);
             _state_dict->set(_key, encode(*_ptr));
         }
+
+        bool operator==(const persistent_value_t &o) const
+        {
+            return *_ptr == *o._ptr;
+        }
     private:
         std::shared_ptr<state_dict_t> _state_dict;
         state_dict_t::key_t _key;
@@ -465,7 +470,7 @@ namespace turbo::jam {
                 return false;
             if (lookup_metas != o.lookup_metas)
                 return false;
-            if (info.get() != o.info.get())
+            if (info != o.info)
                 return false;
             return true;
         }
