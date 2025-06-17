@@ -88,7 +88,7 @@ namespace {
                 //std::cout << fmt::format("{} state diff: {}\n", path, post_keyvals.diff(tc.post.keyvals));
                 const auto k = merkle::trie::key_t::from_hex<merkle::trie::key_t>("0D000000000000000000000000000000000000000000000000000000000000");
                 std::cout << fmt::format("L pi: {}\n", chain.state().pi);
-                std::cout << fmt::format("R pi: {}\n", from_bytes<decltype(chain.state().pi)>(tc.post.keyvals.at(k)));
+                std::cout << fmt::format("R pi: {}\n", from_bytes<decltype(chain.state().pi.get())>(tc.post.keyvals.at(k)));
             }
             //expect(chain.state().state_dict() == tc.post.keyvals) << path;
             // TODO: temporarily disabled, re-enabled after an investigation

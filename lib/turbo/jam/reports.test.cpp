@@ -168,8 +168,12 @@ namespace {
             archive.process("recent_blocks"sv, self.beta);
             archive.process("auth_pools"sv, self.alpha);
             serialize_accounts(archive, "accounts"sv, self.delta);
-            archive.process("cores_statistics"sv, self.pi.cores);
-            archive.process("services_statistics"sv, self.pi.services);
+            {
+                auto new_pi = self.pi.get();
+                archive.process("cores_statistics"sv, new_pi.cores);
+                archive.process("services_statistics"sv, new_pi.services);
+                self.pi.set(std::move(new_pi));
+            }
         }
 
         void serialize(auto &archive)
@@ -212,8 +216,10 @@ namespace {
             err_code_t::catch_into(
                 [&] {
                     auto tmp_st = tc.pre;
-                    out.emplace(tmp_st.update_reports(tc.in.slot, tc.in.guarantees,
+                    auto new_pi = tmp_st.pi.get();
+                    out.emplace(tmp_st.update_reports(new_pi, tc.in.slot, tc.in.guarantees,
                         tc.pre.alpha.get(), tc.pre.beta.get()));
+                    tmp_st.pi.set(std::move(new_pi));
                     res_st = std::move(tmp_st);
                 },
                 [&](err_code_t err) {

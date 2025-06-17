@@ -52,19 +52,19 @@ namespace turbo::jam {
             return false;
         if (lambda.get() != o.lambda.get())
             return false;
-        if (nu != o.nu)
+        if (nu.get() != o.nu.get())
             return false;
-        if (ksi != o.ksi)
+        if (ksi.get() != o.ksi.get())
             return false;
-        if (pi != o.pi)
+        if (pi.get() != o.pi.get())
             return false;
-        if (rho != o.rho)
+        if (rho.get() != o.rho.get())
             return false;
         if (tau.get() != o.tau.get())
             return false;
-        if (phi != o.phi)
+        if (phi.get() != o.phi.get())
             return false;
-        if (chi != o.chi)
+        if (chi.get() != o.chi.get())
             return false;
         if (psi.get() != o.psi.get())
             return false;
@@ -89,13 +89,13 @@ namespace turbo::jam {
         compare_item("iota"sv, iota.get(), o.iota.get());
         compare_item("kappa"sv, kappa.get(), o.kappa.get());
         compare_item("lambda"sv, lambda.get(), o.lambda.get());
-        compare_item("nu"sv, nu, o.nu);
-        compare_item("ksi"sv, ksi, o.ksi);
-        compare_item("pi"sv, pi, o.pi);
-        compare_item("rho"sv, rho, o.rho);
+        compare_item("nu"sv, nu.get(), o.nu.get());
+        compare_item("ksi"sv, ksi.get(), o.ksi.get());
+        compare_item("pi"sv, pi.get(), o.pi.get());
+        compare_item("rho"sv, rho.get(), o.rho.get());
         compare_item("tau"sv, tau.get(), o.tau.get());
-        compare_item("phi"sv, phi, o.phi);
-        compare_item("chi"sv, chi, o.chi);
+        compare_item("phi"sv, phi.get(), o.phi.get());
+        compare_item("chi"sv, chi.get(), o.chi.get());
         compare_item("psi"sv, psi.get(), o.psi.get());
         std::optional<std::string> res {};
         if (!diff_text.empty())
@@ -170,7 +170,7 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::provide_preimages(const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages)
+    void state_t<CONFIG>::provide_preimages(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages)
     {
         const preimage_t *prev = nullptr;
         for (const auto &p: preimages) {
@@ -189,7 +189,7 @@ namespace turbo::jam {
             if (!created) [[unlikely]]
                 throw err_preimage_unneeded_t {};
             meta_it->second.emplace_back(slot);
-            auto &service_stats = pi.services[p.requester];
+            auto &service_stats = new_pi.services[p.requester];
             ++service_stats.provided_count;
             service_stats.provided_size += p.blob.size();
         }
@@ -302,15 +302,15 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::update_statistics(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic)
+    void state_t<CONFIG>::update_statistics(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic)
     {
         if (slot.epoch() > prev_tau.epoch()) {
-            pi.last = pi.current;
-            pi.current = decltype(pi.current) {};
+            new_pi.last = new_pi.current;
+            new_pi.current = decltype(new_pi.current) {};
         }
         if (val_idx >= CONFIG::validator_count) [[unlikely]]
             throw err_bad_validator_index_t {};
-        auto &stats = pi.current.at(val_idx);
+        auto &stats = new_pi.current.at(val_idx);
         ++stats.blocks;
         stats.tickets += extrinsic.tickets.size();
         stats.pre_images += extrinsic.preimages.size();
@@ -319,11 +319,11 @@ namespace turbo::jam {
         }
         for (const auto &g: extrinsic.guarantees) {
             for (const auto &s: g.signatures) {
-                ++pi.current.at(s.validator_index).guarantees;
+                ++new_pi.current.at(s.validator_index).guarantees;
             }
         }
         for (const auto &a: extrinsic.assurances) {
-            ++pi.current.at(a.validator_index).assurances;
+            ++new_pi.current.at(a.validator_index).assurances;
         }
     }
 
@@ -371,7 +371,8 @@ namespace turbo::jam {
 
     // JAM (12.16)
     template<typename CONFIG>
-    delta_plus_result_t<CONFIG> state_t<CONFIG>::accumulate_plus(const time_slot_t<CONFIG> slot, const gas_t gas_limit, const work_reports_t<CONFIG> &reports)
+    delta_plus_result_t<CONFIG> state_t<CONFIG>::accumulate_plus(const time_slot_t<CONFIG> slot, const gas_t gas_limit, const work_reports_t<CONFIG> &reports,
+        const free_services_t &prev_free_services)
     {
         delta_plus_result_t<CONFIG> res { delta };
 
@@ -386,14 +387,15 @@ namespace turbo::jam {
                 ++num_ok;
             }
 
-            res.consume_from(accumulate_star(slot, std::span { reports.data(), num_ok }));
+            res.consume_from(accumulate_star(slot, std::span { reports.data(), num_ok }, prev_free_services));
         }
         return res;
     }
 
     // JAM (12.17)
     template<typename CONFIG>
-    delta_star_result_t<CONFIG> state_t<CONFIG>::accumulate_star(const time_slot_t<CONFIG> slot, const std::span<const work_report_t<CONFIG>> reports)
+    delta_star_result_t<CONFIG> state_t<CONFIG>::accumulate_star(const time_slot_t<CONFIG> slot, const std::span<const work_report_t<CONFIG>> reports,
+        const free_services_t &prev_free_services)
     {
         accumulate_service_operands_t service_ops {};
         for (const auto &r: reports) {
@@ -413,12 +415,12 @@ namespace turbo::jam {
         }
 
         // JAM (12.17) - Ensure that free services are always accumulated
-        for (const auto &fs: chi.always_acc)
+        for (const auto &fs: prev_free_services)
             service_ops.try_emplace(fs.id);
 
         delta_star_result_t<CONFIG> res {};
         for (const auto &[service_id, ops]: service_ops) {
-            auto acc_res = invoke_accumulate(slot, service_id, ops);
+            auto acc_res = invoke_accumulate(slot, service_id, ops, prev_free_services);
             if (acc_res.num_reports) {
                 res.num_accumulated += acc_res.num_reports;
                 res.results.try_emplace(service_id, std::move(acc_res));
@@ -428,7 +430,8 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    accumulate_result_t<CONFIG> state_t<CONFIG>::invoke_accumulate(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate_operands_t &ops)
+    accumulate_result_t<CONFIG> state_t<CONFIG>::invoke_accumulate(const time_slot_t<CONFIG> slot, const service_id_t service_id, const accumulate_operands_t &ops,
+        const free_services_t &prev_free_services)
     {
         auto &service = delta.at(service_id);
         encoder arg_enc {};
@@ -448,7 +451,7 @@ namespace turbo::jam {
                 throw error(fmt::format("the blob registered for code hash {} has hash {}", service.info.code_hash, code_hash));
 
             gas_t::base_type gas_limit = 0;
-            for (const auto &fs: chi.always_acc) {
+            for (const auto &fs: prev_free_services) {
                 if (fs.id == service_id)
                     gas_limit += fs.gas;
             }
@@ -512,11 +515,11 @@ namespace turbo::jam {
 
     // produces: accumulate_root, iota', psi' and chi'
     template<typename CONFIG>
-    accumulate_root_t state_t<CONFIG>::accumulate(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports)
+    accumulate_root_t state_t<CONFIG>::accumulate(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports)
     {
         // JAM Paper (12.2)
         set_t<work_package_hash_t> known_reports {};
-        for (const auto &er: ksi) {
+        for (const auto &er: ksi.get()) {
             known_reports.reserve(known_reports.size() + er.size());
             known_reports.insert_unique(er.begin(), er.end());
         }
@@ -546,10 +549,11 @@ namespace turbo::jam {
 
         // (12.11) - work immediate is w_star after this point
 
+        const auto &prev_nu = nu.get();
         ready_queue_item_t<CONFIG> all_queued {};
-        for (size_t i = 0; i < nu.size(); ++i) {
-            const auto nu_i = (m + i) % nu.size();
-            for (const auto &rr: nu[nu_i])
+        for (size_t i = 0; i < prev_nu.size(); ++i) {
+            const auto nu_i = (m + i) % prev_nu.size();
+            for (const auto &rr: prev_nu[nu_i])
                 all_queued.emplace_back(rr);
         }
         for (const auto &rr: work_queued)
@@ -562,11 +566,12 @@ namespace turbo::jam {
         boost::container::flat_set<service_id_t> free_services {};
         gas_t::base_type gas_limit = CONFIG::max_work_report_accumulate_gas * CONFIG::core_count;
 
-        free_services.reserve(chi.always_acc.size());
-        for (auto &fs: chi.always_acc)
+        const auto &prev_chi = chi.get();
+        free_services.reserve(prev_chi.always_acc.size());
+        for (auto &fs: prev_chi.always_acc)
             free_services.emplace_hint(free_services.end(), fs.id);
 
-        for (const auto &re: nu) {
+        for (const auto &re: prev_nu) {
             for (const auto &ri: re) {
                 for (const auto &rr: ri.report.results) {
                     if (free_services.contains(rr.service_id))
@@ -578,22 +583,22 @@ namespace turbo::jam {
             gas_limit = CONFIG::max_total_accumulation_gas;
 
         // (12.22)
-        auto plus_res = accumulate_plus(slot, gas_limit, work_immediate);
+        auto plus_res = accumulate_plus(slot, gas_limit, work_immediate, prev_chi.always_acc);
         // (12.23)
         plus_res.state.services.commit();
         if (plus_res.state.privileges)
-            chi = *plus_res.state.privileges;
+            chi.set(std::move(*plus_res.state.privileges));
         if (plus_res.state.iota)
             iota.set(std::move(*plus_res.state.iota));
         if (plus_res.state.queue)
-            phi = *plus_res.state.queue;
+            phi.set(std::move(*plus_res.state.queue));
 
         // core and service statistics are tracked per-block only! (13.11)
-        pi.services.clear();
+        new_pi.services.clear();
 
         // (12.24) (12.25) (12.26)
         for (const auto &[s_id, work_info]: plus_res.work_items) {
-            auto &s_stats = pi.services[s_id];
+            auto &s_stats = new_pi.services[s_id];
             //s_stats.accumulate_count += work_info.num_reports;
             //s_stats.accumulate_gas_used += work_info.gas_used;
             s_stats.accumulate_count = work_info.num_reports;
@@ -609,38 +614,43 @@ namespace turbo::jam {
         // (12.28) (12.29) (12.30) (12.31)
         for (const auto &[s_id, s_transfers]: dst_transfers) {
             const auto gas_used = invoke_on_transfer(slot, s_id, s_transfers);
-            auto &stats = pi.services[s_id];
+            auto &stats = new_pi.services[s_id];
             stats.on_transfers_count += s_transfers.size();
             stats.on_transfers_gas_used += gas_used;
         }
 
         // (12.33)
-        for (size_t i = 0; i < ksi.size() - 1; ++i)
-            ksi[i] = std::move(ksi[i + 1]);
+        auto new_ksi = ksi.get();
+        for (size_t i = 0; i < new_ksi.size() - 1; ++i)
+            new_ksi[i] = std::move(new_ksi[i + 1]);
         // (12.32)
         const auto accumulated_report_hashes = std::ranges::to<std::vector>(work_immediate
             | std::views::take(plus_res.num_accumulated)
             | std::views::transform([](const auto &wr) { return wr.package_spec.hash; }));
-        ksi.back().clear();
-        ksi.back().reserve(accumulated_report_hashes.size());
+        new_ksi.back().clear();
+        new_ksi.back().reserve(accumulated_report_hashes.size());
         for (const auto &wrh: accumulated_report_hashes)
-            ksi.back().emplace(wrh);
+            new_ksi.back().emplace(wrh);
 
         // The actually accumulated report set can be a subset of the reports ready for accumulation due to the gas limit.
         // Therefore, the nu must be updated given the list of actually accumulated reports
 
         // (12.34)
-        accumulate_update_deps(nu[m], ksi.back());
+        auto new_nu = nu.get();
+        accumulate_update_deps(new_nu[m], new_ksi.back());
         const auto time_step = slot.slot() - prev_tau.slot();
-        for (size_t i = 0; i < nu.size(); ++i) {
-            const auto nu_i = (m + nu.size() - i) % nu.size();
+        for (size_t i = 0; i < new_nu.size(); ++i) {
+            const auto nu_i = (m + new_nu.size() - i) % new_nu.size();
             if (i == 0) {
-                nu[nu_i] = std::move(work_queued);
+                new_nu[nu_i] = std::move(work_queued);
             } else if (i >= 1 && i < time_step) {
-                nu[nu_i].clear();
+                new_nu[nu_i].clear();
             }
-            accumulate_update_deps(nu[nu_i], ksi.back());
+            accumulate_update_deps(new_nu[nu_i], new_ksi.back());
         }
+
+        nu.set(std::move(new_nu));
+        ksi.set(std::move(new_ksi));
 
         // (7.3)
         std::vector<merkle::hash_t> nodes {};
@@ -664,195 +674,200 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    reports_output_data_t state_t<CONFIG>::update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees,
+    reports_output_data_t state_t<CONFIG>::update_reports(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees,
         const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta)
     {
         const auto &new_eta = eta.get();
         const auto &new_psi = psi.get();
         const auto &new_kappa = kappa.get();
         const auto &new_lambda = lambda.get();
+        const auto &prev_rho = rho.get();
         reports_output_data_t res {};
 
-        std::set<opaque_hash_t> known_packages {};
-        std::set<opaque_hash_t> known_segment_roots {};
-        for (const auto &blk: prev_beta) {
-            for (const auto &wr: blk.reported) {
-                known_packages.insert(wr.hash);
-                known_segment_roots.insert(wr.exports_root);
-            }
-        }
-
-        std::set<opaque_hash_t> wp_hashes {};
-        for (const auto &g: guarantees) {
-            wp_hashes.emplace(g.report.package_spec.hash);
-            known_segment_roots.insert(g.report.package_spec.exports_root);
-        }
-
-        std::optional<core_index_t> prev_core {};
-        const auto current_guarantors = _guarantor_assignments(new_eta[2], slot);
-        const auto current_guarantor_sigs = _capital_phi(new_kappa, new_psi.offenders);
-        const auto prev_guarantors = _guarantor_assignments(new_eta[3], slot.slot() - CONFIG::core_assignment_rotation_period);
-        const auto prev_guarantor_sigs = _capital_phi(new_lambda, new_psi.offenders);
-        for (const auto &g: guarantees) {
-            // JAM Paper (11.33)
-            const auto blk_it = std::find_if(prev_beta.begin(), prev_beta.end(), [&g](const auto &blk) {
-                return blk.header_hash == g.report.context.anchor;
-            });
-            if (blk_it == prev_beta.end()) [[unlikely]]
-                throw err_anchor_not_recent_t {};
-            if (blk_it->state_root != g.report.context.state_root) [[unlikely]]
-                throw err_bad_state_root_t {};
-            if (blk_it->mmr.root() != g.report.context.beefy_root) [[unlikely]]
-                throw err_bad_beefy_mmr_root_t {};
-            if (g.report.core_index >= rho.size()) [[unlikely]]
-                throw err_bad_core_index_t {};
-            if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
-                throw err_out_of_order_guarantee_t {};
-            // JAM (11.3)
-            if (g.report.segment_root_lookup.size() + g.report.context.prerequisites.size() > CONFIG::max_report_dependencies) [[unlikely]]
-                throw err_too_many_dependencies_t {};
-            prev_core = g.report.core_index;
-            if (g.slot > slot) [[unlikely]]
-                throw err_future_report_slot_t {};
-            {
-                static_assert(CONFIG::epoch_length % CONFIG::core_assignment_rotation_period == 0);
-                const auto current_rotation = slot.slot() / CONFIG::core_assignment_rotation_period;
-                const auto report_rotation = g.slot.slot() / CONFIG::core_assignment_rotation_period;
-                if (current_rotation - report_rotation >= 2) [[unlikely]]
-                    throw err_report_epoch_before_last_t {};
-            }
-            const auto same_rotation = g.slot.epoch_slot() / CONFIG::core_assignment_rotation_period == slot.epoch_slot() / CONFIG::core_assignment_rotation_period;
-            const auto &guarantors = same_rotation ? current_guarantors : prev_guarantors;
-            const auto &guarantor_sigs = same_rotation ? current_guarantor_sigs : prev_guarantor_sigs;
-
-            // JAM Paper (11.34)
-            if (g.report.context.lookup_anchor_slot.slot() + CONFIG::max_lookup_anchor_age < slot) [[unlikely]]
-                throw err_segment_root_lookup_invalid_t {};
-
-            // JAM Paper (11.35)
-            const auto lblk_it = std::find_if(prev_beta.begin(), prev_beta.end(), [&g](const auto &blk) {
-                return blk.header_hash == g.report.context.lookup_anchor;
-            });
-            if (lblk_it == prev_beta.end()) [[unlikely]]
-                throw err_segment_root_lookup_invalid_t {};
-
-            // JAM Paper (11.38)
-            if (known_packages.contains(g.report.package_spec.hash)) [[unlikely]]
-                throw err_duplicate_package_t {};
-            // + add a check that the package is not in the accumulation queue
-            // + add a check that the package is not in the accumulation history
-
-            // JAM Paper (11.3)
-            if (g.report.context.prerequisites.size() + g.report.segment_root_lookup.size() > CONFIG::max_report_dependencies) [[unlikely]]
-                throw err_too_many_dependencies_t {};
-
-            // circular dependencies are allowed
-            for (const auto &pr: g.report.context.prerequisites) {
-                if (!known_packages.contains(pr) && !wp_hashes.contains(pr)) [[unlikely]]
-                    throw err_dependency_missing_t {};
-            }
-
-            for (const auto &s: g.report.segment_root_lookup) {
-                if (!known_packages.contains(s.work_package_hash) && !wp_hashes.contains(s.work_package_hash)) [[unlikely]]
-                    throw err_segment_root_lookup_invalid_t {};
-                if (!known_segment_roots.contains(s.segment_tree_root)) [[unlikely]]
-                    throw err_segment_root_lookup_invalid_t {};
-            }
-
-            // JAM Paper: (11.29)
-            {
-                if (rho[g.report.core_index])
-                    throw err_core_engaged_t {};
-                const auto &auth_pool = prev_alpha[g.report.core_index];
-                const auto auth_it = std::find(auth_pool.begin(), auth_pool.end(), g.report.authorizer_hash);
-                if (auth_it == auth_pool.end()) [[unlikely]]
-                    throw err_core_unauthorized_t {};
-            }
-
-            rho[g.report.core_index] = availability_assignment_t<CONFIG> {
-                .report=g.report, .timeout=slot.slot()
-            };
-            res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
-
-            uint8_vector msg {};
-            msg << std::string_view { "jam_guarantee" };
-            {
-                encoder enc { g.report };
-                msg << crypto::blake2b::digest(enc.bytes());
-            }
-            std::optional<validator_index_t> prev_validator {};
-            for (const auto &s: g.signatures) {
-                if (s.validator_index >= new_kappa.size()) [[unlikely]]
-                    throw err_bad_validator_index_t {};
-
-                // JAM Paper (11.25)
-                if (prev_validator && *prev_validator >= s.validator_index) [[unlikely]]
-                    throw err_not_sorted_or_unique_guarantors_t {};
-                prev_validator = s.validator_index;
-
-                if (guarantors[s.validator_index] != g.report.core_index) [[unlikely]]
-                    throw err_wrong_assignment_t {};
-
-                const auto &vk = guarantor_sigs[s.validator_index].ed25519;
-                if (!crypto::ed25519::verify(s.signature, msg, vk)) [[unlikely]]
-                    throw err_bad_signature_t {};
-                res.reporters.emplace_back(vk);
-            }
-            if (g.signatures.size() < CONFIG::min_guarantors) [[unlikely]]
-                throw err_insufficient_guarantees_t {};
-
-            pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
-            size_t blobs_size = g.report.auth_output.size();
-            gas_t total_accumulate_gas = 0;
-            auto &core_stats = pi.cores[g.report.core_index];
-
-            for (const auto &r: g.report.results) {
-                if (std::holds_alternative<work_result_ok_t>(r.result)) {
-                    blobs_size += std::get<work_result_ok_t>(r.result).data.size();
+        if (!guarantees.empty()) {
+            std::set<opaque_hash_t> known_packages {};
+            std::set<opaque_hash_t> known_segment_roots {};
+            for (const auto &blk: prev_beta) {
+                for (const auto &wr: blk.reported) {
+                    known_packages.insert(wr.hash);
+                    known_segment_roots.insert(wr.exports_root);
                 }
-                const auto s_it = delta.find(r.service_id);
-                if (s_it == delta.end()) [[unlikely]]
-                    throw err_bad_service_id_t {};
-                if (s_it->second.info.code_hash != r.code_hash) [[unlikely]]
-                    throw err_bad_code_hash_t {};
-
-                // JAM (11.30) part 1
-                if (r.accumulate_gas < s_it->second.info.min_item_gas) [[unlikely]]
-                    throw err_service_item_gas_too_low_t {};
-                total_accumulate_gas += r.accumulate_gas;
-
-                core_stats.gas_used += r.refine_load.gas_used;
-                core_stats.imports += r.refine_load.imports;
-                core_stats.extrinsic_count += r.refine_load.extrinsic_count;
-                core_stats.extrinsic_size += r.refine_load.extrinsic_size;
-                core_stats.exports += r.refine_load.exports;
-
-                auto &service_stats = pi.services[r.service_id];
-                ++service_stats.refinement_count;
-                service_stats.refinement_gas_used += r.refine_load.gas_used;
-                service_stats.imports += r.refine_load.imports;
-                service_stats.exports += r.refine_load.exports;
-                service_stats.extrinsic_size += r.refine_load.extrinsic_size;
-                service_stats.extrinsic_count += r.refine_load.extrinsic_count;
             }
-            // JAM (11.30) part 2
-            if (total_accumulate_gas > CONFIG::max_work_report_accumulate_gas) [[unlikely]]
-                throw err_work_report_gas_too_high_t {};
 
-            // JAM Paper (11.8)
-            if (blobs_size > CONFIG::max_blobs_size) [[unlikely]]
-                throw err_work_report_too_big_t {};
+            std::set<opaque_hash_t> wp_hashes {};
+            for (const auto &g: guarantees) {
+                wp_hashes.emplace(g.report.package_spec.hash);
+                known_segment_roots.insert(g.report.package_spec.exports_root);
+            }
+
+            std::optional<core_index_t> prev_core {};
+            const auto current_guarantors = _guarantor_assignments(new_eta[2], slot);
+            const auto current_guarantor_sigs = _capital_phi(new_kappa, new_psi.offenders);
+            const auto prev_guarantors = _guarantor_assignments(new_eta[3], slot.slot() - CONFIG::core_assignment_rotation_period);
+            const auto prev_guarantor_sigs = _capital_phi(new_lambda, new_psi.offenders);
+            auto new_rho = prev_rho;
+            for (const auto &g: guarantees) {
+                // JAM Paper (11.33)
+                const auto blk_it = std::find_if(prev_beta.begin(), prev_beta.end(), [&g](const auto &blk) {
+                    return blk.header_hash == g.report.context.anchor;
+                });
+                if (blk_it == prev_beta.end()) [[unlikely]]
+                    throw err_anchor_not_recent_t {};
+                if (blk_it->state_root != g.report.context.state_root) [[unlikely]]
+                    throw err_bad_state_root_t {};
+                if (blk_it->mmr.root() != g.report.context.beefy_root) [[unlikely]]
+                    throw err_bad_beefy_mmr_root_t {};
+                if (g.report.core_index >= prev_rho.size()) [[unlikely]]
+                    throw err_bad_core_index_t {};
+                if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
+                    throw err_out_of_order_guarantee_t {};
+                // JAM (11.3)
+                if (g.report.segment_root_lookup.size() + g.report.context.prerequisites.size() > CONFIG::max_report_dependencies) [[unlikely]]
+                    throw err_too_many_dependencies_t {};
+                prev_core = g.report.core_index;
+                if (g.slot > slot) [[unlikely]]
+                    throw err_future_report_slot_t {};
+                {
+                    static_assert(CONFIG::epoch_length % CONFIG::core_assignment_rotation_period == 0);
+                    const auto current_rotation = slot.slot() / CONFIG::core_assignment_rotation_period;
+                    const auto report_rotation = g.slot.slot() / CONFIG::core_assignment_rotation_period;
+                    if (current_rotation - report_rotation >= 2) [[unlikely]]
+                        throw err_report_epoch_before_last_t {};
+                }
+                const auto same_rotation = g.slot.epoch_slot() / CONFIG::core_assignment_rotation_period == slot.epoch_slot() / CONFIG::core_assignment_rotation_period;
+                const auto &guarantors = same_rotation ? current_guarantors : prev_guarantors;
+                const auto &guarantor_sigs = same_rotation ? current_guarantor_sigs : prev_guarantor_sigs;
+
+                // JAM Paper (11.34)
+                if (g.report.context.lookup_anchor_slot.slot() + CONFIG::max_lookup_anchor_age < slot) [[unlikely]]
+                    throw err_segment_root_lookup_invalid_t {};
+
+                // JAM Paper (11.35)
+                const auto lblk_it = std::find_if(prev_beta.begin(), prev_beta.end(), [&g](const auto &blk) {
+                    return blk.header_hash == g.report.context.lookup_anchor;
+                });
+                if (lblk_it == prev_beta.end()) [[unlikely]]
+                    throw err_segment_root_lookup_invalid_t {};
+
+                // JAM Paper (11.38)
+                if (known_packages.contains(g.report.package_spec.hash)) [[unlikely]]
+                    throw err_duplicate_package_t {};
+                // + add a check that the package is not in the accumulation queue
+                // + add a check that the package is not in the accumulation history
+
+                // JAM Paper (11.3)
+                if (g.report.context.prerequisites.size() + g.report.segment_root_lookup.size() > CONFIG::max_report_dependencies) [[unlikely]]
+                    throw err_too_many_dependencies_t {};
+
+                // circular dependencies are allowed
+                for (const auto &pr: g.report.context.prerequisites) {
+                    if (!known_packages.contains(pr) && !wp_hashes.contains(pr)) [[unlikely]]
+                        throw err_dependency_missing_t {};
+                }
+
+                for (const auto &s: g.report.segment_root_lookup) {
+                    if (!known_packages.contains(s.work_package_hash) && !wp_hashes.contains(s.work_package_hash)) [[unlikely]]
+                        throw err_segment_root_lookup_invalid_t {};
+                    if (!known_segment_roots.contains(s.segment_tree_root)) [[unlikely]]
+                        throw err_segment_root_lookup_invalid_t {};
+                }
+
+                // JAM Paper: (11.29)
+                {
+                    if (new_rho[g.report.core_index])
+                        throw err_core_engaged_t {};
+                    const auto &auth_pool = prev_alpha[g.report.core_index];
+                    const auto auth_it = std::find(auth_pool.begin(), auth_pool.end(), g.report.authorizer_hash);
+                    if (auth_it == auth_pool.end()) [[unlikely]]
+                        throw err_core_unauthorized_t {};
+                }
+
+                new_rho[g.report.core_index] = availability_assignment_t<CONFIG> {
+                    .report=g.report, .timeout=slot.slot()
+                };
+                res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
+
+                uint8_vector msg {};
+                msg << std::string_view { "jam_guarantee" };
+                {
+                    encoder enc { g.report };
+                    msg << crypto::blake2b::digest(enc.bytes());
+                }
+                std::optional<validator_index_t> prev_validator {};
+                for (const auto &s: g.signatures) {
+                    if (s.validator_index >= new_kappa.size()) [[unlikely]]
+                        throw err_bad_validator_index_t {};
+
+                    // JAM Paper (11.25)
+                    if (prev_validator && *prev_validator >= s.validator_index) [[unlikely]]
+                        throw err_not_sorted_or_unique_guarantors_t {};
+                    prev_validator = s.validator_index;
+
+                    if (guarantors[s.validator_index] != g.report.core_index) [[unlikely]]
+                        throw err_wrong_assignment_t {};
+
+                    const auto &vk = guarantor_sigs[s.validator_index].ed25519;
+                    if (!crypto::ed25519::verify(s.signature, msg, vk)) [[unlikely]]
+                        throw err_bad_signature_t {};
+                    res.reporters.emplace_back(vk);
+                }
+                if (g.signatures.size() < CONFIG::min_guarantors) [[unlikely]]
+                    throw err_insufficient_guarantees_t {};
+
+                new_pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
+                size_t blobs_size = g.report.auth_output.size();
+                gas_t total_accumulate_gas = 0;
+                auto &core_stats = new_pi.cores[g.report.core_index];
+
+                for (const auto &r: g.report.results) {
+                    if (std::holds_alternative<work_result_ok_t>(r.result)) {
+                        blobs_size += std::get<work_result_ok_t>(r.result).data.size();
+                    }
+                    const auto s_it = delta.find(r.service_id);
+                    if (s_it == delta.end()) [[unlikely]]
+                        throw err_bad_service_id_t {};
+                    if (s_it->second.info.code_hash != r.code_hash) [[unlikely]]
+                        throw err_bad_code_hash_t {};
+
+                    // JAM (11.30) part 1
+                    if (r.accumulate_gas < s_it->second.info.min_item_gas) [[unlikely]]
+                        throw err_service_item_gas_too_low_t {};
+                    total_accumulate_gas += r.accumulate_gas;
+
+                    core_stats.gas_used += r.refine_load.gas_used;
+                    core_stats.imports += r.refine_load.imports;
+                    core_stats.extrinsic_count += r.refine_load.extrinsic_count;
+                    core_stats.extrinsic_size += r.refine_load.extrinsic_size;
+                    core_stats.exports += r.refine_load.exports;
+
+                    auto &service_stats = new_pi.services[r.service_id];
+                    ++service_stats.refinement_count;
+                    service_stats.refinement_gas_used += r.refine_load.gas_used;
+                    service_stats.imports += r.refine_load.imports;
+                    service_stats.exports += r.refine_load.exports;
+                    service_stats.extrinsic_size += r.refine_load.extrinsic_size;
+                    service_stats.extrinsic_count += r.refine_load.extrinsic_count;
+                }
+                // JAM (11.30) part 2
+                if (total_accumulate_gas > CONFIG::max_work_report_accumulate_gas) [[unlikely]]
+                    throw err_work_report_gas_too_high_t {};
+
+                // JAM Paper (11.8)
+                if (blobs_size > CONFIG::max_blobs_size) [[unlikely]]
+                    throw err_work_report_too_big_t {};
+            }
+            // Jam Paper (11.32)
+            if (guarantees.size() != wp_hashes.size()) [[unlikely]]
+                throw err_duplicate_package_t {};
+            std::sort(res.reported.begin(), res.reported.end());
+            std::sort(res.reporters.begin(), res.reporters.end());
+            rho.set(std::move(new_rho));
         }
-        // Jam Paper (11.32)
-        if (guarantees.size() != wp_hashes.size()) [[unlikely]]
-            throw err_duplicate_package_t {};
-        std::sort(res.reported.begin(), res.reported.end());
-        std::sort(res.reporters.begin(), res.reporters.end());
         return res;
     }
 
     template<typename CONFIG>
-    offenders_mark_t state_t<CONFIG>::update_disputes(const time_slot_t<CONFIG> &prev_tau, const disputes_extrinsic_t<CONFIG> &disputes)
+    offenders_mark_t state_t<CONFIG>::update_disputes(availability_assignments_t<CONFIG> &new_rho, const time_slot_t<CONFIG> &prev_tau, const disputes_extrinsic_t<CONFIG> &disputes)
     {
         offenders_mark_t new_offenders {};
         if (!disputes.empty()) {
@@ -994,7 +1009,7 @@ namespace turbo::jam {
             }
 
             // JAM (10.15)
-            for (auto &ra: rho) {
+            for (auto &ra: new_rho) {
                 if (ra) {
                     encoder enc { ra->report };
                     work_report_hash_t report_hash;
@@ -1074,6 +1089,7 @@ namespace turbo::jam {
         // Work on a copy so that in case of errors the original state remains intact
         // In addition, this makes it easier to differentiate between the original and intermediate state values
         auto new_st = *this;
+        auto new_pi = new_st.pi.get();
 
         // JAM (4.6)
         auto tmp_beta = new_st.beta_dagger(beta.get(), blk.header.parent_state_root);
@@ -1109,21 +1125,22 @@ namespace turbo::jam {
         );
 
         // JAM (4.11) -> psi'
-        new_st.update_disputes(tau.get(), blk.extrinsic.disputes);
+        auto new_rho = new_st.rho.get();
+        new_st.update_disputes(new_rho, tau.get(), blk.extrinsic.disputes);
 
         // JAM (4.12)
-        new_st.update_reports(blk.header.slot, blk.extrinsic.guarantees, alpha.get(), beta.get());
+        new_st.update_reports(new_pi, blk.header.slot, blk.extrinsic.guarantees, alpha.get(), beta.get());
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
         work_reports_t<CONFIG> ready_reports {};
-        new_st.rho = new_st.rho.apply(ready_reports, new_st.kappa.get(), blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
+        new_st.rho.set(new_rho.apply(ready_reports, new_st.kappa.get(), blk.header.slot, blk.header.parent, blk.extrinsic.assurances));
 
         // accumulate
-        accumulate_root_t accumulate_res = new_st.accumulate(tau.get(), blk.header.slot, ready_reports);
+        accumulate_root_t accumulate_res = new_st.accumulate(new_pi, tau.get(), blk.header.slot, ready_reports);
 
         // JAM (4.18)
-        new_st.provide_preimages(blk.header.slot, blk.extrinsic.preimages);
+        new_st.provide_preimages(new_pi, blk.header.slot, blk.extrinsic.preimages);
 
         // JAM (4.6)
         // JAM (4.16)
@@ -1141,11 +1158,12 @@ namespace turbo::jam {
             for (const auto &g: blk.extrinsic.guarantees) {
                 cas.emplace_back(g.report.core_index, g.report.authorizer_hash);
             }
-            new_st.alpha.set(state_t::alpha_prime(blk.header.slot, cas, new_st.phi, alpha.get()));
+            new_st.alpha.set(state_t::alpha_prime(blk.header.slot, cas, new_st.phi.get(), alpha.get()));
         }
 
         // JAM (4.20): pi' <- (E_G, E_P, E_A, E_T, taz, kappa', pi, H)
-        new_st.update_statistics(tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic);
+        new_st.update_statistics(new_pi, tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic);
+        new_st.pi.set(std::move(new_pi));
 
         // JAM (4.5) update tau
         new_st.tau.set(state_t::tau_prime(tau.get(), blk.header.slot));
@@ -1172,10 +1190,10 @@ namespace turbo::jam {
     state_dict_t state_t<CONFIG>::state_dict() const
     {
         state_dict_t st {};
-        st.emplace(state_dict_t::make_key(1), encode(alpha.get()));
+        st.emplace(state_dict_t::make_key(1), encode(alpha));
         st.emplace(state_dict_t::make_key(2), encode(phi));
-        st.emplace(state_dict_t::make_key(3), encode(beta.get()));
-        st.emplace(state_dict_t::make_key(4), encode(gamma.get()));
+        st.emplace(state_dict_t::make_key(3), encode(beta));
+        st.emplace(state_dict_t::make_key(4), encode(gamma));
         st.emplace(state_dict_t::make_key(5), encode(psi));
         st.emplace(state_dict_t::make_key(6), encode(eta));
         st.emplace(state_dict_t::make_key(7), encode(iota));

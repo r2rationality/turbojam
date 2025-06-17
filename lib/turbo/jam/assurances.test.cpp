@@ -152,7 +152,7 @@ namespace {
             [&] {
                 auto tmp_st = tc.pre;
                 output_data_t<CFG> res {};
-                tmp_st.rho = tc.pre.rho.apply(res.reported, tc.pre.kappa.get(), tc.in.slot, tc.in.parent, tc.in.assurances);
+                tmp_st.rho.set(tc.pre.rho.get().apply(res.reported, tc.pre.kappa.get(), tc.in.slot, tc.in.parent, tc.in.assurances));
                 out.emplace(std::move(res));
                 res_st = std::move(tmp_st);
             },

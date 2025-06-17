@@ -78,7 +78,7 @@ namespace {
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
         state_t<CFG> new_st = tc.pre;
-        new_st.alpha.set(state_t<CFG>::alpha_prime(tc.in.slot, tc.in.auths, tc.pre.phi, tc.pre.alpha.get()));
+        new_st.alpha.set(state_t<CFG>::alpha_prime(tc.in.slot, tc.in.auths, tc.pre.phi.get(), tc.pre.alpha.get()));
         expect(new_st == tc.post) << path;
     }
 }

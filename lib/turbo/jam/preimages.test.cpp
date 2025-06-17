@@ -119,7 +119,11 @@ namespace {
                 }
                 st.delta.try_emplace(std::move(id), account_t<CONSTANTS> { .preimages=std::move(preimages), .lookup_metas=std::move(tacc.lookup_metas) });
             }
-            archive.process("statistics"sv, st.pi.services);
+            {
+                auto new_pi = st.pi.get();
+                archive.process("statistics"sv, new_pi.services);
+                st.pi.set(std::move(new_pi));
+            }
             archive.pop();
         }
 
@@ -159,7 +163,9 @@ namespace {
         err_code_t::catch_into(
             [&] {
                 auto tmp_st = tc.pre;
-                tmp_st.provide_preimages(tc.in.slot, tc.in.preimages);
+                auto new_pi = tmp_st.pi.get();
+                tmp_st.provide_preimages(new_pi, tc.in.slot, tc.in.preimages);
+                tmp_st.pi.set(std::move(new_pi));
                 out.emplace(ok_t {});
                 res_st = std::move(tmp_st);
             },

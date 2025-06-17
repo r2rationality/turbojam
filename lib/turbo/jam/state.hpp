@@ -523,33 +523,28 @@ namespace turbo::jam {
     // persistent_value with std::shared_ptr ensures that:
     // 1) the state is cheap to copy
     // 2) automatically searialized into the state_dict on updates
+    // TODO: state_dict should use copy_on_write_ptr_t instead of std::shared_ptr
     template<typename CONFIG=config_prod>
     class state_t {
         kv_store_ptr_t _kv_store;
         std::shared_ptr<state_dict_t> _state_dict = std::make_shared<state_dict_t>();
     public:
-        // authorizations
-        persistent_value_t<auth_pools_t<CONFIG>> alpha { _state_dict, 1U };
-        // most recent blocks
-        persistent_value_t<blocks_history_t<CONFIG>> beta { _state_dict, 3U };
-        // safrole state
-        persistent_value_t<safrole_state_t<CONFIG>> gamma { _state_dict, 4U };
-        accounts_t<CONFIG> delta {}; // services
+        persistent_value_t<auth_pools_t<CONFIG>> alpha { _state_dict, 1U }; // authorizations
+        persistent_value_t<auth_queues_t<CONFIG>> phi {  _state_dict, 2U }; // work authorizer queue
+        persistent_value_t<blocks_history_t<CONFIG>> beta { _state_dict, 3U }; // most recent blocks
+        persistent_value_t<safrole_state_t<CONFIG>> gamma { _state_dict, 4U }; // safrole state
+        persistent_value_t<disputes_records_t> psi { _state_dict, 5U }; // judgements
         persistent_value_t<entropy_buffer_t> eta { _state_dict, 6U };
         persistent_value_t<validators_data_t<CONFIG>> iota { _state_dict, 7U };
         persistent_value_t<validators_data_t<CONFIG>> kappa { _state_dict, 8U };
         persistent_value_t<validators_data_t<CONFIG>> lambda { _state_dict, 9U };
-        availability_assignments_t<CONFIG> rho {}; // assigned work reports
-
+        persistent_value_t<availability_assignments_t<CONFIG>> rho { _state_dict, 10U }; // assigned work reports
         persistent_value_t<time_slot_t<CONFIG>> tau { _state_dict, 11U };
-
-        auth_queues_t<CONFIG> phi {}; // work authorizer queue
-        privileges_t chi {};
-        // judgements
-        persistent_value_t<disputes_records_t> psi { _state_dict, 5U };
-        statistics_t<CONFIG> pi {};
-        ready_queue_t<CONFIG> nu {}; // JAM (12.3): work reports ready to be accumulated
-        accumulated_queue_t<CONFIG> ksi {}; // JAM (12.1): recently accumulated reports
+        persistent_value_t<privileges_t> chi { _state_dict, 12U };
+        persistent_value_t<statistics_t<CONFIG>> pi { _state_dict, 13U };
+        persistent_value_t<ready_queue_t<CONFIG>> nu { _state_dict, 14U }; // JAM (12.3): work reports ready to be accumulated
+        persistent_value_t<accumulated_queue_t<CONFIG>> ksi { _state_dict, 15U }; // JAM (12.1): recently accumulated reports
+        accounts_t<CONFIG> delta {}; // services
 
         state_t(kv_store_ptr_t kv_store):
             _kv_store { std::move(kv_store) }
@@ -592,16 +587,16 @@ namespace turbo::jam {
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
-        reports_output_data_t update_reports(const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees,
+        reports_output_data_t update_reports(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees,
             const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta);
         // JAM (4.11)
-        offenders_mark_t update_disputes(const time_slot_t<CONFIG> &prev_tau, const disputes_extrinsic_t<CONFIG> &disputes);
+        offenders_mark_t update_disputes(availability_assignments_t<CONFIG> &new_rho, const time_slot_t<CONFIG> &prev_tau, const disputes_extrinsic_t<CONFIG> &disputes);
         // JAM (4.18)
-        void provide_preimages(const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages);
+        void provide_preimages(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.20)
-        void update_statistics(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
+        void update_statistics(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
         // JAM (4.16)
-        accumulate_root_t accumulate(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports);
+        accumulate_root_t accumulate(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports);
         // JAM (4.19)
         static auth_pools_t<CONFIG> alpha_prime(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas,
             const auth_queues_t<CONFIG> &new_phi, const auth_pools_t<CONFIG> &prev_alpha);
@@ -615,9 +610,9 @@ namespace turbo::jam {
         static tickets_t<CONFIG> _permute_tickets(const tickets_accumulator_t<CONFIG> &gamma_a);
         static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CONFIG> &slot);
 
-        delta_plus_result_t<CONFIG> accumulate_plus(time_slot_t<CONFIG> slot, gas_t gas_limit, const work_reports_t<CONFIG> &reports);
-        delta_star_result_t<CONFIG> accumulate_star(time_slot_t<CONFIG> slot, std::span<const work_report_t<CONFIG>> reports);
-        accumulate_result_t<CONFIG> invoke_accumulate(time_slot_t<CONFIG> slot, service_id_t service_id, const accumulate_operands_t &ops);
+        delta_plus_result_t<CONFIG> accumulate_plus(time_slot_t<CONFIG> slot, gas_t gas_limit, const work_reports_t<CONFIG> &reports, const free_services_t &prev_free_services);
+        delta_star_result_t<CONFIG> accumulate_star(time_slot_t<CONFIG> slot, std::span<const work_report_t<CONFIG>> reports, const free_services_t &prev_free_services);
+        accumulate_result_t<CONFIG> invoke_accumulate(time_slot_t<CONFIG> slot, service_id_t service_id, const accumulate_operands_t &ops, const free_services_t &prev_free_services);
         gas_t invoke_on_transfer(time_slot_t<CONFIG> slot, service_id_t service_id, const deferred_transfer_ptrs_t &transfers);
     };
 }

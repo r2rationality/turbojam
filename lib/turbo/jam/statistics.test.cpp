@@ -48,8 +48,12 @@ namespace {
         {
             using namespace std::string_view_literals;
             archive.push(name);
-            archive.process("vals_curr_stats"sv, st.pi.current);
-            archive.process("vals_last_stats"sv, st.pi.last);
+            {
+                auto new_pi = st.pi.get();
+                archive.process("vals_curr_stats"sv, new_pi.current);
+                archive.process("vals_last_stats"sv, new_pi.last);
+                st.pi.set(std::move(new_pi));
+            }
             archive.process("slot"sv, st.tau);
             archive.process("curr_validators"sv, st.kappa);
             archive.pop();
@@ -85,10 +89,12 @@ namespace {
         }
         const file::tmp_directory state_dir { "test-jam-statistics" };
         state_t<CFG> new_st { tc.pre };
-        new_st.update_statistics(tc.pre.tau.get(), tc.in.slot, tc.in.author_index, tc.in.extrinsic);
+        auto new_pi = new_st.pi.get();
+        new_st.update_statistics(new_pi, tc.pre.tau.get(), tc.in.slot, tc.in.author_index, tc.in.extrinsic);
+        new_st.pi.set(std::move(new_pi));
         new_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
-        expect(new_st.pi.current == tc.post.pi.current) << path;
-        expect(new_st.pi.last == tc.post.pi.last) << path;
+        expect(new_st.pi.get().current == tc.post.pi.get().current) << path;
+        expect(new_st.pi.get().last == tc.post.pi.get().last) << path;
     }
 }
 

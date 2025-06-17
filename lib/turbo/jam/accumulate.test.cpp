@@ -135,7 +135,11 @@ namespace {
             archive.process("ready_queue"sv, st.nu);
             archive.process("accumulated"sv, st.ksi);
             archive.process("privileges"sv, st.chi);
-            archive.process("statistics"sv, st.pi.services);
+            {
+                auto new_pi = st.pi.get();
+                archive.process("statistics"sv, new_pi.services);
+                st.pi.set(std::move(new_pi));
+            }
             serialize_accounts(archive, "accounts"sv, st.delta);
             archive.pop();
         }
@@ -174,7 +178,9 @@ namespace {
         state_t<CFG> res_st = tc.pre;
         try {
             auto tmp_st = tc.pre;
-            out.emplace(tmp_st.accumulate(tc.pre.tau.get(), tc.in.slot, tc.in.reports));
+            auto new_pi = tmp_st.pi.get();
+            out.emplace(tmp_st.accumulate(new_pi, tc.pre.tau.get(), tc.in.slot, tc.in.reports));
+            tmp_st.pi.set(std::move(new_pi));
             tmp_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
             res_st = std::move(tmp_st);
         } catch (const error &) {
