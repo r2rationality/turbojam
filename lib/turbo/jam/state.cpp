@@ -1191,34 +1191,6 @@ namespace turbo::jam {
         }
     }
 
-    /*template<typename CONFIG>
-    const state_dict_cptr_t &state_t<CONFIG>::state_dict() const
-    {
-        for (const auto &[s_id, s]: delta) {
-            _state_dict->emplace(state_dict_t::make_key(255, s_id), encode(s.info));
-            for (const auto &[k, v]: s.storage) {
-                state_key_subhash_t kh;
-                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 1ULL);
-                memcpy(kh.data() + 4, k.data(), kh.size() - 4);
-                _state_dict->emplace(state_dict_t::make_key(s_id, kh), v);
-            }
-            s.preimages.foreach([&](const auto &k, const auto &v) {
-                state_key_subhash_t kh;
-                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 2ULL);
-                memcpy(kh.data() + 4, k.data() + 1, kh.size() - 4);
-                _state_dict->emplace(state_dict_t::make_key(s_id, kh), v);
-            });
-            for (const auto &[k, v]: s.lookup_metas) {
-                state_key_subhash_t kh;
-                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, k.length);
-                const auto hh = crypto::blake2b::digest(k.hash);
-                memcpy(kh.data() + 4, hh.data() + 2, kh.size() - 4);
-                _state_dict->emplace(state_dict_t::make_key(s_id, kh), encode(v));
-            }
-        }
-        return _state_dict;
-    }*/
-
     template<typename CONFIG>
     state_t<CONFIG> &state_t<CONFIG>::operator=(const state_snapshot_t &st)
     {

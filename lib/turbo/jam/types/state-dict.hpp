@@ -34,6 +34,7 @@ namespace turbo::jam {
 
         state_dict_t(const state_snapshot_t &o)
         {
+            *this = o;
         }
 
         state_dict_t &operator=(const state_snapshot_t &o)
@@ -41,6 +42,7 @@ namespace turbo::jam {
             clear();
             for (const auto &[k, v]: o)
                 set(k, v);
+            return *this;
         }
 
         const value_t &emplace(const key_t &k, const buffer &v)
