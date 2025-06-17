@@ -7,9 +7,15 @@ if(PROJECT_SOURCE_DIR STREQUAL PROJECT_BINARY_DIR)
     message(FATAL_ERROR "In-source builds are not allowed")
 endif()
 if(NOT CMAKE_BUILD_TYPE)
-   set(CMAKE_BUILD_TYPE Release
-       CACHE STRING "Choose the type of build: Release Debug Coverage Profile Valgrind."
-       FORCE)
+   if (MSVC)
+       set(CMAKE_BUILD_TYPE RelWithDebInfo
+               CACHE STRING "Choose the type of build: Release Debug Coverage Profile Valgrind."
+               FORCE)
+   else()
+       set(CMAKE_BUILD_TYPE Release
+           CACHE STRING "Choose the type of build: Release Debug Coverage Profile Valgrind."
+           FORCE)
+   endif()
 endif()
 set(COVERAGE_ARGS "" CACHE STRING "select specific unit tests to run for test coverage evaluations")
 set(CMAKE_CXX_STANDARD 23)
