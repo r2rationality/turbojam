@@ -771,6 +771,8 @@ namespace turbo::jam {
         void apply(const block_t<CONFIG> &);
         std::exception_ptr try_apply(const block_t<CONFIG> &) noexcept;
 
+        std::optional<write_vector> state_get(const state_dict_t::key_t &k) const;
+
         // Methods internally used by the apply and in unit tests
         // Todo: make them protected and the respective unit test classes friends?
 

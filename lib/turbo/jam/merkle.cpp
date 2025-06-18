@@ -4,6 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <functional>
+#include <turbo/common/logger.hpp>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/keccak.hpp>
 #include "merkle.hpp"
@@ -166,19 +167,44 @@ namespace turbo::jam::merkle {
 
         void erase(const key_t &key)
         {
-            _erase(_root, key);
+            if (_erase(_root, key))
+                --_size;
+        }
+
+        void foreach(const observer_t &obs)
+        {
+            std::vector<const node_t *> stack {};
+            if (_root)
+                stack.emplace_back(_root.get());
+            while (!stack.empty()) {
+                const auto *node = stack.back();
+                stack.pop_back();
+                if (node->value)
+                    obs(node->key, *node->value);
+                if (node->right)
+                    stack.emplace_back(node->right.get());
+                if (node->left)
+                    stack.emplace_back(node->left.get());
+            }
+        }
+
+        value_t make_value(const buffer &bytes) const
+        {
+            return { bytes, _hash_func };
         }
 
         const value_t &set(const key_t &key, const buffer &val_bytes)
         {
             auto new_node = std::make_shared<node_t>(key, prefix_max, value_t { val_bytes, _hash_func });
             if (!_root) {
+                ++_size;
                 _root = std::move(new_node);
                 return _root->value.value();
             }
             auto [shared_sz, node_ptr] = _find(_root, key, true);
             auto &node = *node_ptr;
             if (shared_sz < prefix_max) {
+                ++_size;
                 auto split_node = std::make_shared<node_t>(node->key, node->prefix_sz, std::move(node->value), std::move(node->left), std::move(node->right));
                 node->prefix_sz = shared_sz;
                 node->value.reset();
@@ -196,6 +222,11 @@ namespace turbo::jam::merkle {
                 node->value = std::move(new_node->value);
             }
             return node->value.value();
+        }
+
+        size_t size() const
+        {
+            return _size;
         }
 
         [[nodiscard]] const hash_t &root() const
@@ -252,6 +283,7 @@ namespace turbo::jam::merkle {
 
         const hash_func _hash_func;
         node_ptr_t _root {};
+        size_t _size = 0;
 
         static constexpr auto prefix_max = numeric_cast<uint8_t>(key_t::num_bits());
         static_assert(key_t::num_bits() <= std::numeric_limits<uint8_t>::max());
@@ -360,14 +392,31 @@ namespace turbo::jam::merkle {
         _impl->erase(key);
     }
 
+    void trie_t::foreach(const observer_t &obs) const
+    {
+        _impl->foreach(obs);
+    }
+
     const trie_t::opt_value_t &trie_t::get(const key_t &key) const
     {
         return _impl->get(key);
     }
 
+    trie_t::value_t trie_t::make_value(const buffer &bytes) const
+    {
+        return _impl->make_value(bytes);
+    }
+
     const trie_t::value_t &trie_t::set(const key_t &key, const buffer &value)
     {
-        return _impl->set(key, value);
+        const auto &res = _impl->set(key, value);
+        //logger::info("trie_t::set({}, {} bytes) => {}", key, value.size(), res);
+        return res;
+    }
+
+    size_t trie_t::size() const
+    {
+        return _impl->size();
     }
 
     hash_t trie_t::root() const

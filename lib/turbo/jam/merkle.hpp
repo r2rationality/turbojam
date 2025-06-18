@@ -34,7 +34,17 @@ namespace turbo::jam::merkle {
     struct trie_t {
         static constexpr size_t max_in_place_value_size = 32;
         using key_t = byte_array_t<31>;
-        using value_inplace_t = boost::container::static_vector<uint8_t, max_in_place_value_size>;
+
+        struct value_inplace_t: boost::container::static_vector<uint8_t, max_in_place_value_size> {
+            using base_type = boost::container::static_vector<uint8_t, max_in_place_value_size>;
+            using base_type::base_type;
+
+            void serialize(auto &archive)
+            {
+                archive.process_array(*this, 0, max_in_place_value_size);
+            }
+        };
+
         using value_hash_t = hash_t;
 
         using value_base_t = std::variant<value_inplace_t, value_hash_t>;
@@ -44,6 +54,16 @@ namespace turbo::jam::merkle {
             value_t(const buffer &val, const hash_func &hf):
                 base_type { from_byte_sequence(val, hf) }
             {
+            }
+
+            void serialize(auto &archive)
+            {
+                using namespace std::string_view_literals;
+                static std::array<std::string_view, 2> names {
+                    "inplace_value"sv,
+                    "hash"
+                };
+                archive.template process_variant<base_type>(*this, names);
             }
         private:
             static value_base_t from_byte_sequence(const buffer &v, const hash_func &hf)
@@ -56,6 +76,7 @@ namespace turbo::jam::merkle {
             }
         };
         using opt_value_t = std::optional<value_t>;
+        using observer_t = std::function<void(const key_t &, const opt_value_t &)>;
 
         trie_t(const hash_func &hf=blake2b_hash_func);
         trie_t(const trie_t &o);
@@ -66,9 +87,12 @@ namespace turbo::jam::merkle {
         trie_t &operator=(trie_t &&o);
 
         void clear();
+        size_t size() const;
         bool empty() const;
         void erase(const key_t& key);
+        void foreach(const observer_t &obs) const;
         const opt_value_t& get(const key_t& key) const;
+        value_t make_value(const buffer &value) const;
         const value_t &set(const key_t &key, const buffer &value);
         [[nodiscard]] hash_t root() const;
     private:

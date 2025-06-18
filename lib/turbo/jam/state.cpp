@@ -1049,7 +1049,7 @@ namespace turbo::jam {
     {
         blocks_history_t<CONFIG> new_beta = std::move(tmp_beta);
         static mmr_t empty_mmr {};
-        const mmr_t &prev_mmr = new_beta.empty() ? empty_mmr : new_beta.at(new_beta.size() - 1).mmr;
+        const mmr_t &prev_mmr = new_beta.empty() ? empty_mmr : new_beta.back().mmr;
         block_info_t bi {
             .header_hash=hh,
             .mmr=accumulation_result ? prev_mmr.append(*accumulation_result) : prev_mmr,
@@ -1155,7 +1155,7 @@ namespace turbo::jam {
         }
 
         // JAM (4.17)
-        state_t::beta_prime(std::move(tmp_beta), blk.header.hash(), accumulate_res, reported_work);
+        new_st.beta.set(state_t::beta_prime(std::move(tmp_beta), blk.header.hash(), accumulate_res, reported_work));
 
         // (4.19): alpha' <- (H, E_G, psi', and alpha)
         {
@@ -1196,13 +1196,11 @@ namespace turbo::jam {
     {
         using preimage_hh_t = byte_array_t<23>;
         struct lookup_request_t {
-            service_id_t service_id;
-            preimage_hh_t hh;
             uint32_t l;
             lookup_meta_map_val_t<CONFIG> meta;
         };
 
-        std::vector<lookup_request_t> lookup_requests {};
+        std::map<service_id_t, std::map<preimage_hh_t, lookup_request_t>> lookup_requests {};
         const auto decode_service_info = [&](const state_key_t &key, decoder &dec) {
             const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
             const auto [it, created] = delta.try_emplace(
@@ -1241,7 +1239,7 @@ namespace turbo::jam {
                     const buffer meta_hh { key.data() + 8, key.size() - 8 };
                     lookup_meta_map_val_t<CONFIG> meta;
                     dec.process(meta);
-                    lookup_requests.emplace_back(service_id, meta_hh, typ, std::move(meta));
+                    lookup_requests[service_id].try_emplace(meta_hh, typ, std::move(meta));
                     break;
                 }
             }
@@ -1256,7 +1254,6 @@ namespace turbo::jam {
         // TODO: verify that deserialization always clears the previous state!
         using namespace std::string_view_literals;
         for (const auto &[key, bytes]: st) {
-            state_dict->emplace(key, bytes);
             decoder dec { bytes };
             const auto ksum = std::accumulate(key.begin() + 1, key.end(), size_t { 0 });
             const auto k2sum = key[2] + key[4] + key[6] + std::accumulate(key.begin() + 8, key.end(), size_t { 0 });
@@ -1287,28 +1284,45 @@ namespace turbo::jam {
                     break;
             }
         }
-        // Resolve metadata hashes
-        // Slow!!! But this is OK for genesis_state decoding
-        for (auto &&lr: lookup_requests) {
-            auto s_it = delta.find(lr.service_id);
+        // ensure each preimage has a corresponding lookup
+        size_t unresolved = 0;
+        for (auto &[service_id, requests]: lookup_requests) {
+            auto s_it = delta.find(service_id);
             if (s_it == delta.end()) [[unlikely]]
-                throw error(fmt::format("lookup request for unknown service: {}", lr.service_id));
+                throw error(fmt::format("lookup request for unknown service: {}", service_id));
             auto &service = s_it->second;
-            std::optional<opaque_hash_t> meta_hash {};
             service.preimages.foreach([&](const auto &h, const auto &) {
                 const auto hh = crypto::blake2b::digest<opaque_hash_t>(h);
-                if (buffer { hh }.subbuf(2, 23) == lr.hh) {
-                    if (meta_hash) [[unlikely]]
-                        throw error(fmt::format("multiple preimages with the same hash: {}", lr.hh));
-                    meta_hash.emplace(h);
-                }
+                const auto meta_hh = buffer { hh }.subbuf(2, 23);
+                auto r_it = requests.find(meta_hh);
+                if (r_it == requests.end()) [[unlikely]]
+                    throw error(fmt::format("preimage without a lookup: {}", h));
+                lookup_meta_map_key_t meta_key { h, r_it->second.l };
+                service.lookup_metas.set(std::move(meta_key), std::move(r_it->second.meta));
+                requests.erase(r_it);
             });
-            if (!meta_hash) [[unlikely]]
-                throw error(fmt::format("failed to recover preimage with its hash's hash: {}", lr.hh));
-            lookup_meta_map_key_t meta_key { *meta_hash, lr.l };
-            service.lookup_metas.set(std::move(meta_key), std::move(lr.meta));
+            unresolved += requests.size();
         }
+        if (unresolved) [[unlikely]]
+            throw error(fmt::format("state snapshot contains metadata without preimages: {} items", unresolved));
         return *this;
+    }
+
+    template<typename CONFIG>
+    std::optional<write_vector> state_t<CONFIG>::state_get(const state_dict_t::key_t &k) const
+    {
+        const auto &sd_val = state_dict->get(k);
+        if (sd_val) {
+            return std::visit([&](const auto &sv) -> std::optional<write_vector> {
+                using T = std::decay_t<decltype(sv)>;
+                if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
+                    return kv_store->get(sv);
+                } else {
+                    return write_vector { buffer { sv.data(), sv.size() } };
+                }
+            }, *sd_val);
+        }
+        return {};
     }
 
     template struct state_t<config_prod>;

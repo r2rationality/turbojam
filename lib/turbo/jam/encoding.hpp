@@ -429,7 +429,7 @@ namespace turbo::jam {
         } else if constexpr (codec::serializable_c<T>) {
             return codec::from<T>(dec);
         } else {
-            throw error(fmt::format("binary deserialization not support for type {}", typeid(T).name()));
+            throw error(fmt::format("binary deserialization not supported for type {}", typeid(T).name()));
         }
     }
 

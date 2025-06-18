@@ -47,6 +47,12 @@ suite turbo_jam_merkle_suite = [] {
                     expect(prev_root != new_root) << i;
                 prev_root = new_root;
             }
+            size_t foreach_nodes = 0;
+            trie.foreach([&](const auto &k, const auto &v) {
+                ++foreach_nodes;
+            });
+            expect_equal(num_nodes, trie.size());
+            expect_equal(trie.size(), foreach_nodes);
             // erase
             prev_root.reset();
             for (size_t i = 0; i < num_nodes; ++i) {

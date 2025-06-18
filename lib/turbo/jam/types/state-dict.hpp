@@ -4,6 +4,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <turbo/common/logger.hpp>
 #include <turbo/jam/merkle.hpp>
 
 namespace turbo::jam {
@@ -48,6 +49,32 @@ namespace turbo::jam {
         const value_t &emplace(const key_t &k, const buffer &v)
         {
             return set(k, v);
+        }
+
+        bool operator==(const state_snapshot_t &o) const
+        {
+            //if (size() != o.size()) [[unlikely]]
+            //    return false;
+            size_t key_matches = 0;
+            for (const auto &[k, v]: o) {
+                auto ov = make_value(v);
+                auto my_v = get(k);
+                if (!my_v) [[unlikely]] {
+                    logger::info("missing key: {}", k);
+                    return false;
+                }
+                ++key_matches;
+                if (my_v != ov) [[unlikely]] {
+                    logger::info("key {}: expected {}, got {}", k, ov, my_v);
+                    return false;
+                }
+            }
+            if (key_matches != size()) [[unlikely]] {
+                foreach([&](const auto &k, const auto &) {
+                    logger::info("extra key: {}", k);
+                });
+            }
+            return true;
         }
 
         bool operator==(const state_dict_t &o) const
