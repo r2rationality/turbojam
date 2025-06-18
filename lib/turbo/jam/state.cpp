@@ -1090,6 +1090,7 @@ namespace turbo::jam {
     template<typename CONFIG>
     void state_t<CONFIG>::apply(const block_t<CONFIG> &blk)
     {
+        // TODO: delay updates to the global key-value store until it is certain that a roll back won't be necessarygit ad
         using namespace std::string_view_literals;
         // Work on a copy so that in case of errors the original state remains intact
         // In addition, this makes it easier to differentiate between the original and intermediate state values
