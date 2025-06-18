@@ -185,7 +185,7 @@ namespace turbo {
             return *this;
         }
 
-        static consteval [[nodiscard]] size_t num_bits()
+        [[nodiscard]] static consteval size_t num_bits()
         {
             return SZ * 8;
         }

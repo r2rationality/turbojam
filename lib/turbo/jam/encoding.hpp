@@ -30,6 +30,8 @@ namespace turbo::jam {
     struct encoder: codec::archive_t {
         static void uint_fixed(const std::span<uint8_t> &bytes, const size_t num_bytes, const uint64_t val)
         {
+            if (!num_bytes) [[unlikely]]
+                throw error("jam::codec::encoder: uint_fixed: num_bytes must be greater than 0!");
             if (bytes.size() != num_bytes) [[unlikely]]
                 throw error(fmt::format("uint_fixed: expected an output buffer of {} bytes, got {}", num_bytes, bytes.size()));
             auto x = val;
@@ -62,7 +64,8 @@ namespace turbo::jam {
             for (size_t i = 0; i < num_bytes; ++i) {
                 _bytes.emplace_back(0);
             }
-            uint_fixed(std::span { _bytes.end() - num_bytes, _bytes.end() }, num_bytes, val);
+            // emplace_back can reallocate, so take the pointer only after that
+            uint_fixed(std::span { _bytes.data() + _bytes.size() - num_bytes, num_bytes }, num_bytes, val);
         }
 
         void uint_varlen(const uint64_t x)
@@ -85,7 +88,8 @@ namespace turbo::jam {
             const auto bit_mask = static_cast<uint8_t>(0x100 - (uint8_t { 1 } << (8 - l)));
             const auto high_bits = static_cast<uint8_t>(x >> base);
             _bytes.emplace_back(bit_mask | high_bits);
-            uint_fixed(l, x & ((uint64_t { 1 } << base) - 1));
+            if (l > 0)
+                uint_fixed(l, x & ((uint64_t { 1 } << base) - 1));
         }
 
         template<typename T>

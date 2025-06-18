@@ -20,9 +20,9 @@ suite turbo_container_update_map_suite = [] {
             expect_equal(uint8_vector {}, m.get(22));
             m.set(33, uint8_vector::from_hex("00112233"));
             expect_equal(uint8_vector::from_hex("00112233"), m.get(33));
-            expect_equal(0, base.size());
+            expect_equal(0ULL, base.size());
             m.commit();
-            expect_equal(1, base.size());
+            expect_equal(1ULL, base.size());
         };
         "revert"_test = [] {
             std::map<size_t, uint8_vector> base {};

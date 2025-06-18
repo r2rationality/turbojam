@@ -276,7 +276,7 @@ namespace turbo::jam {
         void set(const key_type &key, mapped_type val)
         {
             auto trie_key = _try_key_func(key);
-            auto [it, created] = _keys.try_emplace(key, trie_key);
+            _keys.try_emplace(key, trie_key);
             // Always update the stored value - necessary for service_storage_t
             auto raw_val = _encode(val);
             const auto &sd_val = _state_dict->emplace(trie_key, raw_val);
@@ -301,7 +301,7 @@ namespace turbo::jam {
                 if (o_v != v)
                     ++num_diff;
             });
-            o.foreach([&](const auto &k, const auto &v) {
+            o.foreach([&](const auto &k, const auto &) {
                 if (!get(k))
                     ++num_diff;
             });
@@ -326,7 +326,7 @@ namespace turbo::jam {
         static V _decode(write_vector bytes)
         {
             if constexpr (std::is_same_v<V, write_vector>) {
-                return std::move(bytes);
+                return bytes;
             } else {
                 decoder dec { bytes };
                 V res;
@@ -587,11 +587,11 @@ namespace turbo::jam {
         // JAM: bold d
         mutable_services_state_t<CONFIG> services;
         // JAM: bold i
-        std::optional<validators_data_t<CONFIG>> iota;
+        std::optional<validators_data_t<CONFIG>> iota {};
         // JAM: bold q
-        std::optional<auth_queues_t<CONFIG>> queue;
+        std::optional<auth_queues_t<CONFIG>> queue {};
         // JAM: bold x
-        std::optional<privileges_t> privileges;
+        std::optional<privileges_t> privileges {};
 
         void consume_from(mutable_state_t &&o)
         {
