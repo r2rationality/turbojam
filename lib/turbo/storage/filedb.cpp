@@ -25,9 +25,6 @@ namespace turbo::storage::filedb {
         explicit impl(const std::string_view dir_path):
             _dir_path { dir_path }
         {
-            for (size_t byte0 = 0; byte0 < 0x100; ++byte0) {
-                std::filesystem::create_directories(_subdir_path(byte0));
-            }
         }
 
         void erase(const buffer key)
@@ -62,24 +59,29 @@ namespace turbo::storage::filedb {
         void set(const buffer key, const buffer val)
         {
             const auto final_path = _key_path(key);
-            const auto tmp_path = final_path + ".tmp";
-            // write into a temporary file + rename ensures partial values are never kept/returned.
-            file::write(tmp_path, val);
-            std::filesystem::rename(tmp_path, final_path);
+            // Write as a single OS call to ensure. The OS guarantees the call to be atomic with regard to other OS processes.
+            file::write(final_path, val);
         }
     private:
-        std::filesystem::path _dir_path;
+        const std::filesystem::path _dir_path;
+        mutable std::array<std::optional<std::string>, 256> _sub_dirs {};
 
-        std::filesystem::path _subdir_path(const uint8_t byte0) const
+        const std::string &_subdir_path(const uint8_t byte0) const
         {
-            return _dir_path / fmt::format("{:02X}", byte0);
+            auto &sub_dir = _sub_dirs[byte0];
+            if (!sub_dir) {
+                const auto path = _dir_path / fmt::format("{:02X}", byte0);
+                sub_dir.emplace(path.string());
+                std::filesystem::create_directories(*sub_dir);
+            }
+            return *sub_dir;
         }
 
         std::string _key_path(const buffer key) const
         {
             if (key.size() < 2) [[unlikely]]
                 throw error("filedb: a key must have at least two bytes!!");
-            return (_subdir_path(key[0]) / fmt::format("{}", key)).string();
+            return fmt::format("{}/{}", _subdir_path(key[0]), key);
         }
     };
 
