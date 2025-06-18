@@ -56,7 +56,28 @@ namespace {
         }
     };
 
-    void test_file(const std::string &path, const state_snapshot_t &genesis_state)
+    void test_roots(const std::string &path)
+    {
+        try {
+            const auto tc = jam::load_obj<test_case_t>(path);
+            struct test_vector {
+                const char *name;
+                const state_snapshot_t &keyvals;
+                const state_root_t &root;
+            };
+            for (const auto &[name, keyvals, root]: std::initializer_list<test_vector> {
+                { "pre", tc.pre.keyvals, tc.pre.state_root },
+                { "post", tc.post.keyvals, tc.post.state_root }
+            }) {
+                expect(keyvals.root() == root) << path << name;
+                expect(state_dict_t { keyvals }.root() == root) << path << name;
+            }
+        } catch (const std::exception &ex) {
+            expect(false) << path << ex.what();
+        }
+    }
+
+    void test_transition(const std::string &path, const state_snapshot_t &genesis_state)
     {
         try {
             const auto tc = jam::load_obj<test_case_t>(path + ".bin");
@@ -64,16 +85,6 @@ namespace {
                 const auto j_tc = codec::json::load_obj<test_case_t>(path + ".json");
                 expect(tc == j_tc) << "the json test case does not match the binary one" << path;
             }
-
-            // test round-trip decoding/encoding of the state from the state dictionary
-            /*expect(tc.pre.keyvals.root() == tc.pre.state_root) << path;
-            {
-                // verify that trie_t and direct computation produce the same results
-                state_dict_t st_post = tc.post.keyvals;
-                expect_equal(st_post.root(), tc.post.keyvals.root(), path);
-                expect(st_post == tc.post.keyvals) << path;
-            }
-            expect(tc.post.keyvals.root() == tc.post.state_root) << path;*/
 
             file::tmp_directory data_dir { "test-jam-traces" };
             chain_t<config_tiny> chain {
@@ -84,12 +95,8 @@ namespace {
             };
             if (!tc.pre.keyvals.empty())
                 expect(*chain.state().state_dict == tc.pre.keyvals) << path;
-
-            //std::cout << fmt::format("{} block {}\n", path, tc.block.header.hash());
             chain.apply(tc.block);
-
-            const auto same_state = *chain.state().state_dict == tc.post.keyvals;
-            expect(same_state) << path;
+            expect(*chain.state().state_dict == tc.post.keyvals) << path;
             /*const auto k = merkle::trie::key_t::from_hex<merkle::trie::key_t>("03000000000000000000000000000000000000000000000000000000000000");
             using ET = std::decay_t<decltype(chain.state().beta.get())>;
             std::cout << fmt::format("L: {} {}\n",
@@ -106,24 +113,29 @@ namespace {
 
 suite turbo_jam_traces_suite = [] {
     "turbo::jam::traces"_test = [] {
-        state_snapshot_t genesis_state;
-        {
-            const auto j_tc = codec::json::load_obj<test_case_t>(file::install_path("test/jam-test-vectors/traces/fallback/00000000.json"));
-            genesis_state = j_tc.post.keyvals;
-            const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
-            auto orig_genesis = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
-            /*for (const uint8_t k: { 2, 7, 8, 9, 10, 11, 12, 13, 14, 15 }) {
-                const auto key = state_dict_t::make_key(k);
-                genesis_state[key] = orig_genesis[key];
+        "state roots"_test = [] {
+            /*for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
+                for (const auto &path: file::files_with_ext(file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset)), ".bin")) {
+                    test_roots(path);
+                }
             }*/
-        }
-        //test_file(file::install_path("test/jam-test-vectors/traces/reports-l0/00000003"), genesis_state);
-        //test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000002"), genesis_state);
-        //for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
-        for (const auto testset: { "fallback", "safrole" }) {
-            for (const auto &path: file::files_with_ext(file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset)), ".bin")) {
-                test_file(path.substr(0, path.size() - 4), genesis_state);
+            test_roots(file::install_path("test/jam-test-vectors/traces/fallback/00000000.bin"));
+        };
+        "state transitions"_test = [] {
+            state_snapshot_t genesis_state;
+            {
+                const auto j_tc = codec::json::load_obj<test_case_t>(file::install_path("test/jam-test-vectors/traces/fallback/00000000.json"));
+                genesis_state = j_tc.post.keyvals;
+                const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
+                auto orig_genesis = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
             }
-        }
+            test_transition(file::install_path("test/jam-test-vectors/traces/reports-l0/00000002"), genesis_state);
+            //for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
+            /*for (const auto testset: { "reports-l0" }) {
+                for (const auto &path: file::files_with_ext(file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset)), ".bin")) {
+                    test_file(path.substr(0, path.size() - 4), genesis_state);
+                }
+            }*/
+        };
     };
 };
