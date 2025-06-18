@@ -218,10 +218,20 @@ namespace {
             err_code_t::catch_into(
                 [&] {
                     auto tmp_st = tc.pre;
-                    auto new_pi = tmp_st.pi.get();
-                    out.emplace(tmp_st.update_reports(new_pi, tc.in.slot, tc.in.guarantees,
-                        tc.pre.alpha.get(), tc.pre.beta.get()));
-                    tmp_st.pi.set(std::move(new_pi));
+                    auto tmp_rho = tmp_st.rho.get();
+                    auto tmp_pi = tmp_st.pi.get();
+                    out.emplace(
+                        tmp_st.update_reports(
+                            tmp_rho, tmp_pi,
+                            tmp_st.eta.get(), tmp_st.psi.get(),
+                            tmp_st.kappa.get(), tmp_st.lambda.get(),
+                            tc.pre.alpha.get(), tc.pre.beta.get(),
+                            tc.pre.delta,
+                            tc.in.slot, tc.in.guarantees
+                        )
+                    );
+                    tmp_st.rho.set(std::move(tmp_rho));
+                    tmp_st.pi.set(std::move(tmp_pi));
                     res_st = std::move(tmp_st);
                 },
                 [&](err_code_t err) {

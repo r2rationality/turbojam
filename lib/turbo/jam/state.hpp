@@ -807,8 +807,13 @@ namespace turbo::jam {
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
-        reports_output_data_t update_reports(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees,
-            const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta);
+        static reports_output_data_t update_reports(
+            availability_assignments_t<CONFIG> &tmp_rho, statistics_t<CONFIG> &tmp_pi,
+            const entropy_buffer_t &new_eta, const disputes_records_t &new_psi,
+            const validators_data_t<CONFIG> &new_kappa, const validators_data_t<CONFIG> &new_lambda,
+            const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta,
+            const accounts_t<CONFIG> &prev_delta,
+            const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees);
         // JAM (4.18)
         void provide_preimages(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.16)

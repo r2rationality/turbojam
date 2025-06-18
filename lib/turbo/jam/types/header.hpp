@@ -139,8 +139,8 @@ namespace turbo::jam {
     using reports_output_items_t = sequence_t<reports_output_item_t>;
 
     struct reports_output_data_t {
-        reports_output_items_t reported;
-        sequence_t<ed25519_public_t> reporters;
+        reports_output_items_t reported {};
+        sequence_t<ed25519_public_t> reporters {};
 
         void serialize(auto &archive)
         {

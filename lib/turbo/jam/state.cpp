@@ -682,14 +682,14 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    reports_output_data_t state_t<CONFIG>::update_reports(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees,
-        const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta)
+    reports_output_data_t state_t<CONFIG>::update_reports(
+        availability_assignments_t<CONFIG> &tmp_rho, statistics_t<CONFIG> &tmp_pi,
+        const entropy_buffer_t &new_eta, const disputes_records_t &new_psi,
+        const validators_data_t<CONFIG> &new_kappa, const validators_data_t<CONFIG> &new_lambda,
+        const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta,
+        const accounts_t<CONFIG> &prev_delta,
+        const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees)
     {
-        const auto &new_eta = eta.get();
-        const auto &new_psi = psi.get();
-        const auto &new_kappa = kappa.get();
-        const auto &new_lambda = lambda.get();
-        const auto &prev_rho = rho.get();
         reports_output_data_t res {};
 
         if (!guarantees.empty()) {
@@ -713,7 +713,6 @@ namespace turbo::jam {
             const auto current_guarantor_sigs = _capital_phi(new_kappa, new_psi.offenders);
             const auto prev_guarantors = _guarantor_assignments(new_eta[3], slot.slot() - CONFIG::core_assignment_rotation_period);
             const auto prev_guarantor_sigs = _capital_phi(new_lambda, new_psi.offenders);
-            auto new_rho = prev_rho;
             for (const auto &g: guarantees) {
                 // JAM Paper (11.33)
                 const auto blk_it = std::find_if(prev_beta.begin(), prev_beta.end(), [&g](const auto &blk) {
@@ -725,7 +724,7 @@ namespace turbo::jam {
                     throw err_bad_state_root_t {};
                 if (blk_it->mmr.root() != g.report.context.beefy_root) [[unlikely]]
                     throw err_bad_beefy_mmr_root_t {};
-                if (g.report.core_index >= prev_rho.size()) [[unlikely]]
+                if (g.report.core_index >= tmp_rho.size()) [[unlikely]]
                     throw err_bad_core_index_t {};
                 if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
                     throw err_out_of_order_guarantee_t {};
@@ -782,7 +781,7 @@ namespace turbo::jam {
 
                 // JAM Paper: (11.29)
                 {
-                    if (new_rho[g.report.core_index])
+                    if (tmp_rho[g.report.core_index])
                         throw err_core_engaged_t {};
                     const auto &auth_pool = prev_alpha[g.report.core_index];
                     const auto auth_it = std::find(auth_pool.begin(), auth_pool.end(), g.report.authorizer_hash);
@@ -790,7 +789,7 @@ namespace turbo::jam {
                         throw err_core_unauthorized_t {};
                 }
 
-                new_rho[g.report.core_index] = availability_assignment_t<CONFIG> {
+                tmp_rho[g.report.core_index] = availability_assignment_t<CONFIG> {
                     .report=g.report, .timeout=slot.slot()
                 };
                 res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
@@ -822,17 +821,17 @@ namespace turbo::jam {
                 if (g.signatures.size() < CONFIG::min_guarantors) [[unlikely]]
                     throw err_insufficient_guarantees_t {};
 
-                new_pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
+                tmp_pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
                 size_t blobs_size = g.report.auth_output.size();
                 gas_t total_accumulate_gas = 0;
-                auto &core_stats = new_pi.cores[g.report.core_index];
+                auto &core_stats = tmp_pi.cores[g.report.core_index];
 
                 for (const auto &r: g.report.results) {
                     if (std::holds_alternative<work_result_ok_t>(r.result)) {
                         blobs_size += std::get<work_result_ok_t>(r.result).data.size();
                     }
-                    const auto s_it = delta.find(r.service_id);
-                    if (s_it == delta.end()) [[unlikely]]
+                    const auto s_it = prev_delta.find(r.service_id);
+                    if (s_it == prev_delta.end()) [[unlikely]]
                         throw err_bad_service_id_t {};
                     if (s_it->second.info.get().code_hash != r.code_hash) [[unlikely]]
                         throw err_bad_code_hash_t {};
@@ -848,7 +847,7 @@ namespace turbo::jam {
                     core_stats.extrinsic_size += r.refine_load.extrinsic_size;
                     core_stats.exports += r.refine_load.exports;
 
-                    auto &service_stats = new_pi.services[r.service_id];
+                    auto &service_stats = tmp_pi.services[r.service_id];
                     ++service_stats.refinement_count;
                     service_stats.refinement_gas_used += r.refine_load.gas_used;
                     service_stats.imports += r.refine_load.imports;
@@ -869,7 +868,6 @@ namespace turbo::jam {
                 throw err_duplicate_package_t {};
             std::sort(res.reported.begin(), res.reported.end());
             std::sort(res.reporters.begin(), res.reporters.end());
-            rho.set(std::move(new_rho));
         }
         return res;
     }
@@ -1147,7 +1145,13 @@ namespace turbo::jam {
         );
 
         // JAM (4.12)
-        new_st.update_reports(new_pi, blk.header.slot, blk.extrinsic.guarantees, alpha.get(), beta.get());
+        new_st.update_reports(
+            tmp_rho, new_pi,
+            new_st.eta.get(), new_st.psi.get(),
+            new_st.kappa.get(), new_st.lambda.get(),
+            alpha.get(), beta.get(), delta,
+            blk.header.slot, blk.extrinsic.guarantees
+        );
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
