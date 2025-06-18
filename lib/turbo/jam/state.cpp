@@ -875,14 +875,17 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    offenders_mark_t state_t<CONFIG>::update_disputes(availability_assignments_t<CONFIG> &new_rho, const time_slot_t<CONFIG> &prev_tau, const disputes_extrinsic_t<CONFIG> &disputes)
+    std::shared_ptr<disputes_records_t> state_t<CONFIG>::psi_prime(
+        offenders_mark_t &new_offenders, availability_assignments_t<CONFIG> &new_rho,
+        const validators_data_t<CONFIG> &new_kappa, const validators_data_t<CONFIG> &new_lambda,
+        const time_slot_t<CONFIG> &prev_tau, const std::shared_ptr<disputes_records_t> &prev_psi_ptr,
+        const disputes_extrinsic_t<CONFIG> &disputes)
     {
-        offenders_mark_t new_offenders {};
+        auto new_psi_ptr = prev_psi_ptr;
+        new_offenders.clear();
         if (!disputes.empty()) {
-            const auto &prev_psi = psi.get();
-            const auto &new_kappa = kappa.get();
-            const auto &new_lambda = lambda.get();
-            auto new_psi = prev_psi;
+            new_psi_ptr = std::make_shared<disputes_records_t>(*new_psi_ptr);
+            auto &new_psi = *new_psi_ptr;
             set_t<ed25519_public_t> known_vkeys {};
             known_vkeys.reserve(new_kappa.size() + new_lambda.size());
             for (const auto &validator_set: { new_kappa, new_lambda }) {
@@ -891,8 +894,8 @@ namespace turbo::jam {
             }
 
             set_t<work_report_hash_t> known_reports {};
-            known_reports.reserve(prev_psi.bad.size() + prev_psi.good.size() + prev_psi.wonky.size());
-            for (const auto &report_set: { prev_psi.good, prev_psi.bad, prev_psi.wonky }) {
+            known_reports.reserve(new_psi.bad.size() + new_psi.good.size() + new_psi.wonky.size());
+            for (const auto &report_set: { new_psi.good, new_psi.bad, new_psi.wonky }) {
                 for (const auto &rh: report_set)
                     known_reports.emplace_hint_unique(known_reports.end(), rh);
             }
@@ -1032,10 +1035,8 @@ namespace turbo::jam {
                 if (const auto [it, created] = new_psi.offenders.emplace_unique(k); !created) [[unlikely]]
                     throw err_offender_already_reported_t {};
             }
-
-            psi.set(std::move(new_psi));
         }
-        return new_offenders;
+        return new_psi_ptr;
     }
 
     template<typename CONFIG>
@@ -1134,8 +1135,16 @@ namespace turbo::jam {
         );
 
         // JAM (4.11) -> psi'
-        auto new_rho = new_st.rho.get();
-        new_st.update_disputes(new_rho, tau.get(), blk.extrinsic.disputes);
+        auto tmp_rho = rho.get();
+        offenders_mark_t new_offenders {};
+        new_st.psi.set(
+            new_st.psi_prime(
+                new_offenders, tmp_rho,
+                new_st.kappa.get(), new_st.lambda.get(),
+                tau.get(), psi.storage(),
+                blk.extrinsic.disputes
+            )
+        );
 
         // JAM (4.12)
         new_st.update_reports(new_pi, blk.header.slot, blk.extrinsic.guarantees, alpha.get(), beta.get());
@@ -1143,7 +1152,7 @@ namespace turbo::jam {
         // JAM (4.14)
         // JAM (4.15)
         work_reports_t<CONFIG> ready_reports {};
-        new_st.rho.set(new_rho.apply(ready_reports, new_st.kappa.get(), blk.header.slot, blk.header.parent, blk.extrinsic.assurances));
+        new_st.rho.set(tmp_rho.apply(ready_reports, new_st.kappa.get(), blk.header.slot, blk.header.parent, blk.extrinsic.assurances));
 
         // accumulate
         accumulate_root_t accumulate_res = new_st.accumulate(new_pi, tau.get(), blk.header.slot, ready_reports);

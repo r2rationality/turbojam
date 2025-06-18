@@ -171,9 +171,17 @@ namespace {
         err_code_t::catch_into(
             [&] {
                 auto tmp_st = tc.pre;
-                auto new_rho = tmp_st.rho.get();
-                out.emplace(output_data_t { .offenders_mark=tmp_st.update_disputes(new_rho, tc.pre.tau.get(), tc.in.disputes) });
-                tmp_st.rho.set(std::move(new_rho));
+                offenders_mark_t new_offenders {};
+                auto tmp_rho = tmp_st.rho.get();
+                tmp_st.psi.set(
+                    tmp_st.psi_prime(new_offenders, tmp_rho,
+                        tc.pre.kappa.get(), tc.pre.lambda.get(),
+                        tc.pre.tau.get(), tc.pre.psi.storage(),
+                        tc.in.disputes
+                    )
+                );
+                tmp_st.rho.set(std::move(tmp_rho));
+                out.emplace(output_data_t { .offenders_mark=std::move(new_offenders) });
                 res_st = std::move(tmp_st);
             },
             [&](err_code_t err) {
@@ -191,6 +199,7 @@ namespace {
 
 suite turbo_jam_disputes_suite = [] {
     "turbo::jam::disputes"_test = [] {
+        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/disputes/tiny/progress_invalidates_avail_assignments-1"));
         "tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/disputes/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

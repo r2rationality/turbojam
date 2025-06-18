@@ -772,8 +772,7 @@ namespace turbo::jam {
 
         std::optional<write_vector> state_get(const state_dict_t::key_t &k) const;
 
-        // Methods internally used by the apply and in unit tests
-        // Todo: make them protected and the respective unit test classes friends?
+        // State transition methods: static to not be explicit about their inputs and outputs
 
         // (4.5)
         static time_slot_t<CONFIG> tau_prime(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot);
@@ -792,23 +791,28 @@ namespace turbo::jam {
             const std::shared_ptr<validators_data_t<CONFIG>> &prev_kappa_ptr, const std::shared_ptr<validators_data_t<CONFIG>> &prev_lambda_ptr,
             const validators_data_t<CONFIG> &prev_iota, const disputes_records_t &prev_psi,
             const time_slot_t<CONFIG> &slot, const tickets_extrinsic_t<CONFIG> &extrinsic);
+        // JAM (4.11)
+        static std::shared_ptr<disputes_records_t> psi_prime(offenders_mark_t &new_offenders, availability_assignments_t<CONFIG> &new_rho,
+            const validators_data_t<CONFIG> &new_kappa, const validators_data_t<CONFIG> &new_lambda,
+            const time_slot_t<CONFIG> &prev_tau, const std::shared_ptr<disputes_records_t> &prev_psi_ptr,
+            const disputes_extrinsic_t<CONFIG> &disputes
+        );
+        // JAM (4.19)
+        static auth_pools_t<CONFIG> alpha_prime(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas,
+            const auth_queues_t<CONFIG> &new_phi, const auth_pools_t<CONFIG> &prev_alpha);
+        // JAM (4.20)
+        static statistics_t<CONFIG> pi_prime(statistics_t<CONFIG> &&tmp_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
+
         // JAM (4.12)
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
         reports_output_data_t update_reports(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees,
             const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta);
-        // JAM (4.11)
-        offenders_mark_t update_disputes(availability_assignments_t<CONFIG> &new_rho, const time_slot_t<CONFIG> &prev_tau, const disputes_extrinsic_t<CONFIG> &disputes);
         // JAM (4.18)
         void provide_preimages(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages);
-        // JAM (4.20)
-        static statistics_t<CONFIG> pi_prime(statistics_t<CONFIG> &&tmp_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
         // JAM (4.16)
         accumulate_root_t accumulate(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports);
-        // JAM (4.19)
-        static auth_pools_t<CONFIG> alpha_prime(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas,
-            const auth_queues_t<CONFIG> &new_phi, const auth_pools_t<CONFIG> &prev_alpha);
         bool operator==(const state_t &o) const noexcept;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONFIG::validator_count>;
