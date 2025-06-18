@@ -253,7 +253,7 @@ namespace turbo::jam::merkle {
                 return _hash.value();
             }
         private:
-            static [[nodiscard]] const hash_t &branch_hash(const node_t *ptr, const hash_func &hf, const uint8_t bit_start)
+            static const hash_t &branch_hash(const node_t *ptr, const hash_func &hf, const uint8_t bit_start)
             {
                 if (!ptr)
                     return _empty_hash();
@@ -293,7 +293,7 @@ namespace turbo::jam::merkle {
             node_ptr_t *node;
         };
 
-        static [[nodiscard]] find_res_t _find(node_ptr_t &root, const key_t& key, const bool reset_hashes=false)
+        [[nodiscard]] static find_res_t _find(node_ptr_t &root, const key_t& key, const bool reset_hashes=false)
         {
             find_res_t res { 0, &root };
             while (*res.node) {
@@ -332,7 +332,7 @@ namespace turbo::jam::merkle {
             return true;
         }
 
-        static [[nodiscard]] uint8_t _shared_prefix_size(const key_t &a, const key_t &b)
+        [[nodiscard]] static uint8_t _shared_prefix_size(const key_t &a, const key_t &b)
         {
             for (uint8_t i = 0; i < prefix_max; ++i) {
                 if (a.bit(i) != b.bit(i))

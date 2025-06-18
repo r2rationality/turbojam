@@ -185,7 +185,7 @@ namespace turbo {
             return *this;
         }
 
-        static consteval [[nodiscard]] size_t num_bits()
+        [[nodiscard]] static consteval size_t num_bits()
         {
             return SZ * 8;
         }
@@ -233,7 +233,7 @@ namespace turbo {
 
     inline uint8_t uint_from_oct(char k)
     {
-        switch (std::tolower(k)) {
+        switch (k) {
             case '0': return 0;
             case '1': return 1;
             case '2': return 2;
@@ -242,36 +242,39 @@ namespace turbo {
             case '5': return 5;
             case '6': return 6;
             case '7': return 7;
-            default: throw error(fmt::format("unexpected character in an octal number: {}!", k));
+            [[unlikely]] default: throw error(fmt::format("unexpected character in an octal number: {}!", k));
         }
     }
 
-    inline uint8_t uint_from_hex(char k)
+    inline uint8_t uint_from_hex(uint8_t k)
     {
-        switch (std::tolower(k)) {
-            case '0': return 0;
-            case '1': return 1;
-            case '2': return 2;
-            case '3': return 3;
-            case '4': return 4;
-            case '5': return 5;
-            case '6': return 6;
-            case '7': return 7;
-            case '8': return 8;
-            case '9': return 9;
-            case 'a': return 10;
-            case 'b': return 11;
-            case 'c': return 12;
-            case 'd': return 13;
-            case 'e': return 14;
-            case 'f': return 15;
-            default: throw error(fmt::format("unexpected character in a hex number: {}!", k));
-        }
+        static int16_t map[256] {
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, -1, -1, -1, -1, -1, -1,
+            -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, 10, 11, 12, 13, 14, 15, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+            -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1
+        };
+        auto res = map[k];
+        if (res < 0) [[unlikely]]
+            throw error(fmt::format("unexpected character in a hex number: {}!", k));
+        return res;
     }
 
     inline void init_from_hex(std::span<uint8_t> out, const std::string_view hex)
     {
-        if (hex.size() != out.size() * 2)
+        if (hex.size() != out.size() * 2) [[unlikely]]
             throw error(fmt::format("hex string must have {} characters but got {}: {}!", out.size() * 2, hex.size(), hex));
         for (size_t i = 0; i < out.size(); ++i)
             out[i] = uint_from_hex(hex[i * 2]) << 4 | uint_from_hex(hex[i * 2 + 1]);
@@ -284,7 +287,7 @@ namespace turbo {
         template<typename C=uint8_vector>
         static C from_hex(const std::string_view hex)
         {
-            if (hex.size() % 2 != 0)
+            if (hex.size() % 2 != 0) [[unlikely]]
                 throw error(fmt::format("hex string must have an even number of characters but got {}!", hex.size()));
             C data(hex.size() / 2);
             init_from_hex(data, hex);

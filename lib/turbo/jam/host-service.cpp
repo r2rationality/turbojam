@@ -90,7 +90,7 @@ namespace turbo::jam {
         const auto h = omega[8];
         const auto o = omega[9];
         const opaque_hash_t key { _m.mem_read(h, 32) };
-        auto val = _get_value(_service.preimages, key);
+        auto val = _get_value(a.preimages, key);
         const auto f = std::min(omega[10], val.size());
         const auto l = std::min(omega[11], val.size() - f);
         _m.mem_write(o, static_cast<buffer>(val).subbuf(0, l));
@@ -107,7 +107,8 @@ namespace turbo::jam {
         const auto o = omega[10];
         encoder enc {};
         enc.uint_fixed(4, s_id);
-        enc.next_bytes(_m.mem_read(ko, kz));
+        if (kz > 0) [[likely]]
+            enc.next_bytes(_m.mem_read(ko, kz));
         const auto key = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
         const auto &val = _get_value(a.storage, key);
         const auto f = std::min(omega[11], val.size());
@@ -343,9 +344,12 @@ namespace turbo::jam {
         });
     }
 
-    template host_service_accumulate_t<config_prod>;
-    template host_service_accumulate_t<config_tiny>;
+    template struct host_service_base_t<config_prod>;
+    template struct host_service_base_t<config_tiny>;
 
-    template host_service_on_transfer_t<config_prod>;
-    template host_service_on_transfer_t<config_tiny>;
+    template struct host_service_accumulate_t<config_prod>;
+    template struct host_service_accumulate_t<config_tiny>;
+
+    template struct host_service_on_transfer_t<config_prod>;
+    template struct host_service_on_transfer_t<config_tiny>;
 }

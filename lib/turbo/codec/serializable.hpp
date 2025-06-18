@@ -6,6 +6,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <turbo/common/error.hpp>
 
 namespace turbo::codec {
     struct archive_t {
@@ -169,6 +170,8 @@ namespace turbo::codec {
 
         void process_array(const auto &arr, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
         {
+            (void)min_sz;
+            (void)max_sz;
             _it = fmt::format_to(_it, "{:{}}[", "", _depth * shift);
             if (!arr.empty()) {
                 ++_depth;

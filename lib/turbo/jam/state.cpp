@@ -377,7 +377,7 @@ namespace turbo::jam {
     delta_plus_result_t<CONFIG> state_t<CONFIG>::accumulate_plus(const time_slot_t<CONFIG> slot, const gas_t gas_limit, const work_reports_t<CONFIG> &reports,
         const free_services_t &prev_free_services)
     {
-        delta_plus_result_t<CONFIG> res { delta };
+        delta_plus_result_t<CONFIG> res { { delta } };
 
         if (!reports.empty()) {
             size_t num_ok = 0;
@@ -444,7 +444,7 @@ namespace turbo::jam {
 
         accumulate_context_t<CONFIG> ctx_ok {
             service_id,
-            delta
+            { delta }
         };
         auto ctx_err = ctx_ok;
 
@@ -629,9 +629,10 @@ namespace turbo::jam {
         for (size_t i = 0; i < new_ksi.size() - 1; ++i)
             new_ksi[i] = std::move(new_ksi[i + 1]);
         // (12.32)
-        const auto accumulated_report_hashes = std::ranges::to<std::vector>(work_immediate
+        const auto work_immediate_hashes = work_immediate
             | std::views::take(plus_res.num_accumulated)
-            | std::views::transform([](const auto &wr) { return wr.package_spec.hash; }));
+            | std::views::transform([](const auto &wr) { return wr.package_spec.hash; });
+        const std::vector<work_package_hash_t> accumulated_report_hashes { work_immediate_hashes.begin(), work_immediate_hashes.end() };
         new_ksi.back().clear();
         new_ksi.back().reserve(accumulated_report_hashes.size());
         for (const auto &wrh: accumulated_report_hashes)
