@@ -305,8 +305,9 @@ namespace turbo::jam {
     }
 
     template<typename CONFIG>
-    void state_t<CONFIG>::update_statistics(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic)
+    statistics_t<CONFIG> state_t<CONFIG>::pi_prime(statistics_t<CONFIG> &&tmp_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic)
     {
+        auto new_pi = std::move(tmp_pi);
         if (slot.epoch() > prev_tau.epoch()) {
             new_pi.last = new_pi.current;
             new_pi.current = decltype(new_pi.current) {};
@@ -328,6 +329,7 @@ namespace turbo::jam {
         for (const auto &a: extrinsic.assurances) {
             ++new_pi.current.at(a.validator_index).assurances;
         }
+        return new_pi;
     }
 
     template<typename CONFIG>
@@ -1169,28 +1171,12 @@ namespace turbo::jam {
         }
 
         // JAM (4.20): pi' <- (E_G, E_P, E_A, E_T, taz, kappa', pi, H)
-        new_st.update_statistics(new_pi, tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic);
-        new_st.pi.set(std::move(new_pi));
+        new_st.pi.set(pi_prime(std::move(new_pi), tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic));
 
         // JAM (4.5) update tau
         new_st.tau.set(state_t::tau_prime(tau.get(), blk.header.slot));
 
         *this = std::move(new_st);
-    }
-
-    template<typename CONFIG>
-    std::exception_ptr state_t<CONFIG>::try_apply(const block_t<CONFIG> &blk) noexcept
-    {
-        try {
-            apply(blk);
-            return nullptr;
-        } catch (const std::exception &ex) {
-            std::cerr << fmt::format("state_t::try_apply failed: {}\n", ex.what());
-            return std::current_exception();
-        } catch (...) {
-            std::cerr << fmt::format("state_t::try_apply failed: unknown exception\n");
-            return std::current_exception();
-        }
     }
 
     template<typename CONFIG>

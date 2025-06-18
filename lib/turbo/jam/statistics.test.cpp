@@ -89,9 +89,7 @@ namespace {
         }
         const file::tmp_directory state_dir { "test-jam-statistics" };
         state_t<CFG> new_st { tc.pre };
-        auto new_pi = new_st.pi.get();
-        new_st.update_statistics(new_pi, tc.pre.tau.get(), tc.in.slot, tc.in.author_index, tc.in.extrinsic);
-        new_st.pi.set(std::move(new_pi));
+        new_st.pi.set(state_t<CFG>::pi_prime(statistics_t<CFG> { new_st.pi.get() }, tc.pre.tau.get(), tc.in.slot, tc.in.author_index, tc.in.extrinsic));
         new_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
         expect(new_st.pi.get().current == tc.post.pi.get().current) << path;
         expect(new_st.pi.get().last == tc.post.pi.get().last) << path;

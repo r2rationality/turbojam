@@ -769,7 +769,6 @@ namespace turbo::jam {
 
         // (4.1): Kapital upsilon
         void apply(const block_t<CONFIG> &);
-        std::exception_ptr try_apply(const block_t<CONFIG> &) noexcept;
 
         std::optional<write_vector> state_get(const state_dict_t::key_t &k) const;
 
@@ -804,7 +803,7 @@ namespace turbo::jam {
         // JAM (4.18)
         void provide_preimages(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.20)
-        void update_statistics(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
+        static statistics_t<CONFIG> pi_prime(statistics_t<CONFIG> &&tmp_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
         // JAM (4.16)
         accumulate_root_t accumulate(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports);
         // JAM (4.19)
