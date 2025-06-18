@@ -66,6 +66,13 @@ The project uses the following test-vector sets and tools to verify its conforma
 
 ## Protocol documentation
 - [JAM paper](https://github.com/gavofyork/graypaper)
+- [JAM Simple Networking Protocol](https://github.com/zdave-parity/jam-np/blob/main/simple.md)
+- [JIP-1: Debug message host call](https://hackmd.io/@polkadot/jip1)
+- [JIP-2: Node RPC](https://hackmd.io/@polkadot/jip2)
+- [JIP-3: Structured Logging](https://hackmd.io/@polkadot/jip3)
+- [JIP-4 Chainspec file](https://github.com/polkadot-fellows/JIPs/pull/1)
+- [JIP-5: Secret key derivation](https://github.com/polkadot-fellows/JIPs/pull/2)
+- [JIP-6: Program metadata](https://github.com/polkadot-fellows/JIPs/pull/3)
 - [JAM community-generated documentation](https://docs.jamcha.in/)
 
 ## Account IDs
