@@ -49,12 +49,12 @@ namespace {
             case QUIC_STREAM_EVENT_START_COMPLETE: {
                 std::cerr << fmt::format("stream: start complete\n");
                 const auto msg = make_block_request({}, 256);
-		const uint32_t msg_len = msg.size();
-		static_assert(sizeof(msg_len) == 4);
+		        const uint32_t msg_len = msg.size();
+		        static_assert(sizeof(msg_len) == 4);
                 const auto buf_scope = new QuicBufferScope { numeric_cast<uint32_t>(1ULL + sizeof(msg_len) + msg.size()) };
                 const auto buf = static_cast<QUIC_BUFFER *>(*buf_scope);
                 // CE 128: Block request
-		buf->Buffer[0] = 128;
+		        buf->Buffer[0] = 128;
                 memcpy(buf->Buffer + 1, &msg_len, sizeof(msg_len));
                 memcpy(buf->Buffer + 5, msg.data(), msg.size());
                 if (const auto res = stream->Send(buf, 1, QUIC_SEND_FLAG_FIN, buf_scope); QUIC_FAILED(res)) [[unlikely]] {
@@ -114,21 +114,19 @@ namespace {
 
     std::string stringify_cert(X509 *x509)
     {
-	if (x509) {
-	    BIO *bio = BIO_new(BIO_s_mem());
-	    if (bio) {
-		X509_print(bio, x509);
-		char *data;
-		auto data_len = BIO_get_mem_data(bio, &data);
-		std::string res { data, numeric_cast<size_t>(data_len) };
-		BIO_free(bio);
-		return res;
-	    } else {
-		return "failed to allocate a BIO for the cert";
+	    if (x509) {
+	        BIO *bio = BIO_new(BIO_s_mem());
+	        if (bio) {
+		        X509_print(bio, x509);
+		        char *data;
+		        auto data_len = BIO_get_mem_data(bio, &data);
+		        std::string res { data, numeric_cast<size_t>(data_len) };
+		        BIO_free(bio);
+		        return res;
+	        }
+		    return "failed to allocate a BIO for the cert";
 	    }
-	} else {
 	    return "nullptr";
-	}
     }
 
     QUIC_STATUS QUIC_API connection_callback(MsQuicConnection* conn, void* /*ctx*/, QUIC_CONNECTION_EVENT *event)
@@ -138,11 +136,11 @@ namespace {
                 std::cerr << fmt::format("connection: connected!\n");
                 send_data(*conn);
                 break;
-	    case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED: {
-		X509 *x509 = reinterpret_cast<X509 *>(event->PEER_CERTIFICATE_RECEIVED.Certificate);
+	        case QUIC_CONNECTION_EVENT_PEER_CERTIFICATE_RECEIVED: {
+		        X509 *x509 = reinterpret_cast<X509 *>(event->PEER_CERTIFICATE_RECEIVED.Certificate);
                 std::cerr << fmt::format("connection: peer certificate received:\n{}!\n", stringify_cert(x509));
-		break;
-	    }
+		        break;
+	        }
             case QUIC_CONNECTION_EVENT_STREAMS_AVAILABLE:
                 std::cerr << fmt::format("connection: streams available uni: {} bidi: {}!\n",
                     event->STREAMS_AVAILABLE.UnidirectionalCount, event->STREAMS_AVAILABLE.BidirectionalCount);
@@ -179,17 +177,17 @@ namespace {
 
     void cert_set_alt_name(X509 *x509, const std::string &name)
     {
-	// TODO: add error checking
-	GENERAL_NAMES *gens = sk_GENERAL_NAME_new_null();
-	GENERAL_NAME *gen = GENERAL_NAME_new();
-	ASN1_IA5STRING *dns = ASN1_IA5STRING_new();
-	ASN1_STRING_set(dns, name.data(), name.size());
-	GENERAL_NAME_set0_value(gen, GEN_DNS, dns);
-	sk_GENERAL_NAME_push(gens, gen);
-	X509_EXTENSION *ext = X509V3_EXT_i2d(NID_subject_alt_name, 0, gens);
-	X509_add_ext(x509, ext, -1);
-	X509_EXTENSION_free(ext);
-	sk_GENERAL_NAME_pop_free(gens, GENERAL_NAME_free);
+	    // TODO: add error checking
+	    GENERAL_NAMES *gens = sk_GENERAL_NAME_new_null();
+	    GENERAL_NAME *gen = GENERAL_NAME_new();
+	    ASN1_IA5STRING *dns = ASN1_IA5STRING_new();
+	    ASN1_STRING_set(dns, name.data(), name.size());
+	    GENERAL_NAME_set0_value(gen, GEN_DNS, dns);
+	    sk_GENERAL_NAME_push(gens, gen);
+	    X509_EXTENSION *ext = X509V3_EXT_i2d(NID_subject_alt_name, 0, gens);
+	    X509_add_ext(x509, ext, -1);
+	    X509_EXTENSION_free(ext);
+	    sk_GENERAL_NAME_pop_free(gens, GENERAL_NAME_free);
     }
 
     void write_cert(const QUIC_CERTIFICATE_FILE &cert_file, const crypto::ed25519::key_pair_t &kp)
@@ -213,7 +211,7 @@ namespace {
             err_msg = "Failed to create a x509 certificate!";
             goto err;
         }
-	X509_set_version(x509, 2);
+	    X509_set_version(x509, 2);
         ASN1_INTEGER_set(X509_get_serialNumber(x509), 1);
         X509_gmtime_adj(X509_get_notBefore(x509), 0);
         X509_gmtime_adj(X509_get_notAfter(x509), 3600L * 24 * 265 * 100); 
@@ -237,7 +235,7 @@ namespace {
         // closed in the clean up section
 
         std::cerr << fmt::format("Generated {} and {}\n", cert_file.PrivateKeyFile, cert_file.CertificateFile);
-	std::cerr << fmt::format("{}\n", stringify_cert(x509));
+	    std::cerr << fmt::format("{}\n", stringify_cert(x509));
     err:
         if (f)
             fclose(f);
