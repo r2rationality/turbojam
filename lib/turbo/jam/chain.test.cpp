@@ -46,7 +46,7 @@ suite turbo_jam_chain_suite = [] {
             );
         };
         "parse config"_test = [] {
-            file::tmp_directory data_dir { "test-jam-chain" };
+            const file::tmp_directory data_dir { "test-jam-chain" };
             const auto chain = chain_t<config_tiny>::from_json_spec(data_dir.path(), file::install_path("etc/devnet/dev-spec.json"));
             expect_equal("dev", chain.id());
             expect_equal(
@@ -70,9 +70,25 @@ suite turbo_jam_chain_suite = [] {
                 chain.genesis_header().author_index
             );
             expect_equal(
-                state_root_t::from_hex("957C2FDE59ED6EC1249BBE4CAB260B29BE0A03504181A491CE8C9522661CD3A6"),
+                state_root_t::from_hex("1AA8679E417E7771F60FE4FC90E52A88E615C991A5810A5DC439A2EE0B7ED08B"),
                 chain.genesis_state().root()
             );
+        };
+        "testnet"_test = [] {
+            const auto bytes = uint8_vector::from_hex(file::read(file::install_path("test/devnet-data/blocks-000.hex")).str());
+            decoder dec { bytes };
+            const auto msg_size = dec.uint_fixed<size_t>(4);
+            expect_equal(msg_size, bytes.size() - 4ULL);
+            expect(!dec.empty());
+            const file::tmp_directory data_dir { "test-jam-chain" };
+            auto chain = chain_t<config_tiny>::from_json_spec(data_dir.path(), file::install_path("etc/devnet/dev-spec.json"));
+            for (size_t blk_no = 0; !dec.empty(); ++blk_no) {
+                const auto blk = codec::from<block_t<config_tiny>>(dec);
+                logger::info("block #{}: hash={} parent={} parent_root={}",
+                    blk_no, blk.header.hash(), blk.header.parent, blk.header.parent_state_root);
+                chain.apply(blk);
+                logger::info("chain post_root: {}", chain.state().state_dict->root());
+            }
         };
     };
 };

@@ -25,11 +25,11 @@ namespace turbo::jam {
         void apply(const block_t<CONFIG> &blk)
         {
             if (!_state) [[unlikely]] {
-                //if (blk.header != _genesis_header) [[unlikely]]
-                //   throw error("the genesis header does not match the genesis state!");
+                if (blk.header != _genesis_header) [[unlikely]]
+                   throw error("the genesis header does not match the genesis state!");
                 _state.emplace(_kv_store);
                 *_state = _genesis_state;
-                logger::run_log_errors([&] {
+                logger::run_log_errors_rethrow([&] {
                     _state->beta.set(state_t<CONFIG>::beta_prime({}, blk.header.hash(), {}, {}));
                 });
             } else {
