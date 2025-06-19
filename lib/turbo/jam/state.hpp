@@ -73,8 +73,10 @@ namespace turbo::jam {
 
         void set(ptr_type new_ptr)
         {
-            _ptr = std::move(new_ptr);
-            _state_dict->set(_key, encode(*_ptr));
+            if (_ptr.get() != new_ptr.get()) {
+                _ptr = std::move(new_ptr);
+                _state_dict->set(_key, encode(*_ptr));
+            }
         }
 
         bool operator==(const persistent_value_t &o) const
@@ -92,7 +94,7 @@ namespace turbo::jam {
     // This structure captures updates rather than absolute values.
     // For this reason int64_t types are used to track potential decreases of the aboslute values.
     struct service_info_update_t {
-        persistent_value_t<service_info_t> &base;
+        const persistent_value_t<service_info_t> &base;
         std::optional<opaque_hash_t> code_hash {};
         int64_t balance = 0;
         // gas saved in the fixed format form
@@ -131,7 +133,7 @@ namespace turbo::jam {
             items += o.items;
         }
 
-        void commit();
+        void commit(persistent_value_t<service_info_t> &);
     };
 
     struct service_info_t {
@@ -185,11 +187,11 @@ namespace turbo::jam {
         }
     };
 
-    inline void service_info_update_t::commit()
+    inline void service_info_update_t::commit(persistent_value_t<service_info_t> &target)
     {
-        auto new_val = base.get();
+        auto new_val = target.get();
         new_val.consume_from(std::move(*this));
-        base.set(std::move(new_val));
+        target.set(std::move(new_val));
     }
 
     template<typename K, typename V>
@@ -519,25 +521,25 @@ namespace turbo::jam {
             info.consume_from(std::move(o.info));
         }
 
-        void commit()
+        void commit(account_t<CFG> &target)
         {
-            storage.commit();
-            preimages.commit();
-            lookup_metas.commit();
-            info.commit();
+            storage.commit(target.storage);
+            preimages.commit(target.preimages);
+            lookup_metas.commit(target.lookup_metas);
+            info.commit(target.info);
         }
     };
 
-    template<typename CONFIG>
-    using mutable_services_base_t = std::map<service_id_t, mutable_service_state_t<CONFIG>>;
+    template<typename CFG>
+    using mutable_services_base_t = std::map<service_id_t, mutable_service_state_t<CFG>>;
 
-    template<typename CONFIG>
+    template<typename CFG>
     struct accounts_update_api_t {
-        using base_type = accounts_t<CONFIG>;
-        using key_type = typename accounts_t<CONFIG>::key_type;
-        using mapped_type = mutable_service_state_t<CONFIG>;
+        using base_type = accounts_t<CFG>;
+        using key_type = typename accounts_t<CFG>::key_type;
+        using mapped_type = mutable_service_state_t<CFG>;
 
-        accounts_update_api_t(accounts_t<CONFIG> &base):
+        accounts_update_api_t(const accounts_t<CFG> &base):
             _base { base }
         {
         }
@@ -559,7 +561,7 @@ namespace turbo::jam {
                     k,
                     container::direct_update_api_t<service_storage_t> { b_it->second.storage },
                     container::direct_update_api_t<preimages_t> { b_it->second.preimages },
-                    container::direct_update_api_t<lookup_metas_t<CONFIG>> { b_it->second.lookup_metas },
+                    container::direct_update_api_t<lookup_metas_t<CFG>> { b_it->second.lookup_metas },
                     service_info_update_t { b_it->second.info }
                 );
                 return d_it->second;
@@ -567,29 +569,29 @@ namespace turbo::jam {
             throw err_bad_service_id_t {};
         }
 
-        void commit()
+        void commit(accounts_t<CFG> &target)
         {
             for (auto &[k, v]: _derived)
-                v.commit();
+                v.commit(target.at(k));
             _derived.clear();
         }
     private:
-        accounts_t<CONFIG> &_base;
-        mutable_services_base_t<CONFIG> _derived {};
+        const accounts_t<CFG> &_base;
+        mutable_services_base_t<CFG> _derived {};
     };
 
-    template<typename CONFIG>
-    using mutable_services_state_t = accounts_update_api_t<CONFIG>;
+    template<typename CFG>
+    using mutable_services_state_t = accounts_update_api_t<CFG>;
 
     // JAM (12.13)
-    template<typename CONFIG>
+    template<typename CFG>
     struct mutable_state_t {
         // JAM: bold d
-        mutable_services_state_t<CONFIG> services;
+        mutable_services_state_t<CFG> services;
         // JAM: bold i
-        std::optional<validators_data_t<CONFIG>> iota {};
+        std::optional<validators_data_t<CFG>> iota {};
         // JAM: bold q
-        std::optional<auth_queues_t<CONFIG>> queue {};
+        std::optional<auth_queues_t<CFG>> queue {};
         // JAM: bold x
         std::optional<privileges_t> privileges {};
 
@@ -688,16 +690,16 @@ namespace turbo::jam {
     using accumulate_service_operands_t = std::map<service_id_t, accumulate_operands_t>;
 
     // JAM (B.9)
-    template<typename CONFIG>
+    template<typename CFG>
     struct accumulate_result_t {
-        mutable_state_t<CONFIG> state;
+        mutable_state_t<CFG> state;
         deferred_transfers_t transfers {};
         std::optional<opaque_hash_t> commitment {};
         gas_t gas {};
         size_t num_reports = 0;
     };
-    template<typename CONFIG>
-    using service_results_t = std::map<service_id_t, accumulate_result_t<CONFIG>>;
+    template<typename CFG>
+    using service_results_t = std::map<service_id_t, accumulate_result_t<CFG>>;
 
     // JAM (12.15): B
     using service_commitments_t = std::map<service_id_t, opaque_hash_t>;
@@ -709,22 +711,22 @@ namespace turbo::jam {
     using service_work_items_t = std::map<service_id_t, service_work_item_t>;
 
     // JAM (12.17)
-    template<typename CONFIG>
+    template<typename CFG>
     struct delta_star_result_t {
         size_t num_accumulated = 0;
-        service_results_t<CONFIG> results {};
+        service_results_t<CFG> results {};
     };
 
     // JAM (12.16)
-    template<typename CONFIG>
+    template<typename CFG>
     struct delta_plus_result_t {
-        mutable_state_t<CONFIG> state;
+        mutable_state_t<CFG> state;
         deferred_transfers_t transfers {};
         service_commitments_t commitments {};
         service_work_items_t work_items {};
         size_t num_accumulated = 0;
 
-        void consume_from(delta_star_result_t<CONFIG> &&o)
+        void consume_from(delta_star_result_t<CFG> &&o)
         {
             num_accumulated += o.num_accumulated;
             for (auto &&[s_id, s_res]: o.results) {
@@ -738,99 +740,121 @@ namespace turbo::jam {
         }
     };
 
+    template<typename CFG>
+    struct accumulate_output_t {
+        std::shared_ptr<accumulated_queue_t<CFG>> new_ksi;
+        std::shared_ptr<ready_queue_t<CFG>> new_nu;
+        std::shared_ptr<auth_queues_t<CFG>> new_phi;
+        std::shared_ptr<validators_data_t<CFG>> new_iota;
+        std::shared_ptr<privileges_t> new_chi;
+        std::optional<mutable_services_state_t<CFG>> service_updates;
+        accumulate_root_t root {};
+    };
+
     // JAM (4.4) - lowercase sigma
     // persistent_value with std::shared_ptr ensures that:
     // 1) the state is cheap to copy
     // 2) automatically searialized into the state_dict on updates
     // TODO: state_dict should use copy_on_write_ptr_t instead of std::shared_ptr
-    template<typename CONFIG=config_prod>
+    template<typename CFG=config_prod>
     struct state_t {
         kv_store_ptr_t kv_store;
         state_dict_ptr_t state_dict = std::make_shared<state_dict_ptr_t::element_type>();
-        persistent_value_t<auth_pools_t<CONFIG>> alpha { state_dict, 1U }; // authorizations
-        persistent_value_t<auth_queues_t<CONFIG>> phi {  state_dict, 2U }; // work authorizer queue
-        persistent_value_t<blocks_history_t<CONFIG>> beta { state_dict, 3U }; // most recent blocks
-        persistent_value_t<safrole_state_t<CONFIG>> gamma { state_dict, 4U }; // safrole state
+        persistent_value_t<auth_pools_t<CFG>> alpha { state_dict, 1U }; // authorizations
+        persistent_value_t<auth_queues_t<CFG>> phi {  state_dict, 2U }; // work authorizer queue
+        persistent_value_t<blocks_history_t<CFG>> beta { state_dict, 3U }; // most recent blocks
+        persistent_value_t<safrole_state_t<CFG>> gamma { state_dict, 4U }; // safrole state
         persistent_value_t<disputes_records_t> psi { state_dict, 5U }; // judgements
         persistent_value_t<entropy_buffer_t> eta { state_dict, 6U };
-        persistent_value_t<validators_data_t<CONFIG>> iota { state_dict, 7U };
-        persistent_value_t<validators_data_t<CONFIG>> kappa { state_dict, 8U };
-        persistent_value_t<validators_data_t<CONFIG>> lambda { state_dict, 9U };
-        persistent_value_t<availability_assignments_t<CONFIG>> rho { state_dict, 10U }; // assigned work reports
-        persistent_value_t<time_slot_t<CONFIG>> tau { state_dict, 11U };
+        persistent_value_t<validators_data_t<CFG>> iota { state_dict, 7U };
+        persistent_value_t<validators_data_t<CFG>> kappa { state_dict, 8U };
+        persistent_value_t<validators_data_t<CFG>> lambda { state_dict, 9U };
+        persistent_value_t<availability_assignments_t<CFG>> rho { state_dict, 10U }; // assigned work reports
+        persistent_value_t<time_slot_t<CFG>> tau { state_dict, 11U };
         persistent_value_t<privileges_t> chi { state_dict, 12U };
-        persistent_value_t<statistics_t<CONFIG>> pi { state_dict, 13U };
-        persistent_value_t<ready_queue_t<CONFIG>> nu { state_dict, 14U }; // JAM (12.3): work reports ready to be accumulated
-        persistent_value_t<accumulated_queue_t<CONFIG>> ksi { state_dict, 15U }; // JAM (12.1): recently accumulated reports
-        accounts_t<CONFIG> delta {}; // services
+        persistent_value_t<statistics_t<CFG>> pi { state_dict, 13U };
+        persistent_value_t<ready_queue_t<CFG>> nu { state_dict, 14U }; // JAM (12.3): work reports ready to be accumulated
+        persistent_value_t<accumulated_queue_t<CFG>> ksi { state_dict, 15U }; // JAM (12.1): recently accumulated reports
+        accounts_t<CFG> delta {}; // services
 
         [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
         state_t &operator=(const state_snapshot_t &o);
 
         // (4.1): Kapital upsilon
-        void apply(const block_t<CONFIG> &);
+        void apply(const block_t<CFG> &);
 
         std::optional<write_vector> state_get(const state_dict_t::key_t &k) const;
 
         // State transition methods: static to not be explicit about their inputs and outputs
 
         // (4.5)
-        static time_slot_t<CONFIG> tau_prime(const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &blk_slot);
+        static time_slot_t<CFG> tau_prime(const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &blk_slot);
         // (4.6)
-        static blocks_history_t<CONFIG> beta_dagger(const blocks_history_t<CONFIG> &prev_beta, const state_root_t &sr);
+        static blocks_history_t<CFG> beta_dagger(const blocks_history_t<CFG> &prev_beta, const state_root_t &sr);
         // (4.17)
-        static blocks_history_t<CONFIG> beta_prime(blocks_history_t<CONFIG> tmp_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
+        static blocks_history_t<CFG> beta_prime(blocks_history_t<CFG> tmp_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
         // JAM (4.7)
-        static entropy_buffer_t eta_prime(const time_slot_t<CONFIG> &prev_tau, const entropy_buffer_t &prev_eta, const time_slot_t<CONFIG> &blk_slot, const entropy_t &blk_entropy);
+        static entropy_buffer_t eta_prime(const time_slot_t<CFG> &prev_tau, const entropy_buffer_t &prev_eta, const time_slot_t<CFG> &blk_slot, const entropy_t &blk_entropy);
         // JAM (4.8)
         // JAM (4.9)
         // JAM (4.10)
-        static safrole_output_data_t<CONFIG> update_safrole(
-            const time_slot_t<CONFIG> &prev_tau, const safrole_state_t<CONFIG> &prev_gamma,
+        static safrole_output_data_t<CFG> update_safrole(
+            const time_slot_t<CFG> &prev_tau, const safrole_state_t<CFG> &prev_gamma,
             const entropy_buffer_t &new_eta,
-            const std::shared_ptr<validators_data_t<CONFIG>> &prev_kappa_ptr, const std::shared_ptr<validators_data_t<CONFIG>> &prev_lambda_ptr,
-            const validators_data_t<CONFIG> &prev_iota, const disputes_records_t &prev_psi,
-            const time_slot_t<CONFIG> &slot, const tickets_extrinsic_t<CONFIG> &extrinsic);
+            const std::shared_ptr<validators_data_t<CFG>> &prev_kappa_ptr, const std::shared_ptr<validators_data_t<CFG>> &prev_lambda_ptr,
+            const validators_data_t<CFG> &prev_iota, const disputes_records_t &prev_psi,
+            const time_slot_t<CFG> &slot, const tickets_extrinsic_t<CFG> &extrinsic);
         // JAM (4.11)
-        static std::shared_ptr<disputes_records_t> psi_prime(offenders_mark_t &new_offenders, availability_assignments_t<CONFIG> &new_rho,
-            const validators_data_t<CONFIG> &new_kappa, const validators_data_t<CONFIG> &new_lambda,
-            const time_slot_t<CONFIG> &prev_tau, const std::shared_ptr<disputes_records_t> &prev_psi_ptr,
-            const disputes_extrinsic_t<CONFIG> &disputes
+        static std::shared_ptr<disputes_records_t> psi_prime(offenders_mark_t &new_offenders, availability_assignments_t<CFG> &new_rho,
+            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
+            const time_slot_t<CFG> &prev_tau, const std::shared_ptr<disputes_records_t> &prev_psi_ptr,
+            const disputes_extrinsic_t<CFG> &disputes
         );
         // JAM (4.19)
-        static auth_pools_t<CONFIG> alpha_prime(const time_slot_t<CONFIG> &slot, const core_authorizers_t &cas,
-            const auth_queues_t<CONFIG> &new_phi, const auth_pools_t<CONFIG> &prev_alpha);
+        static auth_pools_t<CFG> alpha_prime(const time_slot_t<CFG> &slot, const core_authorizers_t &cas,
+            const auth_queues_t<CFG> &new_phi, const auth_pools_t<CFG> &prev_alpha);
         // JAM (4.20)
-        static statistics_t<CONFIG> pi_prime(statistics_t<CONFIG> &&tmp_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, validator_index_t val_idx, const extrinsic_t<CONFIG> &extrinsic);
-
+        static statistics_t<CFG> pi_prime(statistics_t<CFG> &&tmp_pi, const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &slot, validator_index_t val_idx, const extrinsic_t<CFG> &extrinsic);
         // JAM (4.12)
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
         static reports_output_data_t update_reports(
-            availability_assignments_t<CONFIG> &tmp_rho, statistics_t<CONFIG> &tmp_pi,
+            availability_assignments_t<CFG> &tmp_rho, statistics_t<CFG> &tmp_pi,
             const entropy_buffer_t &new_eta, const disputes_records_t &new_psi,
-            const validators_data_t<CONFIG> &new_kappa, const validators_data_t<CONFIG> &new_lambda,
-            const auth_pools_t<CONFIG> &prev_alpha, const blocks_history_t<CONFIG> &prev_beta,
-            const accounts_t<CONFIG> &prev_delta,
-            const time_slot_t<CONFIG> &slot, const guarantees_extrinsic_t<CONFIG> &guarantees);
+            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
+            const auth_pools_t<CFG> &prev_alpha, const blocks_history_t<CFG> &prev_beta,
+            const accounts_t<CFG> &prev_delta,
+            const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees);
+
         // JAM (4.18)
-        void provide_preimages(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &slot, const preimages_extrinsic_t &preimages);
+        void provide_preimages(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.16)
-        accumulate_root_t accumulate(statistics_t<CONFIG> &new_pi, const time_slot_t<CONFIG> &prev_tau, const time_slot_t<CONFIG> &slot, const work_reports_t<CONFIG> &reports);
+        static accumulate_output_t<CFG> accumulate(
+            statistics_t<CFG> &tmp_pi,
+            const time_slot_t<CFG> &prev_tau,
+            const std::shared_ptr<auth_queues_t<CFG>> &prev_phi, const std::shared_ptr<validators_data_t<CFG>> &prev_iota,
+            const std::shared_ptr<privileges_t> &prev_chi,
+            const std::shared_ptr<ready_queue_t<CFG>> &prev_nu, const std::shared_ptr<accumulated_queue_t<CFG>> &prev_ksi,
+            const accounts_t<CFG> &prev_delta,
+            const time_slot_t<CFG> &slot, const work_reports_t<CFG> &reports);
         bool operator==(const state_t &o) const noexcept;
     private:
-        using guarantor_assignments_t = fixed_sequence_t<core_index_t, CONFIG::validator_count>;
+        using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::validator_count>;
 
-        static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CONFIG> &);
-        static validators_data_t<CONFIG> _capital_phi(const validators_data_t<CONFIG> &iota, const offenders_mark_t &psi_o);
-        static keys_t<CONFIG> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CONFIG> &kappa);
-        static tickets_t<CONFIG> _permute_tickets(const tickets_accumulator_t<CONFIG> &gamma_a);
-        static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CONFIG> &slot);
+        static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CFG> &);
+        static validators_data_t<CFG> _capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o);
+        static keys_t<CFG> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CFG> &kappa);
+        static tickets_t<CFG> _permute_tickets(const tickets_accumulator_t<CFG> &gamma_a);
+        static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CFG> &slot);
 
-        delta_plus_result_t<CONFIG> accumulate_plus(time_slot_t<CONFIG> slot, gas_t gas_limit, const work_reports_t<CONFIG> &reports, const free_services_t &prev_free_services);
-        delta_star_result_t<CONFIG> accumulate_star(time_slot_t<CONFIG> slot, std::span<const work_report_t<CONFIG>> reports, const free_services_t &prev_free_services);
-        accumulate_result_t<CONFIG> invoke_accumulate(time_slot_t<CONFIG> slot, service_id_t service_id, const accumulate_operands_t &ops, const free_services_t &prev_free_services);
-        gas_t invoke_on_transfer(time_slot_t<CONFIG> slot, service_id_t service_id, const deferred_transfer_ptrs_t &transfers);
+        static delta_plus_result_t<CFG> accumulate_plus(time_slot_t<CFG> slot, gas_t gas_limit, const work_reports_t<CFG> &reports, const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services);
+        static delta_star_result_t<CFG> accumulate_star(time_slot_t<CFG> slot, std::span<const work_report_t<CFG>> reports,
+            const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services);
+        static accumulate_result_t<CFG> invoke_accumulate(time_slot_t<CFG> slot, service_id_t service_id,
+            const accumulate_operands_t &ops,
+            const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services);
+        static gas_t invoke_on_transfer(time_slot_t<CFG> slot, service_id_t service_id,
+            const accounts_t<CFG> &prev_delta, const deferred_transfer_ptrs_t &transfers);
     };
 }

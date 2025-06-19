@@ -55,18 +55,19 @@ namespace turbo::container {
 
     template<typename M>
     struct std_map_update_api_t {
+        using target_type = M;
         using key_type = typename M::key_type;
         using mapped_type = typename M::mapped_type;
         using observer_t = std::function<void(const key_type &k, const mapped_type &v)>;
 
-        std_map_update_api_t(M &base):
+        std_map_update_api_t(const M &base):
             _base { base }
         {
         }
 
-        void erase(const key_type &k)
+        void erase(M &target, const key_type &k) const
         {
-            _base.erase(k);
+            target.erase(k);
         }
 
         void foreach(const observer_t & obs) const
@@ -83,29 +84,30 @@ namespace turbo::container {
             return empty;
         }
 
-        void set(const key_type &k, mapped_type v)
+        void set(M &target, const key_type &k, mapped_type v) const
         {
-            if (auto [it, created] = _base.try_emplace(k, std::move(v)); !created)
+            if (auto [it, created] = target.try_emplace(k, std::move(v)); !created)
                 it->second = std::move(v);
         }
     private:
-        M &_base;
+        const M &_base;
     };
 
     template<typename M>
     struct direct_update_api_t {
+        using target_type = M;
         using key_type = typename M::key_type;
         using mapped_type = typename M::mapped_type;
         using observer_t = std::function<void(const key_type &k, const mapped_type &v)>;
 
-        direct_update_api_t(M &base):
+        direct_update_api_t(const M &base):
             _base { base }
         {
         }
 
-        void erase(const key_type &k)
+        void erase(M &target, const key_type &k) const
         {
-            _base.erase(k);
+            target.erase(k);
         }
 
         void foreach(const observer_t & obs) const
@@ -120,12 +122,12 @@ namespace turbo::container {
             return _base.get(k);
         }
 
-        void set(const key_type &k, mapped_type v)
+        void set(M &target, const key_type &k, mapped_type v) const
         {
-            _base.set(k, std::move(v));
+            target.set(k, std::move(v));
         }
     private:
-        M &_base;
+        const M &_base;
     };
 
     /*
@@ -190,13 +192,13 @@ namespace turbo::container {
             }
         }
 
-        void commit()
+        void commit(typename base_map_api_type::target_type &target)
         {
             for (auto it = _updates.begin(); it != _updates.end(); ++it) {
                 if (has_value(it->second)) {
-                    _base.set(it->first, std::move(it->second));
+                    _base.set(target, it->first, std::move(it->second));
                 } else {
-                    _base.erase(it->first);
+                    _base.erase(target, it->first);
                 }
             }
             _updates.clear();

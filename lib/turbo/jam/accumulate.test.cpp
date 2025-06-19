@@ -181,7 +181,22 @@ namespace {
         try {
             auto tmp_st = tc.pre;
             auto new_pi = tmp_st.pi.get();
-            out.emplace(tmp_st.accumulate(new_pi, tc.pre.tau.get(), tc.in.slot, tc.in.reports));
+            auto res = tmp_st.accumulate(
+                new_pi,
+                tc.pre.tau.get(),
+                tc.pre.phi.storage(), tc.pre.iota.storage(), tc.pre.chi.storage(),
+                tc.pre.nu.storage(), tc.pre.ksi.storage(),
+                tc.pre.delta,
+                tc.in.slot, tc.in.reports
+            );
+            out.emplace(res.root);
+            tmp_st.nu.set(std::move(res.new_nu));
+            tmp_st.ksi.set(std::move(res.new_ksi));
+            tmp_st.phi.set(std::move(res.new_phi));
+            tmp_st.iota.set(std::move(res.new_iota));
+            tmp_st.chi.set(std::move(res.new_chi));
+            if (res.service_updates)
+                res.service_updates->commit(tmp_st.delta);
             tmp_st.pi.set(std::move(new_pi));
             tmp_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
             res_st = std::move(tmp_st);
