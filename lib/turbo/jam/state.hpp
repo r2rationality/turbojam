@@ -663,10 +663,10 @@ namespace turbo::jam {
         opaque_hash_t work_package_hash;
         opaque_hash_t exports_root;
         opaque_hash_t authorizer_hash;
-        byte_sequence_t auth_output;
         opaque_hash_t payload_hash;
         gas_t accumulate_gas;
         work_exec_result_t result;
+        byte_sequence_t auth_output;
 
         void serialize(auto &archive)
         {
@@ -674,10 +674,10 @@ namespace turbo::jam {
             archive.process("work_package_hash"sv, work_package_hash);
             archive.process("exports_root"sv, exports_root);
             archive.process("authorizer_hash"sv, authorizer_hash);
-            archive.process("auth_output"sv, auth_output);
             archive.process("payload_hash"sv, payload_hash);
             archive.process("accumulate_gas"sv, accumulate_gas);
             archive.process("result"sv, result);
+            archive.process("auth_output"sv, auth_output);
         }
 
         bool operator==(const accumulate_operand_t &o) const

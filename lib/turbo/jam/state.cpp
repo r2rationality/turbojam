@@ -410,10 +410,10 @@ namespace turbo::jam {
                         .work_package_hash=r.package_spec.hash,
                         .exports_root=r.package_spec.exports_root,
                         .authorizer_hash=r.authorizer_hash,
-                        .auth_output=r.auth_output,
                         .payload_hash=r_res.payload_hash,
                         .accumulate_gas=r_res.accumulate_gas,
-                        .result=r_res.result
+                        .result=r_res.result,
+                        .auth_output=r.auth_output
                     }
                 );
             }

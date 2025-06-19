@@ -194,8 +194,15 @@ namespace {
 suite turbo_jam_preimages_suite = [] {
     "turbo::jam::preimages"_test = [] {
         //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/preimages/data/preimage_not_needed-2"));
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/preimages/data"), ".bin")) {
-            test_file<config_tiny>(path.substr(0, path.size() - 4));
-        }
+        "tiny"_test = [] {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/preimages/tiny"), ".bin")) {
+                test_file<config_tiny>(path.substr(0, path.size() - 4));
+            }
+        };
+        "full"_test = [] {
+            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/preimages/full"), ".bin")) {
+                test_file<config_prod>(path.substr(0, path.size() - 4));
+            }
+        };
     };
 };

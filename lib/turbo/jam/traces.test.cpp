@@ -31,6 +31,31 @@ namespace {
         }
     };
 
+    struct test_genesis_state_t {
+        state_root_t state_root;
+        state_snapshot_t keyvals;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("state_root"sv, state_root);
+            archive.process("keyvals"sv, keyvals);
+        }
+    };
+
+    template<typename CFG>
+    struct test_genesis_t {
+        header_t<CFG> header;
+        test_genesis_state_t state;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("header"sv, header);
+            archive.process("state"sv, state);
+        }
+    };
+
     struct test_case_t {
         raw_state_t pre;
         block_t<config_tiny> block;
@@ -56,7 +81,7 @@ namespace {
         }
     };
 
-    void test_transition(const std::string &path, const state_snapshot_t &genesis_state)
+    void test_file(const std::string &path, const state_snapshot_t &genesis_state)
     {
         try {
             const auto tc = jam::load_obj<test_case_t>(path + ".bin");
@@ -64,27 +89,24 @@ namespace {
                 const auto j_tc = codec::json::load_obj<test_case_t>(path + ".json");
                 expect(tc == j_tc) << "the json test case does not match the binary one" << path;
             }
-
-            file::tmp_directory data_dir { "test-jam-traces" };
+            const file::tmp_directory data_dir { "test-jam-traces" };
             chain_t<config_tiny> chain {
                 "dev",
                 data_dir.path(),
                 genesis_state,
                 tc.pre.keyvals
             };
-            if (!tc.pre.keyvals.empty())
-                expect(*chain.state().state_dict == tc.pre.keyvals) << path;
             chain.apply(tc.block);
             expect(chain.state().state_dict->root() == tc.post.state_root) << path;
-            expect(*chain.state().state_dict == tc.post.keyvals) << path;
-            const auto k = merkle::trie::key_t::from_hex<merkle::trie::key_t>("0D000000000000000000000000000000000000000000000000000000000000");
+            //expect(*chain.state().state_dict == tc.post.keyvals) << path;
+            /*const auto k = merkle::trie::key_t::from_hex<merkle::trie::key_t>("0D000000000000000000000000000000000000000000000000000000000000");
             using ET = std::decay_t<decltype(chain.state().pi.get())>;
             logger::info("L: {} {}",
                 chain.state().state_dict->get(k),
                 from_bytes<ET>(encode(chain.state().pi.get())));
             logger::info("R: {} {}",
                 chain.state().state_dict->make_value(tc.post.keyvals.at(k)),
-                from_bytes<ET>(tc.post.keyvals.at(k)));
+                from_bytes<ET>(tc.post.keyvals.at(k)));*/
         } catch (const std::exception &ex) {
             expect(false) << path << ex.what();
         }
@@ -93,19 +115,18 @@ namespace {
 
 suite turbo_jam_traces_suite = [] {
     "turbo::jam::traces"_test = [] {
-        state_snapshot_t genesis_state;
-        {
-            const auto j_tc = codec::json::load_obj<test_case_t>(file::install_path("test/jam-test-vectors/traces/fallback/00000000.json"));
-            genesis_state = j_tc.post.keyvals;
-            const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
-            auto orig_genesis = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
-        }
-        test_transition(file::install_path("test/jam-test-vectors/traces/reports-l0/00000003"), genesis_state);
+        //test_file(file::install_path("test/jam-test-vectors/traces/fallback/00000001"), genesis.state.keyvals);
         //for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
-        /*for (const auto testset: { "reports-l0" }) {
-            for (const auto &path: file::files_with_ext(file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset)), ".bin")) {
-                test_file(path.substr(0, path.size() - 4), genesis_state);
+        for (const auto testset: { "reports-l0" }) {
+            const auto test_dir = file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset));
+            const auto genesis = codec::json::load_obj<test_genesis_t<config_tiny>>(fmt::format("{}/genesis.json", test_dir));
+            expect(genesis.state.keyvals.root() == genesis.state.state_root);
+            for (const auto &path: file::files_with_ext_path(test_dir, ".bin")) {
+                if (path.filename().stem() == "genesis")
+                    continue;
+                const auto path_str = path.string();
+                test_file(path_str.substr(0, path_str.size() - 4), genesis.state.keyvals);
             }
-        }*/
+        }
     };
 };

@@ -11,8 +11,8 @@ namespace {
     using namespace turbo::jam;
 }
 
-suite turbo_jam_codec_suite = [] {
-    "turbo::jam::codec"_test = [] {
+suite turbo_jam_encoding_suite = [] {
+    "turbo::jam::encoding"_test = [] {
         "uint_general"_test = [] {
             static const auto exp = uint8_vector::from_hex("83FF");
             {
