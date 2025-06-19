@@ -185,8 +185,6 @@ namespace turbo::container {
 
         void consume_from(update_map_t &&o)
         {
-            if (&_base != &o._base) [[unlikely]]
-                throw error("update_map_t::merge_from requires the argument to have the same base!");
             for (auto &&[k, upd]: o._updates) {
                 set(k, std::move(upd));
             }

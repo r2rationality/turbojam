@@ -222,10 +222,10 @@ namespace {
                     auto tmp_pi = tmp_st.pi.get();
                     out.emplace(
                         tmp_st.update_reports(
-                            tmp_rho, tmp_pi,
+                            tmp_rho, tmp_pi, tmp_st.beta.get(),
                             tmp_st.eta.get(), tmp_st.psi.get(),
                             tmp_st.kappa.get(), tmp_st.lambda.get(),
-                            tc.pre.alpha.get(), tc.pre.beta.get(),
+                            tc.pre.alpha.get(),
                             tc.pre.delta,
                             tc.in.slot, tc.in.guarantees
                         )

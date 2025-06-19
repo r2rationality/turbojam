@@ -181,6 +181,7 @@ namespace {
         try {
             auto tmp_st = tc.pre;
             auto new_pi = tmp_st.pi.get();
+            new_pi.services.clear();
             auto res = tmp_st.accumulate(
                 new_pi,
                 tc.pre.tau.get(),
@@ -221,7 +222,7 @@ namespace {
 
 suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
-        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/accumulate_ready_queued_reports-1"));
+        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/enqueue_and_unlock_chain_wraps-1"));
         "tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/accumulate/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

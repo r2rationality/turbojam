@@ -39,16 +39,7 @@ namespace turbo::jam {
     {
         if (id == std::numeric_limits<machine::register_val_t>::max())
             id = _service_id;
-        return { numeric_cast<service_id_t>(id), _services.get_mutable(id) };
-    }
-
-    template<typename CONFIG>
-    template<typename M>
-    typename M::mapped_type host_service_base_t<CONFIG>::_get_value(const M &m, const typename M::key_type &key)
-    {
-        if (auto v = m.get(key); v) [[likely]]
-            return std::move(*v);
-        throw err_unknown_key_t { fmt::format("cannot find an element with id {}", key) };
+        return { numeric_cast<service_id_t>(id), _services.get_mutable_ptr(id) };
     }
 
     template<typename CONFIG>
@@ -86,35 +77,46 @@ namespace turbo::jam {
     void host_service_base_t<CONFIG>::lookup()
     {
         const auto &omega = _m.regs();
-        const auto &[s_id, a] = _get_service(omega[7]);
+        const auto [s_id, a] = _get_service(omega[7]);
         const auto h = omega[8];
         const auto o = omega[9];
         const opaque_hash_t key { _m.mem_read(h, 32) };
-        auto val = _get_value(a.preimages, key);
-        const auto f = std::min(omega[10], val.size());
-        const auto l = std::min(omega[11], val.size() - f);
-        _m.mem_write(o, static_cast<buffer>(val).subbuf(0, l));
-        _m.set_reg(7, val.size());
+        std::optional<write_vector> val {};
+        if (a)
+            val = a->preimages.get(key);
+        if (val) {
+            const auto f = std::min(omega[10], val->size());
+            const auto l = std::min(omega[11], val->size() - f);
+            _m.mem_write(o, static_cast<buffer>(*val).subbuf(0, l));
+            _m.set_reg(7, val->size());
+        } else {
+            _m.set_reg(7, machine::host_call_res_t::none);
+        }
     }
 
     template<typename CONFIG>
-    void host_service_base_t<CONFIG>::read()
-    {
+    void host_service_base_t<CONFIG>::read() {
         const auto &omega = _m.regs();
-        const auto &[s_id, a] = _get_service(omega[7]);
+        const auto [s_id, a] = _get_service(omega[7]);
         const auto ko = omega[8];
         const auto kz = omega[9];
         const auto o = omega[10];
         encoder enc {};
         enc.uint_fixed(4, s_id);
-        if (kz > 0) [[likely]]
-            enc.next_bytes(_m.mem_read(ko, kz));
-        const auto key = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
-        const auto &val = _get_value(a.storage, key);
-        const auto f = std::min(omega[11], val.size());
-        const auto l = std::min(omega[12], val.size() - f);
-        _m.mem_write(o, static_cast<buffer>(val).subbuf(0, l));
-        _m.set_reg(7, val.size());
+        enc.next_bytes(_m.mem_read(ko, kz));
+        std::optional<write_vector> val {};
+        if (a) {
+            const auto key = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+            val = a->storage.get(key);
+        }
+        if (val) {
+            const auto f = std::min(omega[11], val->size());
+            const auto l = std::min(omega[12], val->size() - f);
+            _m.mem_write(o, static_cast<buffer>(*val).subbuf(0, l));
+            _m.set_reg(7, val->size());
+        } else {
+            _m.set_reg(7, machine::host_call_res_t::none);
+        }
     }
 
     template<typename CONFIG>
@@ -129,48 +131,60 @@ namespace turbo::jam {
         const auto key_hash = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
         const auto v_o = _m.regs()[9];
         const auto v_z = _m.regs()[10];
-        const auto &prev_val = _service.storage.get(key_hash);
-        if (v_z == 0) {
-            logger::trace("service {} write: delete key: {}", _service_id, key_data);
-            if (prev_val) {
-                _service.info.bytes -= sizeof(key_hash);
-                _service.info.bytes -= prev_val->size();
-                --_service.info.items;
-                _service.storage.erase(key_hash);
-            }
-            _m.set_reg(7, machine::host_call_res_t::none);
-        } else {
-            auto val_data = _m.mem_read(v_o, v_z);
-            logger::trace("service {} write: set key: {} hash: {} val: {}", _service_id, key_data, key_hash, val_data);
-            if (prev_val) {
-                _service.info.bytes -= prev_val->size();
-            } else {
-                _service.info.bytes += sizeof(key_hash);
-                ++_service.info.items;
-            }
-            _service.storage.set(key_hash, static_cast<buffer>(val_data));
-            _service.info.bytes += v_z;
-            _m.set_reg(7, v_z);
-        }
+        const auto prev_val = _service.storage.get(key_hash);
         const auto balance_threshold = account_balance_threshold(_service.lookup_metas, _service.storage);
-        if (_service.info.base.get().balance < balance_threshold)
+        if (_service.info.base.get().balance >= balance_threshold) {
+            if (v_z == 0) {
+                logger::trace("service {} write: delete key: {}", _service_id, key_data);
+                if (prev_val) {
+                    // move the stats update into the erase method?
+                    _service.info.bytes -= sizeof(key_hash);
+                    _service.info.bytes -= prev_val->size();
+                    --_service.info.items;
+                    _service.storage.erase(key_hash);
+                }
+            } else {
+                auto val_data = _m.mem_read(v_o, v_z);
+                logger::trace("service {} write: set key: {} hash: {} val: {}", _service_id, key_data, key_hash, val_data);
+                if (prev_val) {
+                    _service.info.bytes -= prev_val->size();
+                } else {
+                    _service.info.bytes += sizeof(key_hash);
+                    ++_service.info.items;
+                }
+                _service.storage.set(key_hash, static_cast<buffer>(val_data));
+                _service.info.bytes += v_z;
+            }
+            const machine::register_val_t l = prev_val ? prev_val->size() : machine::host_call_res_t::none;
+            _m.set_reg(7, l);
+        } else {
             _m.set_reg(7, machine::host_call_res_t::full);
+        }
     }
 
     template<typename CONFIG>
     void host_service_base_t<CONFIG>::info()
     {
         const auto &omega = _m.regs();
-        const auto &[t_id, t] = _get_service(omega[7]);
-        // JAM 0.6.5 mentions an element t_t which is not part of the service's info - not clear what it means
-        encoder enc {
-            t.info.code_hash, t.info.balance, _slot,
-            t.info.min_item_gas, t.info.min_memo_gas,
-            t.info.bytes, t.info.items
-        };
-        const auto o = omega[8];
-        _m.mem_write(o, enc.bytes());
-        _m.set_reg(7, machine::host_call_res_t::ok);
+        const auto [t_id, t] = _get_service(omega[7]);
+        std::optional<uint8_vector> m {};
+        if (t) {
+            auto info = t->info.combine();
+            // JAM 0.6.5 mentions an element t_t which is not part of the service's info - not clear what it means
+            encoder enc {
+                info.code_hash, info.balance, _slot,
+                info.min_item_gas, info.min_memo_gas,
+                info.bytes, info.items
+            };
+            m.emplace(std::move(enc.bytes()));
+        }
+        if (m) {
+            const auto o = omega[8];
+            _m.mem_write(o, *m);
+            _m.set_reg(7, machine::host_call_res_t::ok);
+        } else {
+            _m.set_reg(7, machine::host_call_res_t::none);
+        }
     }
 
     static logger::level log_level(const machine::register_val_t level)

@@ -609,9 +609,6 @@ namespace turbo::jam {
         if (plus_res.state.queue)
             res.new_phi = std::make_shared<auth_queues_t<CFG>>(std::move(*plus_res.state.queue));
 
-        // core and service statistics are tracked per-block only! (13.11)
-        tmp_pi.services.clear();
-
         // (12.24) (12.25) (12.26)
         for (const auto &[s_id, work_info]: plus_res.work_items) {
             auto &s_stats = tmp_pi.services[s_id];
@@ -691,9 +688,10 @@ namespace turbo::jam {
     template<typename CFG>
     reports_output_data_t state_t<CFG>::update_reports(
         availability_assignments_t<CFG> &tmp_rho, statistics_t<CFG> &tmp_pi,
+        const blocks_history_t<CFG> &tmp_beta,
         const entropy_buffer_t &new_eta, const disputes_records_t &new_psi,
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
-        const auth_pools_t<CFG> &prev_alpha, const blocks_history_t<CFG> &prev_beta,
+        const auth_pools_t<CFG> &prev_alpha,
         const accounts_t<CFG> &prev_delta,
         const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees)
     {
@@ -702,7 +700,7 @@ namespace turbo::jam {
         if (!guarantees.empty()) {
             std::set<opaque_hash_t> known_packages {};
             std::set<opaque_hash_t> known_segment_roots {};
-            for (const auto &blk: prev_beta) {
+            for (const auto &blk: tmp_beta) {
                 for (const auto &wr: blk.reported) {
                     known_packages.insert(wr.hash);
                     known_segment_roots.insert(wr.exports_root);
@@ -722,10 +720,10 @@ namespace turbo::jam {
             const auto prev_guarantor_sigs = _capital_phi(new_lambda, new_psi.offenders);
             for (const auto &g: guarantees) {
                 // JAM Paper (11.33)
-                const auto blk_it = std::find_if(prev_beta.begin(), prev_beta.end(), [&g](const auto &blk) {
+                const auto blk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
                     return blk.header_hash == g.report.context.anchor;
                 });
-                if (blk_it == prev_beta.end()) [[unlikely]]
+                if (blk_it == tmp_beta.end()) [[unlikely]]
                     throw err_anchor_not_recent_t {};
                 if (blk_it->state_root != g.report.context.state_root) [[unlikely]]
                     throw err_bad_state_root_t {};
@@ -757,10 +755,10 @@ namespace turbo::jam {
                     throw err_segment_root_lookup_invalid_t {};
 
                 // JAM Paper (11.35)
-                const auto lblk_it = std::find_if(prev_beta.begin(), prev_beta.end(), [&g](const auto &blk) {
+                const auto lblk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
                     return blk.header_hash == g.report.context.lookup_anchor;
                 });
-                if (lblk_it == prev_beta.end()) [[unlikely]]
+                if (lblk_it == tmp_beta.end()) [[unlikely]]
                     throw err_segment_root_lookup_invalid_t {};
 
                 // JAM Paper (11.38)
@@ -1102,7 +1100,9 @@ namespace turbo::jam {
         // Work on a copy so that in case of errors the original state remains intact
         // In addition, this makes it easier to differentiate between the original and intermediate state values
         auto new_st = *this;
-        auto new_pi = new_st.pi.get();
+        auto new_pi = pi.get();
+        // core and service statistics are tracked per-block only! (13.11)
+        new_pi.services.clear();
 
         // JAM (4.6)
         auto tmp_beta = new_st.beta_dagger(beta.get(), blk.header.parent_state_root);
@@ -1152,9 +1152,10 @@ namespace turbo::jam {
         // JAM (4.12)
         new_st.update_reports(
             tmp_rho, new_pi,
+            tmp_beta,
             new_st.eta.get(), new_st.psi.get(),
             new_st.kappa.get(), new_st.lambda.get(),
-            alpha.get(), beta.get(), delta,
+            alpha.get(), delta,
             blk.header.slot, blk.extrinsic.guarantees
         );
         // JAM (4.13)

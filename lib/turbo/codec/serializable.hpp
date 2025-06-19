@@ -95,7 +95,9 @@ namespace turbo::codec {
         void format(const T &val)
         {
             if constexpr (serializable_c<T>) {
+                ++_depth;
                 const_cast<T &>(val).serialize(*this);
+                --_depth;
             } else if constexpr (std::is_same_v<T, uint8_t>
                     || std::is_same_v<T, uint16_t>
                     || std::is_same_v<T, uint32_t>
@@ -105,9 +107,7 @@ namespace turbo::codec {
                     || std::is_same_v<T, std::string_view>
                     || std::is_same_v<T, std::string>
                     || std::is_convertible_v<T, std::span<const uint8_t>>) {
-                _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
                 _it = fmt::format_to(_it, "{}", val);
-                _it = fmt::format_to(_it, "\n");
             } else {
                 throw error(fmt::format("formatter serialization is not enabled for type {}", typeid(T).name()));
             }
@@ -125,16 +125,18 @@ namespace turbo::codec {
 
         void process(const auto &val)
         {
-            _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
+            //_it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
             format(val);
         }
 
         void process(const std::string_view name, const auto &val)
         {
-            _it = fmt::format_to(_it, "{:{}}{}:\n", "", _depth * shift, name);
+            _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
+            _it = fmt::format_to(_it, "{}: ", name);
             ++_depth;
             format(val);
             --_depth;
+            _it = fmt::format_to(_it, "\n");
         }
 
         void process_map_item(const auto &k, const auto &v)
@@ -153,11 +155,15 @@ namespace turbo::codec {
                 using T = std::decay_t<decltype(m)>;
                 if constexpr (has_foreach_c<T>) {
                     m.foreach([&](const auto &k, const auto &v) {
+                        _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
                         process_map_item(k, v);
+                        _it = fmt::format_to(_it, "\n");
                     });
                 } else if constexpr (std::ranges::range<T>) {
                     for (const auto &[k, v]: m) {
+                        _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
                         process_map_item(k, v);
+                        _it = fmt::format_to(_it, "\n");
                     }
                 } else {
                     throw error(fmt::format("process_map does not support type: {}", typeid(decltype(m)).name()));
@@ -177,7 +183,9 @@ namespace turbo::codec {
                 ++_depth;
                 _it = fmt::format_to(_it, "\n");
                 for (const auto &v: arr) {
+                    _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
                     format(v);
+                    _it = fmt::format_to(_it, "\n");
                 }
                 --_depth;
                 _it = fmt::format_to(_it, "{:{}}", "", _depth * shift);
@@ -196,7 +204,7 @@ namespace turbo::codec {
             if (val) {
                 process(*val);
             } else {
-                _it = fmt::format_to(_it, "{:{}}std::nullopt\n", "", _depth * shift);
+                _it = fmt::format_to(_it, "{:{}}std::nullopt", "", _depth * shift);
             }
         }
 
@@ -210,12 +218,12 @@ namespace turbo::codec {
 
         void process_bytes(const std::span<const uint8_t> bytes)
         {
-            _it = fmt::format_to(_it, "{:{}}#{}\n", "", _depth * shift, bytes);
+            _it = fmt::format_to(_it, "{:{}}#{}", "", _depth * shift, bytes);
         }
 
         void process_bytes_fixed(const std::span<const uint8_t> bytes)
         {
-            _it = fmt::format_to(_it, "{:{}}#{}\n", "", _depth * shift, bytes);
+            _it = fmt::format_to(_it, "{:{}}#{}", "", _depth * shift, bytes);
         }
 
         OUT_IT it() const

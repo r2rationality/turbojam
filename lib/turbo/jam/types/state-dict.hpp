@@ -55,26 +55,28 @@ namespace turbo::jam {
         {
             //if (size() != o.size()) [[unlikely]]
             //    return false;
+            bool ok = true;
             size_t key_matches = 0;
             for (const auto &[k, v]: o) {
                 auto ov = make_value(v);
                 auto my_v = get(k);
                 if (!my_v) [[unlikely]] {
                     logger::info("missing key: {}", k);
-                    return false;
+                    ok = false;
                 }
                 ++key_matches;
                 if (my_v != ov) [[unlikely]] {
                     logger::info("key {}: expected {}, got {}", k, ov, my_v);
-                    return false;
+                    ok = false;
                 }
             }
             if (key_matches != size()) [[unlikely]] {
                 foreach([&](const auto &k, const auto &) {
                     logger::info("extra key: {}", k);
+                    ok = false;
                 });
             }
-            return true;
+            return ok;
         }
 
         bool operator==(const state_dict_t &o) const

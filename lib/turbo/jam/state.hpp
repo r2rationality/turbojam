@@ -133,6 +133,7 @@ namespace turbo::jam {
             items += o.items;
         }
 
+        service_info_t combine() const;
         void commit(persistent_value_t<service_info_t> &);
     };
 
@@ -156,7 +157,7 @@ namespace turbo::jam {
             archive.process("items"sv, items);
         }
 
-        void consume_from(service_info_update_t &&o)
+        void consume_from(const service_info_update_t &o)
         {
             if (o.code_hash)
                 code_hash = *o.code_hash;
@@ -187,11 +188,16 @@ namespace turbo::jam {
         }
     };
 
+    inline service_info_t service_info_update_t::combine() const
+    {
+        auto res = base.get();
+        res.consume_from(*this);
+        return res;
+    }
+
     inline void service_info_update_t::commit(persistent_value_t<service_info_t> &target)
     {
-        auto new_val = target.get();
-        new_val.consume_from(std::move(*this));
-        target.set(std::move(new_val));
+        target.set(combine());
     }
 
     template<typename K, typename V>
@@ -552,10 +558,10 @@ namespace turbo::jam {
             }
         }
 
-        mapped_type &get_mutable(const key_type &k)
+        mapped_type *get_mutable_ptr(const key_type &k)
         {
             if (const auto d_it = _derived.find(k); d_it != _derived.end())
-                return d_it->second;
+                return &d_it->second;
             if (auto b_it = _base.find(k); b_it != _base.end()) {
                 const auto [d_it, created] = _derived.try_emplace(
                     k,
@@ -564,8 +570,15 @@ namespace turbo::jam {
                     container::direct_update_api_t<lookup_metas_t<CFG>> { b_it->second.lookup_metas },
                     service_info_update_t { b_it->second.info }
                 );
-                return d_it->second;
+                return &d_it->second;
             }
+            return nullptr;
+        }
+
+        mapped_type &get_mutable(const key_type &k)
+        {
+            if (auto ptr = get_mutable_ptr(k); ptr)
+                return *ptr;
             throw err_bad_service_id_t {};
         }
 
@@ -821,9 +834,10 @@ namespace turbo::jam {
         // JAM (4.15)
         static reports_output_data_t update_reports(
             availability_assignments_t<CFG> &tmp_rho, statistics_t<CFG> &tmp_pi,
+            const blocks_history_t<CFG> &tmp_beta,
             const entropy_buffer_t &new_eta, const disputes_records_t &new_psi,
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
-            const auth_pools_t<CFG> &prev_alpha, const blocks_history_t<CFG> &prev_beta,
+            const auth_pools_t<CFG> &prev_alpha,
             const accounts_t<CFG> &prev_delta,
             const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees);
 

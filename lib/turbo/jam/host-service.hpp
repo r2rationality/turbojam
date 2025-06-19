@@ -15,7 +15,7 @@ namespace turbo::jam {
         using call_func = std::function<void()>;
         struct service_lookup_res_t {
             service_id_t id;
-            mutable_service_state_t<CONFIG> &account;
+            mutable_service_state_t<CONFIG> *account;
         };
 
         machine::machine_t &_m;
