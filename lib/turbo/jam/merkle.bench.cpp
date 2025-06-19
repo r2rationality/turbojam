@@ -38,24 +38,28 @@ suite turbo_jam_merkle_bench_suite = [] {
             .performanceCounters(true)
             .batch(input.size())
             .relative(true);
-        {
-            b.run("vector - construct & compute root",[&] {
-                trie::input_map_t input_m {};
-                for (const auto &[k, v]: input) {;
-                    input_m.emplace(k, v);
-                    ankerl::nanobench::doNotOptimizeAway(trie::encode_blake2b(input_m));
-                }
-            });
-        }
-        {
-            const hash_func hf { static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::blake2b::digest) };
-            b.run("shared prefix - construct & compute root",[&] {
-                trie_t trie { hf };
-                for (const auto &[k, v]: input) {
-                    trie.set(k, v);
-                    ankerl::nanobench::doNotOptimizeAway(trie.root());
-                }
-            });
-        }
+
+        const hash_func hf { static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::blake2b::digest) };
+        b.run("naive unsorted - construct & compute root",[&] {
+            trie::input_map_t input_m {};
+            for (const auto &[k, v]: input) {;
+                input_m.emplace(k, v);
+            }
+            ankerl::nanobench::doNotOptimizeAway(trie::compute_root(input_m));
+        });
+        b.run("naive pre-sorted - construct & compute root",[&] {
+            trie::node_map_t input_m {};
+            for (const auto &[k, v]: input) {;
+                input_m.emplace_hint(input_m.end(), k, v, hf);
+            }
+            ankerl::nanobench::doNotOptimizeAway(trie::compute_root(input_m));
+        });
+        b.run("shared prefix - construct & compute root",[&] {
+            trie_t trie { hf };
+            for (const auto &[k, v]: input) {
+                trie.set(k, v);
+            }
+            ankerl::nanobench::doNotOptimizeAway(trie.root());
+        });
     };
 };

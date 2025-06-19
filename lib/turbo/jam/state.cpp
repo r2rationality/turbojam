@@ -1330,7 +1330,7 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    std::optional<write_vector> state_t<CFG>::state_get(const state_dict_t::key_t &k) const
+    std::optional<write_vector> state_t<CFG>::state_get(const state_key_t &k) const
     {
         const auto &sd_val = state_dict->get(k);
         if (sd_val) {

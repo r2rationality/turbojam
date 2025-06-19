@@ -9,7 +9,7 @@
 
 namespace turbo::jam {
     // JAM D.1
-    using state_key_t = merkle::trie::key_t;
+    using state_key_t = merkle::key_t;
     using state_key_subhash_t = byte_array_t<27>;
     using state_dict_base_t = merkle::trie_t;
 
@@ -20,7 +20,7 @@ namespace turbo::jam {
 
         [[nodiscard]] merkle::hash_t root() const
         {
-            return merkle::trie::encode_blake2b(*this);
+            return merkle::trie::compute_root(*this);
         }
     };
 
@@ -46,7 +46,7 @@ namespace turbo::jam {
             return *this;
         }
 
-        const value_t &emplace(const key_t &k, const buffer &v)
+        const value_t &emplace(const state_key_t &k, const buffer &v)
         {
             return set(k, v);
         }

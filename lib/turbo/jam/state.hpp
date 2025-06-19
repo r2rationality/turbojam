@@ -36,7 +36,7 @@ namespace turbo::jam {
                 throw error("a persistent value requires an initialized state_dict!");
         }
 
-        persistent_value_t(const std::shared_ptr<state_dict_t> &state_dict, const state_dict_t::key_t &key, element_type val={}):
+        persistent_value_t(const std::shared_ptr<state_dict_t> &state_dict, const state_key_t &key, element_type val={}):
             _state_dict { state_dict },
             _key { key },
             _ptr { std::make_shared<T>(std::move(val)) }
@@ -85,7 +85,7 @@ namespace turbo::jam {
         }
     private:
         std::shared_ptr<state_dict_t> _state_dict;
-        state_dict_t::key_t _key;
+        state_key_t _key;
         ptr_type _ptr;
     };
 
@@ -198,9 +198,9 @@ namespace turbo::jam {
     struct state_dict_based_map_t {
         using key_type = K;
         using mapped_type = V;
-        using keys_t = std::map<key_type, state_dict_t::key_t>;
+        using keys_t = std::map<key_type, state_key_t>;
         using observer_t = std::function<void(const key_type &k, mapped_type v)>;
-        using trie_key_func_t = std::function<state_dict_t::key_t(const key_type &)>;
+        using trie_key_func_t = std::function<state_key_t(const key_type &)>;
 
         state_dict_based_map_t(const kv_store_ptr_t &kv_store, const state_dict_ptr_t &state_dict, const trie_key_func_t &try_key_func):
             _kv_store { kv_store },
@@ -783,7 +783,7 @@ namespace turbo::jam {
         // (4.1): Kapital upsilon
         void apply(const block_t<CFG> &);
 
-        std::optional<write_vector> state_get(const state_dict_t::key_t &k) const;
+        std::optional<write_vector> state_get(const state_key_t &k) const;
 
         // State transition methods: static to not be explicit about their inputs and outputs
 

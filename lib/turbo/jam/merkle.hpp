@@ -12,28 +12,21 @@ namespace turbo::jam::merkle {
     using hash_t = byte_array_t<32>;
     using hash_span_t = crypto::blake2b::hash_span_t;
     using hash_func = std::function<void(const hash_span_t &, const buffer &)>;
+    using key_t = byte_array_t<31>;
 
     static constexpr auto blake2b_hash_func = static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::blake2b::digest);
     static constexpr auto keccak_hash_func = static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::keccak::digest);
 
-    struct node_t {
-        hash_t left;
-        hash_t right;
+    namespace trie {
+        struct input_map_config_t {
+            std::string key_name = "key";
+            std::string val_name = "value";
+        };
 
-        operator buffer() const
-        {
-            return { reinterpret_cast<const uint8_t *>(this), sizeof(*this) };
-        }
-    };
-
-    struct input_map_config_t {
-        std::string key_name = "key";
-        std::string val_name = "value";
-    };
-
-    struct trie_t {
-        static constexpr size_t max_in_place_value_size = 32;
         using key_t = byte_array_t<31>;
+        using input_map_t = map_t<key_t, byte_sequence_t, input_map_config_t>;
+
+        static constexpr size_t max_in_place_value_size = 32;
 
         struct value_inplace_t: boost::container::static_vector<uint8_t, max_in_place_value_size> {
             using base_type = boost::container::static_vector<uint8_t, max_in_place_value_size>;
@@ -75,6 +68,123 @@ namespace turbo::jam::merkle {
                 return { h };
             }
         };
+
+        struct node_t {
+            hash_t left;
+            hash_t right;
+
+            operator buffer() const
+            {
+                return { reinterpret_cast<const uint8_t *>(this), sizeof(*this) };
+            }
+        };
+
+        // JAM Paper D.2.1 "Bit encoding": The bit order is the least significant first.
+        struct compact_node_t: node_t {
+            compact_node_t(const key_t &k, const buffer &v, const hash_func &hf)
+            {
+                static_assert(sizeof(left) == sizeof(k) + 1);
+                static constexpr size_t max_inplace_value = sizeof(right);
+                if (v.size() <= max_inplace_value) {
+                    memcpy(right.data(), v.data(), v.size());
+                    memset(right.data() + v.size(), 0, right.size() - v.size());
+                    left[0] = 0x01 | v.size() << 2;
+                    memcpy(left.data() + 1, k.data(), k.size());
+                } else {
+                    left[0] = 0x03;
+                    memcpy(left.data() + 1, k.data(), k.size());
+                    hf(right, v);
+                }
+            }
+
+            compact_node_t(const key_t &k, const value_t &v)
+            {
+                std::visit([&](const auto &sv) {
+                    using T = std::decay_t<decltype(sv)>;
+                    if constexpr (std::is_same_v<T, value_inplace_t>) {
+                        memcpy(right.data(), sv.data(), sv.size());
+                        memset(right.data() + sv.size(), 0, right.size() - sv.size());
+                        left[0] = 0x01 | sv.size() << 2;
+                        memcpy(left.data() + 1, k.data(), k.size());
+                    } else {
+                        left[0] = 0x03;
+                        memcpy(left.data() + 1, k.data(), k.size());
+                        right = sv;
+                    }
+                }, v);
+            }
+
+            compact_node_t(const hash_t &l, const hash_t &r):
+                node_t { l, r }
+            {
+                left[0] &= 0xFE;
+            }
+
+            bool is_branch() const
+            {
+                return !is_leaf();
+            }
+
+            bool is_leaf() const
+            {
+                return left[0] & 1;
+            }
+
+            hash_t hash(const hash_func &hf) const
+            {
+                hash_t res;
+                hf(res, *this);
+                return res;
+            }
+
+            bool bit(const size_t i) const
+            {
+                // the metadata byte is excluded from the comparison!
+                if (i >= (sizeof(*this) - 1) * 8) [[unlikely]]
+                    throw error(fmt::format("bit index {} is beyound the num bits: {}", i, sizeof(*this) * 8));
+                if (i < (sizeof(left) - 1) * 8)
+                    return left.bit(8 + i);
+                return right.bit(i - (sizeof(left) - 1) * 8);
+            }
+
+            bool operator<(const compact_node_t &o) const noexcept
+            {
+                // the metadata byte is excluded from the comparison!
+                for (size_t i = 8; i < sizeof(left) * 8; ++i) {
+                    if (const auto cmp = left.bit(i) <=> o.left.bit(i); cmp != std::strong_ordering::equal)
+                        return cmp == std::strong_ordering::less;
+                }
+                for (size_t i = 0; i < sizeof(right) * 8; ++i) {
+                    if (const auto cmp = right.bit(i) <=> o.right.bit(i); cmp != std::strong_ordering::equal)
+                        return cmp == std::strong_ordering::less;
+                }
+                return false;
+            }
+        };
+        static_assert(sizeof(node_t) == 64U);
+
+        struct node_map_t: boost::container::flat_set<compact_node_t> {
+            using base_type = flat_set<compact_node_t>;
+            using base_type::base_type;
+
+            node_map_t(const input_map_t &inputs, const hash_func &hf):
+                _hf { hf }
+            {
+                reserve(inputs.size());
+                for (const auto &[k, v]: inputs)
+                    emplace_hint(end(), k, v, _hf);
+            }
+        private:
+            const hash_func _hf;
+        };
+
+        extern hash_t compute_root(const node_map_t &inputs, const hash_func &hf=blake2b_hash_func);
+        extern hash_t compute_root(const input_map_t &inputs, const hash_func &hf=blake2b_hash_func);
+    }
+
+    struct trie_t {
+        using value_t = trie::value_t;
+        using value_hash_t = trie::value_hash_t;
         using opt_value_t = std::optional<value_t>;
         using observer_t = std::function<void(const key_t &, const opt_value_t &)>;
 
@@ -99,28 +209,6 @@ namespace turbo::jam::merkle {
         struct impl;
         std::unique_ptr<impl> _impl;
     };
-
-    namespace trie {
-        using key_t = byte_array_t<31>;
-        using input_map_t = map_t<key_t, byte_sequence_t, input_map_config_t>;
-
-        extern void encode_blake2b(const hash_span_t &out, const input_map_t &tree);
-        extern void encode_keccak(const hash_span_t &out, const input_map_t &tree);
-
-        inline hash_t encode_blake2b(const input_map_t &tree)
-        {
-            hash_t res;
-            encode_blake2b(res, tree);
-            return res;
-        }
-
-        inline hash_t encode_keccak(const input_map_t &tree)
-        {
-            hash_t res;
-            encode_keccak(res, tree);
-            return res;
-        }
-    }
 
     namespace binary {
         using value_list = std::span<const hash_t>;
