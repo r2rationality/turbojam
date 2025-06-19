@@ -2,12 +2,14 @@
 #include <condition_variable>
 #include <iostream>
 #include <mutex>
+#include <unordered_map>
 
 #include <turbo/crypto/ed25519.hpp>
 #include <turbo/common/bytes.hpp>
 #include <turbo/common/error.hpp>
 #include <turbo/common/format.hpp>
-#include <turbo/jam/types/common.hpp>
+#include <turbo/jam/types/header.hpp>
+#include <turbo/jam/encoding.hpp>
 #include <turbo/jamsnp/cert.hpp>
 
 #include <openssl/evp.h>
@@ -19,7 +21,7 @@
 #   include <openssl/applink.c>
 #endif
 
-// include it the last since it include Windows headers
+// include it the last since it includes Windows headers
 #include <msquic.hpp>
 
 namespace {
@@ -68,14 +70,15 @@ namespace {
                 delete reinterpret_cast<QuicBufferScope *>(event->SEND_COMPLETE.ClientContext);
                 break;
             case QUIC_STREAM_EVENT_RECEIVE: {
-                std::ostringstream ss {};
-                ss << fmt::format("stream: data received: off: {} len: {} ", event->RECEIVE.AbsoluteOffset, event->RECEIVE.TotalBufferLength);
+                std::string resp {};
+                auto resp_it = std::back_inserter(resp);
+                resp_it = fmt::format_to(resp_it, "stream: data received: off: {} len: {} ", event->RECEIVE.AbsoluteOffset, event->RECEIVE.TotalBufferLength);
                 for (decltype(event->RECEIVE.BufferCount) bi = 0; bi < event->RECEIVE.BufferCount; ++bi) {
                     const QUIC_BUFFER *buf = event->RECEIVE.Buffers + bi;
-                    ss << fmt::format("#{}: {} ", bi, buffer { buf->Buffer, buf->Length });
+                    resp_it = fmt::format_to(resp_it, "buffer #{}: {}\n", bi, buffer { buf->Buffer, buf->Length });
                 }
-                ss << '\n';
-                std::cerr << ss.str();
+                resp += '\n';
+                std::cerr << resp;
                 break;
             }
             case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
@@ -129,6 +132,38 @@ namespace {
 	    return "nullptr";
     }
 
+    static std::string status_name(const QUIC_STATUS status)
+    {
+        static std::unordered_map<QUIC_STATUS, std::string> names {
+            { QUIC_STATUS_SUCCESS, "QUIC_STATUS_SUCCESS" },
+            { QUIC_STATUS_PENDING, "QUIC_STATUS_PENDING" },
+            { QUIC_STATUS_CONTINUE, "QUIC_STATUS_CONTINUE" },
+            { QUIC_STATUS_OUT_OF_MEMORY, "QUIC_STATUS_OUT_OF_MEMORY" },
+            { QUIC_STATUS_INVALID_PARAMETER, "QUIC_STATUS_INVALID_PARAMETER" },
+            { QUIC_STATUS_INVALID_STATE, "QUIC_STATUS_INVALID_STATE" },
+            { QUIC_STATUS_NOT_SUPPORTED, "QUIC_STATUS_NOT_SUPPORTED" },
+            { QUIC_STATUS_NOT_FOUND, "QUIC_STATUS_NOT_FOUND" },
+            { QUIC_STATUS_BUFFER_TOO_SMALL, "QUIC_STATUS_BUFFER_TOO_SMALL" },
+            { QUIC_STATUS_HANDSHAKE_FAILURE, "QUIC_STATUS_HANDSHAKE_FAILURE" },
+            { QUIC_STATUS_ABORTED, "QUIC_STATUS_ABORTED" },
+            { QUIC_STATUS_ADDRESS_IN_USE, "QUIC_STATUS_ADDRESS_IN_USE" },
+            { QUIC_STATUS_INVALID_ADDRESS, "QUIC_STATUS_INVALID_ADDRESS" },
+            { QUIC_STATUS_CONNECTION_TIMEOUT, "QUIC_STATUS_CONNECTION_TIMEOUT" },
+            { QUIC_STATUS_CONNECTION_IDLE, "QUIC_STATUS_CONNECTION_IDLE" },
+            { QUIC_STATUS_INTERNAL_ERROR, "QUIC_STATUS_INTERNAL_ERROR" },
+            { QUIC_STATUS_UNREACHABLE, "QUIC_STATUS_UNREACHABLE" },
+            { QUIC_STATUS_CONNECTION_REFUSED, "QUIC_STATUS_CONNECTION_REFUSED" },
+            { QUIC_STATUS_PROTOCOL_ERROR, "QUIC_STATUS_PROTOCOL_ERROR" },
+            { QUIC_STATUS_VER_NEG_ERROR, "QUIC_STATUS_VER_NEG_ERROR" },
+            { QUIC_STATUS_USER_CANCELED, "QUIC_STATUS_USER_CANCELED" },
+            { QUIC_STATUS_ALPN_NEG_FAILURE, "QUIC_STATUS_ALPN_NEG_FAILURE" },
+            { QUIC_STATUS_STREAM_LIMIT_REACHED, "QUIC_STATUS_STREAM_LIMIT_REACHED" }
+        };
+        if (const auto it = names.find(status); it != names.end())
+            return fmt::format("{} ({:08X})", it->second, status);
+        return fmt::format("QUIC_STATUS_UNKNOWN {:08X}", status);
+    }
+
     QUIC_STATUS QUIC_API connection_callback(MsQuicConnection* conn, void* /*ctx*/, QUIC_CONNECTION_EVENT *event)
     {
         switch (event->Type) {
@@ -154,8 +189,8 @@ namespace {
                     event->DATAGRAM_STATE_CHANGED.SendEnabled, event->DATAGRAM_STATE_CHANGED.MaxSendLength);
                 break;
             case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT:
-                std::cerr << fmt::format("connection: shut down by transport: ErrorCode: {:08X} Status: {:08X}!\n",
-                    event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode, static_cast<unsigned long>(event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status));
+                std::cerr << fmt::format("connection: shut down by transport: ErrorCode: {:08X} Status: {}!\n",
+                    event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode, status_name(event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status));
                 break;
             case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
                 std::cerr << fmt::format("connection: shut down by peer!\n");
