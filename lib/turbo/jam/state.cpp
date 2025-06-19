@@ -1099,8 +1099,6 @@ namespace turbo::jam {
     template<typename CFG>
     void state_t<CFG>::apply(const block_t<CFG> &blk)
     {
-        // TODO: delay updates to the global key-value store until it is certain that a roll back won't be necessarygit ad
-        using namespace std::string_view_literals;
         // Work on a copy so that in case of errors the original state remains intact
         // In addition, this makes it easier to differentiate between the original and intermediate state values
         auto new_st = *this;
@@ -1178,8 +1176,6 @@ namespace turbo::jam {
         new_st.phi.set(std::move(accumulate_res.new_phi));
         new_st.iota.set(std::move(accumulate_res.new_iota));
         new_st.chi.set(std::move(accumulate_res.new_chi));
-        if (accumulate_res.service_updates)
-            accumulate_res.service_updates->commit(new_st.delta);
 
         // JAM (4.18)
         new_st.provide_preimages(new_pi, blk.header.slot, blk.extrinsic.preimages);
@@ -1208,6 +1204,10 @@ namespace turbo::jam {
 
         // JAM (4.5) update tau
         new_st.tau.set(state_t::tau_prime(tau.get(), blk.header.slot));
+
+        // commit the service updates to the global key-value store only once everything else has succeeded
+        if (accumulate_res.service_updates)
+            accumulate_res.service_updates->commit(new_st.delta);
 
         *this = std::move(new_st);
     }
