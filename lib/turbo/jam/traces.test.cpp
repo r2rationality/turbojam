@@ -114,12 +114,12 @@ namespace {
 suite turbo_jam_traces_suite = [] {
     "turbo::jam::traces"_test = [] {
         "state roots"_test = [] {
-            /*for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
+            for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
                 for (const auto &path: file::files_with_ext(file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset)), ".bin")) {
                     test_roots(path);
                 }
-            }*/
-            test_roots(file::install_path("test/jam-test-vectors/traces/fallback/00000000.bin"));
+            }
+            //test_roots(file::install_path("test/jam-test-vectors/traces/fallback/00000000.bin"));
         };
         "state transitions"_test = [] {
             state_snapshot_t genesis_state;
@@ -129,7 +129,7 @@ suite turbo_jam_traces_suite = [] {
                 const auto j_cfg = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
                 auto orig_genesis = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
             }
-            test_transition(file::install_path("test/jam-test-vectors/traces/reports-l0/00000002"), genesis_state);
+            //test_transition(file::install_path("test/jam-test-vectors/traces/reports-l0/00000002"), genesis_state);
             //for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
             /*for (const auto testset: { "reports-l0" }) {
                 for (const auto &path: file::files_with_ext(file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset)), ".bin")) {

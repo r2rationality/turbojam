@@ -193,7 +193,8 @@ namespace turbo {
         bool bit(const size_t bit_no) const
         {
             const auto byte_no = bit_no >> 3;
-            const auto byte_bit_no = bit_no & 0x7;
+            //
+            const auto byte_bit_no = (7 - bit_no) & 0x7;
             if (byte_no >= SZ) [[unlikely]]
                 throw error(fmt::format("a bit number {} is out of range for byte strings of {} bytes", bit_no, SZ));
             return base_type::operator[](byte_no) & (1U << byte_bit_no);

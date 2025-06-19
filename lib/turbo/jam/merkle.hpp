@@ -88,10 +88,12 @@ namespace turbo::jam::merkle {
                 if (v.size() <= max_inplace_value) {
                     memcpy(right.data(), v.data(), v.size());
                     memset(right.data() + v.size(), 0, right.size() - v.size());
-                    left[0] = 0x01 | v.size() << 2;
+                    //left[0] = 0x01 | v.size() << 2;
+                    left[0] = 0b10000000 | v.size();
                     memcpy(left.data() + 1, k.data(), k.size());
                 } else {
-                    left[0] = 0x03;
+                    //left[0] = 0x03;
+                    left[0] = 0b11000000;
                     memcpy(left.data() + 1, k.data(), k.size());
                     hf(right, v);
                 }
@@ -104,10 +106,12 @@ namespace turbo::jam::merkle {
                     if constexpr (std::is_same_v<T, value_inplace_t>) {
                         memcpy(right.data(), sv.data(), sv.size());
                         memset(right.data() + sv.size(), 0, right.size() - sv.size());
-                        left[0] = 0x01 | sv.size() << 2;
+                        //left[0] = 0x01 | sv.size() << 2;
+                        left[0] = 0b10000000 | sv.size();
                         memcpy(left.data() + 1, k.data(), k.size());
                     } else {
-                        left[0] = 0x03;
+                        // left[0] = 0x03;
+                        left[0] = 0b11000000;
                         memcpy(left.data() + 1, k.data(), k.size());
                         right = sv;
                     }
@@ -117,7 +121,8 @@ namespace turbo::jam::merkle {
             compact_node_t(const hash_t &l, const hash_t &r):
                 node_t { l, r }
             {
-                left[0] &= 0xFE;
+                //left[0] &= 0xFE;
+                left[0] &= 0x7F;
             }
 
             bool is_branch() const
@@ -141,7 +146,7 @@ namespace turbo::jam::merkle {
             {
                 // the metadata byte is excluded from the comparison!
                 if (i >= (sizeof(*this) - 1) * 8) [[unlikely]]
-                    throw error(fmt::format("bit index {} is beyound the num bits: {}", i, sizeof(*this) * 8));
+                    throw error(fmt::format("bit index {} is beyond the num bits: {}", i, sizeof(*this) * 8));
                 if (i < (sizeof(left) - 1) * 8)
                     return left.bit(8 + i);
                 return right.bit(i - (sizeof(left) - 1) * 8);

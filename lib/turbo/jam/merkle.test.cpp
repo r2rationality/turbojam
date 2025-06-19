@@ -19,7 +19,8 @@ namespace {
 suite turbo_jam_merkle_suite = [] {
     "turbo::jam::merkle"_test = [] {
         const hash_func hf { static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::blake2b::digest) };
-        const auto test_vectors = json::load(file::install_path("test/jam-test-vectors/trie/trie.json"));
+        //const auto test_vectors = json::load(file::install_path("test/jam-test-vectors/trie/trie.json"));
+        const auto test_vectors = json::load(file::install_path("test/overrides/trie.json"));
         "insert, update, erase"_test = [&] {
             trie_t trie { hf };
             expect(trie_t::opt_value_t {} == trie.get(key_t {}));
