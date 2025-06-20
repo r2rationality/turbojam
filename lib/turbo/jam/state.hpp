@@ -562,7 +562,7 @@ namespace turbo::jam {
         {
             if (const auto d_it = _derived.find(k); d_it != _derived.end())
                 return &d_it->second;
-            if (auto b_it = _base.find(k); b_it != _base.end()) {
+            if (auto b_it = _base.get().find(k); b_it != _base.get().end()) {
                 const auto [d_it, created] = _derived.try_emplace(
                     k,
                     container::direct_update_api_t<service_storage_t> { b_it->second.storage },
@@ -589,7 +589,7 @@ namespace turbo::jam {
             _derived.clear();
         }
     private:
-        const accounts_t<CFG> &_base;
+        std::reference_wrapper<const accounts_t<CFG>> _base;
         mutable_services_base_t<CFG> _derived {};
     };
 

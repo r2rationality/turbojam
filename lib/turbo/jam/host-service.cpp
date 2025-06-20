@@ -417,7 +417,8 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::checkpoint()
     {
-        throw machine::exit_panic_t {};
+        _err = _ok;
+        base_type::_m.set_reg(7, base_type::_m.gas());
     }
 
     template<typename CFG>
