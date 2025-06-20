@@ -349,7 +349,7 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::bless()
     {
         if (base_type::_service_id != _ok.state.chi.bless)
-            throw error(fmt::format("bless called by a non-bless service {}", base_type::_service_id));
+            throw machine::exit_panic_t {};
         const auto &omega = base_type::_m.regs();
         const auto m = omega[7];
         const auto a = omega[8];
@@ -383,7 +383,7 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::assign()
     {
         if (base_type::_service_id != _ok.state.chi.assign)
-            throw error(fmt::format("assign called by a non-assign service {}", base_type::_service_id));
+            throw machine::exit_panic_t {};
         const auto &omega = base_type::_m.regs();
         const auto o = omega[8];
         auth_queue_t<CFG> v;
@@ -401,7 +401,17 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::designate()
     {
-        throw machine::exit_panic_t {};
+        if (base_type::_service_id != _ok.state.chi.designate)
+            throw machine::exit_panic_t {};
+        const auto &omega = base_type::_m.regs();
+        const auto o = omega[7];
+        validators_data_t<CFG> v;
+        for (size_t i = 0; i < v.size(); ++i) {
+            decoder dec { base_type::_m.mem_read(o + i * 336, 336) };
+            dec.process(v[i]);
+        }
+        _ok.state.iota.emplace(std::move(v));
+        base_type::_m.set_reg(7, machine::host_call_res_t::ok);
     }
 
     template<typename CFG>
