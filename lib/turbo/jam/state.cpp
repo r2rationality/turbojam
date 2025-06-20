@@ -604,12 +604,14 @@ namespace turbo::jam {
         auto plus_res = accumulate_plus(new_pi, slot, gas_limit, work_immediate, prev_delta, prev_chi->always_acc);
         // (12.23)
         res.service_updates.emplace(std::move(plus_res.state.services));
-        if (plus_res.state.privileges)
-            res.new_chi = std::make_shared<privileges_t>(std::move(*plus_res.state.privileges));
+        res.new_chi = std::make_shared<privileges_t>(std::move(plus_res.state.chi));
         if (plus_res.state.iota)
             res.new_iota = std::make_shared<validators_data_t<CFG>>(std::move(*plus_res.state.iota));
-        if (plus_res.state.queue)
-            res.new_phi = std::make_shared<auth_queues_t<CFG>>(std::move(*plus_res.state.queue));
+        if (!plus_res.state.phi.empty()) {
+            res.new_phi = std::make_shared<auth_queues_t<CFG>>(*res.new_phi);
+            for (auto &&[c, q]: plus_res.state.phi)
+                (*res.new_phi)[c] = std::move(q);
+        }
 
         // (12.24) (12.25) (12.26)
         for (const auto &[s_id, work_info]: plus_res.work_items) {

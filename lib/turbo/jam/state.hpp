@@ -601,22 +601,21 @@ namespace turbo::jam {
     struct mutable_state_t {
         // JAM: bold d
         mutable_services_state_t<CFG> services;
+        // JAM: bold x
+        privileges_t chi;
         // JAM: bold i
         std::optional<validators_data_t<CFG>> iota {};
         // JAM: bold q
-        std::optional<auth_queues_t<CFG>> queue {};
-        // JAM: bold x
-        std::optional<privileges_t> privileges {};
+        std::map<core_index_t, auth_queue_t<CFG>> phi {};
 
         void consume_from(mutable_state_t &&o)
         {
             services.consume_from(std::move(o.services));
+            chi = std::move(o.chi);
             if (o.iota)
                 iota = std::move(o.iota);
-            if (o.queue)
-                queue = std::move(o.queue);
-            if (o.privileges)
-                privileges = std::move(o.privileges);
+            for (auto &[c, q]: o.phi)
+                phi[c] = std::move(q);
         }
     };
 

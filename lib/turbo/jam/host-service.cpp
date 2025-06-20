@@ -348,6 +348,8 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::bless()
     {
+        if (base_type::_service_id != _ok.state.chi.bless)
+            throw error(fmt::format("bless called by a non-bless service {}", base_type::_service_id));
         const auto &omega = base_type::_m.regs();
         const auto m = omega[7];
         const auto a = omega[8];
@@ -365,7 +367,7 @@ namespace turbo::jam {
         }
 
         if (std::max(std::max(m, a), v) <= std::numeric_limits<service_id_t>::max()) {
-            _ok.state.privileges = {
+            _ok.state.chi = {
                 static_cast<service_id_t>(m),
                 static_cast<service_id_t>(a),
                 static_cast<service_id_t>(v),
@@ -380,7 +382,20 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::assign()
     {
-        throw machine::exit_panic_t {};
+        if (base_type::_service_id != _ok.state.chi.assign)
+            throw error(fmt::format("assign called by a non-assign service {}", base_type::_service_id));
+        const auto &omega = base_type::_m.regs();
+        const auto o = omega[8];
+        auth_queue_t<CFG> v;
+        for (size_t i = 0; i < CFG::auth_queue_size; ++i) {
+            v[i] = static_cast<buffer>(base_type::_m.mem_read(o + i * 32, 32));
+        }
+        if (const auto c = omega[7]; c < CFG::core_count) {
+            _ok.state.phi[c] = std::move(v);
+            base_type::_m.set_reg(7, machine::host_call_res_t::ok);
+        } else {
+            base_type::_m.set_reg(7, machine::host_call_res_t::core);
+        }
     }
 
     template<typename CFG>
