@@ -20,6 +20,7 @@ namespace turbo::jam {
         [[nodiscard]] const header_t<CONFIG> &genesis_header() const;
         [[nodiscard]] const state_snapshot_t &genesis_state() const;
         [[nodiscard]] const state_t<CONFIG> &state() const;
+        [[nodiscard]] state_root_t state_root() const;
         void apply(const block_t<CONFIG> &blk);
     private:
         struct impl;

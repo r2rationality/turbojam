@@ -84,10 +84,11 @@ suite turbo_jam_chain_suite = [] {
             auto chain = chain_t<config_tiny>::from_json_spec(data_dir.path(), file::install_path("etc/devnet/dev-spec.json"));
             for (size_t blk_no = 0; !dec.empty(); ++blk_no) {
                 const auto blk = codec::from<block_t<config_tiny>>(dec);
+                logger::info("chain state_root: {}", chain.state_root());
                 logger::info("block #{}: hash={} parent={} parent_root={}",
                     blk_no, blk.header.hash(), blk.header.parent, blk.header.parent_state_root);
                 chain.apply(blk);
-                logger::info("chain post_root: {}", chain.state().state_dict->root());
+
             }
         };
     };

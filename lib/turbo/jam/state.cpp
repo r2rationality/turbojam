@@ -453,7 +453,7 @@ namespace turbo::jam {
         auto ctx_err = ctx_ok;
 
         const auto &prev_service_info = service.info.get();
-        if (const auto code = service.preimages.get(prev_service_info.code_hash); code) {
+        if (const auto code = service.preimages.get(prev_service_info.code_hash); code && code->size() <= CFG::max_service_code_size) {
             const auto code_hash = crypto::blake2b::digest(*code);
             if (code_hash != prev_service_info.code_hash) [[unlikely]]
                 throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
@@ -499,7 +499,7 @@ namespace turbo::jam {
         auto &service = prev_delta.at(service_id);
         const auto &prev_service_info = service.info.get();
         const auto code = service.preimages.get(prev_service_info.code_hash);
-        if (!code)
+        if (!code || code->size() > CFG::max_service_code_size)
             return {};
         if (const auto code_hash = crypto::blake2b::digest(*code); code_hash != prev_service_info.code_hash) [[unlikely]]
             throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
@@ -583,7 +583,7 @@ namespace turbo::jam {
 
         // (12.21)
         boost::container::flat_set<service_id_t> free_services {};
-        gas_t::base_type gas_limit = CFG::max_work_report_accumulate_gas * CFG::core_count;
+        gas_t::base_type gas_limit = CFG::max_accumulate_gas * CFG::core_count;
 
         free_services.reserve(prev_chi->always_acc.size());
         for (auto &fs: prev_chi->always_acc)
@@ -863,7 +863,7 @@ namespace turbo::jam {
                     service_stats.extrinsic_count += r.refine_load.extrinsic_count;
                 }
                 // JAM (11.30) part 2
-                if (total_accumulate_gas > CFG::max_work_report_accumulate_gas) [[unlikely]]
+                if (total_accumulate_gas > CFG::max_accumulate_gas) [[unlikely]]
                     throw err_work_report_gas_too_high_t {};
 
                 // JAM Paper (11.8)

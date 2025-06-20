@@ -63,6 +63,13 @@ namespace turbo::jam {
                 throw error("chain is empty: no state is available!");
             return *_state;
         }
+
+        [[nodiscard]] state_root_t state_root() const
+        {
+            if (_state) [[likely]]
+                return _state->state_dict->root();
+            return {};
+        }
     private:
         std::string _id;
         std::string _path;
@@ -138,6 +145,12 @@ namespace turbo::jam {
     const state_t<CONFIG> &chain_t<CONFIG>::state() const
     {
         return _impl->state();
+    }
+
+    template<typename CONFIG>
+    state_root_t chain_t<CONFIG>::state_root() const
+    {
+        return _impl->state_root();
     }
 
     template<typename CONFIG>
