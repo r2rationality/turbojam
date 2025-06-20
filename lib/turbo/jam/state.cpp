@@ -218,10 +218,10 @@ namespace turbo::jam {
 
     template<typename CFG>
     safrole_output_data_t<CFG> state_t<CFG>::update_safrole(
+        const entropy_buffer_t &new_eta, const disputes_records_t &new_psi,
         const time_slot_t<CFG> &prev_tau, const safrole_state_t<CFG> &prev_gamma,
-        const entropy_buffer_t &new_eta,
         const std::shared_ptr<validators_data_t<CFG>> &prev_kappa_ptr, const std::shared_ptr<validators_data_t<CFG>> &prev_lambda_ptr,
-        const validators_data_t<CFG> &prev_iota, const disputes_records_t &prev_psi,
+        const validators_data_t<CFG> &prev_iota,
         const time_slot_t<CFG> &slot, const tickets_extrinsic_t<CFG> &extrinsic)
     {
         if (slot.epoch_slot() >= CFG::ticket_submission_end && !extrinsic.empty()) [[unlikely]]
@@ -236,7 +236,7 @@ namespace turbo::jam {
             // JAM Paper (6.13)
             res.lambda_ptr = std::make_shared<validators_data_t<CFG>>(*prev_kappa_ptr);
             res.kappa_ptr = std::make_shared<validators_data_t<CFG>>(res.gamma_ptr->k);
-            res.gamma_ptr->k = _capital_phi(prev_iota, prev_psi.offenders);
+            res.gamma_ptr->k = _capital_phi(prev_iota, new_psi.offenders);
             res.gamma_ptr->z = _ring_commitment(res.gamma_ptr->k);
             // JAM Paper (6.27) - epoch marker
             res.epoch_mark.emplace(new_eta[1], new_eta[2]);
@@ -1100,45 +1100,17 @@ namespace turbo::jam {
     void state_t<CFG>::apply(const block_t<CFG> &blk)
     {
         // Work on a copy so that in case of errors the original state remains intact
-        // In addition, this makes it easier to differentiate between the original and intermediate state values
         auto new_st = *this;
         // core and service statistics are tracked per-block only! (13.11)
         statistics_t<CFG> new_pi { pi.get().current, pi.get().last };
 
-        // JAM (4.6)
-        auto tmp_beta = new_st.beta_dagger(beta.get(), blk.header.parent_state_root);
+        // (4.6) beta_dagger - deps match GP
+        auto new_beta = beta_dagger(beta.get(), blk.header.parent_state_root);
 
-        // JAM (4.7) update gamma
-        // JAM (4.8) update eta
-        // JAM (4.9) update kappa
-        // JAM (4.10) update lambda
+        // (4.8) eta_prime - deps match GP
+        new_st.eta.set(new_st.eta_prime(tau.get(), eta.get(), blk.header.slot, blk.header.entropy()));
 
-        entropy_t entropy_vrf_output;
-        if (ark_vrf_cpp::ietf_vrf_output(entropy_vrf_output, blk.header.entropy_source) != 0) [[unlikely]]
-            throw err_bad_signature_t {};
-        new_st.eta.set(new_st.eta_prime(tau.get(), eta.get(), blk.header.slot, entropy_vrf_output));
-        const auto safrole_res = new_st.update_safrole(
-            tau.get(), gamma.get(), new_st.eta.get(),
-            kappa.storage(), lambda.storage(),
-            iota.get(), psi.get(),
-            blk.header.slot, blk.extrinsic.tickets
-        );
-        new_st.gamma.set(std::move(safrole_res.gamma_ptr));
-        new_st.kappa.set(std::move(safrole_res.kappa_ptr));
-        new_st.lambda.set(std::move(safrole_res.lambda_ptr));
-        if (safrole_res.epoch_mark != blk.header.epoch_mark) [[unlikely]]
-            throw error("supplied epoch_mark does not match the computed one!");
-        if (safrole_res.tickets_mark != blk.header.tickets_mark) [[unlikely]]
-            throw error("supplied tickets_mark does not match the computed one!");
-
-        // signature verification depends on updated kappa, gamma.s and eta, so happens after update_safrole
-        blk.header.verify_signatures(
-            new_st.kappa.get().at(blk.header.author_index).bandersnatch,
-            new_st.gamma.get().s,
-            new_st.eta.get()[3]
-        );
-
-        // JAM (4.11) -> psi'
+        // (4.11) -> psi_prime
         auto new_rho = rho.get();
         offenders_mark_t new_offenders {};
         new_st.psi.set(
@@ -1149,6 +1121,32 @@ namespace turbo::jam {
                 blk.extrinsic.disputes
             )
         );
+
+        // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime
+        {
+            const auto safrole_res = new_st.update_safrole(
+                new_st.eta.get(), new_st.psi.get(),
+                tau.get(), gamma.get(),
+                kappa.storage(), lambda.storage(),
+                iota.get(),
+                blk.header.slot, blk.extrinsic.tickets
+            );
+            if (safrole_res.epoch_mark != blk.header.epoch_mark) [[unlikely]]
+                throw error("supplied epoch_mark does not match the computed one!");
+            if (safrole_res.tickets_mark != blk.header.tickets_mark) [[unlikely]]
+                throw error("supplied tickets_mark does not match the computed one!");
+            new_st.gamma.set(std::move(safrole_res.gamma_ptr));
+            new_st.kappa.set(std::move(safrole_res.kappa_ptr));
+            new_st.lambda.set(std::move(safrole_res.lambda_ptr));
+        }
+
+        // signature verification depends on updated kappa, gamma.s and eta, so happens after update_safrole
+        blk.header.verify_signatures(
+            new_st.kappa.get().at(blk.header.author_index).bandersnatch,
+            new_st.gamma.get().s,
+            new_st.eta.get()[3]
+        );
+
         // JAM (4.13)
         // JAM (4.14)
         // JAM (4.15)
@@ -1156,7 +1154,7 @@ namespace turbo::jam {
         // JAM (4.12)
         new_st.update_reports(
             new_rho, new_pi,
-            tmp_beta,
+            new_beta,
             new_st.eta.get(), new_st.psi.get(),
             new_st.kappa.get(), new_st.lambda.get(),
             alpha.get(), delta,
@@ -1178,10 +1176,6 @@ namespace turbo::jam {
         new_st.iota.set(std::move(accumulate_res.new_iota));
         new_st.chi.set(std::move(accumulate_res.new_chi));
 
-        // JAM (4.18)
-        new_st.provide_preimages(new_pi, blk.header.slot, blk.extrinsic.preimages);
-
-        // JAM (4.6)
         // JAM (4.16)
         reported_work_seq_t reported_work {};
         for (const auto &g: blk.extrinsic.guarantees) {
@@ -1189,7 +1183,10 @@ namespace turbo::jam {
         }
 
         // JAM (4.17)
-        new_st.beta.set(state_t::beta_prime(std::move(tmp_beta), blk.header.hash(), accumulate_res.root, reported_work));
+        new_st.beta.set(state_t::beta_prime(std::move(new_beta), blk.header.hash(), accumulate_res.root, reported_work));
+
+        // JAM (4.18)
+        new_st.provide_preimages(new_pi, blk.header.slot, blk.extrinsic.preimages);
 
         // (4.19): alpha' <- (H, E_G, psi', and alpha)
         {
@@ -1200,7 +1197,7 @@ namespace turbo::jam {
             new_st.alpha.set(state_t::alpha_prime(blk.header.slot, cas, new_st.phi.get(), alpha.get()));
         }
 
-        // JAM (4.20): pi' <- (E_G, E_P, E_A, E_T, taz, kappa', pi, H)
+        // (4.20) but most updates are already applied
         new_st.pi.set(pi_prime(std::move(new_pi), tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic));
 
         // JAM (4.5) update tau
@@ -1378,23 +1375,6 @@ namespace turbo::jam {
         if (unresolved) [[unlikely]]
             throw error(fmt::format("state snapshot contains metadata without preimages: {} items", unresolved));
         return *this;
-    }
-
-    template<typename CFG>
-    std::optional<write_vector> state_t<CFG>::state_get(const state_key_t &k) const
-    {
-        const auto &sd_val = state_dict->get(k);
-        if (sd_val) {
-            return std::visit([&](const auto &sv) -> std::optional<write_vector> {
-                using T = std::decay_t<decltype(sv)>;
-                if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
-                    return kv_store->get(sv);
-                } else {
-                    return write_vector { buffer { sv.data(), sv.size() } };
-                }
-            }, *sd_val);
-        }
-        return {};
     }
 
     template struct state_t<config_prod>;

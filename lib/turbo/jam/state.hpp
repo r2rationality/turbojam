@@ -796,10 +796,7 @@ namespace turbo::jam {
         // (4.1): Kapital upsilon
         void apply(const block_t<CFG> &);
 
-        std::optional<write_vector> state_get(const state_key_t &k) const;
-
         // State transition methods: static to not be explicit about their inputs and outputs
-
         // (4.5)
         static time_slot_t<CFG> tau_prime(const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &blk_slot);
         // (4.6)
@@ -812,10 +809,10 @@ namespace turbo::jam {
         // JAM (4.9)
         // JAM (4.10)
         static safrole_output_data_t<CFG> update_safrole(
+            const entropy_buffer_t &new_eta, const disputes_records_t &new_psi,
             const time_slot_t<CFG> &prev_tau, const safrole_state_t<CFG> &prev_gamma,
-            const entropy_buffer_t &new_eta,
-            const std::shared_ptr<validators_data_t<CFG>> &prev_kappa_ptr, const std::shared_ptr<validators_data_t<CFG>> &prev_lambda_ptr,
-            const validators_data_t<CFG> &prev_iota, const disputes_records_t &prev_psi,
+            const std::shared_ptr<validators_data_t<CFG>> &prev_kappa_ptr,
+            const std::shared_ptr<validators_data_t<CFG>> &prev_lambda_ptr, const validators_data_t<CFG> &prev_iota,
             const time_slot_t<CFG> &slot, const tickets_extrinsic_t<CFG> &extrinsic);
         // JAM (4.11)
         static std::shared_ptr<disputes_records_t> psi_prime(offenders_mark_t &new_offenders, availability_assignments_t<CFG> &new_rho,

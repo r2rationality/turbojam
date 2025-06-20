@@ -177,10 +177,10 @@ namespace {
                 auto tmp_st = tc.pre;
                 tmp_st.eta.set(tmp_st.eta_prime(tc.pre.tau.get(), tc.pre.eta.get(), tc.in.slot, tc.in.entropy));
                 auto new_gamma = tmp_st.update_safrole(
+                    tmp_st.eta.get(), tc.pre.psi.get(),
                     tc.pre.tau.get(), tc.pre.gamma.get(),
-                    tmp_st.eta.get(),
                     tc.pre.kappa.storage(), tc.pre.lambda.storage(),
-                    tc.pre.iota.get(), tc.pre.psi.get(),
+                    tc.pre.iota.get(),
                     tc.in.slot, tc.in.extrinsic
                 );
                 tmp_st.gamma.set(std::move(new_gamma.gamma_ptr));
