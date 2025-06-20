@@ -13,8 +13,8 @@ namespace turbo::jam {
         using error::error;
     };
 
-    template<typename CONFIG>
-    static mutable_service_state_t<CONFIG> make_mutable_service(account_t<CONFIG> &service)
+    template<typename CFG>
+    static mutable_service_state_t<CFG> make_mutable_service(account_t<CFG> &service)
     {
         return {
             container::std_map_update_api_t { service.storage },
@@ -24,8 +24,8 @@ namespace turbo::jam {
         };
     }
 
-    template<typename CONFIG>
-    host_service_base_t<CONFIG>::host_service_base_t(machine::machine_t &m, mutable_services_state_t<CONFIG> &services, const service_id_t service_id, const time_slot_t<CONFIG> slot):
+    template<typename CFG>
+    host_service_base_t<CFG>::host_service_base_t(machine::machine_t &m, mutable_services_state_t<CFG> &services, const service_id_t service_id, const time_slot_t<CFG> slot):
         _m { m },
         _services { services },
         _service_id { service_id },
@@ -34,16 +34,16 @@ namespace turbo::jam {
     {
     }
 
-    template<typename CONFIG>
-    typename host_service_base_t<CONFIG>::service_lookup_res_t host_service_base_t<CONFIG>::_get_service(machine::register_val_t id)
+    template<typename CFG>
+    typename host_service_base_t<CFG>::service_lookup_res_t host_service_base_t<CFG>::_get_service(machine::register_val_t id)
     {
         if (id == std::numeric_limits<machine::register_val_t>::max())
             id = _service_id;
         return { numeric_cast<service_id_t>(id), _services.get_mutable_ptr(id) };
     }
 
-    template<typename CONFIG>
-    machine::host_call_res_t host_service_base_t<CONFIG>::_safe_call(const call_func &f) noexcept
+    template<typename CFG>
+    machine::host_call_res_t host_service_base_t<CFG>::_safe_call(const call_func &f) noexcept
     {
         try {
             f();
@@ -67,14 +67,75 @@ namespace turbo::jam {
         return std::monostate {};
     }
 
-    template<typename CONFIG>
-    void host_service_base_t<CONFIG>::gas()
+    template<typename CFG>
+    void host_service_base_t<CFG>::gas()
     {
         _m.set_reg(7, _m.gas());
     }
 
-    template<typename CONFIG>
-    void host_service_base_t<CONFIG>::lookup()
+    template<typename CFG>
+    void host_service_base_t<CFG>::fetch()
+    {
+        const auto &omega = _m.regs();
+        std::optional<uint8_vector> v {};
+        switch (omega[10]) {
+            case 0: {
+                encoder enc {};
+                enc.uint_fixed(8, CFG::min_balance_per_item);
+                enc.uint_fixed(8, CFG::min_balance_per_octet);
+                enc.uint_fixed(8, CFG::min_balance_per_service);
+                enc.uint_fixed(2, CFG::core_count);
+                enc.uint_fixed(4, CFG::preimage_expunge_delay);
+                enc.uint_fixed(4, CFG::epoch_length);
+                enc.uint_fixed(8, CFG::max_accumulate_gas);
+                enc.uint_fixed(8, CFG::max_is_authorized_gas);
+                enc.uint_fixed(8, CFG::max_refine_gas);
+                enc.uint_fixed(8, CFG::max_total_accumulation_gas);
+                enc.uint_fixed(2, CFG::max_blocks_history);
+                enc.uint_fixed(2, CFG::max_work_items);
+                enc.uint_fixed(2, CFG::max_report_dependencies);
+                enc.uint_fixed(4, CFG::max_lookup_anchor_age);
+                enc.uint_fixed(2, CFG::auth_pool_max_size);
+                enc.uint_fixed(2, CFG::slot_period);
+                enc.uint_fixed(2, CFG::auth_queue_size);
+                enc.uint_fixed(2, CFG::core_assignment_rotation_period);
+                enc.uint_fixed(2, CFG::accumulation_queue_size);
+                enc.uint_fixed(2, CFG::max_package_extrinsics);
+                enc.uint_fixed(2, CFG::reported_work_timeout);
+                enc.uint_fixed(2, CFG::validator_count);
+                enc.uint_fixed(4, CFG::max_is_authorized_code_size);
+                enc.uint_fixed(4, CFG::max_work_package_size);
+                enc.uint_fixed(4, CFG::max_service_code_size);
+                enc.uint_fixed(4, CFG::segment_piece_size);
+                enc.uint_fixed(4, CFG::segment_size);
+                enc.uint_fixed(4, CFG::max_work_package_imports);
+                enc.uint_fixed(4, CFG::segment_num_pieces);
+                enc.uint_fixed(4, CFG::max_blobs_size);
+                enc.uint_fixed(4, CFG::transfer_memo_size);
+                enc.uint_fixed(4, CFG::max_package_exports);
+                enc.uint_fixed(4, CFG::ticket_submission_end);
+                v.emplace(std::move(enc.bytes()));
+                break;
+            }
+            case 13: {
+                break;
+            }
+            default:
+                break;
+        }
+        if (v) {
+            const auto o = omega[7];
+            const auto f = std::min(omega[8], v->size());
+            const auto l = std::min(omega[9], v->size() - f);
+            _m.mem_write(o, static_cast<buffer>(*v).subbuf(0, l));
+            _m.set_reg(7, v->size());
+        } else {
+            _m.set_reg(7, machine::host_call_res_t::none);
+        }
+    }
+
+    template<typename CFG>
+    void host_service_base_t<CFG>::lookup()
     {
         const auto &omega = _m.regs();
         const auto [s_id, a] = _get_service(omega[7]);
@@ -94,8 +155,8 @@ namespace turbo::jam {
         }
     }
 
-    template<typename CONFIG>
-    void host_service_base_t<CONFIG>::read() {
+    template<typename CFG>
+    void host_service_base_t<CFG>::read() {
         const auto &omega = _m.regs();
         const auto [s_id, a] = _get_service(omega[7]);
         const auto ko = omega[8];
@@ -119,8 +180,8 @@ namespace turbo::jam {
         }
     }
 
-    template<typename CONFIG>
-    void host_service_base_t<CONFIG>::write()
+    template<typename CFG>
+    void host_service_base_t<CFG>::write()
     {
         const auto k_o = _m.regs()[7];
         const auto k_z = _m.regs()[8];
@@ -162,8 +223,8 @@ namespace turbo::jam {
         }
     }
 
-    template<typename CONFIG>
-    void host_service_base_t<CONFIG>::info()
+    template<typename CFG>
+    void host_service_base_t<CFG>::info()
     {
         const auto &omega = _m.regs();
         const auto [t_id, t] = _get_service(omega[7]);
@@ -199,8 +260,8 @@ namespace turbo::jam {
         }
     }
 
-    template<typename CONFIG>
-    void host_service_base_t<CONFIG>::log()
+    template<typename CFG>
+    void host_service_base_t<CFG>::log()
     {
         const auto &omega = _m.regs();
         const auto level = omega[7];
@@ -211,17 +272,17 @@ namespace turbo::jam {
         logger::log(log_level(level), "[PVM/{}]: {}", target, msg.str());
     }
 
-    template<typename CONFIG>
-    host_service_accumulate_t<CONFIG>::host_service_accumulate_t(machine::machine_t &m, service_id_t service_id, time_slot_t<CONFIG> slot,
-            accumulate_context_t<CONFIG> &ctx_ok, accumulate_context_t<CONFIG> &ctx_err):
+    template<typename CFG>
+    host_service_accumulate_t<CFG>::host_service_accumulate_t(machine::machine_t &m, service_id_t service_id, time_slot_t<CFG> slot,
+            accumulate_context_t<CFG> &ctx_ok, accumulate_context_t<CFG> &ctx_err):
         base_type { m, ctx_ok.state.services, service_id, slot },
         _ok { ctx_ok },
         _err { ctx_err }
     {
     }
 
-    template<typename CONFIG>
-    [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CONFIG>::call(const machine::register_val_t id) noexcept
+    template<typename CFG>
+    [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CFG>::call(const machine::register_val_t id) noexcept
     {
         return base_type::_safe_call([&] {
             logger::trace("PVM: host call #{}", id);
@@ -245,6 +306,7 @@ namespace turbo::jam {
                 case 15: forget(); break;
                 case 16: yield(); break;
                     //case ??: return provide(); break;
+                case 18: base_type::fetch(); break;
                 case 100:
                     base_type::log();
                     gas_used = 0;
@@ -257,86 +319,86 @@ namespace turbo::jam {
         });
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::bless()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::bless()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::assign()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::assign()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::designate()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::designate()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::checkpoint()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::checkpoint()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::new_()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::new_()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::upgrade()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::upgrade()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::transfer()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::transfer()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::eject()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::eject()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::query()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::query()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::solicit()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::solicit()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::forget()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::forget()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::yield()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::yield()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    void host_service_accumulate_t<CONFIG>::provide()
+    template<typename CFG>
+    void host_service_accumulate_t<CFG>::provide()
     {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CONFIG>
-    machine::host_call_res_t host_service_on_transfer_t<CONFIG>::call(const machine::register_val_t id) noexcept
+    template<typename CFG>
+    machine::host_call_res_t host_service_on_transfer_t<CFG>::call(const machine::register_val_t id) noexcept
     {
         return base_type::_safe_call([&] {
             gas_t::base_type gas_used = 10;

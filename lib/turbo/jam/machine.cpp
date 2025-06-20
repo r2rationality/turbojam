@@ -11,6 +11,8 @@
 
 #include <iostream>
 
+#include "state.hpp"
+
 namespace turbo::jam::machine {
 #if defined(__GNUC__) || defined(__clang__)
 #   pragma GCC diagnostic push

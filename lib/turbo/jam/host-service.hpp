@@ -34,6 +34,7 @@ namespace turbo::jam {
 
         // General functions
         void gas();
+        void fetch();
         void lookup();
         void read();
         void write();
