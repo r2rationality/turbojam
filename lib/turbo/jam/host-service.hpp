@@ -11,6 +11,8 @@ namespace turbo::jam {
     template<typename CONFIG>
     struct host_service_base_t {
         host_service_base_t(machine::machine_t &m, mutable_services_state_t<CONFIG> &services, service_id_t service_id, time_slot_t<CONFIG> slot);
+
+        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     protected:
         using call_func = std::function<void()>;
         struct service_lookup_res_t {
@@ -25,11 +27,8 @@ namespace turbo::jam {
         time_slot_t<CONFIG> _slot;
 
         // helper methods
+        void _call(machine::register_val_t id);
         service_lookup_res_t _get_service(machine::register_val_t id);
-
-        template<typename M>
-        static typename M::mapped_type _get_value(const M &m, const typename M::key_type &key);
-
         [[nodiscard]] machine::host_call_res_t _safe_call(const call_func &f) noexcept;
 
         // General functions
@@ -70,10 +69,5 @@ namespace turbo::jam {
     };
 
     template<typename CONFIG>
-    struct host_service_on_transfer_t: protected host_service_base_t<CONFIG> {
-        using base_type = host_service_base_t<CONFIG>;
-        using base_type::base_type;
-
-        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
-    };
+    using host_service_on_transfer_t = host_service_base_t<CONFIG>;
 }

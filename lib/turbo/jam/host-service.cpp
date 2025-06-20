@@ -35,6 +35,36 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
+    machine::host_call_res_t host_service_base_t<CFG>::call(const machine::register_val_t id) noexcept
+    {
+        return _safe_call([&] {
+            _call(id);
+        });
+    }
+
+    template<typename CFG>
+    void host_service_base_t<CFG>::_call(const machine::register_val_t id)
+    {
+        gas_t::base_type gas_used = 10;
+        switch (id) {
+            case 0: gas(); break;
+            case 1: lookup(); break;
+            case 2: read(); break;
+            case 3: write(); break;
+            case 4: info(); break;
+            case 18: fetch(); break;
+            case 100:
+                log();
+                gas_used = 0;
+                break;
+            default:
+                _m.set_reg(7, machine::host_call_res_t::what);
+                break;
+        }
+        _m.consume_gas(gas_used);
+    }
+
+    template<typename CFG>
     typename host_service_base_t<CFG>::service_lookup_res_t host_service_base_t<CFG>::_get_service(machine::register_val_t id)
     {
         if (id == std::numeric_limits<machine::register_val_t>::max())
@@ -288,11 +318,6 @@ namespace turbo::jam {
             logger::trace("PVM: host call #{}", id);
             gas_t::base_type gas_used = 10;
             switch (id) {
-                case 0: base_type::gas(); break;
-                case 1: base_type::lookup(); break;
-                case 2: base_type::read(); break;
-                case 3: base_type::write(); break;
-                case 4: base_type::info(); break;
                 case 5: bless(); break;
                 case 6: assign(); break;
                 case 7: designate(); break;
@@ -305,14 +330,15 @@ namespace turbo::jam {
                 case 14: solicit(); break;
                 case 15: forget(); break;
                 case 16: yield(); break;
-                    //case ??: return provide(); break;
-                case 18: base_type::fetch(); break;
+                //case ??: return provide(); break;
                 case 100:
                     base_type::log();
                     gas_used = 0;
                     break;
                 default:
-                    base_type::_m.set_reg(7, machine::host_call_res_t::what);
+                    base_type::_call(id);
+                    // the gas has been adjusted in the base_type::call
+                    gas_used = 0;
                     break;
             }
             base_type::_m.consume_gas(gas_used);
@@ -322,7 +348,33 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::bless()
     {
-        throw machine::exit_panic_t {};
+        const auto &omega = base_type::_m.regs();
+        const auto m = omega[7];
+        const auto a = omega[8];
+        const auto v = omega[9];
+        const auto o = omega[10];
+        const auto n = omega[11];
+
+        free_services_t fs {};
+        for (size_t i = 0; i < n; ++i) {
+            const auto bytes = base_type::_m.mem_read(o + i * 12, 12);
+            decoder dec { bytes };
+            const auto s = dec.uint_fixed<service_id_t>(4);
+            const gas_t g { dec.uint_fixed<gas_t::base_type>(8) };
+            fs.emplace_back(s, g);
+        }
+
+        if (std::max(std::max(m, a), v) <= std::numeric_limits<service_id_t>::max()) {
+            _ok.state.privileges = {
+                static_cast<service_id_t>(m),
+                static_cast<service_id_t>(a),
+                static_cast<service_id_t>(v),
+                std::move(fs)
+            };
+            base_type::_m.set_reg(7, machine::host_call_res_t::ok);
+        } else {
+            base_type::_m.set_reg(7, machine::host_call_res_t::who);
+        }
     }
 
     template<typename CFG>
@@ -397,35 +449,9 @@ namespace turbo::jam {
         throw machine::exit_panic_t {};
     }
 
-    template<typename CFG>
-    machine::host_call_res_t host_service_on_transfer_t<CFG>::call(const machine::register_val_t id) noexcept
-    {
-        return base_type::_safe_call([&] {
-            gas_t::base_type gas_used = 10;
-            switch (id) {
-                case 0: base_type::gas(); break;
-                case 1: base_type::lookup(); break;
-                case 2: base_type::read(); break;
-                case 3: base_type::write(); break;
-                case 4: base_type::info(); break;
-                case 100:
-                    base_type::log();
-                    gas_used = 0;
-                    break;
-                default:
-                    base_type::_m.set_reg(7, machine::host_call_res_t::what);
-                    break;
-            }
-            base_type::_m.consume_gas(gas_used);
-        });
-    }
-
     template struct host_service_base_t<config_prod>;
     template struct host_service_base_t<config_tiny>;
 
     template struct host_service_accumulate_t<config_prod>;
     template struct host_service_accumulate_t<config_tiny>;
-
-    template struct host_service_on_transfer_t<config_prod>;
-    template struct host_service_on_transfer_t<config_tiny>;
 }

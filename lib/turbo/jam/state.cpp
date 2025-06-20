@@ -1101,6 +1101,9 @@ namespace turbo::jam {
     {
         // Work on a copy so that in case of errors the original state remains intact
         auto new_st = *this;
+        // JAM (4.5) update tau
+        new_st.tau.set(state_t::tau_prime(tau.get(), blk.header.slot));
+
         // core and service statistics are tracked per-block only! (13.11)
         statistics_t<CFG> new_pi { pi.get().current, pi.get().last };
 
@@ -1110,7 +1113,7 @@ namespace turbo::jam {
         // (4.8) eta_prime - deps match GP
         new_st.eta.set(new_st.eta_prime(tau.get(), eta.get(), blk.header.slot, blk.header.entropy()));
 
-        // (4.11) -> psi_prime
+        // (4.11) -> psi_prime - additional deps: relies on kappa', lambda' and updates_rho
         auto new_rho = rho.get();
         offenders_mark_t new_offenders {};
         new_st.psi.set(
@@ -1122,7 +1125,7 @@ namespace turbo::jam {
             )
         );
 
-        // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime
+        // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime - deps match GP
         {
             const auto safrole_res = new_st.update_safrole(
                 new_st.eta.get(), new_st.psi.get(),
@@ -1147,10 +1150,11 @@ namespace turbo::jam {
             new_st.eta.get()[3]
         );
 
-        // JAM (4.13)
-        // JAM (4.14)
-        // JAM (4.15)
-        auto ready_reports = rho_dagger_2(new_rho, new_pi, new_st.kappa.get(),  blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
+        // (4.13) (4.14) (4.15) - extra deps:
+        // - updates pi';
+        // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
+        auto ready_reports = rho_dagger_2(
+            new_rho, new_pi, new_st.kappa.get(),  blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
         // JAM (4.12)
         new_st.update_reports(
             new_rho, new_pi,
@@ -1162,6 +1166,7 @@ namespace turbo::jam {
         );
         new_st.rho.set(std::move(new_rho));
 
+        // (4.16) - extra deps: updates: pi
         auto accumulate_res = new_st.accumulate(
             new_pi,
             tau.get(),
@@ -1176,16 +1181,16 @@ namespace turbo::jam {
         new_st.iota.set(std::move(accumulate_res.new_iota));
         new_st.chi.set(std::move(accumulate_res.new_chi));
 
-        // JAM (4.16)
-        reported_work_seq_t reported_work {};
-        for (const auto &g: blk.extrinsic.guarantees) {
-            reported_work.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
+        // (4.17)
+        {
+            reported_work_seq_t reported_work {};
+            for (const auto &g: blk.extrinsic.guarantees) {
+                reported_work.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
+            }
+            new_st.beta.set(state_t::beta_prime(std::move(new_beta), blk.header.hash(), accumulate_res.root, reported_work));
         }
 
-        // JAM (4.17)
-        new_st.beta.set(state_t::beta_prime(std::move(new_beta), blk.header.hash(), accumulate_res.root, reported_work));
-
-        // JAM (4.18)
+        // (4.18)
         new_st.provide_preimages(new_pi, blk.header.slot, blk.extrinsic.preimages);
 
         // (4.19): alpha' <- (H, E_G, psi', and alpha)
@@ -1197,11 +1202,8 @@ namespace turbo::jam {
             new_st.alpha.set(state_t::alpha_prime(blk.header.slot, cas, new_st.phi.get(), alpha.get()));
         }
 
-        // (4.20) but most updates are already applied
+        // (4.20) but most updates are applied when the respective extrinsics are processed
         new_st.pi.set(pi_prime(std::move(new_pi), tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic));
-
-        // JAM (4.5) update tau
-        new_st.tau.set(state_t::tau_prime(tau.get(), blk.header.slot));
 
         // commit the service updates to the global key-value store only once everything else has succeeded
         if (accumulate_res.service_updates)

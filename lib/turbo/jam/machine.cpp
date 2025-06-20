@@ -109,10 +109,9 @@ namespace turbo::jam::machine {
 
         void consume_gas(const gas_t gas)
         {
-            const auto gas_s = numeric_cast<gas_remaining_t>(gas);
-            if (gas_s > _gas) [[unlikely]]
+            _gas -= numeric_cast<gas_remaining_t>(gas);
+            if (_gas < 0) [[unlikely]]
                 throw exit_out_of_gas_t {};
-            _gas -= gas_s;
         }
 
         void set_reg(const size_t id, const register_val_t val)
