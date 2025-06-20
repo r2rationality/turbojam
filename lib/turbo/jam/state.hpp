@@ -841,6 +841,12 @@ namespace turbo::jam {
             const accounts_t<CFG> &prev_delta,
             const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees);
 
+        static work_reports_t<CFG> rho_dagger_2(
+            availability_assignments_t<CFG> &new_rho, statistics_t<CFG> &tmp_pi,
+            const validators_data_t<CFG> &new_kappa,
+            const time_slot_t<CFG> &slot, const header_hash_t &parent,
+            const assurances_extrinsic_t<CFG> &assurances);
+
         // JAM (4.18)
         void provide_preimages(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.16)
@@ -862,8 +868,8 @@ namespace turbo::jam {
         static tickets_t<CFG> _permute_tickets(const tickets_accumulator_t<CFG> &gamma_a);
         static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CFG> &slot);
 
-        static delta_plus_result_t<CFG> accumulate_plus(time_slot_t<CFG> slot, gas_t gas_limit, const work_reports_t<CFG> &reports, const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services);
-        static delta_star_result_t<CFG> accumulate_star(time_slot_t<CFG> slot, std::span<const work_report_t<CFG>> reports,
+        static delta_plus_result_t<CFG> accumulate_plus(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports, const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services);
+        static delta_star_result_t<CFG> accumulate_star(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot, std::span<const work_report_t<CFG>> reports,
             const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services);
         static accumulate_result_t<CFG> invoke_accumulate(time_slot_t<CFG> slot, service_id_t service_id,
             const accumulate_operands_t &ops,

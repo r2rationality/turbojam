@@ -376,7 +376,7 @@ namespace turbo::jam {
 
     // JAM (12.16)
     template<typename CFG>
-    delta_plus_result_t<CFG> state_t<CFG>::accumulate_plus(const time_slot_t<CFG> slot, const gas_t gas_limit, const work_reports_t<CFG> &reports,
+    delta_plus_result_t<CFG> state_t<CFG>::accumulate_plus(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports,
         const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services)
     {
         delta_plus_result_t<CFG> res { { prev_delta } };
@@ -392,18 +392,20 @@ namespace turbo::jam {
                 ++num_ok;
             }
 
-            res.consume_from(accumulate_star(slot, std::span { reports.data(), num_ok }, prev_delta, prev_free_services));
+            res.consume_from(accumulate_star(new_pi, slot, std::span { reports.data(), num_ok }, prev_delta, prev_free_services));
         }
         return res;
     }
 
     // JAM (12.17)
     template<typename CFG>
-    delta_star_result_t<CFG> state_t<CFG>::accumulate_star(const time_slot_t<CFG> slot, const std::span<const work_report_t<CFG>> reports,
+    delta_star_result_t<CFG> state_t<CFG>::accumulate_star(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot,
+        const std::span<const work_report_t<CFG>> reports,
         const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services)
     {
         accumulate_service_operands_t service_ops {};
         for (const auto &r: reports) {
+            new_pi.cores[r.core_index].da_load += r.package_spec.length;
             for (const auto &r_res: r.results) {
                 service_ops[r_res.service_id].emplace_back(
                     accumulate_operand_t {
@@ -524,7 +526,7 @@ namespace turbo::jam {
     // produces: accumulate_root, iota', psi' and chi'
     template<typename CFG>
     accumulate_output_t<CFG> state_t<CFG>::accumulate(
-        statistics_t<CFG> &tmp_pi,
+        statistics_t<CFG> &new_pi,
         const time_slot_t<CFG> &prev_tau,
         const std::shared_ptr<auth_queues_t<CFG>> &prev_phi, const std::shared_ptr<validators_data_t<CFG>> &prev_iota,
         const std::shared_ptr<privileges_t> &prev_chi,
@@ -599,7 +601,7 @@ namespace turbo::jam {
             gas_limit = CFG::max_total_accumulation_gas;
 
         // (12.22)
-        auto plus_res = accumulate_plus(slot, gas_limit, work_immediate, prev_delta, prev_chi->always_acc);
+        auto plus_res = accumulate_plus(new_pi, slot, gas_limit, work_immediate, prev_delta, prev_chi->always_acc);
         // (12.23)
         res.service_updates.emplace(std::move(plus_res.state.services));
         if (plus_res.state.privileges)
@@ -611,7 +613,7 @@ namespace turbo::jam {
 
         // (12.24) (12.25) (12.26)
         for (const auto &[s_id, work_info]: plus_res.work_items) {
-            auto &s_stats = tmp_pi.services[s_id];
+            auto &s_stats = new_pi.services[s_id];
             s_stats.accumulate_count = work_info.num_reports;
             s_stats.accumulate_gas_used = work_info.gas_used;
         }
@@ -625,7 +627,7 @@ namespace turbo::jam {
         // (12.28) (12.29) (12.30) (12.31)
         for (const auto &[s_id, s_transfers]: dst_transfers) {
             const auto gas_used = invoke_on_transfer(slot, s_id, prev_delta, s_transfers);
-            auto &stats = tmp_pi.services[s_id];
+            auto &stats = new_pi.services[s_id];
             stats.on_transfers_count += s_transfers.size();
             stats.on_transfers_gas_used += gas_used;
         }
@@ -826,10 +828,10 @@ namespace turbo::jam {
                 if (g.signatures.size() < CFG::min_guarantors) [[unlikely]]
                     throw err_insufficient_guarantees_t {};
 
-                tmp_pi.cores[g.report.core_index].bundle_size += g.report.package_spec.length;
                 size_t blobs_size = g.report.auth_output.size();
                 gas_t total_accumulate_gas = 0;
                 auto &core_stats = tmp_pi.cores[g.report.core_index];
+                core_stats.bundle_size += g.report.package_spec.length;
 
                 for (const auto &r: g.report.results) {
                     if (std::holds_alternative<work_result_ok_t>(r.result)) {
@@ -1100,9 +1102,8 @@ namespace turbo::jam {
         // Work on a copy so that in case of errors the original state remains intact
         // In addition, this makes it easier to differentiate between the original and intermediate state values
         auto new_st = *this;
-        auto new_pi = pi.get();
         // core and service statistics are tracked per-block only! (13.11)
-        new_pi.services.clear();
+        statistics_t<CFG> new_pi { pi.get().current, pi.get().last };
 
         // JAM (4.6)
         auto tmp_beta = new_st.beta_dagger(beta.get(), blk.header.parent_state_root);
@@ -1138,31 +1139,30 @@ namespace turbo::jam {
         );
 
         // JAM (4.11) -> psi'
-        auto tmp_rho = rho.get();
+        auto new_rho = rho.get();
         offenders_mark_t new_offenders {};
         new_st.psi.set(
             new_st.psi_prime(
-                new_offenders, tmp_rho,
+                new_offenders, new_rho,
                 new_st.kappa.get(), new_st.lambda.get(),
                 tau.get(), psi.storage(),
                 blk.extrinsic.disputes
             )
         );
-
+        // JAM (4.13)
+        // JAM (4.14)
+        // JAM (4.15)
+        auto ready_reports = rho_dagger_2(new_rho, new_pi, new_st.kappa.get(),  blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
         // JAM (4.12)
         new_st.update_reports(
-            tmp_rho, new_pi,
+            new_rho, new_pi,
             tmp_beta,
             new_st.eta.get(), new_st.psi.get(),
             new_st.kappa.get(), new_st.lambda.get(),
             alpha.get(), delta,
             blk.header.slot, blk.extrinsic.guarantees
         );
-        // JAM (4.13)
-        // JAM (4.14)
-        // JAM (4.15)
-        work_reports_t<CFG> ready_reports {};
-        new_st.rho.set(tmp_rho.apply(ready_reports, new_st.kappa.get(), blk.header.slot, blk.header.parent, blk.extrinsic.assurances));
+        new_st.rho.set(std::move(new_rho));
 
         auto accumulate_res = new_st.accumulate(
             new_pi,
@@ -1212,6 +1212,56 @@ namespace turbo::jam {
 
         *this = std::move(new_st);
     }
+
+    template<typename CFG>
+    work_reports_t<CFG> state_t<CFG>::rho_dagger_2(
+        availability_assignments_t<CFG> &new_rho, statistics_t<CFG> &tmp_pi,
+        const validators_data_t<CFG> &new_kappa,
+        const time_slot_t<CFG> &slot, const header_hash_t &parent, const assurances_extrinsic_t<CFG> &assurances)
+    {
+        std::optional<validator_index_t> prev_validator {};
+        for (const auto &a: assurances) {
+            if (a.validator_index >= CFG::validator_count) [[unlikely]]
+                throw err_bad_validator_index_t {};
+            if (a.anchor != parent) [[unlikely]]
+                throw err_bad_attestation_parent_t {};
+            if (prev_validator && a.validator_index <= *prev_validator) [[unlikely]]
+                throw err_not_sorted_or_unique_assurers {};
+            prev_validator = a.validator_index;
+            uint8_vector msg {};
+            msg << std::string_view { "jam_available" };
+            {
+                encoder enc {};
+                enc.bytes();
+                enc.process(parent);
+                enc.process(a.bitfield);
+                msg << crypto::blake2b::digest(enc.bytes());
+            }
+            const auto &vk = new_kappa[a.validator_index].ed25519;
+            if (!crypto::ed25519::verify(a.signature, msg, vk)) [[unlikely]]
+                throw err_bad_signature_t {};
+            for (size_t ci = 0; ci < CFG::core_count; ++ci) {
+                if (a.bitfield.test(ci)) {
+                    if (!new_rho.at(ci)) [[unlikely]]
+                        throw err_core_not_engaged_t {};
+                    ++tmp_pi.cores[ci].popularity;
+                }
+            }
+        }
+        work_reports_t<CFG> res {};
+        for (size_t ci = 0; ci < CFG::core_count; ++ci) {
+            if (new_rho[ci]) {
+                if (tmp_pi.cores[ci].popularity >= CFG::validator_super_majority) {
+                    res.emplace_back(std::move(new_rho[ci]->report));
+                    new_rho[ci].reset();
+                } else if (slot >= new_rho[ci]->timeout + CFG::reported_work_timeout) {
+                    new_rho[ci].reset();
+                }
+            }
+        }
+        return res;
+    }
+
 
     template<typename CFG>
     state_t<CFG> &state_t<CFG>::operator=(const state_snapshot_t &st)

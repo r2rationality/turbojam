@@ -828,14 +828,8 @@ namespace turbo::jam {
     template<typename CONSTANTS>
     using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANTS::validator_count>;
 
-    template<typename CONSTANTS=config_prod>
-    struct availability_assignments_t: fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::core_count> {
-        using base_type = fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::core_count>;
-        using base_type::base_type;
-
-        availability_assignments_t apply(work_reports_t<CONSTANTS> &out, const validators_data_t<CONSTANTS> &kappa,
-            const time_slot_t<CONSTANTS> &tau, const header_hash_t parent, const assurances_extrinsic_t<CONSTANTS> &assurances) const;
-    };
+    template<typename CONSTANTS>
+    using availability_assignments_t = fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::core_count>;
 
     using mmr_peak_t = optional_t<opaque_hash_t>;
 

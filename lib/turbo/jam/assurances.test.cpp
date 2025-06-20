@@ -152,8 +152,12 @@ namespace {
             [&] {
                 auto tmp_st = tc.pre;
                 output_data_t<CFG> res {};
-                tmp_st.rho.set(tc.pre.rho.get().apply(res.reported, tc.pre.kappa.get(), tc.in.slot, tc.in.parent, tc.in.assurances));
-                out.emplace(std::move(res));
+                auto tmp_pi = tmp_st.pi.get();
+                auto tmp_rho = tmp_st.rho.get();
+                // ignore the updated statistics as they are tested in a separate set of tests
+                out.emplace(output_data_t { state_t<CFG>::rho_dagger_2(tmp_rho, tmp_pi, tc.pre.kappa.get(),
+                    tc.in.slot, tc.in.parent, tc.in.assurances) });
+                tmp_st.rho.set(std::move(tmp_rho));
                 res_st = std::move(tmp_st);
             },
             [&](err_code_t err) {
@@ -171,6 +175,7 @@ namespace {
 
 suite turbo_jam_assurances_suite = [] {
     "turbo::jam::assurances"_test = [] {
+        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/assurances/tiny/assurances_for_stale_report-1"));
         "tiny"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/assurances/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

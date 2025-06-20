@@ -37,6 +37,13 @@ namespace turbo::jam {
         // B_S
         static constexpr size_t min_balance_per_service = 100;
 
+        // W_P
+        static constexpr size_t segment_num_pieces = 6;
+        // W_E
+        static constexpr size_t segment_piece_size = 684;
+        // W_G
+        static constexpr size_t segment_size = segment_piece_size * segment_num_pieces;
+
         static constexpr size_t pvm_p_size(const size_t x)
         {
             return ((x + pvm_page_size - 1) / pvm_page_size) * pvm_page_size;
