@@ -94,7 +94,7 @@ namespace turbo::jam {
     // This structure captures updates rather than absolute values.
     // For this reason int64_t types are used to track potential decreases of the aboslute values.
     struct service_info_update_t {
-        const persistent_value_t<service_info_t> &base;
+        const service_info_t &base;
         std::optional<opaque_hash_t> code_hash {};
         int64_t balance = 0;
         // gas saved in the fixed format form
@@ -190,7 +190,7 @@ namespace turbo::jam {
 
     inline service_info_t service_info_update_t::combine() const
     {
-        auto res = base.get();
+        auto res = base;
         res.consume_from(*this);
         return res;
     }
@@ -396,11 +396,11 @@ namespace turbo::jam {
         std::string key_name = "key";
         std::string val_name = "value";
     };
-    template<typename CONSTANTS>
-    using lookup_meta_map_val_t = sequence_t<time_slot_t<CONSTANTS>, 0, 3>;
+    template<typename CFG>
+    using lookup_meta_map_val_t = sequence_t<time_slot_t<CFG>, 0, 3>;
 
-    template<typename CONSTANTS>
-    using lookup_meta_items_t = map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CONSTANTS>, lookup_metas_config_t>;
+    template<typename CFG>
+    using lookup_meta_items_t = map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CFG>, lookup_metas_config_t>;
 
     template<typename CFG>
     struct lookup_metas_t: state_dict_based_map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CFG>> {
@@ -435,6 +435,13 @@ namespace turbo::jam {
     };
 
     // (9.8)
+    inline balance_t account_balance_threshold_raw(const size_t a_i, const size_t a_o)
+    {
+        return config_base::min_balance_per_service
+            + config_base::min_balance_per_item * a_i
+            + config_base::min_balance_per_octet * a_o;
+    }
+
     template<typename L, typename S>
     balance_t account_balance_threshold(const L &l, const S &s)
     {
@@ -448,9 +455,7 @@ namespace turbo::jam {
             a_i += 1;
             a_o += 32 + v.size();
         });
-        return config_base::min_balance_per_service
-            + config_base::min_balance_per_item * a_i
-            + config_base::min_balance_per_octet * a_o;
+        return account_balance_threshold_raw(a_i, a_o);
     }
 
     template<typename CFG>
@@ -489,8 +494,30 @@ namespace turbo::jam {
         std::string val_name = "data";
     };
 
-    template<typename CONSTANTS>
-    using accounts_t = map_t<service_id_t, account_t<CONSTANTS>, accounts_config_t>;
+    template<typename CFG>
+    struct accounts_t: map_t<service_id_t, account_t<CFG>, accounts_config_t> {
+        using base_type = map_t<service_id_t, account_t<CFG>, accounts_config_t>;
+
+        accounts_t(const kv_store_ptr_t &kv_store, const state_dict_ptr_t &state_dict):
+            _kv_store { kv_store },
+            _state_dict { state_dict }
+        {
+        }
+
+        std::pair<typename base_type::iterator, bool> try_create(const typename base_type::key_type &service_id)
+        {
+            return base_type::try_emplace(
+                service_id,
+                preimages_t { _kv_store, _state_dict, preimages_t::make_trie_key_func(service_id) },
+                lookup_metas_t<CFG> { _kv_store, _state_dict, lookup_metas_t<CFG>::make_trie_key_func(service_id) },
+                service_storage_t { _kv_store, _state_dict, service_storage_t::make_trie_key_func(service_id) },
+                persistent_value_t<service_info_t> { _state_dict, state_dict_t::make_key(255U, service_id) }
+            );
+        }
+    private:
+        kv_store_ptr_t _kv_store;
+        state_dict_ptr_t _state_dict;
+    };
 
     template<typename CFG>
     struct mutable_service_state_t {
@@ -558,6 +585,33 @@ namespace turbo::jam {
             }
         }
 
+        void emplace(const key_type &k, service_info_update_t &&info)
+        {
+            static service_info_t empty_info {};
+            const auto [it, created] = _derived.try_emplace(
+                k,
+                mutable_service_state_t<CFG> {
+                    container::direct_update_api_t<service_storage_t> {},
+                    container::direct_update_api_t<preimages_t> {},
+                    container::direct_update_api_t<lookup_metas_t<CFG>> {},
+                    std::move(info)
+                }
+            );
+            if (!created) [[unlikely]]
+                throw error(fmt::format("key {} already exists", k));
+            if (_base.get().find(k) != _base.get().end())
+                throw error(fmt::format("key {} already exists", k));
+        }
+
+        [[nodiscard]] bool contains(const key_type &k) const
+        {
+            if (const auto d_it = _derived.find(k); d_it != _derived.end())
+                return true;
+            if (const auto b_it = _base.get().find(k); b_it != _base.get().end())
+                return true;
+            return false;
+        }
+
         mapped_type *get_mutable_ptr(const key_type &k)
         {
             if (const auto d_it = _derived.find(k); d_it != _derived.end())
@@ -568,7 +622,7 @@ namespace turbo::jam {
                     container::direct_update_api_t<service_storage_t> { b_it->second.storage },
                     container::direct_update_api_t<preimages_t> { b_it->second.preimages },
                     container::direct_update_api_t<lookup_metas_t<CFG>> { b_it->second.lookup_metas },
-                    service_info_update_t { b_it->second.info }
+                    service_info_update_t { b_it->second.info.get() }
                 );
                 return &d_it->second;
             }
@@ -584,8 +638,10 @@ namespace turbo::jam {
 
         void commit(accounts_t<CFG> &target)
         {
-            for (auto &[k, v]: _derived)
-                v.commit(target.at(k));
+            for (auto &&[k, v]: _derived) {
+                auto [it, created] = target.try_create(k);
+                v.commit(it->second);
+            }
             _derived.clear();
         }
     private:
@@ -599,15 +655,17 @@ namespace turbo::jam {
     // JAM (12.13)
     template<typename CFG>
     struct mutable_state_t {
-        // JAM: bold d
         mutable_services_state_t<CFG> services;
-        // JAM: bold x
         privileges_t chi;
-        // JAM: bold i
         std::optional<validators_data_t<CFG>> iota {};
-        // JAM: bold q
         std::map<core_index_t, auth_queue_t<CFG>> phi {};
 
+        mutable_state_t(const accounts_t<CFG> &d, const privileges_t &c):
+            services { d },
+            chi { c }
+        {
+        }
+        
         void consume_from(mutable_state_t &&o)
         {
             services.consume_from(std::move(o.services));
@@ -637,16 +695,16 @@ namespace turbo::jam {
     using deferred_transfers_t = sequence_t<deferred_transfer_t>;
     using deferred_transfer_ptrs_t = std::vector<const deferred_transfer_t *>;
 
-    template<typename CONSTANTS>
-    using service_code_preimages_t = map_t<service_id_t, byte_sequence_t, CONSTANTS>;
+    template<typename CFG>
+    using service_code_preimages_t = map_t<service_id_t, byte_sequence_t, CFG>;
 
     // JAM (B.7)
-    template<typename CONSTANTS>
+    template<typename CFG>
     struct accumulate_context_t {
         // JAM: s
-        service_id_t service_id = 0;
+        service_id_t service_id;
         // JAM: bold u
-        mutable_state_t<CONSTANTS> state;
+        mutable_state_t<CFG> state;
         // JAM: i
         service_id_t new_service_id = 0;
         // JAM: bold t
@@ -654,7 +712,31 @@ namespace turbo::jam {
         // JAM: y
         optional_t<opaque_hash_t> result {};
         // JAM: p
-        //service_code_preimages_t<CONSTANTS> code {};
+        //service_code_preimages_t<CFG> code {};
+
+        accumulate_context_t(const service_id_t s, const entropy_buffer_t &e, const time_slot_t<CFG> &blk_slot, mutable_state_t<CFG> &&st):
+            service_id { s },
+            state { std::move(st) }
+        {
+            const encoder enc { s, e[0], blk_slot };
+            const auto h = crypto::blake2b::digest(enc.bytes());
+            new_service_id = check(decoder::uint_fixed<service_id_t>(h) % ((1ULL << 32ULL) - 0x200ULL) + 0x100ULL);
+        }
+
+        static service_id_t gen_new_service_id(const service_id_t prev_id, const service_id_t step)
+        {
+            return 0x100ULL + (prev_id - 0x100ULL + step) % ((1ULL << 32U) - 0x200ULL);
+        }
+
+        [[nodiscard]] service_id_t check(service_id_t i) const
+        {
+            // Due to the limited size of RAM the number of services will always be less than 2^32 - 1
+            // Thus, this loop will terminate in all cases.
+            while (state.services.contains(i)) {
+                i = gen_new_service_id(i, 1);
+            }
+            return i;
+        }
     };
 
     // JAM (12.19)
@@ -787,7 +869,7 @@ namespace turbo::jam {
         persistent_value_t<statistics_t<CFG>> pi { state_dict, 13U };
         persistent_value_t<ready_queue_t<CFG>> nu { state_dict, 14U }; // JAM (12.3): work reports ready to be accumulated
         persistent_value_t<accumulated_queue_t<CFG>> ksi { state_dict, 15U }; // JAM (12.1): recently accumulated reports
-        accounts_t<CFG> delta {}; // services
+        accounts_t<CFG> delta { kv_store, state_dict }; // services
 
         [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
         state_t &operator=(const state_snapshot_t &o);
@@ -847,7 +929,7 @@ namespace turbo::jam {
         void provide_preimages(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.16)
         static accumulate_output_t<CFG> accumulate(
-            statistics_t<CFG> &tmp_pi,
+            statistics_t<CFG> &tmp_pi, const entropy_buffer_t &new_eta,
             const time_slot_t<CFG> &prev_tau,
             const std::shared_ptr<auth_queues_t<CFG>> &prev_phi, const std::shared_ptr<validators_data_t<CFG>> &prev_iota,
             const std::shared_ptr<privileges_t> &prev_chi,
@@ -864,12 +946,20 @@ namespace turbo::jam {
         static tickets_t<CFG> _permute_tickets(const tickets_accumulator_t<CFG> &gamma_a);
         static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CFG> &slot);
 
-        static delta_plus_result_t<CFG> accumulate_plus(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports, const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services);
-        static delta_star_result_t<CFG> accumulate_star(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot, std::span<const work_report_t<CFG>> reports,
-            const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services);
-        static accumulate_result_t<CFG> invoke_accumulate(time_slot_t<CFG> slot, service_id_t service_id,
-            const accumulate_operands_t &ops,
-            const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services);
+        static delta_plus_result_t<CFG> accumulate_plus(
+            statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
+            const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+            const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports
+        );
+        static delta_star_result_t<CFG> accumulate_star(
+            statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
+            const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+            const time_slot_t<CFG> &slot, const std::span<const work_report_t<CFG>> reports);
+        static accumulate_result_t<CFG> invoke_accumulate(
+            const entropy_buffer_t &new_eta,
+            const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+            const time_slot_t<CFG> &slot,
+            const service_id_t service_id, const accumulate_operands_t &ops);
         static gas_t invoke_on_transfer(time_slot_t<CFG> slot, service_id_t service_id,
             const accounts_t<CFG> &prev_delta, const deferred_transfer_ptrs_t &transfers);
     };

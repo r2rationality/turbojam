@@ -21,15 +21,9 @@ namespace turbo::jam {
         static constexpr std::string_view jam_audit { "jam_audit" };
         static constexpr std::string_view jam_announce { "jam_announce" };
         static constexpr std::string_view jam_beefy { "jam_beefy" };
-        // JAM I.4.4: Z_A
-        static constexpr size_t pvm_address_alignment_factor = 2;
-        // JAM I.4.4: Z_I
-        static constexpr size_t pvm_input_size = 1ULL << 24U;
-        // JAM I.4.4: Z_P
-        static constexpr size_t pvm_page_size = 1ULL << 12U;
-        // JAM I.4.4: Z_Z
-        static constexpr size_t pvm_init_zone_size = 1ULL << 16U;
 
+        // A
+        static constexpr size_t audit_period = 8;
         // B_I
         static constexpr size_t min_balance_per_item = 10;
         // B_L
@@ -42,7 +36,8 @@ namespace turbo::jam {
         static constexpr size_t preimage_expunge_delay = 19'200;
         // E
         static constexpr size_t epoch_length = 600;
-
+        // F
+        static constexpr size_t audit_bias = 2;
         // G_A
         static constexpr size_t max_accumulate_gas = 10'000'000;
         // G_I
@@ -57,8 +52,12 @@ namespace turbo::jam {
         static constexpr size_t max_work_items = 16;
         // J
         static constexpr size_t max_report_dependencies = 8;
+        // K
+        static constexpr size_t max_tickets_per_block = 16;
         // L
         static constexpr size_t max_lookup_anchor_age = 14'400;
+        // N
+        static constexpr size_t ticket_attempts = 2;
         // O
         static constexpr size_t auth_pool_max_size = 8;
         // P
@@ -69,16 +68,17 @@ namespace turbo::jam {
         static constexpr size_t core_assignment_rotation_period = 10;
         // S
         static constexpr size_t accumulation_queue_size = 1024;
+        // T
+        static constexpr size_t max_package_extrinsics = 128;
         // U
         static constexpr size_t reported_work_timeout = 5;
         // V
         static constexpr size_t validator_factor = 3;
         static constexpr size_t validator_count = core_count * validator_factor;
-
         // W_A
         static constexpr size_t max_is_authorized_code_size = 64'000;
         // W_B
-        static constexpr size_t max_work_package_size = 12ULL * (1ULL << 20U);
+        static constexpr size_t max_work_package_size = 13'794'305;
         // W_C
         static constexpr size_t max_service_code_size = 4'000'000;
         // W_E
@@ -98,6 +98,14 @@ namespace turbo::jam {
         static constexpr size_t max_package_exports = 3'072;
         // Y
         static constexpr size_t ticket_submission_end = epoch_length * 5 / 6;
+        // Z_A
+        static constexpr size_t pvm_address_alignment_factor = 2;
+        // Z_I
+        static constexpr size_t pvm_input_size = 1ULL << 24U;
+        // Z_P
+        static constexpr size_t pvm_page_size = 1ULL << 12U;
+        // Z_Z
+        static constexpr size_t pvm_init_zone_size = 1ULL << 16U;
 
         static constexpr size_t pvm_p_size(const size_t x)
         {
@@ -115,15 +123,6 @@ namespace turbo::jam {
         static constexpr size_t min_guarantors = validator_factor - 1;
         static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
         static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
-        // JAM I.4.4: K
-        static constexpr size_t max_tickets_per_block = 16;
-        // JAM I.4.4: N
-        static constexpr size_t tickets_per_validator = 2;
-
-        static constexpr size_t ticket_attempts = 2;
-
-        // T
-        static constexpr size_t max_package_extrinsics = 128;
     };
 
     struct config_tiny: config_prod {

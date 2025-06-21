@@ -222,7 +222,7 @@ namespace turbo::jam {
         static T uint_fixed(const buffer bytes)
         {
             decoder dec { bytes };
-            return dec.uint_fixed<T>(bytes.size());
+            return dec.uint_fixed<T>(sizeof(T));
         }
 
         explicit decoder(const buffer bytes) noexcept:

@@ -183,7 +183,7 @@ namespace {
             auto new_pi = tmp_st.pi.get();
             new_pi.services.clear();
             auto res = tmp_st.accumulate(
-                new_pi,
+                new_pi, tc.pre.eta.get(),
                 tc.pre.tau.get(),
                 tc.pre.phi.storage(), tc.pre.iota.storage(), tc.pre.chi.storage(),
                 tc.pre.nu.storage(), tc.pre.ksi.storage(),

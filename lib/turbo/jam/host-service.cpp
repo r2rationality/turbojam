@@ -124,7 +124,9 @@ namespace turbo::jam {
                 enc.uint_fixed(2, CFG::max_blocks_history);
                 enc.uint_fixed(2, CFG::max_work_items);
                 enc.uint_fixed(2, CFG::max_report_dependencies);
+                enc.uint_fixed(2, CFG::max_tickets_per_block);
                 enc.uint_fixed(4, CFG::max_lookup_anchor_age);
+                enc.uint_fixed(2, CFG::ticket_attempts);
                 enc.uint_fixed(2, CFG::auth_pool_max_size);
                 enc.uint_fixed(2, CFG::slot_period);
                 enc.uint_fixed(2, CFG::auth_queue_size);
@@ -137,7 +139,6 @@ namespace turbo::jam {
                 enc.uint_fixed(4, CFG::max_work_package_size);
                 enc.uint_fixed(4, CFG::max_service_code_size);
                 enc.uint_fixed(4, CFG::segment_piece_size);
-                enc.uint_fixed(4, CFG::segment_size);
                 enc.uint_fixed(4, CFG::max_work_package_imports);
                 enc.uint_fixed(4, CFG::segment_num_pieces);
                 enc.uint_fixed(4, CFG::max_blobs_size);
@@ -224,7 +225,7 @@ namespace turbo::jam {
         const auto v_z = _m.regs()[10];
         const auto prev_val = _service.storage.get(key_hash);
         const auto balance_threshold = account_balance_threshold(_service.lookup_metas, _service.storage);
-        if (_service.info.base.get().balance >= balance_threshold) {
+        if (_service.info.base.balance >= balance_threshold) {
             if (v_z == 0) {
                 logger::trace("service {} write: delete key: {}", _service_id, key_data);
                 if (prev_val) {
@@ -424,7 +425,34 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::new_()
     {
-        throw machine::exit_panic_t {};
+        const auto &omega = base_type::_m.regs();
+        const auto o = omega[7];
+        const auto l = omega[8];
+        const auto g = omega[9];
+        const auto m = omega[10];
+        if (l > std::numeric_limits<uint32_t>::max())
+            throw machine::exit_panic_t {};
+        const auto c = base_type::_m.mem_read(o, 32);
+        const auto a_t = account_balance_threshold_raw(0, 0);
+        if (base_type::_service.info.balance >= a_t) {
+            static service_info_t empty_info {};
+            service_info_update_t a {
+                .base=empty_info,
+                .code_hash=static_cast<buffer>(c),
+                .balance=numeric_cast<int64_t>(a_t),
+                .min_item_gas=numeric_cast<int64_t>(g),
+                .min_memo_gas=numeric_cast<int64_t>(m),
+                .bytes=0,
+                .items=0
+            };
+            base_type::_service.info.balance -= a_t;
+            const auto prev_id = _ok.new_service_id;
+            _ok.new_service_id = _ok.check(_ok.gen_new_service_id(prev_id, 42));
+            _ok.state.services.emplace(base_type::_service_id, std::move(a));
+            base_type::_m.set_reg(7, prev_id);
+        } else {
+            base_type::_m.set_reg(7, machine::host_call_res_t::cash);
+        }
     }
 
     template<typename CFG>

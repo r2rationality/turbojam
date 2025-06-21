@@ -376,10 +376,12 @@ namespace turbo::jam {
 
     // JAM (12.16)
     template<typename CFG>
-    delta_plus_result_t<CFG> state_t<CFG>::accumulate_plus(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports,
-        const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services)
+    delta_plus_result_t<CFG> state_t<CFG>::accumulate_plus(
+        statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
+        const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+        const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports)
     {
-        delta_plus_result_t<CFG> res { { prev_delta } };
+        delta_plus_result_t<CFG> res { { prev_delta, prev_chi } };
 
         if (!reports.empty()) {
             size_t num_ok = 0;
@@ -392,16 +394,17 @@ namespace turbo::jam {
                 ++num_ok;
             }
 
-            res.consume_from(accumulate_star(new_pi, slot, std::span { reports.data(), num_ok }, prev_delta, prev_free_services));
+            res.consume_from(accumulate_star(new_pi, new_eta, prev_delta, prev_chi, slot, std::span { reports.data(), num_ok }));
         }
         return res;
     }
 
     // JAM (12.17)
     template<typename CFG>
-    delta_star_result_t<CFG> state_t<CFG>::accumulate_star(statistics_t<CFG> &new_pi, const time_slot_t<CFG> &slot,
-        const std::span<const work_report_t<CFG>> reports,
-        const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services)
+    delta_star_result_t<CFG> state_t<CFG>::accumulate_star(
+        statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
+        const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+        const time_slot_t<CFG> &slot, const std::span<const work_report_t<CFG>> reports)
     {
         accumulate_service_operands_t service_ops {};
         for (const auto &r: reports) {
@@ -422,12 +425,12 @@ namespace turbo::jam {
         }
 
         // JAM (12.17) - Ensure that free services are always accumulated
-        for (const auto &fs: prev_free_services)
+        for (const auto &fs: prev_chi.always_acc)
             service_ops.try_emplace(fs.id);
 
         delta_star_result_t<CFG> res {};
         for (const auto &[service_id, ops]: service_ops) {
-            auto acc_res = invoke_accumulate(slot, service_id, ops, prev_delta, prev_free_services);
+            auto acc_res = invoke_accumulate(new_eta, prev_delta, prev_chi, slot, service_id, ops);
             if (acc_res.num_reports) {
                 res.num_accumulated += acc_res.num_reports;
                 res.results.try_emplace(service_id, std::move(acc_res));
@@ -437,8 +440,11 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    accumulate_result_t<CFG> state_t<CFG>::invoke_accumulate(const time_slot_t<CFG> slot, const service_id_t service_id,
-        const accumulate_operands_t &ops, const accounts_t<CFG> &prev_delta, const free_services_t &prev_free_services)
+    accumulate_result_t<CFG> state_t<CFG>::invoke_accumulate(
+        const entropy_buffer_t &new_eta,
+        const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+        const time_slot_t<CFG> &slot,
+        const service_id_t service_id, const accumulate_operands_t &ops)
     {
         auto &service = prev_delta.at(service_id);
         encoder arg_enc {};
@@ -447,8 +453,8 @@ namespace turbo::jam {
         arg_enc.process(ops);
 
         accumulate_context_t<CFG> ctx_ok {
-            service_id,
-            { prev_delta }
+            service_id, new_eta, slot,
+            { prev_delta, prev_chi },
         };
         auto ctx_err = ctx_ok;
 
@@ -459,7 +465,7 @@ namespace turbo::jam {
                 throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
 
             gas_t::base_type gas_limit = 0;
-            for (const auto &fs: prev_free_services) {
+            for (const auto &fs: prev_chi.always_acc) {
                 if (fs.id == service_id)
                     gas_limit += fs.gas;
             }
@@ -526,7 +532,7 @@ namespace turbo::jam {
     // produces: accumulate_root, iota', psi' and chi'
     template<typename CFG>
     accumulate_output_t<CFG> state_t<CFG>::accumulate(
-        statistics_t<CFG> &new_pi,
+        statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
         const time_slot_t<CFG> &prev_tau,
         const std::shared_ptr<auth_queues_t<CFG>> &prev_phi, const std::shared_ptr<validators_data_t<CFG>> &prev_iota,
         const std::shared_ptr<privileges_t> &prev_chi,
@@ -601,7 +607,7 @@ namespace turbo::jam {
             gas_limit = CFG::max_total_accumulation_gas;
 
         // (12.22)
-        auto plus_res = accumulate_plus(new_pi, slot, gas_limit, work_immediate, prev_delta, prev_chi->always_acc);
+        auto plus_res = accumulate_plus(new_pi, new_eta, prev_delta, *prev_chi, slot, gas_limit, work_immediate);
         // (12.23)
         res.service_updates.emplace(std::move(plus_res.state.services));
         res.new_chi = std::make_shared<privileges_t>(std::move(plus_res.state.chi));
@@ -1171,6 +1177,7 @@ namespace turbo::jam {
         // (4.16) - extra deps: updates: pi
         auto accumulate_res = new_st.accumulate(
             new_pi,
+            new_st.eta.get(),
             tau.get(),
             phi.storage(), iota.storage(), chi.storage(),
             nu.storage(), ksi.storage(),
@@ -1276,24 +1283,12 @@ namespace turbo::jam {
         std::map<service_id_t, std::map<preimage_hh_t, lookup_request_t>> lookup_requests {};
         const auto decode_service_info = [&](const state_key_t &key, decoder &dec) {
             const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
-            const auto [it, created] = delta.try_emplace(
-                service_id,
-                preimages_t { kv_store, state_dict, preimages_t::make_trie_key_func(service_id) },
-                lookup_metas_t<CFG> { kv_store, state_dict, lookup_metas_t<CFG>::make_trie_key_func(service_id) },
-                service_storage_t { kv_store, state_dict, service_storage_t::make_trie_key_func(service_id) },
-                persistent_value_t<service_info_t> { state_dict, state_dict_t::make_key(255U, service_id) }
-            );
+            const auto [it, created] = delta.try_create(service_id);
             dec.process(it->second.info);
         };
         const auto decode_service_data = [&](const state_key_t &key, decoder &dec) {
             const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[0], key[2], key[4], key[6] });
-            const auto [s_it, created] = delta.try_emplace(
-                service_id,
-                preimages_t { kv_store, state_dict, preimages_t::make_trie_key_func(service_id) },
-                lookup_metas_t<CFG> { kv_store, state_dict, lookup_metas_t<CFG>::make_trie_key_func(service_id) },
-                service_storage_t { kv_store, state_dict, service_storage_t::make_trie_key_func(service_id) },
-                persistent_value_t<service_info_t> { state_dict, state_dict_t::make_key(255U, service_id) }
-            );
+            const auto [s_it, created] = delta.try_create(service_id);
             auto &service = s_it->second;
             const auto typ = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
             switch (typ) {

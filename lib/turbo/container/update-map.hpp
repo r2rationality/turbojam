@@ -100,8 +100,10 @@ namespace turbo::container {
         using mapped_type = typename M::mapped_type;
         using observer_t = std::function<void(const key_type &k, const mapped_type &v)>;
 
+        direct_update_api_t() = default;
+
         direct_update_api_t(const M &base):
-            _base { base }
+            _base { &base }
         {
         }
 
@@ -112,14 +114,18 @@ namespace turbo::container {
 
         void foreach(const observer_t & obs) const
         {
-            _base.foreach([&](const auto &k, auto v) {
-                obs(k, std::move(v));
-            });
+            if (_base) {
+                _base->foreach([&](const auto &k, auto v) {
+                    obs(k, std::move(v));
+                });
+            }
         }
 
         auto get(const key_type &k) const
         {
-            return _base.get(k);
+            if (_base)
+                return _base->get(k);
+            return decltype(_base->get(k)) {};
         }
 
         void set(M &target, const key_type &k, mapped_type v) const
@@ -127,7 +133,7 @@ namespace turbo::container {
             target.set(k, std::move(v));
         }
     private:
-        const M &_base;
+        const M *_base = nullptr;
     };
 
     /*
