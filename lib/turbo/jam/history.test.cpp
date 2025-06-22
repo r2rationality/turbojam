@@ -95,8 +95,11 @@ namespace {
 
 suite turbo_jam_history_suite = [] {
     "turbo::jam::history"_test = [] {
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/history/data"), ".bin")) {
+        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/history/tiny"), ".bin")) {
             test_file<config_tiny>(path.substr(0, path.size() - 4));
+        }
+        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/history/full"), ".bin")) {
+            test_file<config_prod>(path.substr(0, path.size() - 4));
         }
     };
 };
