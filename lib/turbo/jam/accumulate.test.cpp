@@ -190,6 +190,8 @@ namespace {
                 tc.pre.delta,
                 tc.in.slot, tc.in.reports
             );
+            // accumulate updates da_load statistics
+            new_pi.cores = {};
             out.emplace(res.root);
             tmp_st.nu.set(std::move(res.new_nu));
             tmp_st.ksi.set(std::move(res.new_ksi));
@@ -223,8 +225,8 @@ namespace {
 suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
         //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/accumulate_ready_queued_reports-1"));
-        test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/process_one_immediate_report-1"));
-        /*"tiny test vectors"_test = [] {
+        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/process_one_immediate_report-1"));
+        "tiny test vectors"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/accumulate/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
@@ -233,6 +235,6 @@ suite turbo_jam_accumulate_suite = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/accumulate/full"), ".bin")) {
                 test_file<config_prod>(path.substr(0, path.size() - 4));
             }
-        };*/
+        };
     };
 };

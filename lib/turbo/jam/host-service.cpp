@@ -25,51 +25,40 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    host_service_base_t<CFG>::host_service_base_t(machine::machine_t &m, mutable_services_state_t<CFG> &services, const service_id_t service_id, const time_slot_t<CFG> slot):
-        _m { m },
-        _services { services },
-        _service_id { service_id },
-        _service { _services.get_mutable(service_id) },
-        _slot { std::move(slot) }
+    host_service_base_t<CFG>::host_service_base_t(const host_service_params_t<CFG> &params):
+        _p { params },
+        _service { _p.services.get_mutable(_p.service_id) }
     {
     }
 
     template<typename CFG>
-    machine::host_call_res_t host_service_base_t<CFG>::call(const machine::register_val_t id) noexcept
+    machine::host_call_res_t host_service_on_transfer_t<CFG>::call(const machine::register_val_t id) noexcept
     {
-        return _safe_call([&] {
-            _call(id);
+        return base_type::_safe_call([&] {
+            logger::trace("PVM: host call #{}", id);
+            gas_t::base_type gas_used = 10;
+            switch (id) {
+                // generic
+                case 0: base_type::gas(); break;
+                case 1: base_type::lookup(); break;
+                case 2: base_type::read(); break;
+                case 3: base_type::write(); break;
+                case 4: base_type::info(); break;
+                case 18: base_type::fetch(); break;
+                default:
+                    base_type::_p.m.set_reg(7, machine::host_call_res_t::what);
+                    break;
+            }
+            base_type::_p.m.consume_gas(gas_used);
         });
-    }
-
-    template<typename CFG>
-    void host_service_base_t<CFG>::_call(const machine::register_val_t id)
-    {
-        gas_t::base_type gas_used = 10;
-        switch (id) {
-            case 0: gas(); break;
-            case 1: lookup(); break;
-            case 2: read(); break;
-            case 3: write(); break;
-            case 4: info(); break;
-            case 18: fetch(); break;
-            case 100:
-                log();
-                gas_used = 0;
-                break;
-            default:
-                _m.set_reg(7, machine::host_call_res_t::what);
-                break;
-        }
-        _m.consume_gas(gas_used);
     }
 
     template<typename CFG>
     typename host_service_base_t<CFG>::service_lookup_res_t host_service_base_t<CFG>::_get_service(machine::register_val_t id)
     {
         if (id == std::numeric_limits<machine::register_val_t>::max())
-            id = _service_id;
-        return { numeric_cast<service_id_t>(id), _services.get_mutable_ptr(id) };
+            id = _p.service_id;
+        return { numeric_cast<service_id_t>(id), _p.services.get_mutable_ptr(id) };
     }
 
     template<typename CFG>
@@ -78,10 +67,10 @@ namespace turbo::jam {
         try {
             f();
         } catch (const err_unknown_key_t &) {
-            _m.set_reg(7, machine::host_call_res_t::none);
+            _p.m.set_reg(7, machine::host_call_res_t::none);
             return std::monostate {};
         } catch (const err_bad_service_id_t &) {
-            _m.set_reg(7, machine::host_call_res_t::none);
+            _p.m.set_reg(7, machine::host_call_res_t::none);
             return std::monostate {};
         } catch (machine::exit_out_of_gas_t &ex) {
             return machine::exit_out_of_gas_t { std::move(ex) };
@@ -100,13 +89,14 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::gas()
     {
-        _m.set_reg(7, _m.gas());
+        _p.m.set_reg(7, _p.m.gas());
     }
 
     template<typename CFG>
     void host_service_base_t<CFG>::fetch()
     {
-        const auto &omega = _m.regs();
+        const auto &omega = _p.m.regs();
+        logger::trace("host_service::fetch {}", omega[10]);
         std::optional<uint8_vector> v {};
         switch (omega[10]) {
             case 0: {
@@ -147,9 +137,64 @@ namespace turbo::jam {
                 v.emplace(std::move(enc.bytes()));
                 break;
             }
-            case 13: {
+            case 1:
+                if (_p.fetch.nonce)
+                    v.emplace(*_p.fetch.nonce);
                 break;
-            }
+            case 7:
+                if (_p.fetch.package) {
+                    encoder enc { *_p.fetch.package };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 8:
+                if (_p.fetch.package) {
+                    encoder enc { _p.fetch.package->authorizer, _p.fetch.package->params };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 9:
+                if (_p.fetch.package) {
+                    encoder enc { _p.fetch.package->authorization };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 10:
+                if (_p.fetch.package) {
+                    encoder enc { _p.fetch.package->context };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 13:
+                if (_p.fetch.package && _p.fetch.package->items.size() > omega[11]) {
+                    encoder enc { _p.fetch.package->items[omega[11]].payload };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 14:
+                if (_p.fetch.operands) {
+                    encoder enc { *_p.fetch.operands };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 15:
+                if (_p.fetch.operands && omega[11] < _p.fetch.operands->size()) {
+                    encoder enc { _p.fetch.operands[omega[11]] };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 16:
+                if (_p.fetch.transfers) {
+                    encoder enc { *_p.fetch.transfers };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 17:
+                if (_p.fetch.transfers && omega[11] < _p.fetch.transfers->size()) {
+                    encoder enc { _p.fetch.transfers[omega[11]] };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
             default:
                 break;
         }
@@ -157,44 +202,44 @@ namespace turbo::jam {
             const auto o = omega[7];
             const auto f = std::min(omega[8], v->size());
             const auto l = std::min(omega[9], v->size() - f);
-            _m.mem_write(o, static_cast<buffer>(*v).subbuf(0, l));
-            _m.set_reg(7, v->size());
+            _p.m.mem_write(o, static_cast<buffer>(*v).subbuf(0, l));
+            _p.m.set_reg(7, v->size());
         } else {
-            _m.set_reg(7, machine::host_call_res_t::none);
+            _p.m.set_reg(7, machine::host_call_res_t::none);
         }
     }
 
     template<typename CFG>
     void host_service_base_t<CFG>::lookup()
     {
-        const auto &omega = _m.regs();
+        const auto &omega = _p.m.regs();
         const auto [s_id, a] = _get_service(omega[7]);
         const auto h = omega[8];
         const auto o = omega[9];
-        const opaque_hash_t key { _m.mem_read(h, 32) };
+        const opaque_hash_t key { _p.m.mem_read(h, 32) };
         std::optional<write_vector> val {};
         if (a)
             val = a->preimages.get(key);
         if (val) {
             const auto f = std::min(omega[10], val->size());
             const auto l = std::min(omega[11], val->size() - f);
-            _m.mem_write(o, static_cast<buffer>(*val).subbuf(0, l));
-            _m.set_reg(7, val->size());
+            _p.m.mem_write(o, static_cast<buffer>(*val).subbuf(0, l));
+            _p.m.set_reg(7, val->size());
         } else {
-            _m.set_reg(7, machine::host_call_res_t::none);
+            _p.m.set_reg(7, machine::host_call_res_t::none);
         }
     }
 
     template<typename CFG>
     void host_service_base_t<CFG>::read() {
-        const auto &omega = _m.regs();
+        const auto &omega = _p.m.regs();
         const auto [s_id, a] = _get_service(omega[7]);
         const auto ko = omega[8];
         const auto kz = omega[9];
         const auto o = omega[10];
         encoder enc {};
         enc.uint_fixed(4, s_id);
-        enc.next_bytes(_m.mem_read(ko, kz));
+        enc.next_bytes(_p.m.mem_read(ko, kz));
         std::optional<write_vector> val {};
         if (a) {
             const auto key = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
@@ -203,30 +248,30 @@ namespace turbo::jam {
         if (val) {
             const auto f = std::min(omega[11], val->size());
             const auto l = std::min(omega[12], val->size() - f);
-            _m.mem_write(o, static_cast<buffer>(*val).subbuf(0, l));
-            _m.set_reg(7, val->size());
+            _p.m.mem_write(o, static_cast<buffer>(*val).subbuf(0, l));
+            _p.m.set_reg(7, val->size());
         } else {
-            _m.set_reg(7, machine::host_call_res_t::none);
+            _p.m.set_reg(7, machine::host_call_res_t::none);
         }
     }
 
     template<typename CFG>
     void host_service_base_t<CFG>::write()
     {
-        const auto k_o = _m.regs()[7];
-        const auto k_z = _m.regs()[8];
-        const auto key_data = _m.mem_read(k_o, k_z);
+        const auto k_o = _p.m.regs()[7];
+        const auto k_z = _p.m.regs()[8];
+        const auto key_data = _p.m.mem_read(k_o, k_z);
         encoder enc {};
-        enc.uint_fixed(4, _service_id);
+        enc.uint_fixed(4, _p.service_id);
         enc.next_bytes(key_data);
         const auto key_hash = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
-        const auto v_o = _m.regs()[9];
-        const auto v_z = _m.regs()[10];
+        const auto v_o = _p.m.regs()[9];
+        const auto v_z = _p.m.regs()[10];
         const auto prev_val = _service.storage.get(key_hash);
         const auto balance_threshold = account_balance_threshold(_service.lookup_metas, _service.storage);
         if (_service.info.base.balance >= balance_threshold) {
             if (v_z == 0) {
-                logger::trace("service {} write: delete key: {}", _service_id, key_data);
+                logger::trace("service {} write: delete key: {}", _p.service_id, key_data);
                 if (prev_val) {
                     // move the stats update into the erase method?
                     _service.info.bytes -= sizeof(key_hash);
@@ -235,8 +280,8 @@ namespace turbo::jam {
                     _service.storage.erase(key_hash);
                 }
             } else {
-                auto val_data = _m.mem_read(v_o, v_z);
-                logger::trace("service {} write: set key: {} hash: {} val: {}", _service_id, key_data, key_hash, val_data);
+                auto val_data = _p.m.mem_read(v_o, v_z);
+                logger::trace("service {} write: set key: {} hash: {} val: {}", _p.service_id, key_data, key_hash, val_data);
                 if (prev_val) {
                     _service.info.bytes -= prev_val->size();
                 } else {
@@ -247,23 +292,23 @@ namespace turbo::jam {
                 _service.info.bytes += v_z;
             }
             const machine::register_val_t l = prev_val ? prev_val->size() : machine::host_call_res_t::none;
-            _m.set_reg(7, l);
+            _p.m.set_reg(7, l);
         } else {
-            _m.set_reg(7, machine::host_call_res_t::full);
+            _p.m.set_reg(7, machine::host_call_res_t::full);
         }
     }
 
     template<typename CFG>
     void host_service_base_t<CFG>::info()
     {
-        const auto &omega = _m.regs();
+        const auto &omega = _p.m.regs();
         const auto [t_id, t] = _get_service(omega[7]);
         std::optional<uint8_vector> m {};
         if (t) {
             auto info = t->info.combine();
             // JAM 0.6.5 mentions an element t_t which is not part of the service's info - not clear what it means
             encoder enc {
-                info.code_hash, info.balance, _slot,
+                info.code_hash, info.balance, _p.slot,
                 info.min_item_gas, info.min_memo_gas,
                 info.bytes, info.items
             };
@@ -271,10 +316,10 @@ namespace turbo::jam {
         }
         if (m) {
             const auto o = omega[8];
-            _m.mem_write(o, *m);
-            _m.set_reg(7, machine::host_call_res_t::ok);
+            _p.m.mem_write(o, *m);
+            _p.m.set_reg(7, machine::host_call_res_t::ok);
         } else {
-            _m.set_reg(7, machine::host_call_res_t::none);
+            _p.m.set_reg(7, machine::host_call_res_t::none);
         }
     }
 
@@ -293,19 +338,19 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::log()
     {
-        const auto &omega = _m.regs();
+        const auto &omega = _p.m.regs();
         const auto level = omega[7];
         std::optional<std::string> target {};
         if (omega[8] != 0 || omega[9] != 0)
-            target.emplace(_m.mem_read(omega[8], omega[9]).str());
-        const auto msg = _m.mem_read(omega[10], omega[11]);
+            target.emplace(_p.m.mem_read(omega[8], omega[9]).str());
+        const auto msg = _p.m.mem_read(omega[10], omega[11]);
         logger::log(log_level(level), "[PVM/{}]: {}", target, msg.str());
     }
 
     template<typename CFG>
-    host_service_accumulate_t<CFG>::host_service_accumulate_t(machine::machine_t &m, service_id_t service_id, time_slot_t<CFG> slot,
+    host_service_accumulate_t<CFG>::host_service_accumulate_t(const host_service_params_t<CFG> &params,
             accumulate_context_t<CFG> &ctx_ok, accumulate_context_t<CFG> &ctx_err):
-        base_type { m, ctx_ok.state.services, service_id, slot },
+        base_type { params },
         _ok { ctx_ok },
         _err { ctx_err }
     {
@@ -318,6 +363,14 @@ namespace turbo::jam {
             logger::trace("PVM: host call #{}", id);
             gas_t::base_type gas_used = 10;
             switch (id) {
+                // generic
+                case 0: base_type::gas(); break;
+                case 1: base_type::lookup(); break;
+                case 2: base_type::read(); break;
+                case 3: base_type::write(); break;
+                case 4: base_type::info(); break;
+                case 18: base_type::fetch(); break;
+                // accumulate-specific
                 case 5: bless(); break;
                 case 6: assign(); break;
                 case 7: designate(); break;
@@ -336,21 +389,19 @@ namespace turbo::jam {
                     gas_used = 0;
                     break;
                 default:
-                    base_type::_call(id);
-                    // the gas has been adjusted in the base_type::call
-                    gas_used = 0;
+                    base_type::_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
-            base_type::_m.consume_gas(gas_used);
+            base_type::_p.m.consume_gas(gas_used);
         });
     }
 
     template<typename CFG>
     void host_service_accumulate_t<CFG>::bless()
     {
-        if (base_type::_service_id != _ok.state.chi.bless)
+        if (base_type::_p.service_id != _ok.state.chi.bless)
             throw machine::exit_panic_t {};
-        const auto &omega = base_type::_m.regs();
+        const auto &omega = base_type::_p.m.regs();
         const auto m = omega[7];
         const auto a = omega[8];
         const auto v = omega[9];
@@ -359,7 +410,7 @@ namespace turbo::jam {
 
         free_services_t fs {};
         for (size_t i = 0; i < n; ++i) {
-            const auto bytes = base_type::_m.mem_read(o + i * 12, 12);
+            const auto bytes = base_type::_p.m.mem_read(o + i * 12, 12);
             decoder dec { bytes };
             const auto s = dec.uint_fixed<service_id_t>(4);
             const gas_t g { dec.uint_fixed<gas_t::base_type>(8) };
@@ -373,65 +424,65 @@ namespace turbo::jam {
                 static_cast<service_id_t>(v),
                 std::move(fs)
             };
-            base_type::_m.set_reg(7, machine::host_call_res_t::ok);
+            base_type::_p.m.set_reg(7, machine::host_call_res_t::ok);
         } else {
-            base_type::_m.set_reg(7, machine::host_call_res_t::who);
+            base_type::_p.m.set_reg(7, machine::host_call_res_t::who);
         }
     }
 
     template<typename CFG>
     void host_service_accumulate_t<CFG>::assign()
     {
-        if (base_type::_service_id != _ok.state.chi.assign)
+        if (base_type::_p.service_id != _ok.state.chi.assign)
             throw machine::exit_panic_t {};
-        const auto &omega = base_type::_m.regs();
+        const auto &omega = base_type::_p.m.regs();
         const auto o = omega[8];
         auth_queue_t<CFG> v;
         for (size_t i = 0; i < v.size(); ++i) {
-            v[i] = static_cast<buffer>(base_type::_m.mem_read(o + i * 32, 32));
+            v[i] = static_cast<buffer>(base_type::_p.m.mem_read(o + i * 32, 32));
         }
         if (const auto c = omega[7]; c < CFG::C_core_count) {
             _ok.state.phi[c] = std::move(v);
-            base_type::_m.set_reg(7, machine::host_call_res_t::ok);
+            base_type::_p.m.set_reg(7, machine::host_call_res_t::ok);
         } else {
-            base_type::_m.set_reg(7, machine::host_call_res_t::core);
+            base_type::_p.m.set_reg(7, machine::host_call_res_t::core);
         }
     }
 
     template<typename CFG>
     void host_service_accumulate_t<CFG>::designate()
     {
-        if (base_type::_service_id != _ok.state.chi.designate)
+        if (base_type::_p.service_id != _ok.state.chi.designate)
             throw machine::exit_panic_t {};
-        const auto &omega = base_type::_m.regs();
+        const auto &omega = base_type::_p.m.regs();
         const auto o = omega[7];
         validators_data_t<CFG> v;
         for (size_t i = 0; i < v.size(); ++i) {
-            decoder dec { base_type::_m.mem_read(o + i * 336, 336) };
+            decoder dec { base_type::_p.m.mem_read(o + i * 336, 336) };
             dec.process(v[i]);
         }
         _ok.state.iota.emplace(std::move(v));
-        base_type::_m.set_reg(7, machine::host_call_res_t::ok);
+        base_type::_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
     template<typename CFG>
     void host_service_accumulate_t<CFG>::checkpoint()
     {
         _err = _ok;
-        base_type::_m.set_reg(7, base_type::_m.gas());
+        base_type::_p.m.set_reg(7, base_type::_p.m.gas());
     }
 
     template<typename CFG>
     void host_service_accumulate_t<CFG>::new_()
     {
-        const auto &omega = base_type::_m.regs();
+        const auto &omega = base_type::_p.m.regs();
         const auto o = omega[7];
         const auto l = omega[8];
         const auto g = omega[9];
         const auto m = omega[10];
         if (l > std::numeric_limits<uint32_t>::max())
             throw machine::exit_panic_t {};
-        const auto c = base_type::_m.mem_read(o, 32);
+        const auto c = base_type::_p.m.mem_read(o, 32);
         const auto a_t = account_balance_threshold_raw(0, 0);
         if (base_type::_service.info.balance >= a_t) {
             static service_info_t empty_info {};
@@ -447,10 +498,10 @@ namespace turbo::jam {
             base_type::_service.info.balance -= a_t;
             const auto prev_id = _ok.new_service_id;
             _ok.new_service_id = _ok.check(_ok.gen_new_service_id(prev_id, 42));
-            _ok.state.services.emplace(base_type::_service_id, std::move(a));
-            base_type::_m.set_reg(7, prev_id);
+            _ok.state.services.emplace(base_type::_p.service_id, std::move(a));
+            base_type::_p.m.set_reg(7, prev_id);
         } else {
-            base_type::_m.set_reg(7, machine::host_call_res_t::cash);
+            base_type::_p.m.set_reg(7, machine::host_call_res_t::cash);
         }
     }
 
@@ -502,9 +553,9 @@ namespace turbo::jam {
         throw machine::exit_panic_t {};
     }
 
-    template struct host_service_base_t<config_prod>;
-    template struct host_service_base_t<config_tiny>;
-
     template struct host_service_accumulate_t<config_prod>;
     template struct host_service_accumulate_t<config_tiny>;
+
+    template struct host_service_on_transfer_t<config_prod>;
+    template struct host_service_on_transfer_t<config_tiny>;
 }

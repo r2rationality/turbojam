@@ -34,6 +34,7 @@ namespace turbo::jam {
         static constexpr size_t GI_max_is_authorized_gas = 50'000'000;
         static constexpr size_t GR_max_refine_gas = 5'000'000'000;
         static constexpr size_t GT_max_total_accumulation_gas = 3'500'000'000;
+        static_assert(GT_max_total_accumulation_gas >= GA_max_accumulate_gas * C_core_count);
         static constexpr size_t H_max_blocks_history = 8;
         static constexpr size_t I_max_work_items = 16;
         static constexpr size_t J_max_report_dependencies = 8;
@@ -49,17 +50,21 @@ namespace turbo::jam {
         static constexpr size_t U_reported_work_timeout = 5;
         static constexpr size_t validator_factor = 3;
         static constexpr size_t V_validator_count = C_core_count * validator_factor;
+        static_assert(V_validator_count == 1023);
         static constexpr size_t WA_max_is_authorized_code_size = 64'000;
-        static constexpr size_t WB_max_work_package_size = 13'794'305;
+        // static constexpr size_t WB_max_work_package_size = 13'794'305; // GP 0.6.7
+        static constexpr size_t WB_max_work_package_size = 12ULL << 20U; // GP 0.6.6
         static constexpr size_t WC_max_service_code_size = 4'000'000;
         static constexpr size_t WE_segment_piece_size = 684;
         static constexpr size_t WP_segment_num_pieces = 6;
         static constexpr size_t WG_segment_size = WE_segment_piece_size * WP_segment_num_pieces;
+        static_assert (WG_segment_size == 4'104);
         static constexpr size_t WM_max_work_package_imports = 3'072;
         static constexpr size_t WR_max_blobs_size = 48ULL << 10U;
         static constexpr size_t WT_transfer_memo_size = 128;
         static constexpr size_t WX_max_package_exports = 3'072;
         static constexpr size_t Y_ticket_submission_end = E_epoch_length * 5 / 6;
+        static_assert(Y_ticket_submission_end == 500);
         static constexpr size_t ZA_pvm_address_alignment_factor = 2;
         static constexpr size_t ZI_pvm_input_size = 1ULL << 24U;
         static constexpr size_t ZP_pvm_page_size = 1ULL << 12U;

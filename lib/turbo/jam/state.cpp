@@ -431,11 +431,22 @@ namespace turbo::jam {
         delta_star_result_t<CFG> res {};
         for (const auto &[service_id, ops]: service_ops) {
             auto acc_res = invoke_accumulate(new_eta, prev_delta, prev_chi, slot, service_id, ops);
+
+            // (12.28) (12.29) (12.30) (12.31)
+            if (!acc_res.transfers.empty()) {
+                const auto gas_used = invoke_on_transfer(new_eta, prev_delta, slot, service_id,
+                    ops, acc_res.transfers);
+                auto &stats = new_pi.services[service_id];
+                stats.on_transfers_count += acc_res.transfers.size();
+                stats.on_transfers_gas_used += gas_used;
+            }
+
             if (acc_res.num_reports) {
                 res.num_accumulated += acc_res.num_reports;
                 res.results.try_emplace(service_id, std::move(acc_res));
             }
         }
+
         return res;
     }
 
@@ -476,7 +487,17 @@ namespace turbo::jam {
             const auto inv_res = machine::invoke(
                 static_cast<buffer>(*code), 5U, gas_limit, arg_enc.bytes(),
                 [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                    host_service_accumulate_t<CFG> host_service { m, service_id, slot, ctx_ok, ctx_err };
+                    const host_service_params_t<CFG> params {
+                        .m=m,
+                        .services=ctx_ok.state.services,
+                        .service_id=service_id,
+                        .slot=slot,
+                        .fetch={
+                            .nonce=&new_eta[0],
+                            .operands=&ops
+                        }
+                    };
+                    host_service_accumulate_t<CFG> host_service { params, ctx_ok, ctx_err };
                     return host_service.call(id);
                 }
             );
@@ -499,8 +520,10 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    gas_t state_t<CFG>::invoke_on_transfer(const time_slot_t<CFG> slot, const service_id_t service_id,
-        const accounts_t<CFG> &prev_delta, const deferred_transfer_ptrs_t &transfers)
+    gas_t state_t<CFG>::invoke_on_transfer(
+        const entropy_buffer_t &new_eta, const accounts_t<CFG> &prev_delta,
+        time_slot_t<CFG> slot, service_id_t service_id,
+        const accumulate_operands_t &operands, const deferred_transfers_t &transfers)
     {
         auto &service = prev_delta.at(service_id);
         const auto &prev_service_info = service.info.get();
@@ -515,14 +538,24 @@ namespace turbo::jam {
         arg_enc.uint_varlen(service_id);
         arg_enc.uint_varlen(transfers.size());
         for (const auto &t: transfers) {
-            gas_limit += t->gas_limit;
-            arg_enc.process(*t);
+            gas_limit += t.gas_limit;
+            arg_enc.process(t);
         }
         mutable_services_state_t<CFG> services_state { prev_delta };
         const auto inv_res = machine::invoke(
             static_cast<buffer>(*code), 10U, gas_limit, arg_enc.bytes(),
             [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                host_service_on_transfer_t<CFG> host_service { m, services_state, service_id, slot };
+                const host_service_params_t<CFG> params {
+                    .m=m,
+                    .services=services_state,
+                    .service_id=service_id,
+                    .slot=slot,
+                    .fetch={
+                        .nonce=&new_eta[0],
+                        .operands=&operands
+                    }
+                };
+                host_service_on_transfer_t<CFG> host_service { params };
                 return host_service.call(id);
             }
         );
@@ -630,14 +663,6 @@ namespace turbo::jam {
         std::map<service_id_t, deferred_transfer_ptrs_t> dst_transfers {};
         for (const auto &t: plus_res.transfers) {
             dst_transfers[t.destination].emplace_back(&t);
-        }
-
-        // (12.28) (12.29) (12.30) (12.31)
-        for (const auto &[s_id, s_transfers]: dst_transfers) {
-            const auto gas_used = invoke_on_transfer(slot, s_id, prev_delta, s_transfers);
-            auto &stats = new_pi.services[s_id];
-            stats.on_transfers_count += s_transfers.size();
-            stats.on_transfers_gas_used += gas_used;
         }
 
         // (12.33)

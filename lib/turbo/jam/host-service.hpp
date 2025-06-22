@@ -8,26 +8,41 @@
 #include "state.hpp"
 
 namespace turbo::jam {
-    template<typename CONFIG>
-    struct host_service_base_t {
-        host_service_base_t(machine::machine_t &m, mutable_services_state_t<CONFIG> &services, service_id_t service_id, time_slot_t<CONFIG> slot);
+    template<typename CFG>
+    struct fetch_params_t {
+        const work_package_t<CFG> *package = nullptr; // GP p
+        const opaque_hash_t *nonce = nullptr; // GP n
+        // r - ?
+        // i - ?
+        // i-bold-dash - ?
+        // x-bold-dash - ?
+        const accumulate_operands_t *operands = nullptr; // GP o
+        const deferred_transfers_t *transfers = nullptr; // GP t
+    };
 
-        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
+    template<typename CFG>
+    struct host_service_params_t {
+        machine::machine_t &m;
+        mutable_services_state_t<CFG> &services;
+        service_id_t service_id;
+        time_slot_t<CFG> slot;
+        fetch_params_t<CFG> fetch;
+    };
+
+    template<typename CFG>
+    struct host_service_base_t {
+        host_service_base_t(const host_service_params_t<CFG> &params);
     protected:
         using call_func = std::function<void()>;
         struct service_lookup_res_t {
             service_id_t id;
-            mutable_service_state_t<CONFIG> *account;
+            mutable_service_state_t<CFG> *account;
         };
 
-        machine::machine_t &_m;
-        mutable_services_state_t<CONFIG> &_services;
-        service_id_t _service_id;
-        mutable_service_state_t<CONFIG> &_service;
-        time_slot_t<CONFIG> _slot;
+        const host_service_params_t<CFG> &_p;
+        mutable_service_state_t<CFG> &_service;
 
         // helper methods
-        void _call(machine::register_val_t id);
         service_lookup_res_t _get_service(machine::register_val_t id);
         [[nodiscard]] machine::host_call_res_t _safe_call(const call_func &f) noexcept;
 
@@ -41,16 +56,16 @@ namespace turbo::jam {
         void log();
     };
 
-    template<typename CONFIG>
-    struct host_service_accumulate_t: protected host_service_base_t<CONFIG> {
-        using base_type = host_service_base_t<CONFIG>;
+    template<typename CFG>
+    struct host_service_accumulate_t: protected host_service_base_t<CFG> {
+        using base_type = host_service_base_t<CFG>;
 
-        host_service_accumulate_t(machine::machine_t &m, service_id_t service_id, time_slot_t<CONFIG> slot,
-            accumulate_context_t<CONFIG> &ctx_ok, accumulate_context_t<CONFIG> &ctx_err);
+        host_service_accumulate_t(const host_service_params_t<CFG> &params,
+            accumulate_context_t<CFG> &ctx_ok, accumulate_context_t<CFG> &ctx_err);
         [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     private:
-        accumulate_context_t<CONFIG> &_ok;
-        accumulate_context_t<CONFIG> &_err;
+        accumulate_context_t<CFG> &_ok;
+        accumulate_context_t<CFG> &_err;
 
         // Accumulate functions
         void bless();
@@ -68,6 +83,11 @@ namespace turbo::jam {
         void provide();
     };
 
-    template<typename CONFIG>
-    using host_service_on_transfer_t = host_service_base_t<CONFIG>;
+    template<typename CFG>
+    struct host_service_on_transfer_t: host_service_base_t<CFG> {
+        using base_type = host_service_base_t<CFG>;
+        using base_type::base_type;
+
+        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
+    };
 }

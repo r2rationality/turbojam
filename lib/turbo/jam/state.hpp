@@ -960,7 +960,9 @@ namespace turbo::jam {
             const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
             const time_slot_t<CFG> &slot,
             const service_id_t service_id, const accumulate_operands_t &ops);
-        static gas_t invoke_on_transfer(time_slot_t<CFG> slot, service_id_t service_id,
-            const accounts_t<CFG> &prev_delta, const deferred_transfer_ptrs_t &transfers);
+        static gas_t invoke_on_transfer(
+            const entropy_buffer_t &new_eta, const accounts_t<CFG> &prev_delta,
+            time_slot_t<CFG> slot, service_id_t service_id,
+            const accumulate_operands_t &operands, const deferred_transfers_t &transfers);
     };
 }
