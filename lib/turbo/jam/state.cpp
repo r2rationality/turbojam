@@ -125,7 +125,7 @@ namespace turbo::jam {
         static auto params_path = file::install_path("data/zcash-srs-2-11-uncompressed.bin");
         if (ark_vrf_cpp::init(params_path.data(), params_path.size()) != 0) [[unlikely]]
             throw error("ark_vrf_cpp::init() failed");
-        std::array<bandersnatch_public_t, CFG::validator_count> vkeys;
+        std::array<bandersnatch_public_t, CFG::V_validator_count> vkeys;
         for (size_t i = 0; i < vkeys.size(); ++i) {
             vkeys[i] = gamma_k[i].bandersnatch;
         }
@@ -224,7 +224,7 @@ namespace turbo::jam {
         const validators_data_t<CFG> &prev_iota,
         const time_slot_t<CFG> &slot, const tickets_extrinsic_t<CFG> &extrinsic)
     {
-        if (slot.epoch_slot() >= CFG::ticket_submission_end && !extrinsic.empty()) [[unlikely]]
+        if (slot.epoch_slot() >= CFG::Y_ticket_submission_end && !extrinsic.empty()) [[unlikely]]
             throw err_unexpected_ticket_t {};
 
         safrole_output_data_t<CFG> res {
@@ -250,7 +250,7 @@ namespace turbo::jam {
         }
 
         // JAM (6.24)
-        if (slot.epoch() == prev_tau.epoch() + 1 && prev_tau.epoch_slot() >= CFG::ticket_submission_end && res.gamma_ptr->a.size() == CFG::epoch_length) {
+        if (slot.epoch() == prev_tau.epoch() + 1 && prev_tau.epoch_slot() >= CFG::Y_ticket_submission_end && res.gamma_ptr->a.size() == CFG::E_epoch_length) {
             res.gamma_ptr->s = _permute_tickets(res.gamma_ptr->a);
         } else if (slot.epoch() != prev_tau.epoch()) {
             // since the update operates on a copy of the state
@@ -264,15 +264,15 @@ namespace turbo::jam {
         }
 
         // JAM Paper (6.28) - winning-tickets marker
-        if (slot.epoch() == prev_tau.epoch() && prev_tau.epoch_slot() < CFG::ticket_submission_end
-                && slot.epoch_slot() >= CFG::ticket_submission_end && res.gamma_ptr->a.size() == CFG::epoch_length) {
+        if (slot.epoch() == prev_tau.epoch() && prev_tau.epoch_slot() < CFG::Y_ticket_submission_end
+                && slot.epoch_slot() >= CFG::Y_ticket_submission_end && res.gamma_ptr->a.size() == CFG::E_epoch_length) {
             res.tickets_mark.emplace(_permute_tickets(res.gamma_ptr->a));
         }
 
         std::optional<ticket_body_t> prev_ticket {};
         // JAM Paper (6.34)
         for (const auto &t: extrinsic) {
-            if (t.attempt >= CFG::ticket_attempts) [[unlikely]]
+            if (t.attempt >= CFG::N_ticket_attempts) [[unlikely]]
                 throw err_bad_ticket_attempt_t {};
 
             uint8_vector aux {};
@@ -292,7 +292,7 @@ namespace turbo::jam {
             const auto it = std::lower_bound(res.gamma_ptr->a.begin(), res.gamma_ptr->a.end(), tb);
             if (it != res.gamma_ptr->a.end() && *it == tb) [[unlikely]]
                 throw err_duplicate_ticket_t {};
-            if (ark_vrf_cpp::ring_vrf_verify(CFG::validator_count, res.gamma_ptr->z.data(), res.gamma_ptr->z.size(),
+            if (ark_vrf_cpp::ring_vrf_verify(CFG::V_validator_count, res.gamma_ptr->z.data(), res.gamma_ptr->z.size(),
                     t.signature.data(), t.signature.size(),
                     input.data(), input.size(), aux.data(), aux.size()) != 0) [[unlikely]]
                 throw err_bad_ticket_proof_t {};
@@ -312,7 +312,7 @@ namespace turbo::jam {
             new_pi.last = new_pi.current;
             new_pi.current = decltype(new_pi.current) {};
         }
-        if (val_idx >= CFG::validator_count) [[unlikely]]
+        if (val_idx >= CFG::V_validator_count) [[unlikely]]
             throw err_bad_validator_index_t {};
         auto &stats = new_pi.current.at(val_idx);
         ++stats.blocks;
@@ -337,12 +337,12 @@ namespace turbo::jam {
     {
         guarantor_assignments_t in;
         for (size_t vi = 0; vi < in.size(); ++vi) {
-            in[vi] = CFG::core_count * vi / CFG::validator_count;
+            in[vi] = CFG::C_core_count * vi / CFG::V_validator_count;
         }
         auto res = shuffle::with_entropy(in, e);
-        const auto shift = slot.epoch_slot() / CFG::core_assignment_rotation_period;
+        const auto shift = slot.epoch_slot() / CFG::R_core_assignment_rotation_period;
         for (size_t vi = 0; vi < res.size(); ++vi) {
-            res[vi] = (res[vi] + shift) % CFG::core_count;
+            res[vi] = (res[vi] + shift) % CFG::C_core_count;
         }
         return res;
     }
@@ -459,7 +459,7 @@ namespace turbo::jam {
         auto ctx_err = ctx_ok;
 
         const auto &prev_service_info = service.info.get();
-        if (const auto code = service.preimages.get(prev_service_info.code_hash); code && code->size() <= CFG::max_service_code_size) {
+        if (const auto code = service.preimages.get(prev_service_info.code_hash); code && code->size() <= CFG::WC_max_service_code_size) {
             const auto code_hash = crypto::blake2b::digest(*code);
             if (code_hash != prev_service_info.code_hash) [[unlikely]]
                 throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
@@ -505,7 +505,7 @@ namespace turbo::jam {
         auto &service = prev_delta.at(service_id);
         const auto &prev_service_info = service.info.get();
         const auto code = service.preimages.get(prev_service_info.code_hash);
-        if (!code || code->size() > CFG::max_service_code_size)
+        if (!code || code->size() > CFG::WC_max_service_code_size)
             return {};
         if (const auto code_hash = crypto::blake2b::digest(*code); code_hash != prev_service_info.code_hash) [[unlikely]]
             throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
@@ -589,7 +589,7 @@ namespace turbo::jam {
 
         // (12.21)
         boost::container::flat_set<service_id_t> free_services {};
-        gas_t::base_type gas_limit = CFG::max_accumulate_gas * CFG::core_count;
+        gas_t::base_type gas_limit = CFG::GA_max_accumulate_gas * CFG::C_core_count;
 
         free_services.reserve(prev_chi->always_acc.size());
         for (auto &fs: prev_chi->always_acc)
@@ -603,8 +603,8 @@ namespace turbo::jam {
                 }
             }
         }
-        if (gas_limit < CFG::max_total_accumulation_gas)
-            gas_limit = CFG::max_total_accumulation_gas;
+        if (gas_limit < CFG::GT_max_total_accumulation_gas)
+            gas_limit = CFG::GT_max_total_accumulation_gas;
 
         // (12.22)
         auto plus_res = accumulate_plus(new_pi, new_eta, prev_delta, *prev_chi, slot, gas_limit, work_immediate);
@@ -726,7 +726,7 @@ namespace turbo::jam {
             std::optional<core_index_t> prev_core {};
             const auto current_guarantors = _guarantor_assignments(new_eta[2], slot);
             const auto current_guarantor_sigs = _capital_phi(new_kappa, new_psi.offenders);
-            const auto prev_guarantors = _guarantor_assignments(new_eta[3], slot.slot() - CFG::core_assignment_rotation_period);
+            const auto prev_guarantors = _guarantor_assignments(new_eta[3], slot.slot() - CFG::R_core_assignment_rotation_period);
             const auto prev_guarantor_sigs = _capital_phi(new_lambda, new_psi.offenders);
             for (const auto &g: guarantees) {
                 // JAM Paper (11.33)
@@ -744,24 +744,24 @@ namespace turbo::jam {
                 if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
                     throw err_out_of_order_guarantee_t {};
                 // JAM (11.3)
-                if (g.report.segment_root_lookup.size() + g.report.context.prerequisites.size() > CFG::max_report_dependencies) [[unlikely]]
+                if (g.report.segment_root_lookup.size() + g.report.context.prerequisites.size() > CFG::J_max_report_dependencies) [[unlikely]]
                     throw err_too_many_dependencies_t {};
                 prev_core = g.report.core_index;
                 if (g.slot > slot) [[unlikely]]
                     throw err_future_report_slot_t {};
                 {
-                    static_assert(CFG::epoch_length % CFG::core_assignment_rotation_period == 0);
-                    const auto current_rotation = slot.slot() / CFG::core_assignment_rotation_period;
-                    const auto report_rotation = g.slot.slot() / CFG::core_assignment_rotation_period;
+                    static_assert(CFG::E_epoch_length % CFG::R_core_assignment_rotation_period == 0);
+                    const auto current_rotation = slot.slot() / CFG::R_core_assignment_rotation_period;
+                    const auto report_rotation = g.slot.slot() / CFG::R_core_assignment_rotation_period;
                     if (current_rotation - report_rotation >= 2) [[unlikely]]
                         throw err_report_epoch_before_last_t {};
                 }
-                const auto same_rotation = g.slot.epoch_slot() / CFG::core_assignment_rotation_period == slot.epoch_slot() / CFG::core_assignment_rotation_period;
+                const auto same_rotation = g.slot.epoch_slot() / CFG::R_core_assignment_rotation_period == slot.epoch_slot() / CFG::R_core_assignment_rotation_period;
                 const auto &guarantors = same_rotation ? current_guarantors : prev_guarantors;
                 const auto &guarantor_sigs = same_rotation ? current_guarantor_sigs : prev_guarantor_sigs;
 
                 // JAM Paper (11.34)
-                if (g.report.context.lookup_anchor_slot.slot() + CFG::max_lookup_anchor_age < slot) [[unlikely]]
+                if (g.report.context.lookup_anchor_slot.slot() + CFG::L_max_lookup_anchor_age < slot) [[unlikely]]
                     throw err_segment_root_lookup_invalid_t {};
 
                 // JAM Paper (11.35)
@@ -778,7 +778,7 @@ namespace turbo::jam {
                 // + add a check that the package is not in the accumulation history
 
                 // JAM Paper (11.3)
-                if (g.report.context.prerequisites.size() + g.report.segment_root_lookup.size() > CFG::max_report_dependencies) [[unlikely]]
+                if (g.report.context.prerequisites.size() + g.report.segment_root_lookup.size() > CFG::J_max_report_dependencies) [[unlikely]]
                     throw err_too_many_dependencies_t {};
 
                 // circular dependencies are allowed
@@ -871,11 +871,11 @@ namespace turbo::jam {
                     service_stats.extrinsic_count += r.refine_load.extrinsic_count;
                 }
                 // JAM (11.30) part 2
-                if (total_accumulate_gas > CFG::max_accumulate_gas) [[unlikely]]
+                if (total_accumulate_gas > CFG::GA_max_accumulate_gas) [[unlikely]]
                     throw err_work_report_gas_too_high_t {};
 
                 // JAM Paper (11.8)
-                if (blobs_size > CFG::max_blobs_size) [[unlikely]]
+                if (blobs_size > CFG::WR_max_blobs_size) [[unlikely]]
                     throw err_work_report_too_big_t {};
             }
             // Jam Paper (11.32)
@@ -1000,7 +1000,7 @@ namespace turbo::jam {
                         // JAM (10.16)
                         new_psi.good.emplace(report_hash);
                         continue;
-                    case CFG::validator_count / 3:
+                    case CFG::V_validator_count / 3:
                         // JAM (10.18)
                         new_psi.wonky.emplace(report_hash);
                         break;
@@ -1229,7 +1229,7 @@ namespace turbo::jam {
     {
         std::optional<validator_index_t> prev_validator {};
         for (const auto &a: assurances) {
-            if (a.validator_index >= CFG::validator_count) [[unlikely]]
+            if (a.validator_index >= CFG::V_validator_count) [[unlikely]]
                 throw err_bad_validator_index_t {};
             if (a.anchor != parent) [[unlikely]]
                 throw err_bad_attestation_parent_t {};
@@ -1248,7 +1248,7 @@ namespace turbo::jam {
             const auto &vk = new_kappa[a.validator_index].ed25519;
             if (!crypto::ed25519::verify(a.signature, msg, vk)) [[unlikely]]
                 throw err_bad_signature_t {};
-            for (size_t ci = 0; ci < CFG::core_count; ++ci) {
+            for (size_t ci = 0; ci < CFG::C_core_count; ++ci) {
                 if (a.bitfield.test(ci)) {
                     if (!new_rho.at(ci)) [[unlikely]]
                         throw err_core_not_engaged_t {};
@@ -1257,12 +1257,12 @@ namespace turbo::jam {
             }
         }
         work_reports_t<CFG> res {};
-        for (size_t ci = 0; ci < CFG::core_count; ++ci) {
+        for (size_t ci = 0; ci < CFG::C_core_count; ++ci) {
             if (new_rho[ci]) {
                 if (tmp_pi.cores[ci].popularity >= CFG::validator_super_majority) {
                     res.emplace_back(std::move(new_rho[ci]->report));
                     new_rho[ci].reset();
-                } else if (slot >= new_rho[ci]->timeout + CFG::reported_work_timeout) {
+                } else if (slot >= new_rho[ci]->timeout + CFG::U_reported_work_timeout) {
                     new_rho[ci].reset();
                 }
             }

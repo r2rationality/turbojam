@@ -22,118 +22,76 @@ namespace turbo::jam {
         static constexpr std::string_view jam_announce { "jam_announce" };
         static constexpr std::string_view jam_beefy { "jam_beefy" };
 
-        // A
-        static constexpr size_t audit_period = 8;
-        // B_I
-        static constexpr size_t min_balance_per_item = 10;
-        // B_L
-        static constexpr size_t min_balance_per_octet = 1;
-        // B_S
-        static constexpr size_t min_balance_per_service = 100;
-        // C
-        static constexpr size_t core_count = 341;
-        // D
-        static constexpr size_t preimage_expunge_delay = 19'200;
-        // E
-        static constexpr size_t epoch_length = 600;
-        // F
-        static constexpr size_t audit_bias = 2;
-        // G_A
-        static constexpr size_t max_accumulate_gas = 10'000'000;
-        // G_I
-        static constexpr size_t max_is_authorized_gas = 50'000'000;
-        // G_R
-        static constexpr size_t max_refine_gas = 5'000'000'000;
-        // G_T
-        static constexpr size_t max_total_accumulation_gas = 3'500'000'000;
-        // H
-        static constexpr size_t max_blocks_history = 8;
-        // I
-        static constexpr size_t max_work_items = 16;
-        // J
-        static constexpr size_t max_report_dependencies = 8;
-        // K
-        static constexpr size_t max_tickets_per_block = 16;
-        // L
-        static constexpr size_t max_lookup_anchor_age = 14'400;
-        // N
-        static constexpr size_t ticket_attempts = 2;
-        // O
-        static constexpr size_t auth_pool_max_size = 8;
-        // P
-        static constexpr size_t slot_period = 6;
-        // Q
-        static constexpr size_t auth_queue_size = 80;
-        // R
-        static constexpr size_t core_assignment_rotation_period = 10;
-        // S
-        static constexpr size_t accumulation_queue_size = 1024;
-        // T
-        static constexpr size_t max_package_extrinsics = 128;
-        // U
-        static constexpr size_t reported_work_timeout = 5;
-        // V
+        static constexpr size_t A_audit_period = 8;
+        static constexpr size_t BI_min_balance_per_item = 10;
+        static constexpr size_t BL_min_balance_per_octet = 1;
+        static constexpr size_t BS_min_balance_per_service = 100;
+        static constexpr size_t C_core_count = 341;
+        static constexpr size_t D_preimage_expunge_delay = 19'200;
+        static constexpr size_t E_epoch_length = 600;
+        static constexpr size_t F_audit_bias = 2;
+        static constexpr size_t GA_max_accumulate_gas = 10'000'000;
+        static constexpr size_t GI_max_is_authorized_gas = 50'000'000;
+        static constexpr size_t GR_max_refine_gas = 5'000'000'000;
+        static constexpr size_t GT_max_total_accumulation_gas = 3'500'000'000;
+        static constexpr size_t H_max_blocks_history = 8;
+        static constexpr size_t I_max_work_items = 16;
+        static constexpr size_t J_max_report_dependencies = 8;
+        static constexpr size_t K_max_tickets_per_block = 16;
+        static constexpr size_t L_max_lookup_anchor_age = 14'400;
+        static constexpr size_t N_ticket_attempts = 2;
+        static constexpr size_t O_auth_pool_max_size = 8;
+        static constexpr size_t P_slot_period = 6;
+        static constexpr size_t Q_auth_queue_size = 80;
+        static constexpr size_t R_core_assignment_rotation_period = 10;
+        static constexpr size_t S_accumulation_queue_size = 1024;
+        static constexpr size_t T_max_package_extrinsics = 128;
+        static constexpr size_t U_reported_work_timeout = 5;
         static constexpr size_t validator_factor = 3;
-        static constexpr size_t validator_count = core_count * validator_factor;
-        // W_A
-        static constexpr size_t max_is_authorized_code_size = 64'000;
-        // W_B
-        static constexpr size_t max_work_package_size = 13'794'305;
-        // W_C
-        static constexpr size_t max_service_code_size = 4'000'000;
-        // W_E
-        static constexpr size_t segment_piece_size = 684;
-        // W_P
-        static constexpr size_t segment_num_pieces = 6;
-        // W_G
-        static constexpr size_t segment_size = segment_piece_size * segment_num_pieces;
-        // W_M
-        static constexpr size_t max_work_package_imports = 3'072;
-        // W_P - see above
-        // W_R
-        static constexpr size_t max_blobs_size = 48ULL << 10U;
-        // W_T
-        static constexpr size_t transfer_memo_size = 128;
-        // W_X
-        static constexpr size_t max_package_exports = 3'072;
-        // Y
-        static constexpr size_t ticket_submission_end = epoch_length * 5 / 6;
-        // Z_A
-        static constexpr size_t pvm_address_alignment_factor = 2;
-        // Z_I
-        static constexpr size_t pvm_input_size = 1ULL << 24U;
-        // Z_P
-        static constexpr size_t pvm_page_size = 1ULL << 12U;
-        // Z_Z
-        static constexpr size_t pvm_init_zone_size = 1ULL << 16U;
+        static constexpr size_t V_validator_count = C_core_count * validator_factor;
+        static constexpr size_t WA_max_is_authorized_code_size = 64'000;
+        static constexpr size_t WB_max_work_package_size = 13'794'305;
+        static constexpr size_t WC_max_service_code_size = 4'000'000;
+        static constexpr size_t WE_segment_piece_size = 684;
+        static constexpr size_t WP_segment_num_pieces = 6;
+        static constexpr size_t WG_segment_size = WE_segment_piece_size * WP_segment_num_pieces;
+        static constexpr size_t WM_max_work_package_imports = 3'072;
+        static constexpr size_t WR_max_blobs_size = 48ULL << 10U;
+        static constexpr size_t WT_transfer_memo_size = 128;
+        static constexpr size_t WX_max_package_exports = 3'072;
+        static constexpr size_t Y_ticket_submission_end = E_epoch_length * 5 / 6;
+        static constexpr size_t ZA_pvm_address_alignment_factor = 2;
+        static constexpr size_t ZI_pvm_input_size = 1ULL << 24U;
+        static constexpr size_t ZP_pvm_page_size = 1ULL << 12U;
+        static constexpr size_t ZZ_pvm_init_zone_size = 1ULL << 16U;
 
         static constexpr size_t pvm_p_size(const size_t x)
         {
-            return ((x + pvm_page_size - 1) / pvm_page_size) * pvm_page_size;
+            return ((x + ZP_pvm_page_size - 1) / ZP_pvm_page_size) * ZP_pvm_page_size;
         }
 
         static constexpr size_t pvm_z_size(const size_t x)
         {
-            return ((x + pvm_init_zone_size - 1) / pvm_init_zone_size) * pvm_init_zone_size;
+            return ((x + ZZ_pvm_init_zone_size - 1) / ZZ_pvm_init_zone_size) * ZZ_pvm_init_zone_size;
         }
     };
 
     // JAM paper: I.4.4
     struct config_prod: config_base {
         static constexpr size_t min_guarantors = validator_factor - 1;
-        static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
-        static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
+        static constexpr size_t validator_super_majority = V_validator_count * 2 / 3 + 1;
+        static constexpr size_t avail_bitfield_bytes = (C_core_count + 7) / 8;
     };
 
     struct config_tiny: config_prod {
-        static constexpr size_t epoch_length = 12;
-        static constexpr size_t ticket_submission_end = epoch_length * 5 / 6;
-        static constexpr size_t core_count = 2;
-        static constexpr size_t validator_count = core_count * validator_factor;
-        static constexpr size_t validator_super_majority = validator_count * 2 / 3 + 1;
-        static constexpr size_t avail_bitfield_bytes = (core_count + 7) / 8;
-        static constexpr size_t max_lookup_anchor_age = 14;
-        static constexpr size_t core_assignment_rotation_period = 4;
-        static constexpr size_t ticket_attempts = 3;
+        static constexpr size_t E_epoch_length = 12;
+        static constexpr size_t C_core_count = 2;
+        static constexpr size_t L_max_lookup_anchor_age = 14;
+        static constexpr size_t N_ticket_attempts = 3;
+        static constexpr size_t R_core_assignment_rotation_period = 4;
+        static constexpr size_t V_validator_count = C_core_count * validator_factor;
+        static constexpr size_t Y_ticket_submission_end = E_epoch_length * 5 / 6;
+        static constexpr size_t validator_super_majority = V_validator_count * 2 / 3 + 1;
+        static constexpr size_t avail_bitfield_bytes = (C_core_count + 7) / 8;
     };
 }

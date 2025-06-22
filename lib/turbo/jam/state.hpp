@@ -437,9 +437,9 @@ namespace turbo::jam {
     // (9.8)
     inline balance_t account_balance_threshold_raw(const size_t a_i, const size_t a_o)
     {
-        return config_base::min_balance_per_service
-            + config_base::min_balance_per_item * a_i
-            + config_base::min_balance_per_octet * a_o;
+        return config_base::BS_min_balance_per_service
+            + config_base::BI_min_balance_per_item * a_i
+            + config_base::BL_min_balance_per_octet * a_o;
     }
 
     template<typename L, typename S>
@@ -938,7 +938,7 @@ namespace turbo::jam {
             const time_slot_t<CFG> &slot, const work_reports_t<CFG> &reports);
         bool operator==(const state_t &o) const noexcept;
     private:
-        using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::validator_count>;
+        using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
 
         static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CFG> &);
         static validators_data_t<CFG> _capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o);

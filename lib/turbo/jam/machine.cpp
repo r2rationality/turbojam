@@ -29,12 +29,12 @@ namespace turbo::jam::machine {
             _pc { init.pc },
             _gas { init.gas }
         {
-            static constexpr auto stack_end = (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
+            static constexpr auto stack_end = (1ULL << 32U) - 2 * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
             _stack_begin = stack_end;
             _pages.reserve(page_map.size());
             for (const auto &page: page_map) {
-                const auto page_id = page.address / config_prod::pvm_page_size;
-                const auto cnt = page.length / config_prod::pvm_page_size;
+                const auto page_id = page.address / config_prod::ZP_pvm_page_size;
+                const auto cnt = page.length / config_prod::ZP_pvm_page_size;
                 const auto segment_end = page.address + page.length;
                 // Stack is the only writable entry that can reach stack_end. Everything else is considered heap
                 if (page.is_writable) {
@@ -55,9 +55,9 @@ namespace turbo::jam::machine {
                     _store_unsigned_init(addr++, b);
                 }
             }
-            if (_stack_begin < config_prod::pvm_init_zone_size) [[unlikely]]
+            if (_stack_begin < config_prod::ZZ_pvm_init_zone_size) [[unlikely]]
                 throw exit_panic_t {};
-            _stack_begin = ((_stack_begin - config_prod::pvm_init_zone_size) / config_prod::pvm_init_zone_size) * config_prod::pvm_init_zone_size;
+            _stack_begin = ((_stack_begin - config_prod::ZZ_pvm_init_zone_size) / config_prod::ZZ_pvm_init_zone_size) * config_prod::ZZ_pvm_init_zone_size;
         }
 
         explicit impl(impl &&o):
@@ -167,8 +167,8 @@ namespace turbo::jam::machine {
                 }
             };
             for (const auto &[page_id, info]: _pages) {
-                const register_val_t page_base = page_id * config_prod::pvm_page_size;
-                for (size_t off = 0; off < config_prod::pvm_page_size; ++off) {
+                const register_val_t page_base = page_id * config_prod::ZP_pvm_page_size;
+                for (size_t off = 0; off < config_prod::ZP_pvm_page_size; ++off) {
                     const auto b = info.data[off];
                     if (b) {
                         chunk.contents.emplace_back(b);
@@ -176,7 +176,7 @@ namespace turbo::jam::machine {
                         flush_chunk(page_base, off);
                     }
                 }
-                flush_chunk(page_base, config_prod::pvm_page_size);
+                flush_chunk(page_base, config_prod::ZP_pvm_page_size);
             }
             return {
                 _regs,
@@ -574,11 +574,11 @@ namespace turbo::jam::machine {
                 throw exit_halt_t {};
             if (addr == 0) [[unlikely]]
                 throw exit_panic_t {};
-            if (addr > _program.jump_table.size() * config_prod::pvm_address_alignment_factor) [[unlikely]]
+            if (addr > _program.jump_table.size() * config_prod::ZA_pvm_address_alignment_factor) [[unlikely]]
                 throw exit_panic_t {};
-            if (addr % config_prod::pvm_address_alignment_factor != 0) [[unlikely]]
+            if (addr % config_prod::ZA_pvm_address_alignment_factor != 0) [[unlikely]]
                 throw exit_panic_t {};
-            const auto ji = addr / config_prod::pvm_address_alignment_factor;
+            const auto ji = addr / config_prod::ZA_pvm_address_alignment_factor;
             const auto new_pc = _program.jump_table.at(ji - 1);
             if (!_program.bitmasks.test(new_pc)) [[unlikely]]
                 throw exit_panic_t {};
@@ -601,21 +601,21 @@ namespace turbo::jam::machine {
         void _add_page(const size_t page_id, const bool is_writable)
         {
             const auto p_it = _pages.emplace_hint(_pages.end(), page_id, page_info_t {
-                std::make_unique<uint8_t[]>(config_prod::pvm_page_size),
+                std::make_unique<uint8_t[]>(config_prod::ZP_pvm_page_size),
                 is_writable
             });
-            memset(p_it->second.data.get(), 0, config_prod::pvm_page_size);
+            memset(p_it->second.data.get(), 0, config_prod::ZP_pvm_page_size);
         }
 
         std::pair<size_t, page_map_t::const_iterator> _addr_check(const register_val_t addr, const size_t sz) const
         {
-            const auto page_off = addr % config_prod::pvm_page_size;
-            if (page_off + sz > config_prod::pvm_page_size) [[unlikely]]
-                throw exit_page_fault_t { addr - page_off + config_prod::pvm_page_size };
-            const auto page_id = addr / config_prod::pvm_page_size;
+            const auto page_off = addr % config_prod::ZP_pvm_page_size;
+            if (page_off + sz > config_prod::ZP_pvm_page_size) [[unlikely]]
+                throw exit_page_fault_t { addr - page_off + config_prod::ZP_pvm_page_size };
+            const auto page_id = addr / config_prod::ZP_pvm_page_size;
             const auto page_it = _pages.find(page_id);
             if (page_it == _pages.end()) [[unlikely]]
-                throw exit_page_fault_t { page_id * config_prod::pvm_page_size };
+                throw exit_page_fault_t { page_id * config_prod::ZP_pvm_page_size };
             return std::make_pair(page_off, page_it);
         }
 
@@ -733,8 +733,8 @@ namespace turbo::jam::machine {
                 throw exit_panic_t {};
             if (new_heap_end >= _stack_begin)
                 throw exit_panic_t {};
-            const auto cur_page_id = _heap_end / config_prod::pvm_page_size;
-            const auto new_page_id = new_heap_end / config_prod::pvm_page_size;
+            const auto cur_page_id = _heap_end / config_prod::ZP_pvm_page_size;
+            const auto new_page_id = new_heap_end / config_prod::ZP_pvm_page_size;
             for (auto page_id = cur_page_id; page_id <= new_page_id; ++page_id) {
                 if (!_pages.contains(page_id)) {
                     _add_page(page_id, true);
@@ -1803,9 +1803,9 @@ namespace turbo::jam::machine {
         auto prg = program_t::from_bytes(dec.next_bytes(dec.size()));
 
         // JAM (A.40)
-        const auto total_sz = 5 * config_prod::pvm_init_zone_size
-            + config_prod::pvm_z_size(o_sz) + config_prod::pvm_z_size(w_sz + z_sz * config_prod::pvm_init_zone_size)
-            + config_prod::pvm_z_size(s_sz) + config_prod::pvm_input_size;
+        const auto total_sz = 5 * config_prod::ZZ_pvm_init_zone_size
+            + config_prod::pvm_z_size(o_sz) + config_prod::pvm_z_size(w_sz + z_sz * config_prod::ZZ_pvm_init_zone_size)
+            + config_prod::pvm_z_size(s_sz) + config_prod::ZI_pvm_input_size;
         if (total_sz > 1ULL << 32U) [[unlikely]]
             return {};
 
@@ -1825,13 +1825,13 @@ namespace turbo::jam::machine {
 
         for (const auto &def: std::initializer_list<area_def_t> {
             // read only data
-            { config_prod::pvm_init_zone_size, o_bytes.size(), false, o_bytes },
+            { config_prod::ZZ_pvm_init_zone_size, o_bytes.size(), false, o_bytes },
             // writable data
-            { config_prod::pvm_init_zone_size * 2 + config_prod::pvm_z_size(o_bytes.size()), w_bytes.size() + z_sz * config_prod::pvm_page_size, true, w_bytes },
+            { config_prod::ZZ_pvm_init_zone_size * 2 + config_prod::pvm_z_size(o_bytes.size()), w_bytes.size() + z_sz * config_prod::ZP_pvm_page_size, true, w_bytes },
             // stack
-            { (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size - config_prod::pvm_p_size(s_sz), s_sz, true },
+            { (1ULL << 32U) - 2 * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size - config_prod::pvm_p_size(s_sz), s_sz, true },
             // arguments
-            { (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size, a_bytes.size(), false, a_bytes },
+            { (1ULL << 32U) - config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size, a_bytes.size(), false, a_bytes },
         }) {
             page_map.emplace_back(page_t {
                 .address=numeric_cast<uint32_t>(def.address),
@@ -1848,8 +1848,8 @@ namespace turbo::jam::machine {
 
         // JAM (A.42)
         state.regs[0] = (1ULL << 32U) - (1ULL << 16U);
-        state.regs[1] = (1ULL << 32U) - 2 * config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
-        state.regs[7] = (1ULL << 32U) - config_prod::pvm_init_zone_size - config_prod::pvm_input_size;
+        state.regs[1] = (1ULL << 32U) - 2 * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
+        state.regs[7] = (1ULL << 32U) - config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
         state.regs[8] = a_bytes.size();
 
         std::optional<machine_t> m {};

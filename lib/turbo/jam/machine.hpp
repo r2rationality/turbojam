@@ -47,10 +47,10 @@ namespace turbo::jam::machine {
         {
             using namespace std::string_view_literals;
             archive.process("address"sv, address);
-            if (address % config_prod::pvm_page_size != 0) [[unlikely]]
+            if (address % config_prod::ZP_pvm_page_size != 0) [[unlikely]]
                 throw error(fmt::format("an invalid page address: {}", address));
             archive.process("length"sv, length);
-            if (length % config_prod::pvm_page_size != 0) [[unlikely]]
+            if (length % config_prod::ZP_pvm_page_size != 0) [[unlikely]]
                 throw error(fmt::format("an invalid page length: {}", length));
             archive.process("is-writable"sv, is_writable);
         }

@@ -219,12 +219,12 @@ namespace turbo::jam {
 
         [[nodiscard]] uint32_t epoch() const
         {
-            return _val / CONSTANTS::epoch_length;
+            return _val / CONSTANTS::E_epoch_length;
         }
 
         [[nodiscard]] uint32_t epoch_slot() const
         {
-            return _val % CONSTANTS::epoch_length;
+            return _val % CONSTANTS::E_epoch_length;
         }
 
         std::strong_ordering operator<=>(const time_slot_t &o) const noexcept
@@ -391,14 +391,14 @@ namespace turbo::jam {
     using authorizer_hash_t = opaque_hash_t;
 
     template<typename CONSTANT_SET=config_prod>
-    using auth_queue_t = fixed_sequence_t<authorizer_hash_t, CONSTANT_SET::auth_queue_size>;
+    using auth_queue_t = fixed_sequence_t<authorizer_hash_t, CONSTANT_SET::Q_auth_queue_size>;
 
     template<typename CONSTANT_SET=config_prod>
-    using auth_queues_t = fixed_sequence_t<auth_queue_t<CONSTANT_SET>, CONSTANT_SET::core_count>;
+    using auth_queues_t = fixed_sequence_t<auth_queue_t<CONSTANT_SET>, CONSTANT_SET::C_core_count>;
 
     // max size: auth_pool_max_size
     template<typename CONSTANTS=config_prod>
-    using auth_pool_t = sequence_t<authorizer_hash_t, 0, CONSTANTS::auth_pool_max_size>;
+    using auth_pool_t = sequence_t<authorizer_hash_t, 0, CONSTANTS::O_auth_pool_max_size>;
 
     struct core_authorizer_t {
         core_index_t core;
@@ -419,7 +419,7 @@ namespace turbo::jam {
     using core_authorizers_t = sequence_t<core_authorizer_t>;
 
     template<typename CONSTANTS=config_prod>
-    using auth_pools_t = fixed_sequence_t<auth_pool_t<CONSTANTS>, CONSTANTS::core_count>;
+    using auth_pools_t = fixed_sequence_t<auth_pool_t<CONSTANTS>, CONSTANTS::C_core_count>;
 
     struct import_spec_t {
         opaque_hash_t tree_root;
@@ -802,7 +802,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS=config_prod>
-    using assurances_extrinsic_t = sequence_t<avail_assurance_t<CONSTANTS>, 0, CONSTANTS::validator_count>;
+    using assurances_extrinsic_t = sequence_t<avail_assurance_t<CONSTANTS>, 0, CONSTANTS::V_validator_count>;
 
     template<typename CONSTANTS>
     struct availability_assignment_t {
@@ -826,10 +826,10 @@ namespace turbo::jam {
     using availability_assignments_item_t = optional_t<availability_assignment_t<CONSTANTS>>;
 
     template<typename CONSTANTS>
-    using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANTS::validator_count>;
+    using validators_data_t = fixed_sequence_t<validator_data_t, CONSTANTS::V_validator_count>;
 
     template<typename CONSTANTS>
-    using availability_assignments_t = fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::core_count>;
+    using availability_assignments_t = fixed_sequence_t<availability_assignments_item_t<CONSTANTS>, CONSTANTS::C_core_count>;
 
     using mmr_peak_t = optional_t<opaque_hash_t>;
 
@@ -891,11 +891,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS=config_prod>
-    struct blocks_history_t: sequence_t<block_info_t, 0, CONSTANTS::max_blocks_history>
-    {
-        using base_type = sequence_t<block_info_t, 0, CONSTANTS::max_blocks_history>;
-        using base_type::base_type;
-    };
+    using blocks_history_t = sequence_t<block_info_t, 0, CONSTANTS::H_max_blocks_history>;
 
     struct activity_record_t {
         uint32_t blocks;
@@ -985,13 +981,13 @@ namespace turbo::jam {
 
     // JAM (6.5)
     template<typename CONSTANTS=config_prod>
-    using tickets_accumulator_t = sequence_t<ticket_body_t, 0, CONSTANTS::epoch_length>;
+    using tickets_accumulator_t = sequence_t<ticket_body_t, 0, CONSTANTS::E_epoch_length>;
 
     template<typename CONSTANTS=config_prod>
-    using tickets_t = fixed_sequence_t<ticket_body_t, CONSTANTS::epoch_length>;
+    using tickets_t = fixed_sequence_t<ticket_body_t, CONSTANTS::E_epoch_length>;
 
     template<typename CONSTANTS=config_prod>
-    using keys_t = fixed_sequence_t<bandersnatch_public_t, CONSTANTS::epoch_length>;
+    using keys_t = fixed_sequence_t<bandersnatch_public_t, CONSTANTS::E_epoch_length>;
 
     // JAM (6.5)
     template<typename CONSTANTS>
@@ -1012,7 +1008,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS=config_prod>
-    using tickets_extrinsic_t = sequence_t<ticket_envelope_t, 0, CONSTANTS::max_tickets_per_block>;
+    using tickets_extrinsic_t = sequence_t<ticket_envelope_t, 0, CONSTANTS::K_max_tickets_per_block>;
 
     struct judgement_t {
         bool vote;
@@ -1282,7 +1278,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS=config_prod>
-    using guarantees_extrinsic_t = sequence_t<report_guarantee_t<CONSTANTS>, 0, CONSTANTS::core_count>;
+    using guarantees_extrinsic_t = sequence_t<report_guarantee_t<CONSTANTS>, 0, CONSTANTS::C_core_count>;
 
     using report_deps_t = set_t<work_package_hash_t>;
 
@@ -1312,12 +1308,12 @@ namespace turbo::jam {
     using ready_queue_item_t = sequence_t<ready_record_t<CONSTANTS>>;
 
     template<typename CONSTANTS>
-    using ready_queue_t = fixed_sequence_t<ready_queue_item_t<CONSTANTS>, CONSTANTS::epoch_length>;
+    using ready_queue_t = fixed_sequence_t<ready_queue_item_t<CONSTANTS>, CONSTANTS::E_epoch_length>;
 
     using accumulated_queue_item_t = set_t<work_package_hash_t>;
 
     template<typename CONSTANTS>
-    using accumulated_queue_t = fixed_sequence_t<accumulated_queue_item_t, CONSTANTS::epoch_length>;
+    using accumulated_queue_t = fixed_sequence_t<accumulated_queue_item_t, CONSTANTS::E_epoch_length>;
 
     struct always_accumulate_map_item_t {
         service_id_t id;
@@ -1387,8 +1383,8 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    struct epoch_mark_validators_t: fixed_sequence_t<epoch_mark_validator_keys_t, CONSTANTS::validator_count> {
-        using base_type = fixed_sequence_t<epoch_mark_validator_keys_t, CONSTANTS::validator_count>;
+    struct epoch_mark_validators_t: fixed_sequence_t<epoch_mark_validator_keys_t, CONSTANTS::V_validator_count> {
+        using base_type = fixed_sequence_t<epoch_mark_validator_keys_t, CONSTANTS::V_validator_count>;
         using base_type::base_type;
 
         epoch_mark_validators_t(const validators_data_t<CONSTANTS> &o)
@@ -1438,12 +1434,12 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS=config_prod>
-    using tickets_mark_t = fixed_sequence_t<ticket_body_t, CONSTANTS::epoch_length>;
+    using tickets_mark_t = fixed_sequence_t<ticket_body_t, CONSTANTS::E_epoch_length>;
 
     using offenders_mark_t = ed25519_keys_set_t;
 
     template<typename CONSTANTS=config_prod>
-    using activity_records_t = fixed_sequence_t<activity_record_t, CONSTANTS::validator_count>;
+    using activity_records_t = fixed_sequence_t<activity_record_t, CONSTANTS::V_validator_count>;
 
     struct core_activity_record_t {
         varlen_uint_t<uint32_t> da_load = 0;
@@ -1491,7 +1487,7 @@ namespace turbo::jam {
     };
 
     template<typename CONSTANTS>
-    using core_statistics_t = fixed_sequence_t<core_activity_record_t, CONSTANTS::core_count>;
+    using core_statistics_t = fixed_sequence_t<core_activity_record_t, CONSTANTS::C_core_count>;
 
     struct service_activity_record_t {
         varlen_uint_t<uint16_t> provided_count {};

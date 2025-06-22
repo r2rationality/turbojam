@@ -111,40 +111,39 @@ namespace turbo::jam {
         switch (omega[10]) {
             case 0: {
                 encoder enc {};
-                enc.uint_fixed(8, CFG::min_balance_per_item);
-                enc.uint_fixed(8, CFG::min_balance_per_octet);
-                enc.uint_fixed(8, CFG::min_balance_per_service);
-                enc.uint_fixed(2, CFG::core_count);
-                enc.uint_fixed(4, CFG::preimage_expunge_delay);
-                enc.uint_fixed(4, CFG::epoch_length);
-                enc.uint_fixed(8, CFG::max_accumulate_gas);
-                enc.uint_fixed(8, CFG::max_is_authorized_gas);
-                enc.uint_fixed(8, CFG::max_refine_gas);
-                enc.uint_fixed(8, CFG::max_total_accumulation_gas);
-                enc.uint_fixed(2, CFG::max_blocks_history);
-                enc.uint_fixed(2, CFG::max_work_items);
-                enc.uint_fixed(2, CFG::max_report_dependencies);
-                enc.uint_fixed(2, CFG::max_tickets_per_block);
-                enc.uint_fixed(4, CFG::max_lookup_anchor_age);
-                enc.uint_fixed(2, CFG::ticket_attempts);
-                enc.uint_fixed(2, CFG::auth_pool_max_size);
-                enc.uint_fixed(2, CFG::slot_period);
-                enc.uint_fixed(2, CFG::auth_queue_size);
-                enc.uint_fixed(2, CFG::core_assignment_rotation_period);
-                enc.uint_fixed(2, CFG::accumulation_queue_size);
-                enc.uint_fixed(2, CFG::max_package_extrinsics);
-                enc.uint_fixed(2, CFG::reported_work_timeout);
-                enc.uint_fixed(2, CFG::validator_count);
-                enc.uint_fixed(4, CFG::max_is_authorized_code_size);
-                enc.uint_fixed(4, CFG::max_work_package_size);
-                enc.uint_fixed(4, CFG::max_service_code_size);
-                enc.uint_fixed(4, CFG::segment_piece_size);
-                enc.uint_fixed(4, CFG::max_work_package_imports);
-                enc.uint_fixed(4, CFG::segment_num_pieces);
-                enc.uint_fixed(4, CFG::max_blobs_size);
-                enc.uint_fixed(4, CFG::transfer_memo_size);
-                enc.uint_fixed(4, CFG::max_package_exports);
-                enc.uint_fixed(4, CFG::ticket_submission_end);
+                enc.uint_fixed(8, CFG::BI_min_balance_per_item);
+                enc.uint_fixed(8, CFG::BL_min_balance_per_octet);
+                enc.uint_fixed(8, CFG::BS_min_balance_per_service);
+                enc.uint_fixed(2, CFG::C_core_count);
+                enc.uint_fixed(4, CFG::D_preimage_expunge_delay);
+                enc.uint_fixed(4, CFG::E_epoch_length);
+                enc.uint_fixed(8, CFG::GA_max_accumulate_gas);
+                enc.uint_fixed(8, CFG::GI_max_is_authorized_gas);
+                enc.uint_fixed(8, CFG::GR_max_refine_gas);
+                enc.uint_fixed(8, CFG::GT_max_total_accumulation_gas);
+                enc.uint_fixed(2, CFG::H_max_blocks_history);
+                enc.uint_fixed(2, CFG::I_max_work_items);
+                enc.uint_fixed(2, CFG::J_max_report_dependencies);
+                enc.uint_fixed(2, CFG::K_max_tickets_per_block);
+                enc.uint_fixed(4, CFG::L_max_lookup_anchor_age);
+                enc.uint_fixed(2, CFG::N_ticket_attempts);
+                enc.uint_fixed(2, CFG::O_auth_pool_max_size);
+                enc.uint_fixed(2, CFG::P_slot_period);
+                enc.uint_fixed(2, CFG::Q_auth_queue_size);
+                enc.uint_fixed(2, CFG::R_core_assignment_rotation_period);
+                enc.uint_fixed(2, CFG::T_max_package_extrinsics);
+                enc.uint_fixed(2, CFG::U_reported_work_timeout);
+                enc.uint_fixed(2, CFG::V_validator_count);
+                enc.uint_fixed(4, CFG::WA_max_is_authorized_code_size);
+                enc.uint_fixed(4, CFG::WB_max_work_package_size);
+                enc.uint_fixed(4, CFG::WC_max_service_code_size);
+                enc.uint_fixed(4, CFG::WE_segment_piece_size);
+                enc.uint_fixed(4, CFG::WM_max_work_package_imports);
+                enc.uint_fixed(4, CFG::WP_segment_num_pieces);
+                enc.uint_fixed(4, CFG::WR_max_blobs_size);
+                enc.uint_fixed(4, CFG::WT_transfer_memo_size);
+                enc.uint_fixed(4, CFG::WX_max_package_exports);
+                enc.uint_fixed(4, CFG::Y_ticket_submission_end);
                 v.emplace(std::move(enc.bytes()));
                 break;
             }
@@ -388,10 +387,10 @@ namespace turbo::jam {
         const auto &omega = base_type::_m.regs();
         const auto o = omega[8];
         auth_queue_t<CFG> v;
-        for (size_t i = 0; i < CFG::auth_queue_size; ++i) {
+        for (size_t i = 0; i < v.size(); ++i) {
             v[i] = static_cast<buffer>(base_type::_m.mem_read(o + i * 32, 32));
         }
-        if (const auto c = omega[7]; c < CFG::core_count) {
+        if (const auto c = omega[7]; c < CFG::C_core_count) {
             _ok.state.phi[c] = std::move(v);
             base_type::_m.set_reg(7, machine::host_call_res_t::ok);
         } else {
