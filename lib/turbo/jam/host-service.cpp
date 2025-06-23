@@ -717,13 +717,37 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::yield()
     {
-        throw machine::exit_panic_t {};
+        const auto &omega = this->_p.m.regs();
+        const auto o = omega[7];
+        const auto h = this->_p.m.mem_read(o, 32);
+        _ok.result.emplace(static_cast<buffer>(h));
+        this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
     template<typename CFG>
     void host_service_accumulate_t<CFG>::provide()
     {
-        throw machine::exit_panic_t {};
+        const auto &omega = this->_p.m.regs();
+        const auto o = omega[7];
+        const auto z = omega[8];
+        const auto [s_id, a] = this->_get_service(omega[7]);
+        const auto i = this->_p.m.mem_read(o, z);
+        if (!a) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
+        const auto h = crypto::blake2b::digest<opaque_hash_t>(i);
+        const lookup_meta_map_key_t l_key { h, static_cast<uint32_t>(z) };
+        if (const auto l_res = a->lookup_metas.get(l_key); !l_res || !l_res->empty()) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
+        if (const auto p_res = a->preimages.get(h); p_res) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
+        this->_service.preimages.set(h, write_vector { i });
+        this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
     template struct host_service_accumulate_t<config_prod>;
