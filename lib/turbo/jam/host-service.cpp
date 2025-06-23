@@ -648,13 +648,70 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::solicit()
     {
-        throw machine::exit_panic_t {};
+        const auto &omega = this->_p.m.regs();
+        const auto o = omega[7];
+        const auto z = omega[8];
+        const auto h = this->_p.m.mem_read(o, 32);
+        const lookup_meta_map_key_t l_key { static_cast<buffer>(h), static_cast<uint32_t>(z) };
+        auto a_res = this->_service.lookup_metas.get(l_key);
+        if (!a_res) {
+            this->_service.lookup_metas.set(l_key, {});
+        } else if (a_res->size() == 2) {
+            a_res->emplace_back(this->_p.slot);
+            this->_service.lookup_metas.set(l_key, std::move(*a_res));
+        } else {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
+        const auto s_info = this->_service.info.combine();
+        if (const auto t = account_balance_threshold(this->_service.lookup_metas, this->_service.storage); s_info.balance < t) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::full);
+            return;
+        }
+        this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
     template<typename CFG>
     void host_service_accumulate_t<CFG>::forget()
     {
-        throw machine::exit_panic_t {};
+        const auto &omega = this->_p.m.regs();
+        const auto o = omega[7];
+        const auto z = omega[8];
+        const auto h = this->_p.m.mem_read(o, 32);
+        const lookup_meta_map_key_t l_key { static_cast<buffer>(h), static_cast<uint32_t>(z) };
+        auto a_res = this->_service.lookup_metas.get(l_key);
+        if (!a_res) {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
+        switch (a_res->size()) {
+            case 0:
+                this->_service.lookup_metas.erase(l_key);
+                this->_service.preimages.erase(static_cast<buffer>(h));
+                break;
+            case 1:
+                a_res->emplace_back(this->_p.slot);
+                this->_service.lookup_metas.set(l_key, std::move(*a_res));
+                break;
+            case 2:
+                if ((*a_res)[1].slot() >= this->_p.slot.slot() - CFG::D_preimage_expunge_delay) {
+                    this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+                    return;
+                }
+                this->_service.lookup_metas.erase(l_key);
+                this->_service.preimages.erase(static_cast<buffer>(h));
+                break;
+            case 3:
+                if ((*a_res)[1].slot() >= this->_p.slot.slot() - CFG::D_preimage_expunge_delay) {
+                    this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+                    return;
+                }
+                this->_service.lookup_metas.set(l_key, { (*a_res)[2], this->_p.slot });
+                break;
+            [[unlikely]] default:
+                throw machine::exit_panic_t {};
+        }
+        this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
     template<typename CFG>
