@@ -523,7 +523,7 @@ namespace turbo::jam {
     gas_t state_t<CFG>::invoke_on_transfer(
         const entropy_buffer_t &new_eta, const accounts_t<CFG> &prev_delta,
         time_slot_t<CFG> slot, service_id_t service_id,
-        const accumulate_operands_t &operands, const deferred_transfers_t &transfers)
+        const accumulate_operands_t &operands, const deferred_transfers_t<CFG> &transfers)
     {
         auto &service = prev_delta.at(service_id);
         const auto &prev_service_info = service.info.get();
@@ -657,12 +657,6 @@ namespace turbo::jam {
             auto &s_stats = new_pi.services[s_id];
             s_stats.accumulate_count = work_info.num_reports;
             s_stats.accumulate_gas_used = work_info.gas_used;
-        }
-
-        // (12.27)
-        std::map<service_id_t, deferred_transfer_ptrs_t> dst_transfers {};
-        for (const auto &t: plus_res.transfers) {
-            dst_transfers[t.destination].emplace_back(&t);
         }
 
         // (12.33)

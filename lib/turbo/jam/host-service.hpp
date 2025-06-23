@@ -17,7 +17,7 @@ namespace turbo::jam {
         // i-bold-dash - ?
         // x-bold-dash - ?
         const accumulate_operands_t *operands = nullptr; // GP o
-        const deferred_transfers_t *transfers = nullptr; // GP t
+        const deferred_transfers_t<CFG> *transfers = nullptr; // GP t
     };
 
     template<typename CFG>
@@ -54,6 +54,22 @@ namespace turbo::jam {
         void write();
         void info();
         void log();
+    };
+
+    template<typename CFG>
+    struct host_service_is_authorized_t: host_service_base_t<CFG> {
+        using base_type = host_service_base_t<CFG>;
+        using base_type::base_type;
+
+        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
+    };
+
+    template<typename CFG>
+    struct host_service_refine_t: host_service_base_t<CFG> {
+        using base_type = host_service_base_t<CFG>;
+        using base_type::base_type;
+
+        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     };
 
     template<typename CFG>

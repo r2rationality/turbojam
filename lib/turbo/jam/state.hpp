@@ -677,9 +677,11 @@ namespace turbo::jam {
         }
     };
 
-    using deferred_transfer_metadata_t = byte_array_t<128>;
+    template<typename CFG>
+    using deferred_transfer_metadata_t = byte_array_t<CFG::WT_transfer_memo_size>;
 
     // JAM (12.14)
+    template<typename CFG>
     struct deferred_transfer_t {
         // JAM: s
         service_id_t source;
@@ -688,12 +690,12 @@ namespace turbo::jam {
         // JAM: a
         balance_t amount;
         // JAM: m
-        deferred_transfer_metadata_t metadata;
+        deferred_transfer_metadata_t<CFG> metadata;
         // JAM: g
         gas_t gas_limit;
     };
-    using deferred_transfers_t = sequence_t<deferred_transfer_t>;
-    using deferred_transfer_ptrs_t = std::vector<const deferred_transfer_t *>;
+    template<typename CFG>
+    using deferred_transfers_t = sequence_t<deferred_transfer_t<CFG>>;
 
     template<typename CFG>
     using service_code_preimages_t = map_t<service_id_t, byte_sequence_t, CFG>;
@@ -708,7 +710,7 @@ namespace turbo::jam {
         // JAM: i
         service_id_t new_service_id = 0;
         // JAM: bold t
-        deferred_transfers_t transfers {};
+        deferred_transfers_t<CFG> transfers {};
         // JAM: y
         optional_t<opaque_hash_t> result {};
         // JAM: p
@@ -787,7 +789,7 @@ namespace turbo::jam {
     template<typename CFG>
     struct accumulate_result_t {
         mutable_state_t<CFG> state;
-        deferred_transfers_t transfers {};
+        deferred_transfers_t<CFG> transfers {};
         std::optional<opaque_hash_t> commitment {};
         gas_t gas {};
         size_t num_reports = 0;
@@ -815,7 +817,7 @@ namespace turbo::jam {
     template<typename CFG>
     struct delta_plus_result_t {
         mutable_state_t<CFG> state;
-        deferred_transfers_t transfers {};
+        deferred_transfers_t<CFG> transfers {};
         service_commitments_t commitments {};
         service_work_items_t work_items {};
         size_t num_accumulated = 0;
@@ -963,6 +965,6 @@ namespace turbo::jam {
         static gas_t invoke_on_transfer(
             const entropy_buffer_t &new_eta, const accounts_t<CFG> &prev_delta,
             time_slot_t<CFG> slot, service_id_t service_id,
-            const accumulate_operands_t &operands, const deferred_transfers_t &transfers);
+            const accumulate_operands_t &operands, const deferred_transfers_t<CFG> &transfers);
     };
 }
