@@ -179,18 +179,21 @@ namespace turbo::jam {
                 throw err_preimages_not_sorted_or_unique_t {};
             prev = &p;
             auto &service = mutable_services.get_mutable(p.requester);
-            lookup_meta_map_key_t key;
-            static_assert(sizeof(key.hash) == sizeof(crypto::blake2b::hash_t));
-            key.length = numeric_cast<decltype(lookup_meta_map_key_t::length)>(p.blob.size());
-            crypto::blake2b::digest(*reinterpret_cast<crypto::blake2b::hash_t *>(&key.hash), p.blob);
-            auto l_val = service.lookup_metas.get(key);
+            //lookup_meta_map_key_t key;
+            //static_assert(sizeof(key.hash) == sizeof(crypto::blake2b::hash_t));
+            //key.length = numeric_cast<decltype(lookup_meta_map_key_t::length)>(p.blob.size());
+            //crypto::blake2b::digest(*reinterpret_cast<crypto::blake2b::hash_t *>(&key.hash), p.blob);
+            const lookup_meta_map_key_t key { crypto::blake2b::digest<opaque_hash_t>(p.blob), static_cast<uint32_t>(p.blob.size()) };
+            const auto l_k = service.lookup_metas.make_key(key);
+            const auto p_k = service.preimages.make_key(key.hash);
+            auto l_val = service.lookup_metas.get(l_k);
             if (!l_val) [[unlikely]]
                 throw err_preimage_unneeded_t {};
-            if (service.preimages.get(key.hash)) [[unlikely]]
+            if (service.preimages.get(p_k)) [[unlikely]]
                 throw err_preimage_unneeded_t {};
-            service.preimages.set(key.hash, write_vector { p.blob });
+            service.preimages.set(p_k, write_vector { p.blob });
             l_val->emplace_back(slot);
-            service.lookup_metas.set(key, std::move(*l_val));
+            service.lookup_metas.set(l_k, std::move(*l_val));
             auto &service_stats = new_pi.services[p.requester];
             ++service_stats.provided_count;
             service_stats.provided_size += p.blob.size();
@@ -1293,13 +1296,6 @@ namespace turbo::jam {
     template<typename CFG>
     state_t<CFG> &state_t<CFG>::operator=(const state_snapshot_t &st)
     {
-        using preimage_hh_t = byte_array_t<23>;
-        struct lookup_request_t {
-            uint32_t l;
-            lookup_meta_map_val_t<CFG> meta;
-        };
-
-        std::map<service_id_t, std::map<preimage_hh_t, lookup_request_t>> lookup_requests {};
         const auto decode_service_info = [&](const state_key_t &key, decoder &dec) {
             const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
             const auto [it, created] = delta.try_create(service_id);
@@ -1309,7 +1305,7 @@ namespace turbo::jam {
             const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[0], key[2], key[4], key[6] });
             const auto [s_it, created] = delta.try_create(service_id);
             auto &service = s_it->second;
-            const auto typ = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
+            const auto typ = decoder::uint_fixed<uint32_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
             switch (typ) {
                 case 0xFFFFFFFFU: {
                     const auto data = dec.next_bytes(dec.size());
@@ -1319,14 +1315,13 @@ namespace turbo::jam {
                 case 0xFFFFFFFEU: {
                     const auto data= dec.next_bytes(dec.size());
                     const auto h = crypto::blake2b::digest<opaque_hash_t>(data);
-                    service.preimages.set(static_cast<buffer>(h), data);
+                    service.preimages.set(h, data);
                     break;
                 }
                 default: {
-                    const buffer meta_hh { key.data() + 8, key.size() - 8 };
                     lookup_meta_map_val_t<CFG> meta;
                     dec.process(meta);
-                    lookup_requests[service_id].try_emplace(meta_hh, typ, std::move(meta));
+                    service.lookup_metas.set(key, std::move(meta));
                     break;
                 }
             }
@@ -1371,27 +1366,6 @@ namespace turbo::jam {
                     break;
             }
         }
-        // ensure each preimage has a corresponding lookup
-        size_t unresolved = 0;
-        for (auto &[service_id, requests]: lookup_requests) {
-            auto s_it = delta.find(service_id);
-            if (s_it == delta.end()) [[unlikely]]
-                throw error(fmt::format("lookup request for unknown service: {}", service_id));
-            auto &service = s_it->second;
-            service.preimages.foreach([&](const auto &h, const auto &) {
-                const auto hh = crypto::blake2b::digest<opaque_hash_t>(h);
-                const auto meta_hh = buffer { hh }.subbuf(2, 23);
-                auto r_it = requests.find(meta_hh);
-                if (r_it == requests.end()) [[unlikely]]
-                    throw error(fmt::format("preimage without a lookup: {}", h));
-                lookup_meta_map_key_t meta_key { h, r_it->second.l };
-                service.lookup_metas.set(std::move(meta_key), std::move(r_it->second.meta));
-                requests.erase(r_it);
-            });
-            unresolved += requests.size();
-        }
-        if (unresolved) [[unlikely]]
-            throw error(fmt::format("state snapshot contains metadata without preimages: {} items", unresolved));
         return *this;
     }
 

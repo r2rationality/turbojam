@@ -202,11 +202,12 @@ namespace turbo::jam {
 
     template<typename K, typename V>
     struct state_dict_based_map_t {
-        using key_type = K;
+        using alt_key_type = K;
+        using key_type = state_key_t;
         using mapped_type = V;
-        using keys_t = std::map<key_type, state_key_t>;
-        using observer_t = std::function<void(const key_type &k, mapped_type v)>;
-        using trie_key_func_t = std::function<state_key_t(const key_type &)>;
+        using keys_t = std::set<state_key_t>;
+        using observer_t = std::function<void(const state_key_t &k, mapped_type v)>;
+        using trie_key_func_t = std::function<key_type(const alt_key_type &)>;
 
         state_dict_based_map_t(const kv_store_ptr_t &kv_store, const state_dict_ptr_t &state_dict, const trie_key_func_t &try_key_func):
             _kv_store { kv_store },
@@ -221,31 +222,40 @@ namespace turbo::jam {
             archive.process_map(*this, "hash"sv, "blob"sv);
         }
 
-        bool empty() const
+        [[nodiscard]] bool empty() const
         {
             return _keys.empty();
         }
 
-        void erase(const key_type &key)
+        [[nodiscard]] key_type make_key(const alt_key_type &k) const
         {
-            if (const auto it = _keys.find(key); it != _keys.end()) {
-                const auto &sd_val = _state_dict->get(it->second);
-                if (sd_val) {
+            return _try_key_func(k);
+        }
+
+        void erase(const state_key_t &k)
+        {
+            if (const auto it = _keys.find(k); it != _keys.end()) {
+                if (const auto &sd_val = _state_dict->get(k); sd_val) {
                     std::visit([&](const auto &sv) {
                         using T = std::decay_t<decltype(sv)>;
                         if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
                             _kv_store->erase(sv);
                         }
                     }, *sd_val);
-                    _state_dict->erase(it->second);
+                    _state_dict->erase(k);
                 }
                 _keys.erase(it);
             }
         }
 
+        void erase(const K &key)
+        {
+            erase(make_key(key));
+        }
+
         void foreach(const observer_t &obs) const
         {
-            for (const auto &[k, trie_k]: _keys) {
+            for (const auto &trie_k: _keys) {
                 const auto &sd_v = _state_dict->get(trie_k);
                 if (sd_v) {
                     auto val = std::visit([&](const auto &v) -> std::optional<write_vector> {
@@ -257,16 +267,15 @@ namespace turbo::jam {
                         }
                     }, *sd_v);
                     if (val)
-                        obs(k, _decode(std::move(*val)));
+                        obs(trie_k, _decode(std::move(*val)));
                 }
             }
         }
 
-        // preimages for a single service are expected to be called from a single thread at a time
-        std::optional<mapped_type> get(const key_type &key) const
+        std::optional<mapped_type> get(const state_key_t &k) const
         {
-            if (const auto k_it = _keys.find(key); k_it != _keys.end()) {
-                const auto &sd_v = _state_dict->get(k_it->second);
+            if (_keys.contains(k)) {
+                const auto &sd_v = _state_dict->get(k);
                 auto val = std::visit([&](const auto &v) -> std::optional<write_vector> {
                     using T = std::decay_t<decltype(v)>;
                     if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
@@ -281,12 +290,17 @@ namespace turbo::jam {
             return {};
         }
 
-        void set(const key_type &key, mapped_type val)
+        // preimages for a single service are expected to be called from a single thread at a time
+        std::optional<mapped_type> get(const alt_key_type &key) const
         {
-            auto trie_key = _try_key_func(key);
-            _keys.try_emplace(key, trie_key);
+            return get(make_key(key));
+        }
+
+        void set(const state_key_t &trie_key, mapped_type val)
+        {
             // Always update the stored value - necessary for service_storage_t
-            auto raw_val = _encode(val);
+            _keys.emplace(trie_key);
+            const auto raw_val = _encode(val);
             const auto &sd_val = _state_dict->emplace(trie_key, raw_val);
             std::visit([&](const auto &sv) {
                 using T = std::decay_t<decltype(sv)>;
@@ -296,12 +310,17 @@ namespace turbo::jam {
             }, sd_val);
         }
 
-        size_t size() const
+        void set(const alt_key_type &key, mapped_type val)
+        {
+            set(_try_key_func(key), std::move(val));
+        }
+
+        [[nodiscard]] size_t size() const
         {
             return _keys.size();
         }
 
-        bool operator==(const state_dict_based_map_t &o) const
+        [[nodiscard]] bool operator==(const state_dict_based_map_t &o) const
         {
             size_t num_diff = 0;
             foreach([&](const auto &k, const auto &v) {
@@ -350,7 +369,7 @@ namespace turbo::jam {
 
         static trie_key_func_t make_trie_key_func(const service_id_t service_id)
         {
-            return [service_id](const key_type &k) {
+            return [service_id](const opaque_hash_t &k) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 2ULL);
                 memcpy(kh.data() + 4, k.data() + 1, kh.size() - 4);
@@ -370,6 +389,11 @@ namespace turbo::jam {
     struct lookup_meta_map_key_t {
         opaque_hash_t hash;
         uint32_t length;
+
+        static uint32_t len_from_state_key(const state_key_t &k)
+        {
+            return decoder::uint_fixed<uint32_t>(byte_array<4> { k[1], k[3], k[5], k[7] });
+        }
 
         void serialize(auto &archive)
         {
@@ -409,7 +433,7 @@ namespace turbo::jam {
 
         static typename base_type::trie_key_func_t make_trie_key_func(const service_id_t service_id)
         {
-            return [service_id](const typename base_type::key_type &k) {
+            return [service_id](const lookup_meta_map_key_t &k) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, k.length);
                 const auto hh = crypto::blake2b::digest(k.hash);
@@ -425,7 +449,7 @@ namespace turbo::jam {
 
         static typename base_type::trie_key_func_t make_trie_key_func(const service_id_t service_id)
         {
-            return [service_id](const typename base_type::key_type &k) {
+            return [service_id](const opaque_hash_t &k) {
                 state_key_subhash_t kh;
                 encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 1ULL);
                 memcpy(kh.data() + 4, k.data(), kh.size() - 4);
@@ -449,7 +473,7 @@ namespace turbo::jam {
         size_t a_o = 0;
         l.foreach([&](const auto &k, const auto &) {
             a_i += 2;
-            a_o += 81 + k.length;
+            a_o += 81 + lookup_meta_map_key_t::len_from_state_key(k);
         });
         s.foreach([&](const auto &, const auto &v) {
             a_i += 1;

@@ -262,9 +262,10 @@ namespace turbo::jam {
         const auto h = omega[8];
         const auto o = omega[9];
         const opaque_hash_t key { _p.m.mem_read(h, 32) };
+        const auto p_k = a->preimages.make_key(key);
         std::optional<write_vector> val {};
         if (a)
-            val = a->preimages.get(key);
+            val = a->preimages.get(p_k);
         if (val) {
             const auto f = std::min(omega[10], val->size());
             const auto l = std::min(omega[11], val->size() - f);
@@ -287,8 +288,8 @@ namespace turbo::jam {
         enc.next_bytes(_p.m.mem_read(ko, kz));
         std::optional<write_vector> val {};
         if (a) {
-            const auto key = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
-            val = a->storage.get(key);
+            const auto s_k = a->storage.make_key(crypto::blake2b::digest<opaque_hash_t>(enc.bytes()));
+            val = a->storage.get(s_k);
         }
         if (val) {
             const auto f = std::min(omega[11], val->size());
@@ -312,7 +313,8 @@ namespace turbo::jam {
         const auto key_hash = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
         const auto v_o = _p.m.regs()[9];
         const auto v_z = _p.m.regs()[10];
-        const auto prev_val = _service.storage.get(key_hash);
+        const auto s_k = _service.storage.make_key(key_hash);
+        const auto prev_val = _service.storage.get(s_k);
         const auto balance_threshold = account_balance_threshold(_service.lookup_metas, _service.storage);
         if (_service.info.base.balance >= balance_threshold) {
             if (v_z == 0) {
@@ -322,7 +324,7 @@ namespace turbo::jam {
                     _service.info.bytes -= sizeof(key_hash);
                     _service.info.bytes -= prev_val->size();
                     --_service.info.items;
-                    _service.storage.erase(key_hash);
+                    _service.storage.erase(s_k);
                 }
             } else {
                 auto val_data = _p.m.mem_read(v_o, v_z);
@@ -333,7 +335,7 @@ namespace turbo::jam {
                     _service.info.bytes += sizeof(key_hash);
                     ++_service.info.items;
                 }
-                _service.storage.set(key_hash, static_cast<buffer>(val_data));
+                _service.storage.set(s_k, static_cast<buffer>(val_data));
                 _service.info.bytes += v_z;
             }
             const machine::register_val_t l = prev_val ? prev_val->size() : machine::host_call_res_t::none;
@@ -389,7 +391,7 @@ namespace turbo::jam {
         if (omega[8] != 0 || omega[9] != 0)
             target.emplace(_p.m.mem_read(omega[8], omega[9]).str());
         const auto msg = _p.m.mem_read(omega[10], omega[11]);
-        logger::log(log_level(level), "[PVM/{}]: {}", target, msg.str());
+        logger::trace("[PVM/{}] [level={}]: {}", target, level, msg.str());
     }
 
     template<typename CFG>
@@ -618,7 +620,8 @@ namespace turbo::jam {
         const auto z = omega[8];
         const auto h = this->_p.m.mem_read(o, 32);
         // static_cast<uint32_t> instead of numeric_cast to return NONE instead of throwing an exception
-        const auto a = this->_service.lookup_metas.get(lookup_meta_map_key_t { static_cast<buffer>(h), static_cast<uint32_t>(z) });
+        const auto l_k = this->_service.lookup_metas.make_key({ static_cast<buffer>(h), static_cast<uint32_t>(z) });
+        const auto a = this->_service.lookup_metas.get(l_k);
         if (!a) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::none);
             return;
@@ -629,15 +632,15 @@ namespace turbo::jam {
                 this->_p.m.set_reg(8, 0ULL);
                 break;
             case 1:
-                this->_p.m.set_reg(1 + numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U, 0ULL);
+                this->_p.m.set_reg(7, 1 + numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U);
                 this->_p.m.set_reg(8, 0ULL);
                 break;
             case 2:
-                this->_p.m.set_reg(2 + numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U, 0ULL);
+                this->_p.m.set_reg(7, 2 + numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U);
                 this->_p.m.set_reg(8, numeric_cast<machine::register_val_t>((*a)[1].slot()));
                 break;
             case 3:
-                this->_p.m.set_reg(3 + numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U, 0ULL);
+                this->_p.m.set_reg(7, 3 + numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U);
                 this->_p.m.set_reg(8, numeric_cast<machine::register_val_t>((*a)[1].slot()) + numeric_cast<machine::register_val_t>((*a)[2].slot()) << 32U);
                 break;
             [[unlikely]] default:
@@ -652,13 +655,13 @@ namespace turbo::jam {
         const auto o = omega[7];
         const auto z = omega[8];
         const auto h = this->_p.m.mem_read(o, 32);
-        const lookup_meta_map_key_t l_key { static_cast<buffer>(h), static_cast<uint32_t>(z) };
-        auto a_res = this->_service.lookup_metas.get(l_key);
+        const auto l_k = this->_service.lookup_metas.make_key({ static_cast<buffer>(h), static_cast<uint32_t>(z) });
+        auto a_res = this->_service.lookup_metas.get(l_k);
         if (!a_res) {
-            this->_service.lookup_metas.set(l_key, {});
+            this->_service.lookup_metas.set(l_k, {});
         } else if (a_res->size() == 2) {
             a_res->emplace_back(this->_p.slot);
-            this->_service.lookup_metas.set(l_key, std::move(*a_res));
+            this->_service.lookup_metas.set(l_k, std::move(*a_res));
         } else {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
@@ -678,35 +681,36 @@ namespace turbo::jam {
         const auto o = omega[7];
         const auto z = omega[8];
         const auto h = this->_p.m.mem_read(o, 32);
-        const lookup_meta_map_key_t l_key { static_cast<buffer>(h), static_cast<uint32_t>(z) };
-        auto a_res = this->_service.lookup_metas.get(l_key);
+        const auto l_k = this->_service.lookup_metas.make_key({ static_cast<buffer>(h), static_cast<uint32_t>(z) });
+        const auto p_k = this->_service.preimages.make_key(static_cast<buffer>(h));
+        auto a_res = this->_service.lookup_metas.get(l_k);
         if (!a_res) {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
         switch (a_res->size()) {
             case 0:
-                this->_service.lookup_metas.erase(l_key);
-                this->_service.preimages.erase(static_cast<buffer>(h));
+                this->_service.lookup_metas.erase(l_k);
+                this->_service.preimages.erase(p_k);
                 break;
             case 1:
                 a_res->emplace_back(this->_p.slot);
-                this->_service.lookup_metas.set(l_key, std::move(*a_res));
+                this->_service.lookup_metas.set(l_k, std::move(*a_res));
                 break;
             case 2:
                 if ((*a_res)[1].slot() >= this->_p.slot.slot() - CFG::D_preimage_expunge_delay) {
                     this->_p.m.set_reg(7, machine::host_call_res_t::huh);
                     return;
                 }
-                this->_service.lookup_metas.erase(l_key);
-                this->_service.preimages.erase(static_cast<buffer>(h));
+                this->_service.lookup_metas.erase(l_k);
+                this->_service.preimages.erase(p_k);
                 break;
             case 3:
                 if ((*a_res)[1].slot() >= this->_p.slot.slot() - CFG::D_preimage_expunge_delay) {
                     this->_p.m.set_reg(7, machine::host_call_res_t::huh);
                     return;
                 }
-                this->_service.lookup_metas.set(l_key, { (*a_res)[2], this->_p.slot });
+                this->_service.lookup_metas.set(l_k, { (*a_res)[2], this->_p.slot });
                 break;
             [[unlikely]] default:
                 throw machine::exit_panic_t {};
@@ -737,16 +741,17 @@ namespace turbo::jam {
             return;
         }
         const auto h = crypto::blake2b::digest<opaque_hash_t>(i);
-        const lookup_meta_map_key_t l_key { h, static_cast<uint32_t>(z) };
-        if (const auto l_res = a->lookup_metas.get(l_key); !l_res || !l_res->empty()) [[unlikely]] {
+        const auto l_k = a->lookup_metas.make_key({ h, static_cast<uint32_t>(z) });
+        if (const auto l_res = a->lookup_metas.get(l_k); !l_res || !l_res->empty()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        if (const auto p_res = a->preimages.get(h); p_res) [[unlikely]] {
+        const auto p_k = a->preimages.make_key(h);
+        if (const auto p_res = a->preimages.get(p_k); p_res) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        this->_service.preimages.set(h, write_vector { i });
+        this->_service.preimages.set(p_k, write_vector { i });
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
