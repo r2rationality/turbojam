@@ -119,23 +119,27 @@ namespace turbo::jam::merkle {
             }
             auto [shared_sz, node_ptr] = _find(_root, key, true);
             auto &node = *node_ptr;
-            if (shared_sz < prefix_max) {
-                ++_size;
-                auto split_node = std::make_shared<node_t>(node->key, node->prefix_sz, std::move(node->value), std::move(node->left), std::move(node->right));
-                node->prefix_sz = shared_sz;
-                node->value.reset();
-                if (key.bit(shared_sz)) {
-                    node->left = std::move(split_node);
-                    node->right = std::move(new_node);
-                    return node->right->value.value();
-                } else {
-                    node->left = std::move(new_node);
-                    node->right = std::move(split_node);
-                    return node->left->value.value();
+            if (node) {
+                if (shared_sz < prefix_max) {
+                    ++_size;
+                    auto split_node = std::make_shared<node_t>(node->key, node->prefix_sz, std::move(node->value), std::move(node->left), std::move(node->right));
+                    node->prefix_sz = shared_sz;
+                    node->value.reset();
+                    if (key.bit(shared_sz)) {
+                        node->left = std::move(split_node);
+                        node->right = std::move(new_node);
+                        return node->right->value.value();
+                    } else {
+                        node->left = std::move(new_node);
+                        node->right = std::move(split_node);
+                        return node->left->value.value();
+                    }
                 }
-            }
-            if (node->value != new_node->value) {
-                node->value = std::move(new_node->value);
+                if (node->value != new_node->value) {
+                    node->value = std::move(new_node->value);
+                }
+            } else {
+                node = std::move(new_node);
             }
             return node->value.value();
         }
