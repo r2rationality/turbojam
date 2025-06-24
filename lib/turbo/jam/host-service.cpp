@@ -410,6 +410,17 @@ namespace turbo::jam {
             logger::trace("PVM: host call #{}", id);
             gas_t::base_type gas_used = 10;
             switch (id) {
+                case 100:
+                    gas_used = 0; break;
+                    break;
+                case 11:
+                    gas_used += this->_p.m.regs()[9];
+                    break;
+                default:
+                    break;
+            }
+            this->_p.m.consume_gas(gas_used);
+            switch (id) {
                 // generic
                 case 0: base_type::gas(); break;
                 case 1: base_type::lookup(); break;
@@ -430,16 +441,12 @@ namespace turbo::jam {
                 case 14: solicit(); break;
                 case 15: forget(); break;
                 case 16: yield(); break;
-                //case ??: return provide(); break;
-                case 100:
-                    base_type::log();
-                    gas_used = 0;
-                    break;
+                case 27: provide(); break;
+                case 100: base_type::log(); break;
                 default:
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
-            this->_p.m.consume_gas(gas_used);
         });
     }
 

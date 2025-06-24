@@ -473,7 +473,8 @@ namespace turbo::jam {
         auto ctx_err = ctx_ok;
 
         const auto &prev_service_info = service.info.get();
-        if (const auto code = service.preimages.get(prev_service_info.code_hash); code && code->size() <= CFG::WC_max_service_code_size) {
+        const auto p_k = service.preimages.make_key(prev_service_info.code_hash);
+        if (const auto code = service.preimages.get(p_k); code && code->size() <= CFG::WC_max_service_code_size) {
             const auto code_hash = crypto::blake2b::digest(*code);
             if (code_hash != prev_service_info.code_hash) [[unlikely]]
                 throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
@@ -530,7 +531,8 @@ namespace turbo::jam {
     {
         auto &service = prev_delta.at(service_id);
         const auto &prev_service_info = service.info.get();
-        const auto code = service.preimages.get(prev_service_info.code_hash);
+        const auto p_k = service.preimages.make_key(prev_service_info.code_hash);
+        const auto code = service.preimages.get(p_k);
         if (!code || code->size() > CFG::WC_max_service_code_size)
             return {};
         if (const auto code_hash = crypto::blake2b::digest(*code); code_hash != prev_service_info.code_hash) [[unlikely]]
@@ -1309,13 +1311,12 @@ namespace turbo::jam {
             switch (typ) {
                 case 0xFFFFFFFFU: {
                     const auto data = dec.next_bytes(dec.size());
-                    service.storage.set(crypto::blake2b::digest<opaque_hash_t>(data), std::move(data));
+                    service.storage.set(key, std::move(data));
                     break;
                 }
                 case 0xFFFFFFFEU: {
                     const auto data= dec.next_bytes(dec.size());
-                    const auto h = crypto::blake2b::digest<opaque_hash_t>(data);
-                    service.preimages.set(h, data);
+                    service.preimages.set(key, data);
                     break;
                 }
                 default: {

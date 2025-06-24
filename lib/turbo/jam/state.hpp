@@ -248,11 +248,6 @@ namespace turbo::jam {
             }
         }
 
-        void erase(const K &key)
-        {
-            erase(make_key(key));
-        }
-
         void foreach(const observer_t &obs) const
         {
             for (const auto &trie_k: _keys) {
@@ -290,12 +285,6 @@ namespace turbo::jam {
             return {};
         }
 
-        // preimages for a single service are expected to be called from a single thread at a time
-        std::optional<mapped_type> get(const alt_key_type &key) const
-        {
-            return get(make_key(key));
-        }
-
         void set(const state_key_t &trie_key, mapped_type val)
         {
             // Always update the stored value - necessary for service_storage_t
@@ -308,11 +297,6 @@ namespace turbo::jam {
                     _kv_store->set(sv, raw_val);
                 }
             }, sd_val);
-        }
-
-        void set(const alt_key_type &key, mapped_type val)
-        {
-            set(_try_key_func(key), std::move(val));
         }
 
         [[nodiscard]] size_t size() const

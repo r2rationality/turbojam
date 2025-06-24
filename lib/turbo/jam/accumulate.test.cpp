@@ -106,11 +106,11 @@ namespace {
                     encoder enc {};
                     enc.uint_fixed(4, id);
                     enc.next_bytes(k);
-                    storage.set(crypto::blake2b::digest<opaque_hash_t>(enc.bytes()), static_cast<buffer>(v));
+                    storage.set(storage.make_key(crypto::blake2b::digest<opaque_hash_t>(enc.bytes())), static_cast<buffer>(v));
                 }
                 preimages_t preimages { st.kv_store, st.state_dict, preimages_t::make_trie_key_func(id) };
                 for (auto &&[k, v]: tacc.preimages) {
-                    preimages.set(k, write_vector { v });
+                    preimages.set(preimages.make_key(k), write_vector { v });
                 }
                 lookup_metas_t<CONSTANTS> lookup_metas { st.kv_store, st.state_dict, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) };
                 account_t<CONSTANTS> acc {
