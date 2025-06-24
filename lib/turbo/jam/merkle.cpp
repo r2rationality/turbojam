@@ -54,9 +54,11 @@ namespace turbo::jam::merkle {
         }
 
         impl(const impl &o):
-            _hash_func { o._hash_func },
-            _root { o._root ? std::make_shared<node_t>(*o._root) : nullptr }
+            _hash_func { o._hash_func }
         {
+            o.foreach([&](const key_t &k, const value_t &v) {
+                set(k, value_t { v });
+            });
         }
 
         void clear()
@@ -87,7 +89,7 @@ namespace turbo::jam::merkle {
                 --_size;
         }
 
-        void foreach(const observer_t &obs)
+        void foreach(const observer_t &obs) const
         {
             std::vector<const node_t *> stack {};
             if (_root)
@@ -111,7 +113,12 @@ namespace turbo::jam::merkle {
 
         const value_t &set(const key_t &key, const buffer &val_bytes)
         {
-            auto new_node = std::make_shared<node_t>(key, prefix_max, value_t { val_bytes, _hash_func });
+            return set(key, value_t { val_bytes, _hash_func });
+        }
+
+        const value_t &set(const key_t &key, value_t val)
+        {
+            auto new_node = std::make_shared<node_t>(key, prefix_max, std::move(val));
             if (!_root) {
                 ++_size;
                 _root = std::move(new_node);
@@ -329,7 +336,12 @@ namespace turbo::jam::merkle {
     const trie_t::value_t &trie_t::set(const key_t &key, const buffer &value)
     {
         const auto &res = _impl->set(key, value);
-        //logger::info("trie_t::set({}, {} bytes) => {}", key, value.size(), res);
+        return res;
+    }
+
+    const trie_t::value_t &trie_t::set(const key_t &key, value_t val)
+    {
+        const auto &res = _impl->set(key, std::move(val));
         return res;
     }
 

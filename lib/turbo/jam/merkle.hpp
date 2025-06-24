@@ -191,7 +191,7 @@ namespace turbo::jam::merkle {
         using value_t = trie::value_t;
         using value_hash_t = trie::value_hash_t;
         using opt_value_t = std::optional<value_t>;
-        using observer_t = std::function<void(const key_t &, const opt_value_t &)>;
+        using observer_t = std::function<void(const key_t &, const value_t &)>;
 
         trie_t(const hash_func &hf=blake2b_hash_func);
         trie_t(const trie_t &o);
@@ -208,7 +208,8 @@ namespace turbo::jam::merkle {
         void foreach(const observer_t &obs) const;
         const opt_value_t& get(const key_t& key) const;
         value_t make_value(const buffer &value) const;
-        const value_t &set(const key_t &key, const buffer &value);
+        const value_t &set(const key_t &key, const buffer &val);
+        const value_t &set(const key_t &key, value_t val);
         [[nodiscard]] hash_t root() const;
     private:
         struct impl;
