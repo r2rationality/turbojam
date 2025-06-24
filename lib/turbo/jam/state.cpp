@@ -1217,8 +1217,9 @@ namespace turbo::jam {
         // (4.17)
         {
             reported_work_seq_t reported_work {};
+            reported_work.reserve(ready_reports.size());
             for (const auto &g: blk.extrinsic.guarantees) {
-                reported_work.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
+                reported_work.emplace_hint(reported_work.end(), g.report.package_spec.hash, g.report.package_spec.exports_root);
             }
             new_st.beta.set(state_t::beta_prime(std::move(new_beta), blk.header.hash(), accumulate_res.root, reported_work));
         }

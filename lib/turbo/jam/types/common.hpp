@@ -880,7 +880,7 @@ namespace turbo::jam {
             return hash == o.hash && exports_root == o.exports_root;
         }
     };
-    using reported_work_seq_t = sequence_t<reported_work_package_t>;
+    using reported_work_seq_t = set_t<reported_work_package_t>;
 
     struct block_info_t {
         header_hash_t header_hash {};
