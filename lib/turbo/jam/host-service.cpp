@@ -372,18 +372,6 @@ namespace turbo::jam {
         }
     }
 
-    static logger::level log_level(const machine::register_val_t level)
-    {
-        switch (level) {
-            case 0: return logger::level::err;
-            case 1: return logger::level::warn;
-            case 2: return logger::level::info;
-            case 3: return logger::level::debug;
-            case 4: return logger::level::trace;
-            default: return logger::level::warn;
-        }
-    }
-
     template<typename CFG>
     void host_service_base_t<CFG>::log()
     {
@@ -537,7 +525,7 @@ namespace turbo::jam {
         if (l > std::numeric_limits<uint32_t>::max())
             throw machine::exit_panic_t {};
         const auto c = this->_p.m.mem_read(o, 32);
-        const auto a_t = account_balance_threshold_raw(0, 0);
+        const auto a_t = numeric_cast<int64_t>(account_balance_threshold_raw(0, 0));
         if (this->_service.info.balance >= a_t) {
             static service_info_t empty_info {};
             service_info_update_t a {
@@ -770,6 +758,9 @@ namespace turbo::jam {
         this->_service.preimages.set(p_k, write_vector { i });
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
+
+    template struct host_service_base_t<config_prod>;
+    template struct host_service_base_t<config_tiny>;
 
     template struct host_service_accumulate_t<config_prod>;
     template struct host_service_accumulate_t<config_tiny>;
