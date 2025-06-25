@@ -91,6 +91,7 @@ namespace turbo::jam {
     struct config_tiny: config_prod {
         static constexpr size_t E_epoch_length = 12;
         static constexpr size_t C_core_count = 2;
+        static constexpr size_t D_preimage_expunge_delay = 32;
         static constexpr size_t L_max_lookup_anchor_age = 14;
         static constexpr size_t N_ticket_attempts = 3;
         static constexpr size_t R_core_assignment_rotation_period = 4;
