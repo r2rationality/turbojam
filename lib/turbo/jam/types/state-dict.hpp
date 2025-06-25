@@ -72,8 +72,10 @@ namespace turbo::jam {
             }
             if (key_matches != size()) [[unlikely]] {
                 foreach([&](const auto &k, const auto &) {
-                    logger::info("extra key: {}", k);
-                    ok = false;
+                    if (!o.contains(k)) {
+                        logger::info("extra key: {}", k);
+                        ok = false;
+                    }
                 });
             }
             return ok;

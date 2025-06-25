@@ -94,16 +94,21 @@ namespace turbo::jam::merkle {
             std::vector<const node_t *> stack {};
             if (_root)
                 stack.emplace_back(_root.get());
+            size_t cnt = 0;
             while (!stack.empty()) {
                 const auto *node = stack.back();
                 stack.pop_back();
-                if (node->value)
+                if (node->value) {
+                    ++cnt;
                     obs(node->key, *node->value);
+                }
                 if (node->right)
                     stack.emplace_back(node->right.get());
                 if (node->left)
                     stack.emplace_back(node->left.get());
             }
+            if (cnt != _size) [[unlikely]]
+                throw error(fmt::format("internal error: the action trie size does not match the recorded one: {} != {}!", cnt, _size));
         }
 
         value_t make_value(const buffer &bytes) const
@@ -146,6 +151,7 @@ namespace turbo::jam::merkle {
                     node->value = std::move(new_node->value);
                 }
             } else {
+                ++_size;
                 node = std::move(new_node);
             }
             return node->value.value();
