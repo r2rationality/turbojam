@@ -14,14 +14,10 @@ please check whether the issue also occurs in one of the supported environments 
 When reporting a problem, include details about your build setup to help with troubleshooting.
 
 ### Ubuntu Linux 24.04 LTS
-1. Clone the repository:
+1. Clone the repository including all submodules:
    ```
-   git clone https://github.com/r2rationality/turbojam.git
+   git clone --recursice https://github.com/r2rationality/turbojam.git
    cd turbojam
-   ```
-2. Ensure that all submodules are initialized
-   ```
-   git submodule update --init --recursive
    ```
 3. Install the necessary packages:
    ```
