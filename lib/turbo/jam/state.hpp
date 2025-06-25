@@ -569,7 +569,6 @@ namespace turbo::jam {
 
         void emplace(const key_type &k, service_info_update_t &&info)
         {
-            static service_info_t empty_info {};
             const auto [it, created] = _derived.try_emplace(
                 k,
                 mutable_service_state_t<CFG> {
@@ -808,7 +807,7 @@ namespace turbo::jam {
         std::shared_ptr<auth_queues_t<CFG>> new_phi;
         std::shared_ptr<validators_data_t<CFG>> new_iota;
         std::shared_ptr<privileges_t> new_chi;
-        std::optional<mutable_services_state_t<CFG>> service_updates;
+        std::optional<mutable_services_state_t<CFG>> service_updates {};
         accumulate_root_t root {};
     };
 

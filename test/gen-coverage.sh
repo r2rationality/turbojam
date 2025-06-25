@@ -12,9 +12,9 @@ if [ -z "$BUILD_DIR" ]; then
   BUILD_DIR="build-clang-cov"
 fi
 "$BUILD_DIR/run-test" "$TEST_NAME"
-if [ -f /usr/bin/llvm-profdata-18 ]; then
-  PROFDATA_BIN=llvm-profdata-18
-  COV_BIN=llvm-cov-18
+if [ -f /usr/bin/llvm-profdata-19 ]; then
+  PROFDATA_BIN=llvm-profdata-19
+  COV_BIN=llvm-cov-19
 else
   PROFDATA_BIN=llvm-profdata
   COV_BIN=llvm-cov

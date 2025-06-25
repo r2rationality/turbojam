@@ -89,8 +89,8 @@ elseif(CMAKE_BUILD_TYPE STREQUAL Coverage)
         add_link_options("-fprofile-instr-generate")
         add_link_options("-fcoverage-mapping")
         add_link_options("-g")
-        find_program(LLVM_PROFDATA NAMES llvm-profdata llvm-profdata-18 llvm-profdata-17 REQUIRED)
-        find_program(LLVM_COV NAMES llvm-cov llvm-cov-18 llvm-cov-17 REQUIRED)
+        find_program(LLVM_PROFDATA NAMES llvm-profdata llvm-profdata-19 REQUIRED)
+        find_program(LLVM_COV NAMES llvm-cov llvm-cov-19 REQUIRED)
         add_custom_target(coverage
             COMMENT "Running test coverage ..."
             COMMAND $<TARGET_FILE:run-test> ${COVERAGE_ARGS}

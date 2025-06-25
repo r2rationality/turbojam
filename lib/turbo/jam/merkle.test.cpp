@@ -23,7 +23,7 @@ suite turbo_jam_merkle_suite = [] {
         const auto test_vectors = json::load(file::install_path("test/overrides/trie.json"));
         "insert, update, erase"_test = [&] {
             trie_t trie { hf };
-            expect(trie_t::opt_value_t {} == trie.get(key_t {}));
+            expect(trie_t::opt_value_t {} == trie.get(merkle::key_t {}));
             // insert
             static constexpr size_t num_nodes = 0x10;
             std::optional<hash_t> prev_root {};
