@@ -99,8 +99,8 @@ namespace {
                 tc.pre.keyvals
             };
             chain.apply(tc.block);
-            //const auto &post_state = *chain.state().state_dict.get();
-            auto post_state = *chain.state().state_dict.get();
+            const auto &post_state = *chain.state().state_dict.get();
+            /*auto post_state = *chain.state().state_dict.get();
             {
                 // ignore mismatching accumulate_gas_used for service 0
                 const auto k = merkle::trie::key_t::from_hex<merkle::trie::key_t>("0D000000000000000000000000000000000000000000000000000000000000");
@@ -110,19 +110,22 @@ namespace {
                     own_pi.services.at(0).accumulate_gas_used = alt_pi.services.at(0).accumulate_gas_used;
                     post_state.set(k, encode(own_pi));
                 }
-            }
+            }*/
 
             const auto state_matches = post_state.root() == tc.post.state_root;
             expect(state_matches) << path;
-            /*if (!state_matches) {
-                logger::info("state differences for {}", path);
-                post_state == tc.post.keyvals;
+            if (!state_matches) {
+                //logger::info("state differences for {}", path);
+                //post_state == tc.post.keyvals;
                 const auto k = merkle::trie::key_t::from_hex<merkle::trie::key_t>("0D000000000000000000000000000000000000000000000000000000000000");
                 const auto &l = chain.state().pi.get();
                 using ET = std::decay_t<decltype(l)>;
                 const auto r = from_bytes<ET>(tc.post.keyvals.at(k));
-                const auto m = l == r;
-            }*/
+                logger::info("accumulate_gas_diff: {}",
+                    static_cast<int64_t>(l.services.at(0).accumulate_gas_used) -
+                    static_cast<int64_t>(r.services.at(0).accumulate_gas_used)
+                );
+            }
         } catch (const std::exception &ex) {
             expect(false) << path << ex.what();
         }
@@ -133,7 +136,7 @@ suite turbo_jam_traces_suite = [] {
     "turbo::jam::traces"_test = [] {
         /*const auto test_dir = file::install_path("test/jam-test-vectors/traces/reports-l1");
         const auto genesis = codec::json::load_obj<test_genesis_t<config_tiny>>(fmt::format("{}/genesis.json", test_dir));
-        test_file(fmt::format("{}/00000051", test_dir), genesis.state.keyvals);*/
+        test_file(fmt::format("{}/00000005", test_dir), genesis.state.keyvals);*/
         for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
             const auto test_dir = file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset));
             const auto genesis = codec::json::load_obj<test_genesis_t<config_tiny>>(fmt::format("{}/genesis.json", test_dir));

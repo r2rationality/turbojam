@@ -5,7 +5,7 @@
 
 #include <algorithm>
 #include <iostream>
-#include <ark-vrf-cpp.hpp>
+#include <ark-vrf.hpp>
 #include <numeric>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
@@ -123,14 +123,14 @@ namespace turbo::jam {
     bandersnatch_ring_commitment_t state_t<CFG>::_ring_commitment(const validators_data_t<CFG> &gamma_k)
     {
         static auto params_path = file::install_path("data/zcash-srs-2-11-uncompressed.bin");
-        if (ark_vrf_cpp::init(params_path.data(), params_path.size()) != 0) [[unlikely]]
+        if (ark_vrf::init(params_path) != 0) [[unlikely]]
             throw error("ark_vrf_cpp::init() failed");
         std::array<bandersnatch_public_t, CFG::V_validator_count> vkeys;
         for (size_t i = 0; i < vkeys.size(); ++i) {
             vkeys[i] = gamma_k[i].bandersnatch;
         }
         bandersnatch_ring_commitment_t res;
-        if (ark_vrf_cpp::ring_commitment(res.data(), res.size(), vkeys.data(), sizeof(vkeys)) != 0) [[unlikely]]
+        if (ark_vrf::ring_commitment(res, buffer { reinterpret_cast<const uint8_t *>(vkeys.data()), sizeof(vkeys) }) != 0) [[unlikely]]
             throw error("failed to generate a ring commitment!");
         return res;
     }
@@ -287,7 +287,7 @@ namespace turbo::jam {
 
             ticket_body_t tb;
             tb.attempt = t.attempt;
-            if (ark_vrf_cpp::ring_vrf_output(tb.id.data(), tb.id.size(), t.signature.data(), t.signature.size()) != 0) [[unlikely]]
+            if (ark_vrf::ring_vrf_output(tb.id, t.signature) != 0) [[unlikely]]
                 throw err_bad_ticket_proof_t {};
             if (prev_ticket && *prev_ticket >= tb)
                 throw err_bad_ticket_order_t {};
@@ -295,9 +295,8 @@ namespace turbo::jam {
             const auto it = std::lower_bound(res.gamma_ptr->a.begin(), res.gamma_ptr->a.end(), tb);
             if (it != res.gamma_ptr->a.end() && *it == tb) [[unlikely]]
                 throw err_duplicate_ticket_t {};
-            if (ark_vrf_cpp::ring_vrf_verify(CFG::V_validator_count, res.gamma_ptr->z.data(), res.gamma_ptr->z.size(),
-                    t.signature.data(), t.signature.size(),
-                    input.data(), input.size(), aux.data(), aux.size()) != 0) [[unlikely]]
+            if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, res.gamma_ptr->z,
+                    t.signature, input, aux) != 0) [[unlikely]]
                 throw err_bad_ticket_proof_t {};
             res.gamma_ptr->a.insert(it, std::move(tb));
         }

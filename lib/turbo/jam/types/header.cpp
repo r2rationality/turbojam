@@ -3,7 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <ark-vrf-cpp.hpp>
+#include <ark-vrf.hpp>
 #include "header.hpp"
 
 namespace turbo::jam {
@@ -12,7 +12,7 @@ namespace turbo::jam {
     {
         using namespace std::string_view_literals;
         entropy_t seal_vrf_output;
-        if (ark_vrf_cpp::ietf_vrf_output(seal_vrf_output, seal) != 0) [[unlikely]]
+        if (ark_vrf::ietf_vrf_output(seal_vrf_output, seal) != 0) [[unlikely]]
             throw err_bad_signature_t {};
         {
             uint8_vector seal_input {};
@@ -35,7 +35,7 @@ namespace turbo::jam {
                     throw error(fmt::format("unsupported type for tickets_or_keys: {}", typeid(T).name()));
                 }
             }, gamma_s);
-            if (ark_vrf_cpp::ietf_vrf_verify(vkey, seal, seal_input, unsigned_bytes()) != 0) [[unlikely]]
+            if (ark_vrf::ietf_vrf_verify(vkey, seal, seal_input, unsigned_bytes()) != 0) [[unlikely]]
                 throw err_bad_signature_t {};
         }
 
@@ -43,7 +43,7 @@ namespace turbo::jam {
             uint8_vector entropy_input {};
             entropy_input << "jam_entropy"sv;
             entropy_input << seal_vrf_output;
-            if (ark_vrf_cpp::ietf_vrf_verify(vkey, entropy_source, entropy_input, uint8_vector {}) != 0) [[unlikely]]
+            if (ark_vrf::ietf_vrf_verify(vkey, entropy_source, entropy_input, uint8_vector {}) != 0) [[unlikely]]
                 throw err_bad_signature_t {};
         }
     }

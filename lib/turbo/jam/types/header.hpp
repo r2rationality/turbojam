@@ -4,7 +4,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <ark-vrf-cpp.hpp>
+#include <ark-vrf.hpp>
 #include "common.hpp"
 
 namespace turbo::jam {
@@ -102,7 +102,7 @@ namespace turbo::jam {
         [[nodiscard]] entropy_t entropy() const
         {
             entropy_t res;
-            if (ark_vrf_cpp::ietf_vrf_output(res, entropy_source) != 0) [[unlikely]]
+            if (ark_vrf::ietf_vrf_output(res, entropy_source) != 0) [[unlikely]]
                 throw err_bad_signature_t {};
             return res;
         }
