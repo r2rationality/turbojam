@@ -318,19 +318,19 @@ namespace turbo::jam {
         const auto balance_threshold = account_balance_threshold(_service.lookup_metas, _service.storage);
         if (_service.info.base.balance >= balance_threshold) {
             if (v_z == 0) {
-                logger::trace("service {} write: delete key: {}", _p.service_id, key_data);
                 if (prev_val) {
+                    logger::trace("service {} write: delete key: {}", _p.service_id, key_data);
                     // move the stats update into the erase method?
                     _service.info.bytes -= sizeof(key_hash);
                     _service.info.bytes -= prev_val->size();
                     --_service.info.items;
                     _service.storage.erase(s_k);
                 } else {
-                    logger::trace("service {} trying to delete a missing key: {}", _p.service_id, key_data);
+                    logger::trace("service {} attempt to delete a missing key: {}", _p.service_id, key_data);
                 }
             } else {
                 auto val_data = _p.m.mem_read(v_o, v_z);
-                logger::trace("service {} write: set key: {} hash: {} val: {} new: {}", _p.service_id, key_data, key_hash, val_data, static_cast<bool>(prev_val));
+                logger::trace("service {} write: set key: {} hash: {} val: {} new: {}", _p.service_id, key_data, key_hash, val_data, !static_cast<bool>(prev_val));
                 if (prev_val) {
                     _service.info.bytes -= prev_val->size();
                 } else {
@@ -410,45 +410,43 @@ namespace turbo::jam {
     {
         return this->_safe_call([&] {
             logger::trace("PVM: host call #{}", id);
+            void (host_service_accumulate_t<CFG>::*call_func)() = nullptr;
             gas_t::base_type gas_used = 10;
             switch (id) {
-                case 100:
-                    gas_used = 0; break;
-                    break;
+                // generic
+                case 0: call_func = &host_service_accumulate_t::gas; break;
+                case 1: call_func = &host_service_accumulate_t::lookup; break;
+                case 2: call_func = &host_service_accumulate_t::read; break;
+                case 3: call_func = &host_service_accumulate_t::write; break;
+                case 4: call_func = &host_service_accumulate_t::info; break;
+                case 18: call_func = &host_service_accumulate_t::fetch; break;
+                // accumulate-specific
+                case 5: call_func = &host_service_accumulate_t::bless; break;
+                case 6: call_func = &host_service_accumulate_t::assign; break;
+                case 7: call_func = &host_service_accumulate_t::designate; break;
+                case 8: call_func = &host_service_accumulate_t::checkpoint; break;
+                case 9: call_func = &host_service_accumulate_t::new_; break;
+                case 10: call_func = &host_service_accumulate_t::upgrade; break;
                 case 11:
                     gas_used += this->_p.m.regs()[9];
+                    call_func = &host_service_accumulate_t::transfer;
                     break;
-                default:
+                case 12: call_func = &host_service_accumulate_t::eject; break;
+                case 13: call_func = &host_service_accumulate_t::query; break;
+                case 14: call_func = &host_service_accumulate_t::solicit; break;
+                case 15: call_func = &host_service_accumulate_t::forget; break;
+                case 16: call_func = &host_service_accumulate_t::yield; break;
+                case 27: call_func = &host_service_accumulate_t::provide; break;
+                case 100:
+                    gas_used = 0;
+                    call_func = &host_service_accumulate_t::log;
                     break;
-            }
-            this->_p.m.consume_gas(gas_used);
-            switch (id) {
-                // generic
-                case 0: this->gas(); break;
-                case 1: this->lookup(); break;
-                case 2: this->read(); break;
-                case 3: this->write(); break;
-                case 4: this->info(); break;
-                case 18: this->fetch(); break;
-                // accumulate-specific
-                case 5: bless(); break;
-                case 6: assign(); break;
-                case 7: designate(); break;
-                case 8: checkpoint(); break;
-                case 9: new_(); break;
-                case 10: upgrade(); break;
-                case 11: transfer(); break;
-                case 12: eject(); break;
-                case 13: query(); break;
-                case 14: solicit(); break;
-                case 15: forget(); break;
-                case 16: yield(); break;
-                case 27: provide(); break;
-                case 100: this->log(); break;
                 default:
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
-                    break;
+                    return;
             }
+            this->_p.m.consume_gas(gas_used);
+            (*this.*call_func)();
         });
     }
 
@@ -695,8 +693,8 @@ namespace turbo::jam {
         const auto z = omega[8];
         const auto h = this->_p.m.mem_read(o, 32);
         const auto l_k = this->_service.lookup_metas.make_key({ static_cast<buffer>(h), static_cast<uint32_t>(z) });
-        logger::trace("service: {} forget: h: {} l: {} key: {}", this->_p.service_id, h, z, l_k);
         const auto p_k = this->_service.preimages.make_key(static_cast<buffer>(h));
+        logger::trace("service: {} forget: h: {} l: {} l_key: {} p_key: {}", this->_p.service_id, h, z, l_k, p_k);
         auto l_res = this->_service.lookup_metas.get(l_k);
         if (!l_res) {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
@@ -710,13 +708,10 @@ namespace turbo::jam {
                 }
                 // Yes, fallthrough into case 0!
             case 0: {
-                if (auto p_res = this->_service.preimages.get(l_k); p_res) {
-                    this->_service.info.bytes -= p_res->size();
-                    this->_service.preimages.erase(p_k);
-                }
                 this->_service.info.items -= 2;
                 this->_service.info.bytes -= 81 + z;
                 this->_service.lookup_metas.erase(l_k);
+                this->_service.preimages.erase(p_k);
                 break;
             }
             case 1:
