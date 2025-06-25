@@ -194,7 +194,7 @@ namespace turbo::jam {
                 break;
             case 8:
                 if (_p.fetch.package) {
-                    encoder enc { _p.fetch.package->authorizer, _p.fetch.package->params };
+                    encoder enc { _p.fetch.package->authorizer };
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;

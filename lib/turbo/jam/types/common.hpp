@@ -467,12 +467,12 @@ namespace turbo::jam {
         gas_t::base_type refine_gas_limit;
         // GP a
         gas_t::base_type accumulate_gas_limit;
-        // GP e
-        uint16_t export_count;
         // GP i-bold
         sequence_t<import_spec_t> import_segments;
         // GP x-bold
         sequence_t<extrinsic_spec_t> extrinsic;
+        // GP e
+        uint16_t export_count;
 
         void serialize(auto &archive)
         {
@@ -482,9 +482,9 @@ namespace turbo::jam {
             archive.process("payload"sv, payload);
             archive.process("refine_gas_limit"sv, refine_gas_limit);
             archive.process("accumulate_gas_limit"sv, accumulate_gas_limit);
-            archive.process("export_count"sv, export_count);
             archive.process("import_segments"sv, import_segments);
             archive.process("extrinsic"sv, extrinsic);
+            archive.process("export_count"sv, export_count);
         }
 
         bool operator==(const work_item_t &o) const
@@ -504,8 +504,6 @@ namespace turbo::jam {
         service_id_t auth_code_host;
         // GP u
         authorizer_t authorizer;
-        // GP p-bold - params
-        byte_sequence_t params;
         // GP x-bold
         refine_context_t<CFG> context;
         // GP w-bold
