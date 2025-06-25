@@ -38,21 +38,6 @@ namespace turbo::container {
     template<typename T>
     concept shared_ptr_c = is_shared_ptr<T>::value;
 
-    template<typename T>
-    concept has_empty_or_shared_ptr_c = has_empty_c<T> || shared_ptr_c<T>;
-
-    template<typename T>
-    bool has_value(const T &v)
-    {
-        if constexpr (has_empty_c<T>) {
-            return !v.empty();
-        } else if constexpr (shared_ptr_c<T>) {
-            return static_cast<bool>(v);
-        } else {
-            throw error(fmt::format("has_value is not supported for type: {}", typeid(T).name()));
-        }
-    }
-
     template<typename M>
     struct std_map_update_api_t {
         using target_type = M;
@@ -77,9 +62,9 @@ namespace turbo::container {
                 obs(k, v);
         }
 
-        const mapped_type &get(const key_type &k) const
+        std::optional<mapped_type> get(const key_type &k) const
         {
-            static mapped_type empty {};
+            static std::optional<mapped_type> empty {};
             if (const auto it = _base.find(k); it != _base.end())
                 return it->second;
             return empty;
@@ -153,8 +138,6 @@ namespace turbo::container {
         using key_type = typename M::key_type;
         using mapped_type = typename M::mapped_type;
         using observer_t = std::function<void(const key_type &k, const mapped_type &v)>;
-        static_assert(has_empty_or_shared_ptr_c<mapped_type>);
-        //static_assert(has_get_erase_set_c<M>);
 
         update_map_t(base_map_api_type base):
             _base { std::move(base) }
@@ -173,24 +156,29 @@ namespace turbo::container {
 
         void erase(const key_type &k)
         {
-            set(k, {});
+            const auto base_val = _base.get(k);
+            if (base_val) {
+                if (auto [it, created] = _updates.try_emplace(k); !created)
+                    it->second.reset();
+            } else {
+                _updates.erase(k);
+            }
         }
 
         void foreach(const observer_t &obs) const
         {
             for (auto it = _updates.begin(); it != _updates.end(); ++it) {
-                if (has_value(it->second))
-                    obs(it->first, it->second);
+                if (it->second)
+                    obs(it->first, *it->second);
             }
             _base.foreach([&](const auto &k, const auto &v) {
-                if (has_value(v) && !_updates.contains(k))
+                if (!_updates.contains(k))
                     obs(k, v);
             });
         }
 
         std::optional<mapped_type> get(const key_type &k) const
         {
-            static std::optional<mapped_type> empty_val {};
             if (const auto it = _updates.find(k); it != _updates.end())
                 return it->second;
             return _base.get(k);
@@ -198,22 +186,30 @@ namespace turbo::container {
 
         void set(const key_type &k, mapped_type v)
         {
-            if (auto [it, created] = _updates.try_emplace(k, std::move(v)); !created)
-                it->second = std::move(v);
+            const auto base_val = _base.get(k);
+            if (base_val != v) {
+                if (auto [it, created] = _updates.try_emplace(k, std::move(v)); !created)
+                    it->second = std::move(v);
+            } else {
+                _updates.erase(k);
+            }
         }
 
         void consume_from(update_map_t &&o)
         {
             for (auto &&[k, upd]: o._updates) {
-                set(k, std::move(upd));
+                if (upd)
+                    set(k, std::move(*upd));
+                else
+                    erase(k);
             }
         }
 
         void commit(typename base_map_api_type::target_type &target)
         {
             for (auto it = _updates.begin(); it != _updates.end(); ++it) {
-                if (has_value(it->second)) {
-                    _base.set(target, it->first, std::move(it->second));
+                if (it->second) {
+                    _base.set(target, it->first, std::move(*it->second));
                 } else {
                     _base.erase(target, it->first);
                 }
@@ -227,6 +223,6 @@ namespace turbo::container {
         }
     private:
         base_map_api_type _base;
-        std::map<key_type, mapped_type> _updates {};
+        std::map<key_type, std::optional<mapped_type>> _updates {};
     };
 }

@@ -27,12 +27,12 @@ namespace turbo::jam {
             logger::trace("PVM: host call #{}", id);
             gas_t::base_type gas_used = 10;
             switch (id) {
-                case 0: base_type::gas(); break;
-                case 1: base_type::lookup(); break;
-                case 2: base_type::read(); break;
-                case 3: base_type::write(); break;
-                case 4: base_type::info(); break;
-                case 18: base_type::fetch(); break;
+                case 0: this->gas(); break;
+                case 1: this->lookup(); break;
+                case 2: this->read(); break;
+                case 3: this->write(); break;
+                case 4: this->info(); break;
+                case 18: this->fetch(); break;
                 default:
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
@@ -48,8 +48,8 @@ namespace turbo::jam {
             logger::trace("PVM: host call #{}", id);
             gas_t::base_type gas_used = 10;
             switch (id) {
-                case 0: base_type::gas(); break;
-                case 18: base_type::fetch(); break;
+                case 0: this->gas(); break;
+                case 18: this->fetch(); break;
                 default:
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
@@ -66,12 +66,12 @@ namespace turbo::jam {
             gas_t::base_type gas_used = 10;
             switch (id) {
                 // generic
-                case 0: base_type::gas(); break;
-                case 1: base_type::lookup(); break;
-                case 2: base_type::read(); break;
-                case 3: base_type::write(); break;
-                case 4: base_type::info(); break;
-                case 18: base_type::fetch(); break;
+                case 0: this->gas(); break;
+                case 1: this->lookup(); break;
+                case 2: this->read(); break;
+                case 3: this->write(); break;
+                case 4: this->info(); break;
+                case 18: this->fetch(); break;
                 // refine-specific
                 /*case 5: bless(); break;
                 case 6: assign(); break;
@@ -87,7 +87,7 @@ namespace turbo::jam {
                 case 16: yield(); break;*/
                 //case ??: return provide(); break;
                 case 100:
-                    base_type::log();
+                    this->log();
                     gas_used = 0;
                     break;
                 default:
@@ -325,10 +325,12 @@ namespace turbo::jam {
                     _service.info.bytes -= prev_val->size();
                     --_service.info.items;
                     _service.storage.erase(s_k);
+                } else {
+                    logger::trace("service {} trying to delete a missing key: {}", _p.service_id, key_data);
                 }
             } else {
                 auto val_data = _p.m.mem_read(v_o, v_z);
-                logger::trace("service {} write: set key: {} hash: {} val: {}", _p.service_id, key_data, key_hash, val_data);
+                logger::trace("service {} write: set key: {} hash: {} val: {} new: {}", _p.service_id, key_data, key_hash, val_data, static_cast<bool>(prev_val));
                 if (prev_val) {
                     _service.info.bytes -= prev_val->size();
                 } else {
@@ -422,12 +424,12 @@ namespace turbo::jam {
             this->_p.m.consume_gas(gas_used);
             switch (id) {
                 // generic
-                case 0: base_type::gas(); break;
-                case 1: base_type::lookup(); break;
-                case 2: base_type::read(); break;
-                case 3: base_type::write(); break;
-                case 4: base_type::info(); break;
-                case 18: base_type::fetch(); break;
+                case 0: this->gas(); break;
+                case 1: this->lookup(); break;
+                case 2: this->read(); break;
+                case 3: this->write(); break;
+                case 4: this->info(); break;
+                case 18: this->fetch(); break;
                 // accumulate-specific
                 case 5: bless(); break;
                 case 6: assign(); break;
@@ -442,7 +444,7 @@ namespace turbo::jam {
                 case 15: forget(); break;
                 case 16: yield(); break;
                 case 27: provide(); break;
-                case 100: base_type::log(); break;
+                case 100: this->log(); break;
                 default:
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;

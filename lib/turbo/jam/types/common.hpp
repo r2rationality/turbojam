@@ -783,6 +783,7 @@ namespace turbo::jam {
     };
     static_assert(codec::serializable_c<work_report_t<config_prod>>);
     static_assert(codec::serializable_c<work_report_t<config_tiny>>);
+
     template<typename CFG>
     using work_reports_t = sequence_t<work_report_t<CFG>>;
 

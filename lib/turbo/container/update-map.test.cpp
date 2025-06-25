@@ -14,10 +14,12 @@ suite turbo_container_update_map_suite = [] {
         "update & merge"_test = [] {
             std::map<size_t, uint8_vector> base {};
             update_map_t m { std_map_update_api_t { base } };
-            expect_equal(uint8_vector {}, m.get(22));
-            expect_equal(uint8_vector {}, m.get(33));
+            expect_equal(std::optional<uint8_vector> {}, m.get(22));
+            expect_equal(std::optional<uint8_vector> {}, m.get(33));
             m.set(22, uint8_vector {});
             expect_equal(uint8_vector {}, m.get(22));
+            m.erase(22);
+            expect_equal(std::optional<uint8_vector> {}, m.get(22));
             m.set(33, uint8_vector::from_hex("00112233"));
             expect_equal(uint8_vector::from_hex("00112233"), m.get(33));
             expect_equal(0ULL, base.size());
@@ -27,16 +29,16 @@ suite turbo_container_update_map_suite = [] {
         "revert"_test = [] {
             std::map<size_t, uint8_vector> base {};
             update_map_t m { std_map_update_api_t { base } };
-            m.set(22, uint8_vector {});
-            expect_equal(uint8_vector {}, m.get(22));
+            m.erase(22);
+            expect_equal(std::optional<uint8_vector> {}, m.get(22));
             m.set(22, uint8_vector::from_hex("00112233"));
             expect_equal(uint8_vector::from_hex("00112233"), m.get(22));
-            m.set(22, uint8_vector {});
-            expect_equal(uint8_vector {}, m.get(22));
+            m.erase(22);
+            expect_equal(std::optional<uint8_vector> {}, m.get(22));
             expect_equal(0ULL, base.size());
             m.rollback();
             expect_equal(0ULL, base.size());
-            expect_equal(uint8_vector {}, m.get(22));
+            expect_equal(std::optional<uint8_vector> {}, m.get(22));
         };
     };
 };
