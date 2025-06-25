@@ -42,20 +42,7 @@ namespace turbo::jam {
             return true;
         }
 
-        bool operator==(const extrinsic_t &o) const
-        {
-            if (tickets != o.tickets)
-                return false;
-            if (preimages != o.preimages)
-                return false;
-            if (guarantees != o.guarantees)
-                return false;
-            if (assurances != o.assurances)
-                return false;
-            if (disputes != o.disputes)
-                return false;
-            return true;
-        }
+        bool operator==(const extrinsic_t &o) const = default;
     };
 
     // JAM (5.1)
@@ -130,30 +117,7 @@ namespace turbo::jam {
             archive.process("seal"sv, seal);
         }
 
-        bool operator==(const header_t &o) const
-        {
-            if (parent != o.parent)
-                return false;
-            if (parent_state_root != o.parent_state_root)
-                return false;
-            if (extrinsic_hash != o.extrinsic_hash)
-                return false;
-            if (slot != o.slot)
-                return false;
-            if (epoch_mark != o.epoch_mark)
-                return false;
-            if (tickets_mark != o.tickets_mark)
-                return false;
-            if (offenders_mark != o.offenders_mark)
-                return false;
-            if (author_index != o.author_index)
-                return false;
-            if (entropy_source != o.entropy_source)
-                return false;
-            if (seal != o.seal)
-                return false;
-            return true;
-        }
+        bool operator==(const header_t &o) const = default;
     };
 
     // JAM (4.2)
@@ -169,14 +133,7 @@ namespace turbo::jam {
             archive.process("extrinsic"sv, extrinsic);
         }
 
-        bool operator==(const block_t &o) const
-        {
-            if (header != o.header)
-                return false;
-            if (extrinsic != o.extrinsic)
-                return false;
-            return true;
-        }
+        bool operator==(const block_t &o) const = default;
     };
 
     // JAM (6.3) - Changed: new order k, y_z, y_s, y_a but not reflected in the tests yet
@@ -196,7 +153,7 @@ namespace turbo::jam {
             archive.process("a"sv, a);
         }
 
-        bool operator==(const safrole_state_t &o) const noexcept;
+        bool operator==(const safrole_state_t &o) const noexcept = default;
     };
 
     template<typename CFG>
@@ -248,13 +205,6 @@ namespace turbo::jam {
             archive.process("reporters"sv, reporters);
         }
 
-        bool operator==(const reports_output_data_t &o) const
-        {
-            if (reported != o.reported)
-                return false;
-            if (reporters != o.reporters)
-                return false;
-            return true;
-        }
+        bool operator==(const reports_output_data_t &o) const = default;
     };
 }

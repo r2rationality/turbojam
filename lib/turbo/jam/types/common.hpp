@@ -320,10 +320,7 @@ namespace turbo::jam {
             archive.process("metadata"sv, metadata);
         }
 
-        bool operator==(const validator_data_t &o) const
-        {
-            return bandersnatch == o.bandersnatch && ed25519 == o.ed25519 && bls == o.bls && metadata == o.metadata;
-        }
+        bool operator==(const validator_data_t &o) const = default;
     };
     static_assert(sizeof(validator_data_t) == 336); // JAM paper (6.8)
 
@@ -353,22 +350,7 @@ namespace turbo::jam {
             archive.process("prerequisites"sv, prerequisites);
         }
 
-        bool operator==(const refine_context_t &o) const
-        {
-            if (anchor != o.anchor)
-                return false;
-            if (state_root != o.state_root)
-                return false;
-            if (beefy_root != o.beefy_root)
-                return false;
-            if (lookup_anchor != o.lookup_anchor)
-                return false;
-            if (lookup_anchor_slot != o.lookup_anchor_slot)
-                return false;
-            if (prerequisites != o.prerequisites)
-                return false;
-            return true;
-        }
+        bool operator==(const refine_context_t &o) const = default;
     };
 
     struct authorizer_t {
@@ -382,10 +364,7 @@ namespace turbo::jam {
             archive.process("params"sv, params);
         }
 
-        bool operator==(const authorizer_t &o) const
-        {
-            return code_hash == o.code_hash && params == o.params;
-        }
+        bool operator==(const authorizer_t &o) const = default;
     };
 
     using authorizer_hash_t = opaque_hash_t;
@@ -411,10 +390,7 @@ namespace turbo::jam {
             archive.process("auth_hash"sv, auth_hash);
         }
 
-        bool operator==(const core_authorizer_t &o) const
-        {
-            return core == o.core && auth_hash == o.auth_hash;
-        }
+        bool operator==(const core_authorizer_t &o) const = default;
     };
     using core_authorizers_t = sequence_t<core_authorizer_t>;
 
@@ -432,10 +408,7 @@ namespace turbo::jam {
             archive.process("index"sv, index);
         }
 
-        bool operator==(const import_spec_t &o) const
-        {
-            return tree_root == o.tree_root && index == o.index;
-        }
+        bool operator==(const import_spec_t &o) const = default;
     };
 
     struct extrinsic_spec_t {
@@ -449,10 +422,7 @@ namespace turbo::jam {
             archive.process("len"sv, len);
         }
 
-        bool operator==(const extrinsic_spec_t &o) const
-        {
-            return hash == o.hash && len == o.len;
-        }
+        bool operator==(const extrinsic_spec_t &o) const = default;
     };
 
     struct work_item_t {
@@ -487,13 +457,7 @@ namespace turbo::jam {
             archive.process("export_count"sv, export_count);
         }
 
-        bool operator==(const work_item_t &o) const
-        {
-            return service == o.service && code_hash == o.code_hash && payload == o.payload
-                && refine_gas_limit == o.refine_gas_limit && accumulate_gas_limit == o.accumulate_gas_limit
-                && import_segments == o.import_segments && extrinsic == o.extrinsic
-                && export_count == o.export_count;
-        }
+        bool operator==(const work_item_t &o) const = default;
     };
 
     template<typename CFG>
@@ -519,12 +483,7 @@ namespace turbo::jam {
             archive.process("items"sv, items);
         }
 
-        bool operator==(const work_package_t &o) const
-        {
-            return authorization == o.authorization && auth_code_host == o.auth_code_host
-                && authorizer == o.authorizer && context == o.context
-                && items == o.items;
-        }
+        bool operator==(const work_package_t &o) const = default;
     };
 
     struct work_result_ok_t {
@@ -535,10 +494,7 @@ namespace turbo::jam {
             archive.process_bytes(data);
         }
 
-        bool operator==(const work_result_ok_t &o) const
-        {
-            return data == o.data;
-        }
+        bool operator==(const work_result_ok_t &o) const = default;
     };
 
     struct work_result_out_of_gas_t {
@@ -646,20 +602,7 @@ namespace turbo::jam {
             archive.process("exports"sv, exports);
         }
 
-        bool operator==(const refine_load_t &o) const
-        {
-            if (gas_used != o.gas_used)
-                return false;
-            if (imports != o.imports)
-                return false;
-            if (extrinsic_count != o.extrinsic_count)
-                return false;
-            if (extrinsic_size != o.extrinsic_size)
-                return false;
-            if (exports != o.exports)
-                return false;
-            return true;
-        }
+        bool operator==(const refine_load_t &o) const = default;
     };
 
     // JAM (11.6)
@@ -683,22 +626,7 @@ namespace turbo::jam {
             archive.process("refine_load"sv, refine_load);
         }
 
-        bool operator==(const work_result_t &o) const
-        {
-            if (service_id != o.service_id)
-                return false;
-            if (code_hash != o.code_hash)
-                return false;
-            if (payload_hash != o.payload_hash)
-                return false;
-            if (accumulate_gas != o.accumulate_gas)
-                return false;
-            if (result != o.result)
-                return false;
-            if (refine_load != o.refine_load)
-                return false;
-            return true;
-        }
+        bool operator==(const work_result_t &o) const = default;
     };
     using work_results_t = sequence_t<work_result_t, 1, 16>;
 
@@ -719,12 +647,7 @@ namespace turbo::jam {
             archive.process("exports_count"sv, exports_count);
         }
 
-        bool operator==(const work_package_spec_t &o) const
-        {
-            return hash == o.hash && length == o.length && erasure_root == o.erasure_root
-                && erasure_root == o.erasure_root && exports_root == o.exports_root
-                && exports_count == o.exports_count;
-        }
+        bool operator==(const work_package_spec_t &o) const = default;
     };
 
     struct segment_root_lookup_item {
@@ -738,10 +661,7 @@ namespace turbo::jam {
             archive.process("segment_tree_root"sv, segment_tree_root);
         }
 
-        bool operator==(const segment_root_lookup_item &o) const
-        {
-            return work_package_hash == o.work_package_hash && segment_tree_root == o.segment_tree_root;
-        }
+        bool operator==(const segment_root_lookup_item &o) const = default;
     };
 
     using segment_root_lookup_t = sequence_t<segment_root_lookup_item>;
@@ -771,13 +691,7 @@ namespace turbo::jam {
             archive.process("auth_gas_used"sv, auth_gas_used);
         }
 
-        bool operator==(const work_report_t &o) const
-        {
-            return package_spec == o.package_spec && context == o.context && core_index == o.core_index
-                && authorizer_hash == o.authorizer_hash && auth_output == o.auth_output
-                && segment_root_lookup == o.segment_root_lookup && results == o.results
-                && auth_gas_used == o.auth_gas_used;
-        }
+        bool operator==(const work_report_t &o) const = default;
     };
     static_assert(codec::serializable_c<work_report_t<config_prod>>);
     static_assert(codec::serializable_c<work_report_t<config_tiny>>);
@@ -801,18 +715,7 @@ namespace turbo::jam {
             archive.process("signature"sv, signature);
         }
 
-        bool operator==(const avail_assurance_t &o) const
-        {
-            if (anchor != o.anchor)
-                return false;
-            if (bitfield != o.bitfield)
-                return false;
-            if (validator_index != o.validator_index)
-                return false;
-            if (signature != o.signature)
-                return false;
-            return true;
-        }
+        bool operator==(const avail_assurance_t &o) const = default;
     };
 
     template<typename CFG=config_prod>
@@ -830,10 +733,7 @@ namespace turbo::jam {
             archive.process("timeout"sv, timeout);
         }
 
-        bool operator==(const availability_assignment_t &o) const
-        {
-            return report == o.report && timeout == o.timeout;
-        }
+        bool operator==(const availability_assignment_t &o) const = default;
     };
 
     template<typename CFG>
@@ -874,10 +774,7 @@ namespace turbo::jam {
             return hash <=> o.hash;
         }
 
-        bool operator==(const reported_work_package_t &o) const noexcept
-        {
-            return hash == o.hash && exports_root == o.exports_root;
-        }
+        bool operator==(const reported_work_package_t &o) const noexcept = default;
     };
     using reported_work_seq_t = set_t<reported_work_package_t>;
 
@@ -898,10 +795,7 @@ namespace turbo::jam {
             archive.process("reported"sv, reported);
         }
 
-        bool operator==(const block_info_t &o) const noexcept
-        {
-            return header_hash == o.header_hash && mmr == o.mmr && state_root == o.state_root && reported == o.reported;
-        }
+        bool operator==(const block_info_t &o) const noexcept = default;
     };
 
     template<typename CFG=config_prod>
@@ -926,22 +820,7 @@ namespace turbo::jam {
             archive.process("assurances"sv, assurances);
         }
 
-        bool operator==(const activity_record_t &o) const
-        {
-            if (blocks != o.blocks)
-                return false;
-            if (tickets != o.tickets)
-                return false;
-            if (pre_images != o.pre_images)
-                return false;
-            if (pre_images_size != o.pre_images_size)
-                return false;
-            if (guarantees != o.guarantees)
-                return false;
-            if (assurances != o.assurances)
-                return false;
-            return true;
-        }
+        bool operator==(const activity_record_t &o) const = default;
     };
 
     using ticket_id_t = opaque_hash_t;
@@ -958,14 +837,7 @@ namespace turbo::jam {
             archive.process("signature"sv, signature);
         }
 
-        bool operator==(const ticket_envelope_t &o) const
-        {
-            if (attempt != o.attempt)
-                return false;
-            if (signature != o.signature)
-                return false;
-            return true;
-        }
+        bool operator==(const ticket_envelope_t &o) const = default;
     };
 
     // JAM (6.6)
@@ -1171,18 +1043,7 @@ namespace turbo::jam {
             archive.process("offenders"sv, offenders);
         }
 
-        bool operator==(const disputes_records_t &o) const
-        {
-            if (good != o.good)
-                return false;
-            if (bad != o.bad)
-                return false;
-            if (wonky != o.wonky)
-                return false;
-            if (offenders != o.offenders)
-                return false;
-            return true;
-        }
+        bool operator==(const disputes_records_t &o) const = default;
     };
 
     template<typename CFG>
@@ -1210,16 +1071,7 @@ namespace turbo::jam {
             return true;
         }
 
-        bool operator==(const disputes_extrinsic_t &o) const
-        {
-            if (verdicts != o.verdicts)
-                return false;
-            if (culprits != o.culprits)
-                return false;
-            if (faults != o.faults)
-                return false;
-            return true;
-        }
+        bool operator==(const disputes_extrinsic_t &o) const = default;
     };
 
     struct preimage_t {
@@ -1240,10 +1092,7 @@ namespace turbo::jam {
             return blob <=> o.blob;
         }
 
-        bool operator==(const preimage_t &o) const noexcept
-        {
-            return (*this <=> o) == std::strong_ordering::equal;
-        }
+        bool operator==(const preimage_t &o) const noexcept = default;
     };
 
     using preimages_extrinsic_t = sequence_t<preimage_t>;
@@ -1259,10 +1108,7 @@ namespace turbo::jam {
             archive.process("signature"sv, signature);
         }
 
-        bool operator==(const validator_signature_t &o) const
-        {
-            return validator_index == o.validator_index && signature == o.signature;
-        }
+        bool operator==(const validator_signature_t &o) const = default;
     };
 
     template<typename CFG>
@@ -1279,16 +1125,7 @@ namespace turbo::jam {
             archive.process("signatures"sv, signatures);
         }
 
-        bool operator==(const report_guarantee_t &o) const
-        {
-            if (report != o.report)
-                return false;
-            if (slot != o.slot)
-                return false;
-            if (signatures != o.signatures)
-                return false;
-            return true;
-        }
+        bool operator==(const report_guarantee_t &o) const = default;
     };
 
     template<typename CFG=config_prod>
@@ -1308,14 +1145,7 @@ namespace turbo::jam {
             archive.process("dependencies"sv, dependencies);
         }
 
-        bool operator==(const ready_record_t &o) const
-        {
-            if (report != o.report)
-                return false;
-            if (dependencies != o.dependencies)
-                return false;
-            return true;
-        }
+        bool operator==(const ready_record_t &o) const = default;
     };
 
     template<typename CFG>
@@ -1340,10 +1170,7 @@ namespace turbo::jam {
             archive.process("gas"sv, gas);
         }
 
-        bool operator==(const always_accumulate_map_item_t &o) const
-        {
-            return id == o.id && gas == o.gas;
-        }
+        bool operator==(const always_accumulate_map_item_t &o) const = default;
     };
 
     using free_services_t = sequence_t<always_accumulate_map_item_t>;
@@ -1363,18 +1190,7 @@ namespace turbo::jam {
             archive.process("always_acc"sv, always_acc);
         }
 
-        bool operator==(const privileges_t &o) const
-        {
-            if (bless != o.bless)
-                return false;
-            if (assign != o.assign)
-                return false;
-            if (designate != o.designate)
-                return false;
-            if (always_acc != o.always_acc)
-                return false;
-            return true;
-        }
+        bool operator==(const privileges_t &o) const = default;
     };
 
     using accumulate_root_t = opaque_hash_t;
@@ -1390,10 +1206,7 @@ namespace turbo::jam {
             archive.process("ed25519"sv, ed25519);
         }
 
-        bool operator==(const epoch_mark_validator_keys_t &o) const
-        {
-            return bandersnatch == o.bandersnatch && ed25519 == o.ed25519;
-        }
+        bool operator==(const epoch_mark_validator_keys_t &o) const = default;
     };
 
     template<typename CFG>
@@ -1441,10 +1254,7 @@ namespace turbo::jam {
             archive.process("validators", validators);
         }
 
-        bool operator==(const epoch_mark_t &o) const
-        {
-            return entropy == o.entropy && tickets_entropy == o.tickets_entropy && validators == o.validators;
-        }
+        bool operator==(const epoch_mark_t &o) const = default;
     };
 
     template<typename CFG=config_prod>
@@ -1478,26 +1288,7 @@ namespace turbo::jam {
             archive.process("gas_used"sv, gas_used);
         }
 
-        bool operator==(const core_activity_record_t &o) const
-        {
-            if (da_load != o.da_load)
-                return false;
-            if (popularity != o.popularity)
-                return false;
-            if (imports != o.imports)
-                return false;
-            if (exports != o.exports)
-                return false;
-            if (extrinsic_size != o.extrinsic_size)
-                return false;
-            if (extrinsic_count != o.extrinsic_count)
-                return false;
-            if (bundle_size != o.bundle_size)
-                return false;
-            if (gas_used != o.gas_used)
-                return false;
-            return true;
-        }
+        bool operator==(const core_activity_record_t &o) const = default;
     };
 
     template<typename CFG>
@@ -1534,34 +1325,7 @@ namespace turbo::jam {
             archive.process("on_transfers_gas_used"sv, on_transfers_gas_used);
         }
 
-        bool operator==(const service_activity_record_t &o) const
-        {
-            if (provided_count != o.provided_count)
-                return false;
-            if (provided_size != o.provided_size)
-                return false;
-            if (refinement_count != o.refinement_count)
-                return false;
-            if (refinement_gas_used != o.refinement_gas_used)
-                return false;
-            if (imports != o.imports)
-                return false;
-            if (exports != o.exports)
-                return false;
-            if (extrinsic_size != o.extrinsic_size)
-                return false;
-            if (extrinsic_count != o.extrinsic_count)
-                return false;
-            if (accumulate_count != o.accumulate_count)
-                return false;
-            if (accumulate_gas_used != o.accumulate_gas_used)
-                return false;
-            if (on_transfers_count != o.on_transfers_count)
-                return false;
-            if (on_transfers_gas_used != o.on_transfers_gas_used)
-                return false;
-            return true;
-        }
+        bool operator==(const service_activity_record_t &o) const = default;
     };
 
     struct services_statistics_config_t {
@@ -1586,17 +1350,6 @@ namespace turbo::jam {
             archive.process("services"sv, services);
         }
 
-        bool operator==(const statistics_t &o) const
-        {
-            if (current != o.current)
-                return false;
-            if (last != o.last)
-                return false;
-            if (cores != o.cores)
-                return false;
-            if (services != o.services)
-                return false;
-            return true;
-        }
+        bool operator==(const statistics_t &o) const = default;
     };
 }

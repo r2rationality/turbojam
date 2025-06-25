@@ -170,22 +170,7 @@ namespace turbo::jam {
             items += o.items;
         }
 
-        bool operator==(const service_info_t &o) const noexcept
-        {
-            if (code_hash != o.code_hash)
-                return false;
-            if (balance != o.balance)
-                return false;
-            if (min_item_gas != o.min_item_gas)
-                return false;
-            if (min_memo_gas != o.min_memo_gas)
-                return false;
-            if (bytes != o.bytes)
-                return false;
-            if (items != o.items)
-                return false;
-            return true;
-        }
+        bool operator==(const service_info_t &o) const noexcept = default;
     };
 
     inline service_info_t service_info_update_t::combine() const
@@ -483,18 +468,7 @@ namespace turbo::jam {
             archive.process("info"sv, info);
         }
 
-        bool operator==(const account_t &o) const
-        {
-            if (storage != o.storage)
-                return false;
-            if (preimages != o.preimages)
-                return false;
-            if (lookup_metas != o.lookup_metas)
-                return false;
-            if (info != o.info)
-                return false;
-            return true;
-        }
+        bool operator==(const account_t &o) const = default;
     };
 
     struct accounts_config_t {
@@ -771,24 +745,7 @@ namespace turbo::jam {
             archive.process("auth_output"sv, auth_output);
         }
 
-        bool operator==(const accumulate_operand_t &o) const
-        {
-            if (work_package_hash != o.work_package_hash)
-                return false;
-            if (exports_root != o.exports_root)
-                return false;
-            if (authorizer_hash != o.authorizer_hash)
-                return false;
-            if (auth_output != o.auth_output)
-                return false;
-            if (payload_hash != o.payload_hash)
-                return false;
-            if (accumulate_gas != o.accumulate_gas)
-                return false;
-            if (result != o.result)
-                return false;
-            return true;
-        }
+        bool operator==(const accumulate_operand_t &o) const = default;
     };
     using accumulate_operands_t = sequence_t<accumulate_operand_t>;
     using accumulate_service_operands_t = std::map<service_id_t, accumulate_operands_t>;

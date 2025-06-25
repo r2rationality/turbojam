@@ -17,23 +17,6 @@
 
 namespace turbo::jam {
     template<typename CFG>
-    bool safrole_state_t<CFG>::operator==(const safrole_state_t &o) const noexcept
-    {
-        if (a != o.a)
-            return false;
-        if (k != o.k)
-            return false;
-        if (s != o.s)
-            return false;
-        if (z != o.z)
-            return false;
-        return true;
-    }
-
-    template struct safrole_state_t<config_prod>;
-    template struct safrole_state_t<config_tiny>;
-
-    template<typename CFG>
     bool state_t<CFG>::operator==(const state_t &o) const noexcept
     {
         if (alpha.get() != o.alpha.get())
