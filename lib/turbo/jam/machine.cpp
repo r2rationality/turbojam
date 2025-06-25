@@ -71,11 +71,17 @@ namespace turbo::jam::machine {
         {
         }
 
+        // this must be re-entrant as it can be called again after a host call
         result_t run()
         {
             try {
                 for (;;) {
-                    if (_pc >= _program.code.size()) [[unlikely]]
+                    if (!_current_block_sz) {
+                        _current_block_sz = _basic_block_len();
+                        consume_gas(numeric_cast<gas_t::base_type>(_current_block_sz));
+                    }
+                    _basic_block_run();
+                    /*if (_pc >= _program.code.size()) [[unlikely]]
                         throw exit_panic_t {}; // equivalent to executing the trap instruction
                     if (!_program.bitmasks.test(_pc)) [[unlikely]]
                         throw exit_panic_t {};
@@ -85,7 +91,7 @@ namespace turbo::jam::machine {
                     const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
                     const auto &op = _opcode_info(opcode);
                     const auto new_pc = (this->*op.exec)(data);
-                    _pc = new_pc.value_or(_pc + len + 1);
+                    _pc = new_pc.value_or(_pc + len + 1);*/
                 }
             } catch (exit_halt_t &ex) {
                 return { std::move(ex) };
@@ -200,6 +206,7 @@ namespace turbo::jam::machine {
         page_map_t _pages;
         register_val_t _heap_end = 0;
         register_val_t _stack_begin = 0;
+        register_val_t _current_block_sz = 0;
 
         using op_res_t = std::optional<register_val_t>;
         using op_exec_t = op_res_t(impl::*)(buffer);
@@ -224,6 +231,7 @@ namespace turbo::jam::machine {
             std::string_view name;
             op_exec_t exec;
             op_arg_t typ;
+            bool block_end = false;
         };
 
         static size_t _skip_len(const register_val_t opcode_pc, const bit_vector_t &bitmasks)
@@ -242,8 +250,8 @@ namespace turbo::jam::machine {
             static opcode_t undef { "undefined"sv, &impl::trap, op_arg_t::none };
             static std::array<opcode_t, 0x100> ops {
                 // 0x00
-                opcode_t { "trap"sv, &impl::trap, op_arg_t::none },
-                opcode_t { "fallthrough"sv, &impl::fallthrough, op_arg_t::none },
+                opcode_t { "trap"sv, &impl::trap, op_arg_t::none, true },
+                opcode_t { "fallthrough"sv, &impl::fallthrough, op_arg_t::none, true },
                 undef, undef,
                 undef, undef, undef, undef,
                 // 0x08
@@ -266,12 +274,12 @@ namespace turbo::jam::machine {
                 undef, undef,
                 undef, undef, undef, undef,
                 // 0x28
-                { "jump", &impl::jump, op_arg_t::off1 },
+                { "jump", &impl::jump, op_arg_t::off1, true },
                 undef, undef, undef,
                 undef, undef, undef, undef,
                 // 0x30
                 undef, undef,
-                opcode_t { "jump_ind", &impl::jump_ind, op_arg_t::reg1_imm1 },
+                opcode_t { "jump_ind", &impl::jump_ind, op_arg_t::reg1_imm1, true },
                 opcode_t { "load_imm", &impl::load_imm, op_arg_t::reg1_imm1 },
                 opcode_t { "load_u8", &impl::load_u8, op_arg_t::reg1_imm1 },
                 opcode_t { "load_i8", &impl::load_i8, op_arg_t::reg1_imm1 },
@@ -297,18 +305,18 @@ namespace turbo::jam::machine {
                 undef, undef,
                 undef, undef, undef, undef,
                 // 0x50
-                opcode_t { "load_imm_jump", &impl::load_imm_jump, op_arg_t::reg1_imm1_off1 },
-                opcode_t { "branch_eq_imm", &impl::branch_eq_imm, op_arg_t::reg1_imm1_off1 },
-                opcode_t { "branch_ne_imm", &impl::branch_ne_imm, op_arg_t::reg1_imm1_off1 },
-                opcode_t { "branch_lt_u_imm", &impl::branch_lt_u_imm, op_arg_t::reg1_imm1_off1 },
-                opcode_t { "branch_le_u_imm", &impl::branch_le_u_imm, op_arg_t::reg1_imm1_off1 },
-                opcode_t { "branch_ge_u_imm", &impl::branch_ge_u_imm, op_arg_t::reg1_imm1_off1 },
-                opcode_t { "branch_gt_u_imm", &impl::branch_gt_u_imm, op_arg_t::reg1_imm1_off1 },
-                opcode_t { "branch_lt_s_imm", &impl::branch_lt_s_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "load_imm_jump", &impl::load_imm_jump, op_arg_t::reg1_imm1_off1, true },
+                opcode_t { "branch_eq_imm", &impl::branch_eq_imm, op_arg_t::reg1_imm1_off1, true },
+                opcode_t { "branch_ne_imm", &impl::branch_ne_imm, op_arg_t::reg1_imm1_off1, true },
+                opcode_t { "branch_lt_u_imm", &impl::branch_lt_u_imm, op_arg_t::reg1_imm1_off1, true },
+                opcode_t { "branch_le_u_imm", &impl::branch_le_u_imm, op_arg_t::reg1_imm1_off1, true },
+                opcode_t { "branch_ge_u_imm", &impl::branch_ge_u_imm, op_arg_t::reg1_imm1_off1, true },
+                opcode_t { "branch_gt_u_imm", &impl::branch_gt_u_imm, op_arg_t::reg1_imm1_off1, true },
+                opcode_t { "branch_lt_s_imm", &impl::branch_lt_s_imm, op_arg_t::reg1_imm1_off1, true },
                 //0x58
-                opcode_t { "branch_le_s_imm", &impl::branch_le_s_imm, op_arg_t::reg1_imm1_off1 },
-                opcode_t { "branch_ge_s_imm", &impl::branch_ge_s_imm, op_arg_t::reg1_imm1_off1 },
-                opcode_t { "branch_ge_s_imm", &impl::branch_ge_s_imm, op_arg_t::reg1_imm1_off1 },
+                opcode_t { "branch_le_s_imm", &impl::branch_le_s_imm, op_arg_t::reg1_imm1_off1, true },
+                opcode_t { "branch_ge_s_imm", &impl::branch_ge_s_imm, op_arg_t::reg1_imm1_off1, true },
+                opcode_t { "branch_ge_s_imm", &impl::branch_ge_s_imm, op_arg_t::reg1_imm1_off1, true },
                 undef,
                 undef, undef, undef, undef,
                 // 0x60
@@ -381,15 +389,15 @@ namespace turbo::jam::machine {
                 undef, undef, undef, undef,
                 // 0xA8
                 undef, undef,
-                opcode_t { "branch_eq", &impl::branch_eq, op_arg_t::reg2_off1 },
-                opcode_t { "branch_ne", &impl::branch_ne, op_arg_t::reg2_off1 },
-                opcode_t { "branch_lt_u", &impl::branch_lt_u, op_arg_t::reg2_off1 },
-                opcode_t { "branch_lt_s", &impl::branch_lt_s, op_arg_t::reg2_off1 },
-                opcode_t { "branch_ge_u", &impl::branch_ge_u, op_arg_t::reg2_off1 },
-                opcode_t { "branch_ge_s", &impl::branch_ge_s, op_arg_t::reg2_off1 },
+                opcode_t { "branch_eq", &impl::branch_eq, op_arg_t::reg2_off1, true },
+                opcode_t { "branch_ne", &impl::branch_ne, op_arg_t::reg2_off1, true },
+                opcode_t { "branch_lt_u", &impl::branch_lt_u, op_arg_t::reg2_off1, true },
+                opcode_t { "branch_lt_s", &impl::branch_lt_s, op_arg_t::reg2_off1, true },
+                opcode_t { "branch_ge_u", &impl::branch_ge_u, op_arg_t::reg2_off1, true },
+                opcode_t { "branch_ge_s", &impl::branch_ge_s, op_arg_t::reg2_off1, true },
                 // 0xB0
                 undef, undef, undef, undef,
-                opcode_t { "load_imm_jump_ind", &impl::load_imm_jump_ind, op_arg_t::reg2_imm2 },
+                opcode_t { "load_imm_jump_ind", &impl::load_imm_jump_ind, op_arg_t::reg2_imm2, true },
                 undef, undef, undef,
                 // 0xB8
                 undef, undef, undef, undef,
@@ -559,6 +567,40 @@ namespace turbo::jam::machine {
             const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
             return std::make_tuple(nu_x, nu_y);
+        }
+
+        register_val_t _basic_block_len() const
+        {
+            if (_pc >= _program.code.size()) [[unlikely]]
+                throw exit_panic_t {}; // equivalent to executing the trap instruction
+            register_val_t len = 1;
+            for (register_val_t pos = _pc; ; ++len) {
+                if (!_program.bitmasks.test(pos)) [[unlikely]]
+                    throw exit_panic_t {};
+                const uint8_t opcode = _program.code[pos];
+                pos += _skip_len(pos, _program.bitmasks) + 1;
+                if (pos >= _program.code.size())
+                    break;
+                const auto &op_info = _opcode_info(opcode);
+                if (op_info.block_end)
+                    break;
+            }
+            return len;
+        }
+
+        void _basic_block_run()
+        {
+            op_res_t new_pc {};
+            while (_current_block_sz) {
+                --_current_block_sz;
+                const uint8_t opcode = _program.code[_pc];
+                const auto len = _skip_len(_pc, _program.bitmasks);
+                const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
+                const auto &op = _opcode_info(opcode);
+                new_pc = (this->*op.exec)(data);
+                _pc += len + 1;
+            }
+            _pc = new_pc.value_or(_pc);
         }
 
         op_res_t load_imm_base(const buffer data, const size_t max_size)

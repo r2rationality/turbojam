@@ -60,7 +60,7 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
-        test_program(file::install_path("test/pvm-test-vectors/pvm/programs/inst_load_i16.json"));
+        //test_program(file::install_path("test/pvm-test-vectors/pvm/programs/inst_load_i16.json"));
         for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/programs"), ".json")) {
             test_program(path);
         }
