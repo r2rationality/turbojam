@@ -117,26 +117,34 @@ namespace turbo::jam::machine {
         uint8_vector _bytes;
     };
 
-    struct exit_halt_t final {
+    struct exit_halt_t final: error {
+        exit_halt_t(): error { "exit_halt_t" } {}
         bool operator==(const exit_halt_t &) const
         {
             return true;
         }
     };
-    struct exit_panic_t final {
+    struct exit_panic_t final: error {
+        exit_panic_t(): error { "exit_panic_t" } {}
         bool operator==(const exit_panic_t &) const
         {
             return true;
         }
     };
-    struct exit_out_of_gas_t final {
+    struct exit_out_of_gas_t final: error {
+        exit_out_of_gas_t(): error { "exit_out_of_gas_t" } {}
         bool operator==(const exit_out_of_gas_t &) const
         {
             return true;
         }
     };
-    struct exit_page_fault_t final {
-        register_val_t addr = 0;
+    struct exit_page_fault_t final: error {
+        register_val_t addr;
+
+        exit_page_fault_t(const register_val_t a=0):
+            error { "exit_page_fault_t" },
+            addr { a }
+        {}
 
         bool operator==(const exit_page_fault_t &o) const
         {
@@ -145,8 +153,13 @@ namespace turbo::jam::machine {
             return true;
         }
     };
-    struct exit_host_call_t final {
-        register_val_t id = 0;
+    struct exit_host_call_t final: error {
+        register_val_t id;
+
+        exit_host_call_t(const register_val_t id):
+            error { "exit_host_call_t" },
+            id { id }
+        {}
 
         bool operator==(const exit_host_call_t &o) const
         {
