@@ -628,15 +628,15 @@ namespace turbo::jam {
                 this->_p.m.set_reg(8, 0ULL);
                 break;
             case 1:
-                this->_p.m.set_reg(7, 1 + numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U);
+                this->_p.m.set_reg(7, 1 + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
                 this->_p.m.set_reg(8, 0ULL);
                 break;
             case 2:
-                this->_p.m.set_reg(7, 2 + numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U);
+                this->_p.m.set_reg(7, 2 + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
                 this->_p.m.set_reg(8, numeric_cast<machine::register_val_t>((*a)[1].slot()));
                 break;
             case 3:
-                this->_p.m.set_reg(7, 3 + numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U);
+                this->_p.m.set_reg(7, 3 + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
                 this->_p.m.set_reg(8, numeric_cast<machine::register_val_t>((*a)[1].slot()) + numeric_cast<machine::register_val_t>((*a)[2].slot()) << 32U);
                 break;
             [[unlikely]] default:
@@ -694,7 +694,7 @@ namespace turbo::jam {
                     this->_p.m.set_reg(7, machine::host_call_res_t::huh);
                     return;
                 }
-                // Yes, fallthrough into case 0!
+                [[fallthrough]]; // Yes, fallthrough into case 0!
             case 0: {
                 this->_service.info.items -= 2;
                 this->_service.info.bytes -= 81 + z;
