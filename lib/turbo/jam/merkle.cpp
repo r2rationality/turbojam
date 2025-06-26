@@ -146,10 +146,19 @@ namespace turbo::jam::merkle {
         struct node_t {
             key_t key;
             uint8_t prefix_sz;
-            std::optional<value_t> value;
+            opt_value_t value;
             node_ptr_t left {};
             node_ptr_t right {};
             mutable std::optional<hash_t> _hash {};
+
+            node_t(const key_t &k, const uint8_t psz, opt_value_t &&val, node_ptr_t l={}, node_ptr_t r={}):
+                key { k },
+                prefix_sz { psz },
+                value { std::move(val) },
+                left { std::move(l) },
+                right { std::move(r) }
+            {
+            }
 
             [[nodiscard]] const hash_t &hash(const hash_func &hf)
             {
@@ -239,9 +248,10 @@ namespace turbo::jam::merkle {
 
         [[nodiscard]] static uint8_t _shared_prefix_size(const key_t &a, const key_t &b)
         {
-            for (uint8_t i = 0; i < prefix_max; ++i) {
-                if (a.bit(i) != b.bit(i))
-                    return i;
+            for (size_t i = 0; i < a.size(); ++i) {
+                if (const uint8_t diff = a[i] ^ b[i]; diff != 0) {
+                    return (i << 3U) + std::countl_zero(diff);
+                }
             }
             return prefix_max;
         }
