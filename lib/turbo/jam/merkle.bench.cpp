@@ -61,7 +61,7 @@ suite turbo_jam_merkle_bench_suite = [] {
                 for (size_t i = 0; i < num_items; ++i) {
                     const auto v = buffer { reinterpret_cast<const uint8_t *>(&i), sizeof(i) };
                     const auto h = crypto::blake2b::digest(v);
-                    key_t k = static_cast<buffer>(h).subbuf(1);
+                    jam::merkle::key_t k = static_cast<buffer>(h).subbuf(1);
                     trie.set(k, v);
                 }
                 ankerl::nanobench::doNotOptimizeAway(trie.root());
