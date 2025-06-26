@@ -637,7 +637,7 @@ namespace turbo::jam {
                 break;
             case 3:
                 this->_p.m.set_reg(7, 3 + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
-                this->_p.m.set_reg(8, numeric_cast<machine::register_val_t>((*a)[1].slot()) + numeric_cast<machine::register_val_t>((*a)[2].slot()) << 32U);
+                this->_p.m.set_reg(8, numeric_cast<machine::register_val_t>((*a)[1].slot()) + (numeric_cast<machine::register_val_t>((*a)[2].slot()) << 32U));
                 break;
             [[unlikely]] default:
                 throw machine::exit_panic_t {};
