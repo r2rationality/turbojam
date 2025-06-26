@@ -101,25 +101,17 @@ namespace {
             archive.process(name, taccs);
             st.delta.clear();
             for (auto &&[id, tacc]: taccs) {
-                service_storage_t storage { st.kv_store, st.state_dict, service_storage_t::make_trie_key_func(id) };
+                auto [it, created] = st.delta.try_create(id);
                 for (auto &&[k, v]: tacc.storage) {
                     encoder enc {};
                     enc.uint_fixed(4, id);
                     enc.next_bytes(k);
-                    storage.set(storage.make_key(crypto::blake2b::digest<opaque_hash_t>(enc.bytes())), static_cast<buffer>(v));
+                    it->second.storage.set(it->second.storage.make_key(crypto::blake2b::digest<opaque_hash_t>(enc.bytes())), static_cast<buffer>(v));
                 }
-                preimages_t preimages { st.kv_store, st.state_dict, preimages_t::make_trie_key_func(id) };
                 for (auto &&[k, v]: tacc.preimages) {
-                    preimages.set(preimages.make_key(k), write_vector { v });
+                    it->second.preimages.set(it->second.preimages.make_key(k), write_vector { v });
                 }
-                lookup_metas_t<CONSTANTS> lookup_metas { st.kv_store, st.state_dict, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) };
-                account_t<CONSTANTS> acc {
-                    .preimages=std::move(preimages),
-                    .lookup_metas=std::move(lookup_metas),
-                    .storage=std::move(storage),
-                    .info={ st.state_dict, state_dict_t::make_key(255U, id), std::move(tacc.service) }
-                };
-                const auto [it, created] = st.delta.try_emplace(std::move(id), std::move(acc));
+                it->second.info.set(std::move(tacc.service));
                 if (!created) [[unlikely]]
                     throw error(fmt::format("a duplicate account in the service map!"));
             }
@@ -196,7 +188,8 @@ namespace {
             tmp_st.nu.set(std::move(res.new_nu));
             tmp_st.ksi.set(std::move(res.new_ksi));
             tmp_st.phi.set(std::move(res.new_phi));
-            tmp_st.iota.set(std::move(res.new_iota));
+            // Do not update iota since the test cases do not provide such values
+            //tmp_st.iota.set(std::move(res.new_iota));
             tmp_st.chi.set(std::move(res.new_chi));
             if (res.service_updates)
                 res.service_updates->commit(tmp_st.delta);
@@ -212,10 +205,8 @@ namespace {
         }
         if (out.has_value()) {
             expect(out == tc.out) << path;
-            const auto same_state = res_st == tc.post;
-            expect(same_state) << path;
-            if (!same_state)
-                std::cout << fmt::format("{} state diff: {}\n", path, res_st.diff(tc.post));
+            if (const auto same_state = expect_equal(tc.post.state_dict->root(), res_st.state_dict->root()); !same_state)
+                logger::info("{} state diff: {}", path, res_st.state_dict->diff(*tc.post.state_dict));
         } else {
             expect(false) << path;
         }

@@ -51,34 +51,29 @@ namespace turbo::jam {
             return set(k, v);
         }
 
-        bool operator==(const state_snapshot_t &o) const
+        [[nodiscard]] std::string diff(const state_dict_t &o) const
         {
-            //if (size() != o.size()) [[unlikely]]
-            //    return false;
-            bool ok = true;
+            std::string diff {};
+            auto diff_it = std::back_inserter(diff);
             size_t key_matches = 0;
-            for (const auto &[k, v]: o) {
-                auto ov = make_value(v);
-                auto my_v = get(k);
+            o.foreach([&](const auto &o_k, const auto &o_v) {
+                auto my_v = get(o_k);
                 if (!my_v) [[unlikely]] {
-                    logger::info("missing key: {}", k);
-                    ok = false;
+                    diff_it = fmt::format_to(diff_it, "missing key: {}", o_k);
                 }
                 ++key_matches;
-                if (my_v != ov) [[unlikely]] {
-                    logger::info("key {}: expected {}, got {}", k, ov, my_v);
-                    ok = false;
+                if (my_v != o_v) [[unlikely]] {
+                    diff_it = fmt::format_to(diff_it, "key {}: expected {}, got {}", o_k, o_v, my_v);
                 }
-            }
+            });
             if (key_matches != size()) [[unlikely]] {
                 foreach([&](const auto &k, const auto &) {
-                    if (!o.contains(k)) {
-                        logger::info("extra key: {}", k);
-                        ok = false;
+                    if (!o.get(k)) {
+                        diff_it = fmt::format_to(diff_it, "extra key: {}", k);
                     }
                 });
             }
-            return ok;
+            return diff;
         }
 
         bool operator==(const state_dict_t &o) const

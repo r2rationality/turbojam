@@ -54,38 +54,6 @@ namespace turbo::jam {
         return true;
     }
 
-    template<typename CFG>
-    std::optional<std::string> state_t<CFG>::diff(const state_t &o) const
-    {
-        using namespace std::string_view_literals;
-        std::string diff_text {};
-        auto oit = std::back_inserter(diff_text);
-        const auto compare_item = [&](const std::string_view &name, const auto &a, const auto &b) {
-            if (a != b)
-                oit = fmt::format_to(oit, "{} left: {}\n{} right {}\n", name, a, name, b);
-        };
-        compare_item("alpha"sv, alpha.get(), o.alpha.get());
-        compare_item("beta"sv, beta.get(), o.beta.get());
-        compare_item("gamma"sv, gamma.get(), o.gamma.get());
-        compare_item("delta"sv, delta, o.delta);
-        compare_item("eta"sv, eta.get(), o.eta.get());
-        compare_item("iota"sv, iota.get(), o.iota.get());
-        compare_item("kappa"sv, kappa.get(), o.kappa.get());
-        compare_item("lambda"sv, lambda.get(), o.lambda.get());
-        compare_item("nu"sv, nu.get(), o.nu.get());
-        compare_item("ksi"sv, ksi.get(), o.ksi.get());
-        compare_item("pi"sv, pi.get(), o.pi.get());
-        compare_item("rho"sv, rho.get(), o.rho.get());
-        compare_item("tau"sv, tau.get(), o.tau.get());
-        compare_item("phi"sv, phi.get(), o.phi.get());
-        compare_item("chi"sv, chi.get(), o.chi.get());
-        compare_item("psi"sv, psi.get(), o.psi.get());
-        std::optional<std::string> res {};
-        if (!diff_text.empty())
-            res.emplace(std::move(diff_text));
-        return res;
-    }
-
     // JAM paper (6.14)
     template<typename CFG>
     validators_data_t<CFG> state_t<CFG>::_capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o)

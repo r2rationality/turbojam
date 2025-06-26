@@ -844,7 +844,6 @@ namespace turbo::jam {
         persistent_value_t<accumulated_queue_t<CFG>> ksi { state_dict, 15U }; // JAM (12.1): recently accumulated reports
         accounts_t<CFG> delta { kv_store, state_dict }; // services
 
-        [[nodiscard]] std::optional<std::string> diff(const state_t &o) const;
         state_t &operator=(const state_snapshot_t &o);
 
         // (4.1): Kapital upsilon
