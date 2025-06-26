@@ -20,7 +20,7 @@ namespace turbo::jam {
 
         [[nodiscard]] merkle::hash_t root() const
         {
-            return merkle::trie::compute_root(*this);
+            return merkle::trie_t { *this }.root();
         }
     };
 

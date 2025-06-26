@@ -11,47 +11,17 @@
 #include "merkle.hpp"
 
 namespace turbo::jam::merkle {
-    namespace trie {
-        static hash_t encode(const std::span<const compact_node_t> &nodes, const size_t bit_no, const hash_func &hf)
-        {
-            hash_t res;
-            switch (nodes.size()) {
-                case 0:
-                    res = {};
-                    break;
-                case 1:
-                    res = nodes.front().hash(hf);
-                    break;
-                default: {
-                    auto edge_it = nodes.begin();
-                    while (edge_it != nodes.end() && !edge_it->bit(bit_no))
-                        ++edge_it;
-                    const auto h_l = encode(std::span { nodes.begin(), edge_it }, bit_no + 1, hf);
-                    const auto h_r = encode(std::span { edge_it, nodes.end() }, bit_no + 1, hf);
-                    res = compact_node_t { h_l, h_r }.hash(hf);
-                    break;
-                }
-            }
-            //logger::info("encode v2: level={} nodes={} hash={}", bit_no, nodes.size(), static_cast<buffer>(res));
-            return res;
-        }
-
-        hash_t compute_root(const node_map_t &nodes, const hash_func &hf)
-        {
-            return encode(nodes, 0, hf);
-        }
-
-        hash_t compute_root(const input_map_t &inputs, const hash_func &hf)
-        {
-            const node_map_t nodes { inputs, hf };
-            return compute_root(nodes, hf);
-        }
-    }
-
     struct trie_t::impl {
-        explicit impl(const hash_func &hf):
+        impl(const hash_func &hf):
             _hash_func { hf }
         {
+        }
+
+        impl(const trie::input_map_t &inputs, const hash_func &hf):
+            _hash_func { hf }
+        {
+            for (const auto &kv: inputs)
+                set(kv.first, kv.second);
         }
 
         impl(const impl &o):
@@ -282,6 +252,12 @@ namespace turbo::jam::merkle {
             return empty;
         }
     };
+
+    trie_t::trie_t(const trie::input_map_t &inputs, const hash_func &hf):
+        _impl { std::make_unique<impl>(inputs, hf) }
+    {
+    }
+
 
     trie_t::trie_t(const hash_func &hf):
         _impl { std::make_unique<impl>(hf) }

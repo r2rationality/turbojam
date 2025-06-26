@@ -67,17 +67,6 @@ suite turbo_jam_merkle_suite = [] {
                 prev_root = new_root;
             }
         };
-        "compressed vs naive"_test = [&] {
-            trie::input_map_t input {};
-            trie_t trie { hf };
-            for (size_t i = 0; i < 0x200; ++i) {
-                const auto k = state_dict_t::make_key(i, state_key_subhash_t {});
-                const uint8_vector v { fmt::format("{}", i) };
-                trie.set(k, v);
-                input.emplace(k, v);
-                expect(trie.root() == trie::compute_root(input, blake2b_hash_func)) << i;
-            }
-        };
         "compressed"_test = [&] {
             size_t case_no = 0;
             for (const auto &vector: test_vectors.as_array()) {
@@ -89,23 +78,6 @@ suite turbo_jam_merkle_suite = [] {
                     trie.set(tk, uint8_vector::from_hex(json::value_to<std::string_view>(v)));
                 }
                 expect_equal(exp_out, trie.root(), fmt::format("#{}", case_no));
-                ++case_no;
-            }
-        };
-        "naive"_test = [&] {
-            size_t case_no = 0;
-            for (const auto &vector: test_vectors.as_array()) {
-                if (case_no == 6) {
-                    const auto &input = vector.at("input").as_object();
-                    const auto exp_out = hash_t::from_hex(json::value_to<std::string_view>(vector.at("output")));
-                    trie::input_map_t input_m {};
-                    for (const auto &[k, v]: input) {
-                        const auto tk = trie::key_t::from_hex(k.substr(0, 62));
-                        input_m.emplace(tk, uint8_vector::from_hex(json::value_to<std::string_view>(v)));
-                    }
-                    const auto act_out = trie::compute_root(input_m);
-                    expect_equal(exp_out, act_out, fmt::format("#{}", case_no));
-                }
                 ++case_no;
             }
         };

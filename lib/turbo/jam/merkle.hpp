@@ -167,24 +167,6 @@ namespace turbo::jam::merkle {
             }
         };
         static_assert(sizeof(node_t) == 64U);
-
-        struct node_map_t: boost::container::flat_set<compact_node_t> {
-            using base_type = flat_set<compact_node_t>;
-            using base_type::base_type;
-
-            node_map_t(const input_map_t &inputs, const hash_func &hf):
-                _hf { hf }
-            {
-                reserve(inputs.size());
-                for (const auto &[k, v]: inputs)
-                    emplace_hint(end(), k, v, _hf);
-            }
-        private:
-            const hash_func _hf;
-        };
-
-        extern hash_t compute_root(const node_map_t &inputs, const hash_func &hf=blake2b_hash_func);
-        extern hash_t compute_root(const input_map_t &inputs, const hash_func &hf=blake2b_hash_func);
     }
 
     struct trie_t {
@@ -193,6 +175,7 @@ namespace turbo::jam::merkle {
         using opt_value_t = std::optional<value_t>;
         using observer_t = std::function<void(const key_t &, const value_t &)>;
 
+        trie_t(const trie::input_map_t &inputs, const hash_func &hf=blake2b_hash_func);
         trie_t(const hash_func &hf=blake2b_hash_func);
         trie_t(const trie_t &o);
         trie_t(trie_t &&o);
