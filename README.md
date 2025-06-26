@@ -14,23 +14,23 @@ please check whether the issue also occurs in one of the supported environments 
 When reporting a problem, include details about your build setup to help with troubleshooting.
 
 ### Ubuntu Linux 24.04 LTS
-1. Clone the repository including all submodules:
-   ```
-   git clone --recursice https://github.com/r2rationality/turbojam.git
-   cd turbojam
-   ```
-3. Install the necessary packages:
+1. Install the necessary dependencies:
    ```
    sudo apt update
-   sudo apt install -y ninja-build cmake build-essential curl libboost-all-dev libfmt-dev libsodium-dev libssl-dev pkgconf
+   sudo apt install -y git ninja-build cmake build-essential curl libboost-all-dev libfmt-dev libsodium-dev libssl-dev libspdlog-dev pkgconf
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
    . $HOME/.cargo/env
    ```
-4. Configure the build with CMake
+2. Clone the repository including all submodules:
+   ```
+   git clone --recursive https://github.com/r2rationality/turbojam.git
+   cd turbojam
+   ```
+3. Configure the build with CMake
    ```
    cmake -B build-gcc-rel -G Ninja
    ```
-5. Prepare the binaries:
+4. Prepare the binaries:
    ```
    cmake --build build-gcc-rel -j -t all
    ```
