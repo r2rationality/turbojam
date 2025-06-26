@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <turbo/common/logger.hpp>
+#include <turbo/common/pool-allocator.hpp>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/keccak.hpp>
 #include "merkle.hpp"
@@ -123,7 +124,7 @@ namespace turbo::jam::merkle {
 
         const value_t &set(const key_t &key, value_t val)
         {
-            auto new_node = std::make_shared<node_t>(key, prefix_max, std::move(val));
+            auto new_node = _nodes.make_ptr(key, prefix_max, std::move(val));
             if (!_root) {
                 ++_size;
                 _root = std::move(new_node);
@@ -134,7 +135,7 @@ namespace turbo::jam::merkle {
             if (node) {
                 if (shared_sz < prefix_max) {
                     ++_size;
-                    auto split_node = std::make_shared<node_t>(node->key, node->prefix_sz, std::move(node->value), std::move(node->left), std::move(node->right));
+                    auto split_node = _nodes.make_ptr(node->key, node->prefix_sz, std::move(node->value), std::move(node->left), std::move(node->right));
                     node->prefix_sz = shared_sz;
                     node->value.reset();
                     if (key.bit(shared_sz)) {
@@ -170,13 +171,14 @@ namespace turbo::jam::merkle {
         }
     private:
         struct node_t;
-        using node_ptr_t = std::shared_ptr<node_t>;
+        using allocator_type = pool_allocator_t<node_t, 0x10000>;
+        using node_ptr_t = allocator_type::ptr_t;
         struct node_t {
             key_t key;
             uint8_t prefix_sz;
             std::optional<value_t> value;
-            node_ptr_t left;
-            node_ptr_t right;
+            node_ptr_t left {};
+            node_ptr_t right {};
             mutable std::optional<hash_t> _hash {};
 
             [[nodiscard]] const hash_t &hash(const hash_func &hf)
@@ -214,6 +216,7 @@ namespace turbo::jam::merkle {
         };
 
         const hash_func _hash_func;
+        allocator_type _nodes {};
         node_ptr_t _root {};
         size_t _size = 0;
 
@@ -241,7 +244,7 @@ namespace turbo::jam::merkle {
             return res;
         }
 
-        static bool _erase(std::shared_ptr<node_t> &root, const key_t &key)
+        static bool _erase(node_ptr_t &root, const key_t &key)
         {
             if (!root)
                 return false;
