@@ -436,7 +436,7 @@ namespace turbo::jam {
     }
 
     template<typename L, typename S>
-    balance_t account_balance_threshold(const L &l, const S &s)
+    std::pair<size_t, size_t> account_balance_threshold_stats(const L &l, const S &s)
     {
         size_t a_i = 0;
         size_t a_o = 0;
@@ -448,6 +448,13 @@ namespace turbo::jam {
             a_i += 1;
             a_o += 32 + v.size();
         });
+        return std::make_pair(a_i, a_o);
+    }
+
+    template<typename L, typename S>
+    balance_t account_balance_threshold(const L &l, const S &s)
+    {
+        const auto [a_i, a_o] = account_balance_threshold_stats(l, s);
         return account_balance_threshold_raw(a_i, a_o);
     }
 

@@ -247,7 +247,7 @@ namespace turbo::jam {
             const auto o = omega[7];
             const auto f = std::min(omega[8], v->size());
             const auto l = std::min(omega[9], v->size() - f);
-            _p.m.mem_write(o, static_cast<buffer>(*v).subbuf(0, l));
+            _p.m.mem_write(o, static_cast<buffer>(*v).subbuf(f, l));
             _p.m.set_reg(7, v->size());
         } else {
             _p.m.set_reg(7, machine::host_call_res_t::none);
@@ -283,11 +283,12 @@ namespace turbo::jam {
         const auto ko = omega[8];
         const auto kz = omega[9];
         const auto o = omega[10];
-        encoder enc {};
-        enc.uint_fixed(4, s_id);
-        enc.next_bytes(_p.m.mem_read(ko, kz));
         std::optional<write_vector> val {};
         if (a) {
+            encoder enc {};
+            enc.uint_fixed(4, s_id);
+            const auto key = _p.m.mem_read(ko, kz);
+            enc.next_bytes(key);
             const auto s_k = a->storage.make_key(crypto::blake2b::digest<opaque_hash_t>(enc.bytes()));
             val = a->storage.get(s_k);
         }
@@ -302,8 +303,7 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    void host_service_base_t<CFG>::write()
-    {
+    void host_service_base_t<CFG>::write() {
         const auto k_o = _p.m.regs()[7];
         const auto k_z = _p.m.regs()[8];
         const auto key_data = _p.m.mem_read(k_o, k_z);
@@ -313,10 +313,20 @@ namespace turbo::jam {
         const auto key_hash = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
         const auto v_o = _p.m.regs()[9];
         const auto v_z = _p.m.regs()[10];
+        const auto val_data = _p.m.mem_read(v_o, v_z);
         const auto s_k = _service.storage.make_key(key_hash);
         const auto prev_val = _service.storage.get(s_k);
-        const auto balance_threshold = account_balance_threshold(_service.lookup_metas, _service.storage);
-        if (_service.info.base.balance >= balance_threshold) {
+        // The threshold must be computed assuming that the new item is written
+        auto [a_i, a_o] = account_balance_threshold_stats(_service.lookup_metas, _service.storage);
+        if (!prev_val) {
+            ++a_i;
+            a_o += val_data.size();
+        } else {
+            a_o += val_data.size() - prev_val->size();
+        }
+        const auto balance_threshold = account_balance_threshold_raw(a_i, a_o);
+        const auto info = _service.info.combine();
+        if (info.balance >= balance_threshold) {
             if (v_z == 0) {
                 if (prev_val) {
                     logger::trace("service {} write: delete key: {}", _p.service_id, key_data);
@@ -329,7 +339,6 @@ namespace turbo::jam {
                     logger::trace("service {} attempt to delete a missing key: {}", _p.service_id, key_data);
                 }
             } else {
-                auto val_data = _p.m.mem_read(v_o, v_z);
                 logger::trace("service {} write: set key: {} hash: {} val: {} new: {}", _p.service_id, key_data, key_hash, val_data, !static_cast<bool>(prev_val));
                 if (prev_val) {
                     _service.info.bytes -= prev_val->size();
@@ -381,7 +390,7 @@ namespace turbo::jam {
         if (omega[8] != 0 || omega[9] != 0)
             target.emplace(_p.m.mem_read(omega[8], omega[9]).str());
         const auto msg = _p.m.mem_read(omega[10], omega[11]);
-        logger::trace("[PVM/{}] [level={}]: {}", target, level, msg.str());
+        logger::trace("[PVM/{}] [level={}]: {}", target.value_or("default"), level, msg.str());
     }
 
     template<typename CFG>
