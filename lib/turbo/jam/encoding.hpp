@@ -377,9 +377,9 @@ namespace turbo::jam {
         void process_bytes(std::vector<uint8_t> &bytes)
         {
             const auto sz = uint_varlen<size_t>();
-            bytes.reserve(sz);
-            for (size_t i = 0; i < sz; ++i)
-                bytes.emplace_back(next());
+            bytes.resize(sz);
+            const auto data = next_bytes(sz);
+            memcpy(bytes.data(), data.data(), sz);
         }
 
         void process_bytes_fixed(const std::span<uint8_t> bytes)
