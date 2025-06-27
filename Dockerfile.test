@@ -1,5 +1,5 @@
 FROM ubuntu:24.04
-LABEL MAINTAINER "R2 Rationality <info@r2rationality.com>"
+LABEL MAINTAINER="R2 Rationality <info@r2rationality.com>"
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN mv /etc/apt/sources.list /etc/apt/sources.list.orig
@@ -32,8 +32,8 @@ COPY CMakeLists.txt /home/dev/turbojam/
 RUN sudo chown -R dev:dev /home/dev/turbojam/
 RUN mkdir /home/dev/turbojam/log
 WORKDIR /home/dev/turbojam
-RUN test -d /home/dev/turbojam/3rdparty/msquic/bld && rm -rf /home/dev/turbojam/3rdparty/msquic/bld
-RUN test -d /home/dev/turbojam/3rdparty/msquic/build && rm -rf /home/dev/turbojam/3rdparty/msquic/build
+RUN test ! -d /home/dev/turbojam/3rdparty/msquic/bld || rm -rf /home/dev/turbojam/3rdparty/msquic/bld
+RUN test ! -d /home/dev/turbojam/3rdparty/msquic/build || rm -rf /home/dev/turbojam/3rdparty/msquic/build
 ENV PATH=/home/dev/.cargo/bin:$PATH
 RUN cmake -B build -G Ninja
 RUN cmake --build build -t run-test
