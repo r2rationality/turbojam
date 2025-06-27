@@ -1,0 +1,28 @@
+name: CI
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  test:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build docker image
+        run: docker build -t turbojam:test -f Dockerfile.test .
+      - name: Run unit tests
+        id: tests
+        run: |
+          docker run --rm turbojam:test sh -c "./build/run-test" # adjust for your test command
+        continue-on-error: true
+      - name: Set badge color
+        id: badge
+        run: |
+          if [ ${{ steps.tests.outcome }} == 'success' ]; then
+            echo "color=brightgreen" >> $GITHUB_OUTPUT
+            echo "result=passing" >> $GITHUB_OUTPUT
+          else
+            echo "color=red" >> $GITHUB_OUTPUT
+            echo "result=failing" >> $GITHUB_OUTPUT
+          fi
