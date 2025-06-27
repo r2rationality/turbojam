@@ -2,6 +2,8 @@
 
 TurboJAM is a C++ implementation of the [JAM paper](https://github.com/gavofyork/graypaper) by Gavin Wood.
 
+![Unit tests](https://github.com/r2rationality/turbojam/actions/workflows/ci.yml/badge.svg)
+
 ## Build Instructions
 
 The code is regularly tested in the following build environments for the x86-64 architecture:
