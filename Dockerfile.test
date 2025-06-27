@@ -1,0 +1,41 @@
+FROM ubuntu:24.04
+LABEL MAINTAINER "R2 Rationality <info@r2rationality.com>"
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN mv /etc/apt/sources.list /etc/apt/sources.list.orig
+RUN sed 's/archive.ubuntu.com/de.archive.ubuntu.com/g' /etc/apt/sources.list.orig > /etc/apt/sources.list
+RUN apt-get update
+RUN apt-get install -y tzdata screen vim-nox dnsutils iputils-ping net-tools curl wget sudo strace gnupg2
+RUN ln -fs /usr/share/zoneinfo/Europe/Berlin /etc/localtime
+RUN dpkg-reconfigure --frontend noninteractive tzdata
+RUN cp /etc/sudoers /etc/sudoers.orig
+RUN awk '{ if (/^%sudo/) { print "%sudo\tALL=(ALL:ALL) NOPASSWD:ALL" } else { print } }' /etc/sudoers.orig > /etc/sudoers
+RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 31F54F3E108EAD31
+RUN apt-get update
+RUN apt-get install -y build-essential cmake pkg-config git zstd
+RUN apt-get install -y pv telnet whois
+RUN apt-get install -y libboost1.83-all-dev libboost-url1.83-dev libsodium-dev libsecp256k1-dev libzstd-dev libssl-dev libfmt-dev libspdlog-dev libbotan-2-dev
+RUN apt-get install -y ninja-build libsecp256k1-dev
+RUN useradd -m -s /bin/bash -d /home/dev -G sudo dev
+
+USER dev
+RUN mkdir -p /home/dev
+WORKDIR /home/dev
+RUN curl  --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+COPY 3rdparty /home/dev/turbojam/3rdparty
+COPY data /home/dev/turbojam/data
+COPY etc /home/dev/turbojam/etc
+COPY test /home/dev/turbojam/test
+COPY lib /home/dev/turbojam/lib
+COPY src /home/dev/turbojam/src
+COPY CMakeLists.txt /home/dev/turbojam/
+RUN sudo chown -R dev:dev /home/dev/turbojam/
+RUN mkdir /home/dev/turbojam/log
+WORKDIR /home/dev/turbojam
+RUN test -d /home/dev/turbojam/3rdparty/msquic/bld && rm -rf /home/dev/turbojam/3rdparty/msquic/bld
+RUN test -d /home/dev/turbojam/3rdparty/msquic/build && rm -rf /home/dev/turbojam/3rdparty/msquic/build
+ENV PATH=/home/dev/.cargo/bin:$PATH
+RUN cmake -B build -G Ninja
+RUN cmake --build build -t run-test
+WORKDIR /home/dev/turbojam
+CMD [ "/bin/bash" ]
