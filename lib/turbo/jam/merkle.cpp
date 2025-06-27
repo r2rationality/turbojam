@@ -175,11 +175,10 @@ namespace turbo::jam::merkle {
                     if (ptr->value) {
                         ptr->_hash = trie::compact_node_t { ptr->key, ptr->value.value() }.hash(hf);
                     } else {
-                        const auto item_hash = trie::compact_node_t {
+                        hash_t res = trie::compact_node_t {
                             branch_hash(ptr->left.get(), hf, ptr->prefix_sz + 1),
                             branch_hash(ptr->right.get(), hf, ptr->prefix_sz + 1)
                         }.hash(hf);
-                        hash_t res = item_hash;
                         for (uint8_t bit = ptr->prefix_sz; bit > bit_start; --bit) {
                             if (ptr->key.bit(bit - 1)) {
                                 res = trie::compact_node_t { _empty_hash(), res }.hash(hf);
