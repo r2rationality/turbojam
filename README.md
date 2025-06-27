@@ -8,7 +8,7 @@ TurboJAM is a C++ implementation of the [JAM paper](https://github.com/gavofyork
 
 The code is regularly tested in the following build environments for the x86-64 architecture:
 - Microsoft Visual C++ (included with Visual Studio Community 2022 on Windows)
-- Clang 18 on Ubuntu 24.04
+- Clang 19 on Ubuntu 24.04
 - GCC 13 on Ubuntu 24.04
 
 If you encounter compilation issues in a different environment,
