@@ -48,7 +48,7 @@ namespace turbo::storage::filedb {
             }
         }
 
-        std::optional<write_vector> get(const buffer key) const
+        std::optional<uint8_vector> get(const buffer key) const
         {
             const auto key_path = _key_path(key);
             if (std::filesystem::exists(key_path))
@@ -102,7 +102,7 @@ namespace turbo::storage::filedb {
         _impl->foreach(obs);
     }
 
-    std::optional<write_vector> client_t::get(const buffer key) const
+    std::optional<uint8_vector> client_t::get(const buffer key) const
     {
         return _impl->get(key);
     }

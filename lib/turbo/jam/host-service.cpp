@@ -263,7 +263,7 @@ namespace turbo::jam {
         const auto o = omega[9];
         const opaque_hash_t key { _p.m.mem_read(h, 32) };
         const auto p_k = a->preimages.make_key(key);
-        std::optional<write_vector> val {};
+        std::optional<uint8_vector> val {};
         if (a)
             val = a->preimages.get(p_k);
         if (val) {
@@ -283,7 +283,7 @@ namespace turbo::jam {
         const auto ko = omega[8];
         const auto kz = omega[9];
         const auto o = omega[10];
-        std::optional<write_vector> val {};
+        std::optional<uint8_vector> val {};
         if (a) {
             encoder enc {};
             enc.uint_fixed(4, s_id);
@@ -764,7 +764,7 @@ namespace turbo::jam {
         }
         ++this->_service.info.items;
         this->_service.info.bytes += 32 + i.size();
-        this->_service.preimages.set(p_k, write_vector { i });
+        this->_service.preimages.set(p_k, uint8_vector { i });
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 

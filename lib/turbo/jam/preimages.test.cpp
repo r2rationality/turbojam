@@ -115,7 +115,7 @@ namespace {
             for (auto &&[id, tacc]: taccs) {
                 preimages_t preimages { st.kv_store, st.state_dict, preimages_t::make_trie_key_func(id) };
                 for (auto &&[k, v]: tacc.preimages) {
-                    preimages.set(preimages.make_key(k), write_vector { static_cast<buffer>(v) });
+                    preimages.set(preimages.make_key(k), uint8_vector { static_cast<buffer>(v) });
                 }
                 lookup_metas_t<CONSTANTS> lookup_metas { st.kv_store, st.state_dict, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) };
                 for (auto &&[k, v]: tacc.lookup_metas) {

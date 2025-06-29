@@ -238,12 +238,12 @@ namespace turbo::jam {
             for (const auto &trie_k: _keys) {
                 const auto &sd_v = _state_dict->get(trie_k);
                 if (sd_v) {
-                    auto val = std::visit([&](const auto &v) -> std::optional<write_vector> {
+                    auto val = std::visit([&](const auto &v) -> std::optional<uint8_vector> {
                         using T = std::decay_t<decltype(v)>;
                         if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
                             return _kv_store->get(v);
                         } else {
-                            return write_vector { buffer { v.data(), v.size() } };
+                            return uint8_vector { buffer { v.data(), v.size() } };
                         }
                     }, *sd_v);
                     if (val)
@@ -256,12 +256,12 @@ namespace turbo::jam {
         {
             if (_keys.contains(k)) {
                 const auto &sd_v = _state_dict->get(k);
-                auto val = std::visit([&](const auto &v) -> std::optional<write_vector> {
+                auto val = std::visit([&](const auto &v) -> std::optional<uint8_vector> {
                     using T = std::decay_t<decltype(v)>;
                     if constexpr (std::is_same_v<T, state_dict_t::value_hash_t>) {
                         return _kv_store->get(v);
                     } else {
-                        return write_vector { buffer { v.data(), v.size() } };
+                        return uint8_vector { buffer { v.data(), v.size() } };
                     }
                 }, *sd_v);
                 if (val)
@@ -309,9 +309,9 @@ namespace turbo::jam {
         trie_key_func_t _try_key_func;
         keys_t _keys {};
 
-        static write_vector _encode(V v)
+        static uint8_vector _encode(V v)
         {
-            if constexpr (std::is_same_v<V, write_vector>) {
+            if constexpr (std::is_same_v<V, uint8_vector>) {
                 return std::move(v);
             } else {
                 encoder enc { v };
@@ -319,9 +319,9 @@ namespace turbo::jam {
             }
         }
 
-        static V _decode(write_vector bytes)
+        static V _decode(uint8_vector bytes)
         {
-            if constexpr (std::is_same_v<V, write_vector>) {
+            if constexpr (std::is_same_v<V, uint8_vector>) {
                 return bytes;
             } else {
                 decoder dec { bytes };
@@ -332,8 +332,8 @@ namespace turbo::jam {
         }
     };
 
-    struct preimages_t: state_dict_based_map_t<opaque_hash_t, write_vector> {
-        using base_type = state_dict_based_map_t<opaque_hash_t, write_vector>;
+    struct preimages_t: state_dict_based_map_t<opaque_hash_t, uint8_vector> {
+        using base_type = state_dict_based_map_t<opaque_hash_t, uint8_vector>;
         using base_type::base_type;
 
         static trie_key_func_t make_trie_key_func(const service_id_t service_id)
@@ -412,8 +412,8 @@ namespace turbo::jam {
         }
     };
 
-    struct service_storage_t: state_dict_based_map_t<opaque_hash_t, write_vector> {
-        using base_type = state_dict_based_map_t<opaque_hash_t, write_vector>;
+    struct service_storage_t: state_dict_based_map_t<opaque_hash_t, uint8_vector> {
+        using base_type = state_dict_based_map_t<opaque_hash_t, uint8_vector>;
         using base_type::base_type;
 
         static typename base_type::trie_key_func_t make_trie_key_func(const service_id_t service_id)

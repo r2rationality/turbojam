@@ -142,7 +142,7 @@ namespace turbo::jam {
                 throw err_preimage_unneeded_t {};
             if (service.preimages.get(p_k)) [[unlikely]]
                 throw err_preimage_unneeded_t {};
-            service.preimages.set(p_k, write_vector { p.blob });
+            service.preimages.set(p_k, uint8_vector { p.blob });
             l_val->emplace_back(slot);
             service.lookup_metas.set(l_k, std::move(*l_val));
             auto &service_stats = new_pi.services[p.requester];

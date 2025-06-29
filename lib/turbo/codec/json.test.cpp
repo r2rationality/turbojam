@@ -20,7 +20,7 @@ suite turbo_codec_json_suite = [] {
                 { "version", 123 }
             };
             save_pretty(t.path(), j);
-            const auto buf = file::read<uint8_vector>(t.path());
+            const auto buf = file::read(t.path());
             expect_equal(std::string_view { "{\n  \"name\": \"abc\",\n  \"version\": 123\n}" }, buf);
             const auto loaded = load(t.path());
             expect(j == loaded);
@@ -32,7 +32,7 @@ suite turbo_codec_json_suite = [] {
                 123
             };
             save_pretty(t.path(), j);
-            auto act = file::read<uint8_vector>(t.path());
+            auto act = file::read(t.path());
             std::string_view exp { "[\n  \"name\",\n  123\n]" };
             expect(act.size() == exp.size()) << act.size() << exp.size();
             expect(act == exp) << static_cast<buffer>(act);

@@ -9,8 +9,8 @@
 #include <turbo/common/bytes.hpp>
 
 namespace turbo::storage::filedb {
-    using value_t = std::optional<write_vector>;
-    using observer_t = std::function<void(uint8_vector, write_vector)>;
+    using value_t = std::optional<uint8_vector>;
+    using observer_t = std::function<void(uint8_vector, uint8_vector)>;
 
     // Designed to support data loading from a json snapshot using the serialize method.
     // For that reason must be default-constructible.

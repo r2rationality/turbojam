@@ -109,7 +109,7 @@ namespace {
                     it->second.storage.set(it->second.storage.make_key(crypto::blake2b::digest<opaque_hash_t>(enc.bytes())), static_cast<buffer>(v));
                 }
                 for (auto &&[k, v]: tacc.preimages) {
-                    it->second.preimages.set(it->second.preimages.make_key(k), write_vector { v });
+                    it->second.preimages.set(it->second.preimages.make_key(k), uint8_vector { v });
                 }
                 it->second.info.set(std::move(tacc.service));
                 if (!created) [[unlikely]]

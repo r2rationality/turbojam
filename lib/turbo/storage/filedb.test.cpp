@@ -27,12 +27,12 @@ suite turbo_storage_filedb_suite = [] {
         };
         "foreach"_test = [&] {
             client_t client { tmp_dir.path() };
-            std::map<uint8_vector, write_vector> exp {};
-            exp.try_emplace(uint8_vector::from_hex("AABB"), write_vector::from_hex("0011"));
-            exp.try_emplace(uint8_vector::from_hex("CCDD"), write_vector::from_hex("2233"));
+            std::map<uint8_vector, uint8_vector> exp {};
+            exp.try_emplace(uint8_vector::from_hex("AABB"), uint8_vector::from_hex("0011"));
+            exp.try_emplace(uint8_vector::from_hex("CCDD"), uint8_vector::from_hex("2233"));
             for (const auto &[k, v]: exp)
                 client.set(k, v);
-            std::map<uint8_vector, write_vector> act {};
+            std::map<uint8_vector, uint8_vector> act {};
             client.foreach([&](auto &&k, auto &&v) {
                 act.try_emplace(std::move(k), std::move(v));
             });
