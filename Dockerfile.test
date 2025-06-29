@@ -16,6 +16,7 @@ RUN apt-get install -y build-essential cmake pkg-config git zstd
 RUN apt-get install -y pv telnet whois
 RUN apt-get install -y libboost1.83-all-dev libboost-url1.83-dev libsodium-dev libsecp256k1-dev libzstd-dev libssl-dev libfmt-dev libspdlog-dev libbotan-2-dev
 RUN apt-get install -y ninja-build libsecp256k1-dev
+RUN apt-get install -y clang-19 clang-tools-19
 RUN useradd -m -s /bin/bash -d /home/dev -G sudo dev
 
 USER dev
@@ -35,7 +36,7 @@ WORKDIR /home/dev/turbojam
 RUN test ! -d /home/dev/turbojam/3rdparty/msquic/bld || rm -rf /home/dev/turbojam/3rdparty/msquic/bld
 RUN test ! -d /home/dev/turbojam/3rdparty/msquic/build || rm -rf /home/dev/turbojam/3rdparty/msquic/build
 ENV PATH=/home/dev/.cargo/bin:$PATH
-RUN cmake -B build -G Ninja
+RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Coverage -DCMAKE_CXX_COMPILER=clang++-19
 RUN cmake --build build -t run-test
 WORKDIR /home/dev/turbojam
 CMD [ "/bin/bash" ]

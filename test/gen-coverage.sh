@@ -9,7 +9,7 @@ fi
 test -d "$OUT_DIR" || mkdir -p "$OUT_DIR"
 BUILD_DIR=$3
 if [ -z "$BUILD_DIR" ]; then
-  BUILD_DIR="build-clang-cov"
+  BUILD_DIR="build"
 fi
 "$BUILD_DIR/run-test" "$TEST_NAME"
 if [ -f /usr/bin/llvm-profdata-19 ]; then

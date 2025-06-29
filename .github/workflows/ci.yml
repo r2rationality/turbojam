@@ -16,7 +16,12 @@ jobs:
       - name: Run unit tests
         id: tests
         run: |
-          docker run --rm turbojam:test sh -c "./build/run-test" # adjust for your test command
+          docker run -v=./tmp:/home/dev/turbojam/tmp --rm turbojam:test sh ./test/gen-coverage.sh
+      - name: Upload coverage HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: ./tmp/coverage/
       - name: Set badge color on success
         if: steps.tests.outcome == 'success'
         run: |
