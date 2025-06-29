@@ -10,3 +10,6 @@
 [submodule "3rdparty/msquic"]
 	path = 3rdparty/msquic
 	url = https://github.com/sierkov/msquic.git
+[submodule "lib/turbo/common"]
+	path = lib/turbo/common
+	url = https://github.com/r2rationality/turbo-common.git
