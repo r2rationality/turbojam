@@ -7,7 +7,6 @@
 #include <functional>
 #include <variant>
 #include <turbo/common/error.hpp>
-#include <turbo/codec/serializable.hpp>
 
 namespace turbo::jam {
     struct err_bad_attestation_parent_t final: error {

@@ -4,7 +4,7 @@
 
 #include <boost/json.hpp>
 #include <turbo/common/bytes.hpp>
-#include "serializable.hpp"
+#include <turbo/common/serializable.hpp>
 
 namespace turbo::codec::json {
     using namespace boost::json;

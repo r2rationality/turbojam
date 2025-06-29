@@ -115,7 +115,7 @@ namespace turbo::jam::machine {
 
         void consume_gas(const gas_t gas)
         {
-            _gas -= numeric_cast<gas_remaining_t>(gas);
+            _gas -= numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas));
             if (_gas < 0) [[unlikely]]
                 throw exit_out_of_gas_t {};
         }
@@ -1853,7 +1853,7 @@ namespace turbo::jam::machine {
 
         state_t state {
             .pc = pc,
-            .gas = numeric_cast<machine::gas_remaining_t>(gas_init),
+            .gas = numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas_init))
         };
         pages_t page_map {};
 

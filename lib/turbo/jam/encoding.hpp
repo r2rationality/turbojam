@@ -8,7 +8,7 @@
 #include <turbo/common/bytes.hpp>
 #include <turbo/common/file.hpp>
 #include <turbo/common/numeric-cast.hpp>
-#include <turbo/codec/serializable.hpp>
+#include <turbo/common/serializable.hpp>
 
 namespace turbo::jam {
     struct decoder;
