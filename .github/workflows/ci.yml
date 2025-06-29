@@ -23,7 +23,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: coverage-html
-          path: ./tmp/coverage/
+          path: ./coverage-html
       - name: Set badge color on success
         if: steps.tests.outcome == 'success'
         run: |
