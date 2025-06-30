@@ -1245,6 +1245,13 @@ namespace turbo::jam {
         return res;
     }
 
+    template<typename CFG>
+    void state_t<CFG>::foreach(const observer_t &obs) const
+    {
+        triedb->foreach([&](const auto &k, const auto &v) {
+            obs(k, v);
+        });
+    }
 
     template<typename CFG>
     state_t<CFG> &state_t<CFG>::operator=(const state_snapshot_t &st)
@@ -1278,7 +1285,7 @@ namespace turbo::jam {
                 }
             }
         };
-        state_dict->clear();
+        triedb->clear();
         const auto decode_state_item_or_service_data = [&](const state_key_t &key, decoder &dec, const size_t ksum, auto &item) {
             if (ksum == 0)
                 dec.process(item);

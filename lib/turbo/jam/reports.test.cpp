@@ -133,12 +133,12 @@ namespace {
 
     template<typename CONSTANTS>
     struct test_case_t {
-        file::tmp_directory tmp_store_dir { fmt::format("test-jam-reports-{}", static_cast<void *>(this)) };
-        kv_store_ptr_t kv_store = std::make_shared<kv_store_t>(tmp_store_dir.path());
+        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-reports-{}-pre", static_cast<void *>(this)) };
+        file::tmp_directory tmp_dir_post { fmt::format("test-jam-reports-{}-post", static_cast<void *>(this)) };
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { kv_store };
+        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
         output_t out;
-        state_t<CONSTANTS> post { kv_store };
+        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
 
         void serialize_accounts(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
         {
@@ -147,10 +147,10 @@ namespace {
             st.delta.clear();
             for (auto &&[id, tacc]: taccs) {
                 account_t<CONSTANTS> acc {
-                    .preimages=preimages_t { st.kv_store, st.state_dict, preimages_t::make_trie_key_func(id) },
-                    .lookup_metas=lookup_metas_t<CONSTANTS> { st.kv_store, st.state_dict, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) },
-                    .storage=service_storage_t { st.kv_store, st.state_dict, service_storage_t::make_trie_key_func(id) },
-                    .info={ st.state_dict, state_dict_t::make_key(255U, id), std::move(tacc.service) }
+                    .preimages=preimages_t { st.triedb, preimages_t::make_trie_key_func(id) },
+                    .lookup_metas=lookup_metas_t<CONSTANTS> { st.triedb, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) },
+                    .storage=service_storage_t { st.triedb, service_storage_t::make_trie_key_func(id) },
+                    .info={ st.triedb, state_dict_t::make_key(255U, id), std::move(tacc.service) }
                 };
                 st.delta.try_emplace(std::move(id), std::move(acc));
             }

@@ -17,7 +17,7 @@ namespace turbo::jam {
             _genesis_header { make_genesis_header(_genesis_state) }
         {
             if (!prev_state.empty()) {
-                _state.emplace(_kv_store);
+                _state.emplace(_triedb);
                 *_state = prev_state;
             }
         }
@@ -25,9 +25,9 @@ namespace turbo::jam {
         void apply(const block_t<CONFIG> &blk)
         {
             if (!_state) [[unlikely]] {
-                if (blk.header != _genesis_header) [[unlikely]]
+                if (blk.header.hash() != _genesis_header.hash()) [[unlikely]]
                    throw error("the genesis header does not match the genesis state!");
-                _state.emplace(_kv_store);
+                _state.emplace(_triedb);
                 *_state = _genesis_state;
                 logger::run_log_errors_rethrow([&] {
                     _state->beta.set(state_t<CONFIG>::beta_prime({}, blk.header.hash(), {}, {}));
@@ -76,13 +76,13 @@ namespace turbo::jam {
         [[nodiscard]] state_root_t state_root() const
         {
             if (_state) [[likely]]
-                return _state->state_dict->root();
+                return _state->triedb->trie()->root();
             return {};
         }
     private:
         std::string _id;
         std::string _path;
-        kv_store_ptr_t _kv_store = std::make_shared<storage::filedb::client_t>((std::filesystem::path { _path } / "kv").string());
+        triedb::client_ptr_t _triedb = std::make_shared<triedb::client_t>((std::filesystem::path { _path } / "kv").string());
         state_snapshot_t _genesis_state;
         header_t<CONFIG> _genesis_header;
         std::optional<state_t<CONFIG>> _state {};
@@ -104,7 +104,7 @@ namespace turbo::jam {
     header_t<CONFIG> chain_t<CONFIG>::make_genesis_header(const state_snapshot_t &genesis_state)
     {
         const file::tmp_directory tmp_store { "make-genesis-header" };
-        state_t<CONFIG> g_state { std::make_shared<kv_store_t>(tmp_store.path()) };
+        state_t<CONFIG> g_state { std::make_shared<triedb::client_t>(tmp_store.path()) };
         g_state = genesis_state;
         // Genesis Block Header expectations from here: https://docs.jamcha.in/basics/genesis-config
         header_t<CONFIG> h {};

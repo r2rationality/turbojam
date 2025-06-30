@@ -88,12 +88,12 @@ namespace {
 
     template<typename CONSTANTS>
     struct test_case_t {
-        file::tmp_directory tmp_store_dir { fmt::format("test-jam-accumulate-{}", static_cast<void *>(this)) };
-        kv_store_ptr_t kv_store = std::make_shared<kv_store_t>(tmp_store_dir.path());
+        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-accumulate-{}-pre", static_cast<void *>(this)) };
+        file::tmp_directory tmp_dir_post { fmt::format("test-jam-accumulate-{}-post", static_cast<void *>(this)) };
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { kv_store };
+        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
         output_t out;
-        state_t<CONSTANTS> post { kv_store };
+        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
 
         void serialize_accounts(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
         {
@@ -205,8 +205,8 @@ namespace {
         }
         if (out.has_value()) {
             expect(out == tc.out) << path;
-            if (const auto same_state = expect_equal(tc.post.state_dict->root(), res_st.state_dict->root()); !same_state)
-                logger::info("{} state diff: {}", path, res_st.state_dict->diff(*tc.post.state_dict));
+            if (const auto same_state = expect_equal(tc.post.root(), res_st.root()); !same_state)
+                logger::info("{} state diff: {}", path, res_st.triedb->trie()->diff(*tc.post.triedb->trie()));
         } else {
             expect(false) << path;
         }

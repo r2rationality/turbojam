@@ -41,11 +41,11 @@ namespace {
 
     template<typename CONSTANTS=config_prod>
     struct test_case_t {
-        file::tmp_directory tmp_store_dir { fmt::format("test-jam-history-{}", static_cast<void *>(this)) };
-        kv_store_ptr_t kv_store = std::make_shared<kv_store_t>(tmp_store_dir.path());
+        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-history-{}-pre", static_cast<void *>(this)) };
+        file::tmp_directory tmp_dir_post { fmt::format("test-jam-history-{}-post", static_cast<void *>(this)) };
         input_t in;
-        state_t<CONSTANTS> pre { kv_store };
-        state_t<CONSTANTS> post { kv_store };
+        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
+        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
 
         static void serialize_state(auto &archive, const std::string_view &name, state_t<CONSTANTS> &st)
         {
@@ -79,13 +79,12 @@ namespace {
     void test_file(const std::string &path)
     {
         const file::tmp_directory store_dir { "test-jam-history" };
-        const auto kv_store = std::make_shared<kv_store_t>(store_dir.path());
         const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
         {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
-        state_t<CFG> new_st { kv_store };
+        state_t<CFG> new_st { std::make_shared<triedb::client_t>(store_dir.path()) };
         new_st = tc.pre;
         auto tmp_beta = new_st.beta_dagger(tc.pre.beta.get(), tc.in.parent_state_root);
         new_st.beta.set(state_t<CFG>::beta_prime(std::move(tmp_beta), tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages));

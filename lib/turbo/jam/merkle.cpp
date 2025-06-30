@@ -35,6 +35,7 @@ namespace turbo::jam::merkle {
         void clear()
         {
             _root.reset();
+            _size = 0;
         }
 
         const std::optional<value_t> &get(const key_t &k) const
