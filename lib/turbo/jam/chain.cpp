@@ -42,6 +42,15 @@ namespace turbo::jam {
             return _id;
         }
 
+        [[nodiscard]] header_hash_t parent() const
+        {
+            if (_state) {
+                if (const auto &beta = _state->beta.get(); !beta.empty())
+                    return beta.back().header_hash;
+            }
+            return {};
+        }
+
         [[nodiscard]] const std::string &path() const
         {
             return _path;
@@ -139,6 +148,12 @@ namespace turbo::jam {
     const std::string &chain_t<CONFIG>::path() const
     {
         return _impl->path();
+    }
+
+    template<typename CONFIG>
+    header_hash_t chain_t<CONFIG>::parent() const
+    {
+        return _impl->parent();
     }
 
     template<typename CONFIG>

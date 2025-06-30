@@ -10,6 +10,7 @@
 #include <turbo/common/format.hpp>
 #include <turbo/jam/types/header.hpp>
 #include <turbo/jam/encoding.hpp>
+#include <turbo/jam/chain.hpp>
 #include <turbo/jamsnp/cert.hpp>
 
 #include <openssl/evp.h>
@@ -26,6 +27,7 @@
 
 namespace {
     using namespace turbo;
+    using namespace turbo::jam;
 
     std::mutex wait_mutex {};
     std::condition_variable wait_cv {};
@@ -36,8 +38,21 @@ namespace {
         descending = 1
     };
 
+    uint8_vector &chain_buffer()
+    {
+        static uint8_vector buf {};
+        return buf;
+    }
+
+    chain_t<config_tiny> &chain()
+    {
+        static chain_t<config_tiny> c = chain_t<config_tiny>::from_json_spec(file::install_path("tmp/dev-chain"), file::install_path("etc/devnet/dev-spec.json"));
+        return c;
+    }
+
     uint8_vector make_block_request(const jam::header_hash_t &hh, const uint32_t max_blocks, const block_direction_t direction=block_direction_t::ascending)
     {
+        logger::info("making a block request: start hash: {} max_blocks: {} direction: {}", hh, max_blocks, static_cast<uint8_t>(direction));
         uint8_vector res {};
         res.reserve(sizeof(hh) + 1 + sizeof(max_blocks));
         res << hh;
@@ -46,23 +61,28 @@ namespace {
         return res;
     }
 
+    void ce128_block_request(MsQuicStream* stream)
+    {
+        const auto msg = make_block_request(chain().parent(), 0x10000);
+        const uint32_t msg_len = msg.size();
+        static_assert(sizeof(msg_len) == 4);
+        const auto buf_scope = new QuicBufferScope { numeric_cast<uint32_t>(1ULL + sizeof(msg_len) + msg.size()) };
+        const auto buf = static_cast<QUIC_BUFFER *>(*buf_scope);
+        // CE 128: Block request
+        buf->Buffer[0] = 128;
+        memcpy(buf->Buffer + 1, &msg_len, sizeof(msg_len));
+        memcpy(buf->Buffer + 5, msg.data(), msg.size());
+        if (const auto res = stream->Send(buf, 1, QUIC_SEND_FLAG_FIN, buf_scope); QUIC_FAILED(res)) [[unlikely]] {
+            std::cerr << fmt::format("stream: send failed with code {:08X}\n", res);
+            stream->ConnectionShutdown(1);
+        }
+    }
+
     QUIC_STATUS QUIC_API stream_callback(MsQuicStream* stream, void* /*ctx*/, QUIC_STREAM_EVENT* event) {
         switch (event->Type) {
             case QUIC_STREAM_EVENT_START_COMPLETE: {
                 std::cerr << fmt::format("stream: start complete\n");
-                const auto msg = make_block_request({}, 256);
-		        const uint32_t msg_len = msg.size();
-		        static_assert(sizeof(msg_len) == 4);
-                const auto buf_scope = new QuicBufferScope { numeric_cast<uint32_t>(1ULL + sizeof(msg_len) + msg.size()) };
-                const auto buf = static_cast<QUIC_BUFFER *>(*buf_scope);
-                // CE 128: Block request
-		        buf->Buffer[0] = 128;
-                memcpy(buf->Buffer + 1, &msg_len, sizeof(msg_len));
-                memcpy(buf->Buffer + 5, msg.data(), msg.size());
-                if (const auto res = stream->Send(buf, 1, QUIC_SEND_FLAG_FIN, buf_scope); QUIC_FAILED(res)) [[unlikely]] {
-                    std::cerr << fmt::format("stream: send failed with code {:08X}\n", res);
-                    stream->ConnectionShutdown(1);
-                }
+                ce128_block_request(stream);
                 break;
             }
             case QUIC_STREAM_EVENT_SEND_COMPLETE:
@@ -70,15 +90,25 @@ namespace {
                 delete reinterpret_cast<QuicBufferScope *>(event->SEND_COMPLETE.ClientContext);
                 break;
             case QUIC_STREAM_EVENT_RECEIVE: {
-                std::string resp {};
-                auto resp_it = std::back_inserter(resp);
-                resp_it = fmt::format_to(resp_it, "stream: data received: off: {} len: {} ", event->RECEIVE.AbsoluteOffset, event->RECEIVE.TotalBufferLength);
                 for (decltype(event->RECEIVE.BufferCount) bi = 0; bi < event->RECEIVE.BufferCount; ++bi) {
                     const QUIC_BUFFER *buf = event->RECEIVE.Buffers + bi;
-                    resp_it = fmt::format_to(resp_it, "buffer #{}: {}\n", bi, buffer { buf->Buffer, buf->Length });
+                    chain_buffer() << buffer { buf->Buffer, buf->Length };
                 }
-                resp += '\n';
-                std::cerr << resp;
+                decoder dec { chain_buffer() };
+                const auto msg_len = dec.uint_fixed<size_t>(4);
+                std::cerr << fmt::format("CE128 msg_len: {} received: {}\n", msg_len, chain_buffer().size() - 4);
+                if (msg_len > 0 && chain_buffer().size() == 4ULL + msg_len) {
+                    for (size_t i = 0; !dec.empty(); ++i) {
+                        auto blk = codec::from<block_t<config_tiny>>(dec);
+                        std::cerr << fmt::format("block #{} slot: {} hash: {} parent_root: {} bytes left: {}\n", i, blk.header.slot, blk.header.hash(), blk.header.parent_state_root, dec.size());
+                        const auto pre_root = chain().state_root();
+                        chain().apply(blk);
+                        std::cerr << fmt::format("block #{} pre_root: {} post_root: {}\n", i, pre_root, chain().state_root());
+                    }
+                    file::write(file::install_path("data/devnet-blocks.bin"), static_cast<buffer>(chain_buffer()).subbuf(4));
+                    chain_buffer().clear();
+                    ce128_block_request(stream);
+                }
                 break;
             }
             case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
