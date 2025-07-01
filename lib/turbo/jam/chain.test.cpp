@@ -16,6 +16,9 @@ suite turbo_jam_chain_suite = [] {
         auto chain = chain_t<config_tiny>::from_json_spec(file::install_path("tmp/dev-chain"), file::install_path("etc/devnet/dev-spec.json"));
         logger::info("genesis header hash: {}", chain.genesis_header().hash());
         logger::info("genesis state root: {}", chain.genesis_state().root());
+        for (const auto &[k, v]: chain.genesis_state()) {
+            logger::info("genesis {}: size: {} hash: {}", k, v.size(), crypto::blake2b::digest(v));
+        }
         const auto bytes = file::read(file::install_path("data/devnet-blocks.bin"));
         decoder dec { bytes };
         for (size_t i = 0; !dec.empty() && i < 2; ++i) {
