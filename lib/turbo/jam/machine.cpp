@@ -1830,8 +1830,8 @@ namespace turbo::jam::machine {
         decoder dec { code };
         // JAM (9.4)
         const auto meta = codec::from<byte_sequence_t>(dec);
-        // JAM (A.37)
 
+        // JAM (A.3)
         const auto o_sz = dec.uint_fixed<size_t>(3);
         const auto w_sz = dec.uint_fixed<size_t>(3);
         const auto z_sz = dec.uint_fixed<size_t>(2);
@@ -1902,7 +1902,7 @@ namespace turbo::jam::machine {
     invocation_t invoke(const buffer blob, const uint32_t pc, const gas_t gas, const buffer args, const host_call_func_t &host_fn)
     {
         auto m = configure(blob, pc, gas, args);
-        if (!m)
+        if (!m) [[unlikely]]
             return { 0, exit_panic_t {} };
         const auto halt_status = [&] {
             auto data = m->try_mem_read(m->regs().at(7), m->regs().at(8));
