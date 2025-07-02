@@ -24,7 +24,7 @@ namespace turbo::jam::triedb {
 
         void clear()
         {
-            _trie->foreach([&](const auto &k, const auto &v) {
+            _trie->foreach([&](const auto &, const auto &v) {
                 std::visit([&](const auto &vv) {
                     using T = std::decay_t<decltype(vv)>;
                     if constexpr (std::is_same_v<T, merkle::trie::value_hash_t>) {

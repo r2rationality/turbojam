@@ -122,7 +122,7 @@ namespace turbo::jam {
 
     // JAM (4.2)
     template<typename CONSTANTS>
-        struct block_t {
+    struct block_t {
         header_t<CONSTANTS> header;
         extrinsic_t<CONSTANTS> extrinsic;
 

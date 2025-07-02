@@ -16,13 +16,6 @@
 const MsQuicApi *MsQuic = nullptr;
 
 namespace turbo::jamsnp {
-    static std::string to_lower(const std::string &input)
-    {
-        std::string res = input;
-        std::transform(res.begin(), res.end(), res.begin(), [](auto c) { return std::tolower(c); });
-        return res;
-    }
-
     static std::string status_name(const QUIC_STATUS status)
     {
         static std::unordered_map<QUIC_STATUS, std::string> names {
@@ -56,15 +49,26 @@ namespace turbo::jamsnp {
     }
 
     struct api_initializer_t {
+        static void init_msquic_api()
+        {
+            static initializer_t api {};
+        }
+
         api_initializer_t()
         {
-            if (!_api.IsValid()) [[unlikely]] {
-                throw error(fmt::format("failed to initialize MsQuic API! Error: {}", status_name(_api.GetInitStatus())));
-            }
-            MsQuic = &_api;
+            init_msquic_api();
         }
     private:
-        MsQuicApi _api {};
+        struct initializer_t {
+            initializer_t()
+            {
+                if (!_api.IsValid()) [[unlikely]]
+                    throw error(fmt::format("failed to initialize MsQuic API! Error: {}", status_name(_api.GetInitStatus())));
+                MsQuic = &_api;
+            }
+        private:
+            MsQuicApi _api {};
+        };
     };
 
     struct connection_t {
@@ -72,7 +76,7 @@ namespace turbo::jamsnp {
         MsQuicConnection *conn = nullptr;
         std::coroutine_handle<> connecting {};
 
-        void check_certificate(const X509 *x509)
+        void check_certificate(const X509 *)
         {
         }
     };
@@ -158,17 +162,14 @@ namespace turbo::jamsnp {
             .Flags = QUIC_CREDENTIAL_FLAG_CLIENT
                 | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION
                 | QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED,
-            .CertificateFile = &_cred_file
+            .CertificateFile = &_cred_file,
+            .Principal = nullptr,
+            .Reserved = nullptr
         };
         const MsQuicCredentialConfig _cred{_cred_cfg};
         MsQuicSettings _settings {};
         const MsQuicConfiguration _config { _reg, _alpn, _settings, _cred };
     };
-
-    static void init_msquic_api()
-    {
-        static api_initializer_t api {};
-    }
 
     template<typename CFG>
     struct client_t<CFG>::impl_t {
@@ -176,14 +177,16 @@ namespace turbo::jamsnp {
             _server_addr{std::move(server_addr)},
             _cfg{std::move(app_name), std::move(alpn_id), cert_prefix}
         {
-            init_msquic_api();
         }
 
         [[nodiscard]] coro::task_t<block_list_t> fetch_blocks(const header_hash_t &hh, const uint32_t max_blocks, const direction_t direction)
         {
+            logger::info("fetch_blocks: started");
             auto stream = std::make_shared<stream_t>();
             co_await coro::external_task_t{stream->creating};
+            logger::info("fetch_blocks: registered the handle");
             co_await _create_stream(stream);
+            logger::info("fetch_blocks: created a stream");
             {
                 const auto msg = _fetch_blocks_request(hh, max_blocks, direction);
                 encoder enc {};
@@ -192,10 +195,12 @@ namespace turbo::jamsnp {
                 enc.next_bytes(msg);
                 stream->send(enc.bytes());
             }
+            logger::info("fetch_blocks: sent a request");
             block_list_t blocks {};
             uint8_vector resp {};
             for (size_t i = 0; i < max_blocks; ++i) {
                 const auto rcv_buf = co_await stream->receive();
+                logger::info("fetch_blocks: received a response");
                 resp << rcv_buf;
                 decoder dec { resp };
                 const auto msg_len = dec.uint_fixed<size_t>(4U);
@@ -206,12 +211,14 @@ namespace turbo::jamsnp {
                 while (!dec.empty()) {
                     blocks.emplace_back(codec::from<block_t<CFG>>(dec));
                 }
+                logger::info("fetch_blocks: returning blocks");
                 co_return blocks;
             }
             throw error("jamsnp::client: received too little data!");
         }
     private:
         address_t _server_addr;
+        api_initializer_t _init {};
         config_t _cfg;
         connection_t _conn {};
 
@@ -390,6 +397,7 @@ namespace turbo::jamsnp {
     template<typename CFG>
     coro::task_t<typename client_t<CFG>::block_list_t> client_t<CFG>::fetch_blocks(const header_hash_t &hh, uint32_t max_blocks, direction_t direction)
     {
+        logger::info("client_t::fetch_blocks_top_level");
         co_return co_await _impl->fetch_blocks(hh, max_blocks, direction);;
     }
 

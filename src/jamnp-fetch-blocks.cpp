@@ -1,4 +1,6 @@
 
+#include <future>
+
 #include <turbo/common/logger.hpp>
 #include <turbo/crypto/ed25519.hpp>
 #include <turbo/jamsnp/client.hpp>
@@ -113,6 +115,32 @@ namespace {
         if (err_msg)
             throw error(err_msg);
     }
+
+    template<typename T, typename A>
+    coro::task_t<void> notify_future(std::promise<T> &promise, A &awaitable)
+    {
+        promise.set_value(co_await awaitable);
+        co_return;
+    }
+
+    template <typename Awaitable>
+    auto to_future(Awaitable&& awaitable) {
+        using T = decltype(awaitable.await_resume());
+        std::promise<T> promise;
+        auto future = promise.get_future();
+
+        std::thread([promise = std::move(promise), awaitable = std::forward<Awaitable>(awaitable)]() {
+            try {
+                if (!awaitable.await_ready())
+                    awaitable.await_suspend();
+                promise.set_value(awaitable.await_resume());
+            } catch (...) {
+                promise.set_exception(std::current_exception());
+            }
+        }).detach();
+
+        return future;
+    }
 }
 
 int main(int argc, char **argv)
@@ -128,10 +156,10 @@ int main(int argc, char **argv)
         }
         jamsnp::address_t server_addr { argv[1], from_str<uint16_t>(argv[2]) };
         jamsnp::client_t<config_tiny> client { server_addr, "jamsnp-fetch-blocks", "jamnp-s/0/b5af8eda", cert_prefix };
-        auto coro = client.fetch_blocks({}, 10);
-        while (!coro.done()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds{100});
-        }
+        logger::info("created a client instance");
+        auto blocks_fut = to_future(client.fetch_blocks({}, 10));
+        blocks_fut.wait();
+        const auto &blocks = blocks_fut.get();
         return 0;
     } catch (const std::exception &ex) {
         logger::error("Terminating due to an exception: {}", ex.what());
