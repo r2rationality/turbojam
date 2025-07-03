@@ -11,6 +11,7 @@ find_package(PkgConfig REQUIRED)
 find_package(fmt REQUIRED)
 find_package(OpenSSL REQUIRED)
 pkg_check_modules(SODIUM REQUIRED libsodium>=1.0.18)
+pkg_check_modules(ZSTD REQUIRED libzstd>=1.4.8)
 
 file(GLOB_RECURSE LIB_SRCS *.cpp)
 list(FILTER LIB_SRCS EXCLUDE REGEX "\\.test\\.cpp$")
@@ -26,8 +27,12 @@ target_link_libraries(lib PUBLIC
     fmt::fmt
     ${SODIUM_LIBRARIES}
     Boost::json Boost::coroutine Boost::url Boost::thread
+    ${ZSTD_LIBRARIES}
 )
-target_link_directories(lib PUBLIC ${SODIUM_LIBRARY_DIRS})
+target_link_directories(lib PUBLIC
+    ${SODIUM_LIBRARY_DIRS}
+    ${ZSTD_LIBRARY_DIRS}
+)
 
 find_package(spdlog CONFIG REQUIRED)
 target_link_libraries(lib PUBLIC spdlog::spdlog)
