@@ -115,51 +115,28 @@ namespace {
         if (err_msg)
             throw error(err_msg);
     }
-
-    template<typename T, typename A>
-    coro::task_t<void> notify_future(std::promise<T> &promise, A &awaitable)
-    {
-        promise.set_value(co_await awaitable);
-        co_return;
-    }
-
-    template <typename Awaitable>
-    auto to_future(Awaitable&& awaitable) {
-        using T = decltype(awaitable.await_resume());
-        std::promise<T> promise;
-        auto future = promise.get_future();
-
-        std::thread([promise = std::move(promise), awaitable = std::forward<Awaitable>(awaitable)]() {
-            try {
-                if (!awaitable.await_ready())
-                    awaitable.await_suspend();
-                promise.set_value(awaitable.await_resume());
-            } catch (...) {
-                promise.set_exception(std::current_exception());
-            }
-        }).detach();
-
-        return future;
-    }
 }
 
 int main(int argc, char **argv)
 {
     try {
-        if (argc != 3) [[unlikely]]
-            throw error("Usage: jamsnp-test <ipv6-addr> <port>");
+        logger::info("Usage: jamsnp-test [ipv6-addr] [port]");
         const file::tmp_directory tmp_dir { "jamnp-fetch-blocks" };
         const auto cert_prefix = (static_cast<std::filesystem::path>(tmp_dir) / "client").string();
         {
             const auto key_pair = crypto::ed25519::create_from_seed(crypto::ed25519::seed_t::from_hex("0000000000000000000000000000000000000000000000000000000000000000"));
             write_cert(cert_prefix + ".cert", cert_prefix + ".key", key_pair);
         }
-        jamsnp::address_t server_addr { argv[1], from_str<uint16_t>(argv[2]) };
+        jamsnp::address_t server_addr { "::1", 40000 };
+        if (argc >= 2)
+            server_addr.host = argv[1];
+        if (argc >= 3)
+            server_addr.port = from_str<uint16_t>(argv[2]);
+        logger::info("connecting to {}", server_addr);
         jamsnp::client_t<config_tiny> client { server_addr, "jamsnp-fetch-blocks", "jamnp-s/0/b5af8eda", cert_prefix };
         logger::info("created a client instance");
-        auto blocks_fut = to_future(client.fetch_blocks({}, 10));
-        blocks_fut.wait();
-        const auto &blocks = blocks_fut.get();
+        auto blocks = client.fetch_blocks({}, 10).wait();
+        logger::info("have blocks: {}", blocks.size());
         return 0;
     } catch (const std::exception &ex) {
         logger::error("Terminating due to an exception: {}", ex.what());

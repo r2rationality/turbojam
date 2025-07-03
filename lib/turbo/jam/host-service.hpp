@@ -8,6 +8,30 @@
 #include "state.hpp"
 
 namespace turbo::jam {
+    enum class host_call_t: uint8_t {
+        gas = 0,
+        lookup = 1,
+        read = 2,
+        write = 3,
+        info = 4,
+        bless = 5,
+        assign = 6,
+        designate = 7,
+        checkpoint = 8,
+        new_ = 9,
+        upgrade = 10,
+        transfer = 11,
+        eject = 12,
+        query = 13,
+        solicit = 14,
+        forget = 15,
+        yield = 16,
+        fetch = 18,
+        provide = 27,
+        log = 100,
+
+    };
+
     template<typename CFG>
     struct fetch_params_t {
         const work_package_t<CFG> *package = nullptr; // GP p

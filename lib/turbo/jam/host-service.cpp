@@ -26,14 +26,18 @@ namespace turbo::jam {
         return this->_safe_call([&] {
             logger::trace("PVM: host call #{}", id);
             gas_t::base_type gas_used = 10;
-            switch (id) {
-                case 0: this->gas(); break;
-                case 1: this->lookup(); break;
-                case 2: this->read(); break;
-                case 3: this->write(); break;
-                case 4: this->info(); break;
-                case 18: this->fetch(); break;
-                default:
+            switch (static_cast<host_call_t>(id)) {
+                case host_call_t::gas: this->gas(); break;
+                case host_call_t::lookup: this->lookup(); break;
+                case host_call_t::read: this->read(); break;
+                case host_call_t::write: this->write(); break;
+                case host_call_t::info: this->info(); break;
+                case host_call_t::fetch: this->fetch(); break;
+                case host_call_t::log:
+                    this->log();
+                    gas_used = 0;
+                    break;
+                [[unlikely]] default:
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
@@ -47,10 +51,14 @@ namespace turbo::jam {
         return this->_safe_call([&] {
             logger::trace("PVM: host call #{}", id);
             gas_t::base_type gas_used = 10;
-            switch (id) {
-                case 0: this->gas(); break;
-                case 18: this->fetch(); break;
-                default:
+            switch (static_cast<host_call_t>(id)) {
+                case host_call_t::gas: this->gas(); break;
+                case host_call_t::fetch: this->fetch(); break;
+                case host_call_t::log:
+                    this->log();
+                    gas_used = 0;
+                    break;
+                [[unlikely]] default:
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
@@ -64,14 +72,14 @@ namespace turbo::jam {
         return this->_safe_call([&] {
             logger::trace("PVM: host call #{}", id);
             gas_t::base_type gas_used = 10;
-            switch (id) {
+            switch (static_cast<host_call_t>(id)) {
                 // generic
-                case 0: this->gas(); break;
-                case 1: this->lookup(); break;
-                case 2: this->read(); break;
-                case 3: this->write(); break;
-                case 4: this->info(); break;
-                case 18: this->fetch(); break;
+                case host_call_t::gas: this->gas(); break;
+                case host_call_t::lookup: this->lookup(); break;
+                case host_call_t::read: this->read(); break;
+                case host_call_t::write: this->write(); break;
+                case host_call_t::info: this->info(); break;
+                case host_call_t::fetch: this->fetch(); break;
                 // refine-specific
                 /*case 5: bless(); break;
                 case 6: assign(); break;
@@ -86,7 +94,7 @@ namespace turbo::jam {
                 case 15: forget(); break;
                 case 16: yield(); break;*/
                 //case ??: return provide(); break;
-                case 100:
+                case host_call_t::log:
                     this->log();
                     gas_used = 0;
                     break;
@@ -409,32 +417,32 @@ namespace turbo::jam {
             logger::trace("PVM: host call #{}", id);
             void (host_service_accumulate_t<CFG>::*call_func)() = nullptr;
             gas_t::base_type gas_used = 10;
-            switch (id) {
+            switch (static_cast<host_call_t>(id)) {
                 // generic
-                case 0: call_func = &host_service_accumulate_t::gas; break;
-                case 1: call_func = &host_service_accumulate_t::lookup; break;
-                case 2: call_func = &host_service_accumulate_t::read; break;
-                case 3: call_func = &host_service_accumulate_t::write; break;
-                case 4: call_func = &host_service_accumulate_t::info; break;
-                case 18: call_func = &host_service_accumulate_t::fetch; break;
+                case host_call_t::gas: call_func = &host_service_accumulate_t::gas; break;
+                case host_call_t::lookup: call_func = &host_service_accumulate_t::lookup; break;
+                case host_call_t::read: call_func = &host_service_accumulate_t::read; break;
+                case host_call_t::write: call_func = &host_service_accumulate_t::write; break;
+                case host_call_t::info: call_func = &host_service_accumulate_t::info; break;
+                case host_call_t::fetch: call_func = &host_service_accumulate_t::fetch; break;
                 // accumulate-specific
-                case 5: call_func = &host_service_accumulate_t::bless; break;
-                case 6: call_func = &host_service_accumulate_t::assign; break;
-                case 7: call_func = &host_service_accumulate_t::designate; break;
-                case 8: call_func = &host_service_accumulate_t::checkpoint; break;
-                case 9: call_func = &host_service_accumulate_t::new_; break;
-                case 10: call_func = &host_service_accumulate_t::upgrade; break;
-                case 11:
+                case host_call_t::bless: call_func = &host_service_accumulate_t::bless; break;
+                case host_call_t::assign: call_func = &host_service_accumulate_t::assign; break;
+                case host_call_t::designate: call_func = &host_service_accumulate_t::designate; break;
+                case host_call_t::checkpoint: call_func = &host_service_accumulate_t::checkpoint; break;
+                case host_call_t::new_: call_func = &host_service_accumulate_t::new_; break;
+                case host_call_t::upgrade: call_func = &host_service_accumulate_t::upgrade; break;
+                case host_call_t::transfer:
                     gas_used += this->_p.m.regs()[9];
                     call_func = &host_service_accumulate_t::transfer;
                     break;
-                case 12: call_func = &host_service_accumulate_t::eject; break;
-                case 13: call_func = &host_service_accumulate_t::query; break;
-                case 14: call_func = &host_service_accumulate_t::solicit; break;
-                case 15: call_func = &host_service_accumulate_t::forget; break;
-                case 16: call_func = &host_service_accumulate_t::yield; break;
-                case 27: call_func = &host_service_accumulate_t::provide; break;
-                case 100:
+                case host_call_t::eject: call_func = &host_service_accumulate_t::eject; break;
+                case host_call_t::query: call_func = &host_service_accumulate_t::query; break;
+                case host_call_t::solicit: call_func = &host_service_accumulate_t::solicit; break;
+                case host_call_t::forget: call_func = &host_service_accumulate_t::forget; break;
+                case host_call_t::yield: call_func = &host_service_accumulate_t::yield; break;
+                case host_call_t::provide: call_func = &host_service_accumulate_t::provide; break;
+                case host_call_t::log:
                     gas_used = 0;
                     call_func = &host_service_accumulate_t::log;
                     break;

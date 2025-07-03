@@ -33,3 +33,13 @@ namespace turbo::jamsnp {
         std::unique_ptr<impl_t> _impl;
     };
 }
+
+namespace fmt {
+    template<>
+    struct formatter<turbo::jamsnp::address_t>: formatter<int> {
+        template<typename FormatContext>
+        auto format(const turbo::jamsnp::address_t &v, FormatContext &ctx) const -> decltype(ctx.out()) {
+            return fmt::format_to(ctx.out(), "host={} port={}", v.host, v.port);
+        }
+    };
+}
