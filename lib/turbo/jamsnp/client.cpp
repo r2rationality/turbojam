@@ -85,7 +85,7 @@ namespace turbo::jamsnp {
 
         coro::task_t<void> send(const buffer send_buf)
         {
-            logger::info("stream::send: called with {} bytes", send_buf.size());
+            logger::debug("stream::send: called with {} bytes", send_buf.size());
             std::unique_lock lk { mutex };
             if (!stream) [[unlikely]]
                 throw error("stream::send called on a non-active stream!");
@@ -101,9 +101,9 @@ namespace turbo::jamsnp {
                     delete buf_scope;
                     throw error(fmt::format("stream: send failed with status {}", status_name(res)));
                 }
-                logger::info("stream::send: created the send request with {} bytes", send_buf.size());
+                logger::debug("stream::send: created the send request with {} bytes", send_buf.size());
             }};
-            logger::info("stream::send: completed with {} bytes", send_buf.size());
+            logger::debug("stream::send: completed with {} bytes", send_buf.size());
         }
 
         coro::task_t<uint8_vector> receive()
@@ -189,26 +189,26 @@ namespace turbo::jamsnp {
 
         [[nodiscard]] coro::task_t<block_list_t> fetch_blocks(const header_hash_t &hh, const uint32_t max_blocks, const direction_t direction)
         {
-            logger::info("fetch_blocks: started");
+            logger::debug("fetch_blocks: started");
             std::shared_ptr<request_t> req {};
             co_await coro::get_handle_t{[&](auto h) {
                 req = std::make_shared<request_t>([h] mutable {
-                    logger::info("notify_shutdown: started");
+                    logger::debug("notify_shutdown: started");
                     if (h && !h.done()) {
-                        logger::info("notify_shutdown: calling set_exception");
+                        logger::debug("notify_shutdown: calling set_exception");
                         auto cast_h = std::coroutine_handle<typename coro::task_t<block_list_t>::promise_type>::from_address(h.address());
                         cast_h.promise().set_exception(
                             std::make_exception_ptr(error{fmt::format("connection has been shut down before request completion!")})
                         );
                         cast_h.resume();
                     }
-                    logger::info("notify_shutdown: completed");
+                    logger::debug("notify_shutdown: completed");
                 });
             }};
             _requests.emplace(req);
             auto cleanup = std::unique_ptr<void, std::function<void(void*)>> {nullptr, [&](void *) { _requests.erase(req); } };
             co_await _create_stream(req);
-            logger::info("fetch_blocks: created a stream");
+            logger::debug("fetch_blocks: created a stream");
             {
                 const auto msg = _fetch_blocks_request(hh, max_blocks, direction);
                 encoder enc {};
@@ -217,26 +217,83 @@ namespace turbo::jamsnp {
                 enc.next_bytes(msg);
                 co_await req->send(enc.bytes());
             }
-            logger::info("fetch_blocks: sent a request");
+            logger::debug("fetch_blocks: sent a request");
             uint8_vector resp {};
             for (size_t i = 0; i < max_blocks; ++i) {
                 const auto rcv_buf = co_await req->receive();
                 resp << rcv_buf;
                 decoder dec { resp };
                 const auto msg_len = dec.uint_fixed<size_t>(4U);
-                logger::info("fetch_blocks: received a response chunk: new response size: {} msg_len: {}", resp.size(), msg_len);
-                if (dec.size() == msg_len) {
+                logger::debug("fetch_blocks: received a response chunk: new response size: {} msg_len: {}", resp.size(), msg_len);
+                if (dec.size() >= msg_len) {
+                    if (dec.size() > msg_len) [[unlikely]]
+                        logger::error("fetch_blocks: received too much data: {} > {}!", dec.size(), msg_len);
                     block_list_t blocks {};
                     while (!dec.empty()) {
                         blocks.emplace_back(codec::from<block_t<CFG>>(dec));
                     }
-                    logger::info("fetch_blocks: returning blocks");
+                    logger::debug("fetch_blocks: returning blocks");
                     co_return blocks;
                 }
-                if (dec.size() > msg_len) [[unlikely]]
-                    throw error(fmt::format("fetch_blocks: received too much data: {} > {}!", dec.size(), msg_len));
             }
             throw error(fmt::format("fetch_blocks: received too little data: {}!", resp.size()));
+        }
+
+        [[nodiscard]] coro::task_t<state_resp_t> fetch_state(const header_hash_t &hh, const merkle::trie::key_t &key_start, const merkle::trie::key_t &key_end, const uint32_t max_size)
+        {
+            logger::debug("fetch_state: started");
+            std::shared_ptr<request_t> req {};
+            co_await coro::get_handle_t{[&](auto h) {
+                req = std::make_shared<request_t>([h] mutable {
+                    logger::debug("notify_shutdown: started");
+                    if (h && !h.done()) {
+                        logger::debug("notify_shutdown: calling set_exception");
+                        auto cast_h = std::coroutine_handle<typename coro::task_t<block_list_t>::promise_type>::from_address(h.address());
+                        cast_h.promise().set_exception(
+                            std::make_exception_ptr(error{fmt::format("connection has been shut down before request completion!")})
+                        );
+                        cast_h.resume();
+                    }
+                    logger::debug("notify_shutdown: completed");
+                });
+            }};
+            _requests.emplace(req);
+            auto cleanup = std::unique_ptr<void, std::function<void(void*)>> {nullptr, [&](void *) { _requests.erase(req); } };
+            co_await _create_stream(req);
+            logger::debug("fetch_state: created a stream");
+            {
+                encoder enc {};
+                enc.uint_fixed(1, 129U);
+                enc.uint_fixed(4, 0); // will be updated later
+                enc.next_bytes(hh);
+                enc.next_bytes(key_start);
+                enc.next_bytes(key_end);
+                enc.uint_fixed(4, max_size);
+                const auto msg_len = numeric_cast<uint32_t>(enc.bytes().size() - 5U);
+                encoder::uint_fixed(std::span { enc.bytes().data() + 1, 4 }, 4, msg_len);
+                logger::info("fetch-state: msg-len: {}", msg_len);
+                logger::info("fetch-state: send: {}", enc.bytes());
+                co_await req->send(enc.bytes());
+            }
+            logger::debug("fetch_state: sent a request");
+            uint8_vector resp {};
+            for (size_t i = 0; i < max_size; ++i) {
+                const auto rcv_buf = co_await req->receive();
+                resp << rcv_buf;
+                decoder dec { resp };
+                const auto msg_len = dec.uint_fixed<size_t>(4U);
+                logger::debug("fetch_state: received a response chunk: new response size: {} msg_len: {}", resp.size(), msg_len);
+                if (dec.size() >= msg_len) {
+                    if (dec.size() > msg_len) [[unlikely]]
+                        logger::error("fetch_state: received too much data: {} > {}!", dec.size(), msg_len);
+                    state_resp_t result {};
+                    dec.process(result);
+                    logger::debug("fetch_state: returning state");
+                    co_return result;
+                }
+                
+            }
+            throw error(fmt::format("fetch_state: received too little data: {}!", resp.size()));
         }
     private:
         address_t _server_addr;
@@ -253,7 +310,7 @@ namespace turbo::jamsnp {
 
         static uint8_vector _fetch_blocks_request(const header_hash_t &hh, const uint32_t max_blocks, const direction_t direction=direction_t::ascending)
         {
-            logger::info("making a block request: start hash: {} max_blocks: {} direction: {}", hh, max_blocks, static_cast<uint8_t>(direction));
+            logger::debug("making a block request: start hash: {} max_blocks: {} direction: {}", hh, max_blocks, static_cast<uint8_t>(direction));
             uint8_vector res {};
             res.reserve(sizeof(hh) + 1 + sizeof(max_blocks));
             res << hh;
@@ -275,7 +332,7 @@ namespace turbo::jamsnp {
             }
             switch (event->Type) {
                 case QUIC_CONNECTION_EVENT_CONNECTED: {
-                    logger::info("jamsnp::connection: connected!");
+                    logger::debug("jamsnp::connection: connected!");
                     std::coroutine_handle<> h {};
                     {
                         std::scoped_lock lk { self._mutex };
@@ -284,7 +341,7 @@ namespace turbo::jamsnp {
                     scheduler::get().submit("connection-connected", 100, [h] {
                         if (h && !h.done())
                             h.resume();
-                        logger::info("connection-complete processed");
+                        logger::debug("connection-complete processed");
                     });
                     break;
                 }
@@ -293,39 +350,41 @@ namespace turbo::jamsnp {
 		            break;
 	            }
                 case QUIC_CONNECTION_EVENT_STREAMS_AVAILABLE:
-                    logger::info("connection: streams available uni: {} bidi: {}!",
+                    logger::debug("connection: streams available uni: {} bidi: {}!",
                         event->STREAMS_AVAILABLE.UnidirectionalCount, event->STREAMS_AVAILABLE.BidirectionalCount);
                     break;
                 case QUIC_CONNECTION_EVENT_RESUMPTION_TICKET_RECEIVED:
-                    //logger::info("connection: resumption ticket received: {}!",
+                    //logger::debug("connection: resumption ticket received: {}!",
                     //    buffer { event->RESUMPTION_TICKET_RECEIVED.ResumptionTicket, event->RESUMPTION_TICKET_RECEIVED.ResumptionTicketLength });
                     break;
                 case QUIC_CONNECTION_EVENT_DATAGRAM_STATE_CHANGED:
-                    //logger::info("connection: datagram state changed: SendEnabled: {} MaxSendLength: {}!\n",
+                    //logger::debug("connection: datagram state changed: SendEnabled: {} MaxSendLength: {}!\n",
                     //    event->DATAGRAM_STATE_CHANGED.SendEnabled, event->DATAGRAM_STATE_CHANGED.MaxSendLength);
                     break;
                 case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT: {
-                    logger::info("connection: shut down by transport: ErrorCode: {:08X} Status: {}!",
+                    logger::debug("connection: shut down by transport: ErrorCode: {:08X} Status: {}!",
                         event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode, status_name(event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status));
                     break;
                 }
                 case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
-                    logger::info("connection: shutdown by peer!");
+                    logger::debug("connection: shutdown by peer!");
                     break;
                 case QUIC_CONNECTION_EVENT_SHUTDOWN_COMPLETE: {
-                    logger::info("connection: shutdown complete!");
+                    logger::debug("connection: shutdown complete!");
                     decltype(self._requests) old_requests {};
                     {
                         std::scoped_lock lk { self._mutex };
-                        self._conn = nullptr;
-                        std::swap(old_requests, self._requests);
+                        if (self._conn) {
+                            self._conn = nullptr;
+                            std::swap(old_requests, self._requests);
+                        }
                     }
                     scheduler::get().submit("connection-shutdown-complete", 100, [old_requests=std::move(old_requests)] {
-                        logger::info("connection-shutdown-complete processing started; pending requests: {}!", old_requests.size());
+                        logger::debug("connection-shutdown-complete processing started; pending requests: {}!", old_requests.size());
                         for (const auto &req: old_requests) {
                             req->notify_shutdown_func();
                         }
-                        logger::info("connection-shutdown-complete processed!");
+                        logger::debug("connection-shutdown-complete processed!");
                     });
                     break;
                 }
@@ -345,43 +404,43 @@ namespace turbo::jamsnp {
             auto *req = reinterpret_cast<request_t *>(ctx);
             switch (event->Type) {
                 case QUIC_STREAM_EVENT_START_COMPLETE: {
-                    logger::info("stream: start complete");
+                    logger::debug("stream: start complete");
                     std::coroutine_handle<> h {};
                     {
                         std::scoped_lock lk { req->mutex };
                         req->stream = stream;
                         std::swap(req->starting, h);
                     }
-                    logger::info("stream: start complete: acquired the lock");
+                    logger::debug("stream: start complete: acquired the lock");
                     scheduler::get().submit("stream-start-complete", 100, [h] {
-                        logger::info("stream-start-complete processing started");
+                        logger::debug("stream-start-complete processing started");
                         if (h && !h.done())
                             h.resume();
-                        logger::info("stream-start-complete processed");
+                        logger::debug("stream-start-complete processed");
                     });
                     break;
                 }
                 case QUIC_STREAM_EVENT_SEND_COMPLETE: {
-                    logger::info("stream: data-send-complete");
+                    logger::debug("stream: data-send-complete");
                     std::coroutine_handle<> h {};
                     {
                         std::scoped_lock lk { req->mutex };
                         std::swap(req->sending, h);
                     }
-                    logger::info("stream: data-send-complete: sending: {} done: {}", h.address(), h.done());
+                    logger::debug("stream: data-send-complete: sending: {} done: {}", h.address(), h.done());
                     delete reinterpret_cast<QuicBufferScope *>(event->SEND_COMPLETE.ClientContext);
                     scheduler::get().submit("stream-send-complete", 100, [h] {
-                        logger::info("stream-send-complete processing started");
+                        logger::debug("stream-send-complete processing started");
                         if (h && !h.done()) {
-                            logger::info("stream-send-complete calling resume");
+                            logger::debug("stream-send-complete calling resume");
                             h.resume();
                         }
-                        logger::info("stream-send-complete processed");
+                        logger::debug("stream-send-complete processed");
                     });
                     break;
                 }
                 case QUIC_STREAM_EVENT_RECEIVE: {
-                    logger::info("stream-receive processed");
+                    logger::debug("stream-receive processed");
                     std::coroutine_handle<> h {};
                     {
                         std::scoped_lock lk { req->mutex };
@@ -393,28 +452,28 @@ namespace turbo::jamsnp {
                     }
                     if (h && !h.done()) {
                         scheduler::get().submit("stream-receive", 100, [h] {
-                            logger::info("stream-receive processing started");
+                            logger::debug("stream-receive processing started");
                             if (h && !h.done())
                                 h.resume();
-                            logger::info("stream-receive processed");
+                            logger::debug("stream-receive processed");
                         });
                     }
                     break;
                 }
                 case QUIC_STREAM_EVENT_PEER_SEND_ABORTED:
-                    logger::info("stream: send aborted!");
+                    logger::debug("stream: send aborted!");
                     break;
                 case QUIC_STREAM_EVENT_PEER_SEND_SHUTDOWN:
-                    logger::info("stream: peer shut down!");
+                    logger::debug("stream: peer shut down!");
                     break;
                 case QUIC_STREAM_EVENT_SEND_SHUTDOWN_COMPLETE:
-                    logger::info("stream: send closed!");
+                    logger::debug("stream: send closed!");
                     break;
                 case QUIC_STREAM_EVENT_SHUTDOWN_COMPLETE:
-                    logger::info("stream: closed!");
+                    logger::debug("stream: closed!");
                     break;
                 default:
-                    logger::info("stream: other: {}!", static_cast<int>(event->Type));
+                    logger::debug("stream: other: {}!", static_cast<int>(event->Type));
                     break;
             }
             return QUIC_STATUS_SUCCESS;
@@ -422,7 +481,7 @@ namespace turbo::jamsnp {
 
         [[nodiscard]] coro::task_t<void> _create_stream(const std::shared_ptr<request_t> &req)
         {
-            logger::info("create stream: started");
+            logger::debug("create stream: started");
             std::unique_lock lk { _mutex };
             if (!_conn) {
                 if (_connecting) [[unlikely]]
@@ -434,24 +493,24 @@ namespace turbo::jamsnp {
                     if (!_conn->IsValid()) [[unlikely]]
                         throw error(fmt::format("failed to initialize MsQuicConnection! Error: {}", status_name(_conn->GetInitStatus())));
                     std::thread{[this] {
-                        logger::info("connection timeout thread: started");
+                        logger::debug("connection timeout thread: started");
                         std::this_thread::sleep_for(std::chrono::seconds{5U});
                         std::scoped_lock lk{_mutex};
                         if (_conn) {
-                            logger::info("connection timeout thread: calling shutdown");
+                            logger::debug("connection timeout thread: calling shutdown");
                             _conn->Shutdown(1);
                         }
-                        logger::info("connection timeout thread: completed");
+                        logger::debug("connection timeout thread: completed");
                     }}.detach();
-                    logger::info("created MSQUIC connection object");
+                    logger::debug("created MSQUIC connection object");
                     if (const auto res = _conn->Start(_cfg.config(), QUIC_ADDRESS_FAMILY_INET6, _server_addr.host.c_str(), _server_addr.port); QUIC_FAILED(res)) [[unlikely]] {
                         _conn->Shutdown(1);
                         throw error(fmt::format("connection start failed with {}", status_name(res)));
                     }
-                    logger::info("called MSQUIC connection start");
+                    logger::debug("called MSQUIC connection start");
                 }};
             }
-            logger::info("create stream: connection ready");
+            logger::debug("create stream: connection ready");
             lk.lock();
             co_await coro::external_task_t{[&](auto h) {
                 auto &conn = *_conn;
@@ -461,12 +520,12 @@ namespace turbo::jamsnp {
                 if (!st->IsValid()) [[unlikely]] {
                     throw error("stream: failed to initialize");
                 }
-                logger::info("created MSQUIC stream");
+                logger::debug("created MSQUIC stream");
                 if (const auto res = st->Start(); QUIC_FAILED(res)) [[unlikely]]
                     throw error(fmt::format("stream: start failed with code {}", status_name(res)));
-                logger::info("called MSQUIC stream start");
+                logger::debug("called MSQUIC stream start");
             }};
-            logger::info("create stream: stream ready");
+            logger::debug("create stream: stream ready");
         }
     };
 
@@ -483,6 +542,12 @@ namespace turbo::jamsnp {
     coro::task_t<typename client_t<CFG>::block_list_t> client_t<CFG>::fetch_blocks(const header_hash_t &hh, uint32_t max_blocks, direction_t direction)
     {
         return _impl->fetch_blocks(hh, max_blocks, direction);
+    }
+
+    template<typename CFG>
+    coro::task_t<state_resp_t> client_t<CFG>::fetch_state(const header_hash_t &hh, const merkle::trie::key_t &key_start, const merkle::trie::key_t &key_end, const uint32_t max_size)
+    {
+        return _impl->fetch_state(hh, key_start, key_end, max_size);
     }
 
     template struct client_t<config_prod>;

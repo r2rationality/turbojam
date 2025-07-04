@@ -6,6 +6,7 @@
 
 #include <turbo/common/coro.hpp>
 #include <turbo/jam/types/header.hpp>
+#include <turbo/jam/types/state-dict.hpp>
 
 namespace turbo::jamsnp {
     using namespace jam;
@@ -20,6 +21,18 @@ namespace turbo::jamsnp {
         descending = 1
     };
 
+    struct state_resp_t {
+        sequence_t<merkle::trie::key_t> boundaries {};
+        state_snapshot_t state {};
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("boundaries"sv, boundaries);
+            archive.process("state"sv, state);
+        }
+    };
+
     template<typename CFG>
     struct client_t {
         using block_list_t = sequence_t<block_t<CFG>>;
@@ -28,6 +41,7 @@ namespace turbo::jamsnp {
         ~client_t();
 
         [[nodiscard]] coro::task_t<block_list_t> fetch_blocks(const header_hash_t &hh, uint32_t max_blocks, direction_t direction=direction_t::ascending);
+        [[nodiscard]] coro::task_t<state_resp_t> fetch_state(const header_hash_t &hh, const merkle::trie::key_t &key_start, const merkle::trie::key_t &key_end, const uint32_t max_size);
     private:
         struct impl_t;
         std::unique_ptr<impl_t> _impl;
