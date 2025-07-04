@@ -532,8 +532,14 @@ namespace turbo::jam {
         void consume_from(accounts_update_api_t &&o)
         {
             for (auto &&[k, v]: o._derived) {
-                if (auto [it, created] = _derived.try_emplace(k, std::move(v)); !created)
+                if (auto [it, created] = _derived.try_emplace(k, std::move(v)); !created) {
+                    // Appendix B.4 says that if the same service id is assigned to different services, such a block shall be considered invalid
+                    // Considering non-matching code-hashes as an indication of differing services here.
+                    if (it->second.info.code_hash && v.info.code_hash && *it->second.info.code_hash != *v.info.code_hash) [[unlikely]]
+                        throw error(fmt::format("service {} accumulation resulted into the same service having different code hashes: {} != {}",
+                            k, *it->second.info.code_hash, *v.info.code_hash));
                     it->second.consume_from(std::move(v));
+                }
             }
         }
 

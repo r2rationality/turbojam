@@ -36,10 +36,10 @@ namespace turbo::jam {
     struct fetch_params_t {
         const work_package_t<CFG> *package = nullptr; // GP p
         const opaque_hash_t *nonce = nullptr; // GP n
-        // r - ?
-        // i - ?
-        // i-bold-dash - ?
-        // x-bold-dash - ?
+        const byte_sequence_t *auth_output = nullptr; // GP r-bold
+        const uint16_t *refined_item_index = nullptr;
+        const sequence_t<byte_sequence_t> *imports = nullptr; // GP i-bold-dash
+        const sequence_t<byte_sequence_t> *exports = nullptr; // GP x-bold-dash
         const accumulate_operands_t *operands = nullptr; // GP o
         const deferred_transfers_t<CFG> *transfers = nullptr; // GP t
     };

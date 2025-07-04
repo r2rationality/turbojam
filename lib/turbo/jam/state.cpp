@@ -455,11 +455,18 @@ namespace turbo::jam {
                     return host_service.call(id);
                 }
             );
+            // (B.13)
             auto &ctx = std::holds_alternative<uint8_vector>(inv_res.result) ? ctx_ok : ctx_err;
+            auto res = ctx.result;
+            if (std::holds_alternative<uint8_vector>(inv_res.result)) {
+                const auto &res_bytes = std::get<uint8_vector>(inv_res.result);
+                if (res_bytes.size() == sizeof(opaque_hash_t))
+                    res.emplace(res_bytes);
+            }
             return {
                 std::move(ctx.state),
                 std::move(ctx.transfers),
-                ctx.result,
+                res,
                 inv_res.gas_used,
                 ops.size()
             };

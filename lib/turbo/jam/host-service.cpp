@@ -148,6 +148,16 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::fetch()
     {
+        const auto s_func = [](encoder &enc, const work_item_t &w) {
+            enc.process(w.service);
+            enc.process(w.code_hash);
+            enc.process(w.refine_gas_limit);
+            enc.process(w.accumulate_gas_limit);
+            enc.uint_fixed(2, w.export_count);
+            enc.uint_fixed(2, w.import_segments.size());
+            enc.uint_fixed(2, w.extrinsic.size());
+            enc.uint_fixed(4, w.payload.size());
+        };
         const auto &omega = _p.m.regs();
         logger::trace("host_service::fetch {}", omega[10]);
         std::optional<uint8_vector> v {};
@@ -194,6 +204,32 @@ namespace turbo::jam {
                 if (_p.fetch.nonce)
                     v.emplace(*_p.fetch.nonce);
                 break;
+            case 2:
+                if (_p.fetch.auth_output)
+                    v.emplace(*_p.fetch.auth_output);
+                break;
+            case 3:
+                if (_p.fetch.exports && omega[11] < _p.fetch.exports->size()
+                        && omega[12] < (*_p.fetch.exports)[omega[11]].size())
+                    v.emplace((*_p.fetch.exports)[omega[11]][omega[12]]);
+                break;
+            case 4:
+                if (_p.fetch.exports && _p.fetch.refined_item_index
+                        && *_p.fetch.refined_item_index < _p.fetch.exports->size()
+                        && omega[11] < (*_p.fetch.exports)[*_p.fetch.refined_item_index].size())
+                    v.emplace((*_p.fetch.exports)[*_p.fetch.refined_item_index][omega[11]]);
+                break;
+            case 5:
+                if (_p.fetch.imports && omega[11] < _p.fetch.imports->size()
+                        && omega[12] < (*_p.fetch.imports)[omega[11]].size())
+                    v.emplace((*_p.fetch.imports)[omega[11]][omega[12]]);
+                break;
+            case 6:
+                if (_p.fetch.exports && _p.fetch.refined_item_index
+                        && *_p.fetch.refined_item_index < _p.fetch.imports->size()
+                        && omega[11] < (*_p.fetch.imports)[*_p.fetch.refined_item_index].size())
+                    v.emplace((*_p.fetch.imports)[*_p.fetch.refined_item_index][omega[11]]);
+                break;
             case 7:
                 if (_p.fetch.package) {
                     encoder enc { *_p.fetch.package };
@@ -215,6 +251,22 @@ namespace turbo::jam {
             case 10:
                 if (_p.fetch.package) {
                     encoder enc { _p.fetch.package->context };
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 11:
+                if (_p.fetch.package) {
+                    encoder enc {};
+                    enc.uint_varlen(_p.fetch.package->items.size());
+                    for (const auto &w: _p.fetch.package->items)
+                        s_func(enc, w);
+                    v.emplace(std::move(enc.bytes()));
+                }
+                break;
+            case 12:
+                if (_p.fetch.package && omega[11] < _p.fetch.package->items.size()) {
+                    encoder enc {};
+                    s_func(enc, _p.fetch.package->items[omega[11]]);
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
