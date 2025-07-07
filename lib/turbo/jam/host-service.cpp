@@ -322,10 +322,11 @@ namespace turbo::jam {
         const auto h = omega[8];
         const auto o = omega[9];
         const opaque_hash_t key { _p.m.mem_read(h, 32) };
-        const auto p_k = a->preimages.make_key(key);
         std::optional<uint8_vector> val {};
-        if (a)
+        if (a) {
+            const auto p_k = a->preimages.make_key(key);
             val = a->preimages.get(p_k);
+        }
         if (val) {
             const auto f = std::min(omega[10], val->size());
             const auto l = std::min(omega[11], val->size() - f);
