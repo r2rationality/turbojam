@@ -1,6 +1,7 @@
 
 #include <future>
 
+#include <turbo/common/cli.hpp>
 #include <turbo/common/logger.hpp>
 #include <turbo/crypto/ed25519.hpp>
 #include <turbo/jamsnp/client.hpp>
@@ -117,47 +118,33 @@ namespace {
     }
 }
 
-int main(int argc, char **argv)
-{
-    try {
-        logger::info("Usage: tj <fetch-blocks|fetch-state> [<ipv6-addr>] [<port>]");
-        if (argc < 2)
-            throw error("a command must be named!");
-        const file::tmp_directory tmp_dir { "tj" };
-        const auto cert_prefix = (static_cast<std::filesystem::path>(tmp_dir) / "client").string();
+namespace turbo::cli::jamnp_fetch_blocks {
+    struct cmd: command {
+        void configure(config &cmd) const override
         {
-            const auto key_pair = crypto::ed25519::create_from_seed(crypto::ed25519::seed_t::from_hex("0000000000000000000000000000000000000000000000000000000000000000"));
-            write_cert(cert_prefix + ".cert", cert_prefix + ".key", key_pair);
+            cmd.name = "jamnp-fetch-blocks";
+            cmd.desc = "Execute a CE128, fetch blocks, request";
+            cmd.opts.try_emplace("host", "an IPv6 address of a JAMNP server", "::1");
+            cmd.opts.try_emplace("port", "a UDP port at which the target JAMNP server listens", "40000");
         }
-        jamsnp::address_t server_addr { "::1", 40000 };
-        std::string cmd = argv[1];
-        if (argc >= 3)
-            server_addr.host = argv[2];
-        if (argc >= 4)
-            server_addr.port = from_str<uint16_t>(argv[3]);
-        logger::info("connecting to {}", server_addr);
-        jamsnp::client_t<config_tiny> client { server_addr, "turbojam", "jamnp-s/0/b5af8eda", cert_prefix };
-        logger::info("created a client instance");
-        if (cmd == "fetch-blocks") {
+
+        void run(const arguments &args, const options &opts) const override
+        {
+            const file::tmp_directory tmp_dir { "tj" };
+            const auto cert_prefix = (static_cast<std::filesystem::path>(tmp_dir) / "client").string();
+            {
+                const auto key_pair = crypto::ed25519::create_from_seed(crypto::ed25519::seed_t::from_hex("0000000000000000000000000000000000000000000000000000000000000000"));
+                write_cert(cert_prefix + ".cert", cert_prefix + ".key", key_pair);
+            }
+            jamsnp::address_t server_addr {
+                opts.at("host").value(),
+                from_str<uint16_t>(opts.at("port").value().c_str())
+            };
+            logger::info("connecting to {}", server_addr);
+            jamsnp::client_t<config_tiny> client { server_addr, "turbojam", "jamnp-s/0/b5af8eda", cert_prefix };
+            logger::info("created a client instance");
             logger::info("fetch-blocks: {}", client.fetch_blocks({}, 10).wait());
-        } else if (cmd == "fetch-state") {
-            logger::info("fetch-state: {}",
-                client.fetch_state(
-                    header_hash_t::from_hex<header_hash_t>("B5AF8EDAD70D962097EEFA2CEF92C8284CF0A7578B70A6B7554CF53AE6D51222"),
-                    {},
-                    merkle::trie::key_t::from_hex<merkle::trie::key_t>("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"),
-                    100
-                ).wait()
-            );
-        } else {
-            throw error(fmt::format("Unsupported command: '{}'", cmd));
         }
-        return 0;
-    } catch (const std::exception &ex) {
-        logger::error("Terminating due to an exception: {}", ex.what());
-        return 1;
-    } catch (...) {
-        logger::error("Terminating due to an unknown exception");
-        return 2;
-    }
+    };
+    static auto instance = command::reg(std::make_shared<cmd>());
 }
