@@ -886,6 +886,7 @@ namespace turbo::jam {
 
         void foreach(const observer_t &) const;
         bool operator==(const state_t &o) const noexcept;
+        state_snapshot_t snapshot() const;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
 

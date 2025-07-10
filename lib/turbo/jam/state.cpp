@@ -1261,6 +1261,16 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
+    state_snapshot_t state_t<CFG>::snapshot() const
+    {
+        state_snapshot_t snap {};
+        triedb->foreach([&](const auto &k, const auto &v) {
+            snap.emplace(k, v);
+        });
+        return snap;
+    }
+
+    template<typename CFG>
     state_t<CFG> &state_t<CFG>::operator=(const state_snapshot_t &st)
     {
         const auto decode_service_info = [&](const state_key_t &key, decoder &dec) {
