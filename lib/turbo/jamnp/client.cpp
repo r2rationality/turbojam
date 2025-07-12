@@ -16,7 +16,7 @@
 
 const MsQuicApi *MsQuic = nullptr;
 
-namespace turbo::jamsnp {
+namespace turbo::jamnp {
     static std::string status_name(const QUIC_STATUS status)
     {
         static std::unordered_map<QUIC_STATUS, std::string> names {

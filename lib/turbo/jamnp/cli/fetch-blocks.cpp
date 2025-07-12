@@ -8,8 +8,8 @@
 #include <turbo/common/cli.hpp>
 #include <turbo/common/logger.hpp>
 #include <turbo/crypto/ed25519.hpp>
-#include <turbo/jamsnp/client.hpp>
-#include <turbo/jamsnp/cert.hpp>
+#include <turbo/jamnp/client.hpp>
+#include <turbo/jamnp/cert.hpp>
 
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -69,7 +69,7 @@ namespace {
         X509 *x509 = nullptr;
         FILE *f = nullptr;
         X509_NAME *name = nullptr;
-        const auto vk_name = jamsnp::cert_name_from_vk(kp.vk);
+        const auto vk_name = jamnp::cert_name_from_vk(kp.vk);
 
         // OpenSSL and Sodium's Secret Key sizes do not match
         static_assert(sizeof(kp.sk) >= 32);
@@ -140,12 +140,12 @@ namespace turbo::cli::jamnp_fetch_blocks {
                 const auto key_pair = crypto::ed25519::create_from_seed(crypto::ed25519::seed_t::from_hex("0000000000000000000000000000000000000000000000000000000000000000"));
                 write_cert(cert_prefix + ".cert", cert_prefix + ".key", key_pair);
             }
-            jamsnp::address_t server_addr {
+            jamnp::address_t server_addr {
                 opts.at("host").value(),
                 from_str<uint16_t>(opts.at("port").value().c_str())
             };
             logger::info("connecting to {}", server_addr);
-            jamsnp::client_t<config_tiny> client { server_addr, "turbojam", "jamnp-s/0/b5af8eda", cert_prefix };
+            jamnp::client_t<config_tiny> client { server_addr, "turbojam", "jamnp-s/0/b5af8eda", cert_prefix };
             logger::info("created a client instance");
             logger::info("fetch-blocks: {}", client.fetch_blocks({}, 10).wait());
         }

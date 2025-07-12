@@ -8,7 +8,7 @@
 #include <turbo/jam/types/header.hpp>
 #include <turbo/jam/types/state-dict.hpp>
 
-namespace turbo::jamsnp {
+namespace turbo::jamnp {
     using namespace jam;
 
     struct address_t {
@@ -50,9 +50,9 @@ namespace turbo::jamsnp {
 
 namespace fmt {
     template<>
-    struct formatter<turbo::jamsnp::address_t>: formatter<int> {
+    struct formatter<turbo::jamnp::address_t>: formatter<int> {
         template<typename FormatContext>
-        auto format(const turbo::jamsnp::address_t &v, FormatContext &ctx) const -> decltype(ctx.out()) {
+        auto format(const turbo::jamnp::address_t &v, FormatContext &ctx) const -> decltype(ctx.out()) {
             return fmt::format_to(ctx.out(), "host={} port={}", v.host, v.port);
         }
     };

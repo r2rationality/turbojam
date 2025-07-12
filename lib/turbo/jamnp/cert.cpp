@@ -1,7 +1,7 @@
 #include <iostream>
 #include "cert.hpp"
 
-namespace turbo::jamsnp {
+namespace turbo::jamnp {
     std::string cert_name_base32(const buffer bytes)
     {
         static std::array<char, 32> dict {

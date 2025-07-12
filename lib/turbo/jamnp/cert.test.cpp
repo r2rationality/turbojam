@@ -8,11 +8,11 @@
 
 namespace {
     using namespace turbo;
-    using namespace turbo::jamsnp;
+    using namespace turbo::jamnp;
 }
 
-suite turbo_jamsnp_cert_suite = [] {
-    "turbo::jamsnp::cert"_test = [] {
+suite turbo_jamnp_cert_suite = [] {
+    "turbo::jamnp::cert"_test = [] {
         using crypto::ed25519::vkey_t;
 
         expect_equal("", cert_name_base32(uint8_vector::from_hex("")));
