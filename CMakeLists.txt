@@ -114,12 +114,12 @@ add_subdirectory(lib)
 target_link_libraries(lib PUBLIC 3rdparty)
 
 file(GLOB_RECURSE TEST_SRCS lib/*.test.cpp)
-add_executable(run-test src/run-test.cpp ${TEST_SRCS})
-target_link_libraries(run-test PRIVATE lib 3rdparty)
+add_executable(tjam-test src/run-test.cpp ${TEST_SRCS})
+target_link_libraries(tjam-test PRIVATE lib 3rdparty)
 
 file(GLOB_RECURSE BENCH_SRCS lib/*.bench.cpp)
-add_executable(run-bench src/run-test.cpp ${BENCH_SRCS})
-target_link_libraries(run-bench PRIVATE lib 3rdparty)
+add_executable(tjam-bench src/run-test.cpp ${BENCH_SRCS})
+target_link_libraries(tjam-bench PRIVATE lib 3rdparty)
 
 file(GLOB_RECURSE EXE_SRCS src/*.cpp)
 list(FILTER EXE_SRCS EXCLUDE REGEX "run-test\\.cpp$")
