@@ -180,10 +180,16 @@ namespace {
                     } else if constexpr (std::is_same_v<T, import_block_t>) {
                         if (!chain) [[unlikely]]
                             throw error("import_block is not allowed before set_state");
+                        logger::run_log_errors([&] {
+                            chain->apply(m);
+                        });
                         return chain->state_root();
                     } else if constexpr (std::is_same_v<T, get_state_t>) {
                         if (!chain) [[unlikely]]
                             throw error("get_state is not allowed before set_state");
+                        const auto &beta = chain->state().beta.get();
+                        if (beta.empty() || beta.back().header_hash != m.header_hash) [[unlikely]]
+                            throw error("get_state supports returning the state of only the latest block!");
                         return chain->state().snapshot();
                     } else {
                         throw error(fmt::format("unexpected message type: {}", typeid(T).name()));
