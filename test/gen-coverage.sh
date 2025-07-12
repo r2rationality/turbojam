@@ -11,7 +11,7 @@ BUILD_DIR=$3
 if [ -z "$BUILD_DIR" ]; then
   BUILD_DIR="build"
 fi
-"$BUILD_DIR/run-test" "$TEST_NAME"
+"$BUILD_DIR/tjam-test" "$TEST_NAME"
 if [ -f /usr/bin/llvm-profdata-19 ]; then
   PROFDATA_BIN=llvm-profdata-19
   COV_BIN=llvm-cov-19
@@ -19,5 +19,5 @@ else
   PROFDATA_BIN=llvm-profdata
   COV_BIN=llvm-cov
 fi
-"$PROFDATA_BIN" merge -sparse default.profraw -o run-test.profdata
-"$COV_BIN" show -show-branches=percent -ignore-filename-regex=lib/dt/cli -ignore-filename-regex=3rdparty/ -format=html -output-dir="$OUT_DIR" "$BUILD_DIR/run-test" -instr-profile=run-test.profdata
+"$PROFDATA_BIN" merge -sparse default.profraw -o tjam-test.profdata
+"$COV_BIN" show -show-branches=percent -ignore-filename-regex=lib/dt/cli -ignore-filename-regex=3rdparty/ -format=html -output-dir="$OUT_DIR" "$BUILD_DIR/tjam-test" -instr-profile=tjam-test.profdata
