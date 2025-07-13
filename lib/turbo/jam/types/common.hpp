@@ -36,7 +36,7 @@ namespace turbo::jam {
     struct sequence_t: std::vector<T> {
         static constexpr size_t min_size = MIN;
         static constexpr size_t max_size = MAX;
-        static_assert(MIN < MAX);
+        static_assert(MIN <= MAX);
         using base_type = std::vector<T>;
         using base_type::base_type;
 
@@ -50,7 +50,7 @@ namespace turbo::jam {
     struct set_t: boost::container::flat_set<T> {
         static constexpr size_t min_size = MIN;
         static constexpr size_t max_size = MAX;
-        static_assert(MIN < MAX);
+        static_assert(MIN <= MAX);
         using base_type = boost::container::flat_set<T>;
         using base_type::base_type;
 
