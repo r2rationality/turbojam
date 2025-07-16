@@ -15,10 +15,25 @@ add_custom_target(
 add_dependencies(ark_vrf_cpp DEPENDS ark_vrf_cpp_lib)
 set_target_properties(ark_vrf_cpp PROPERTIES IMPORTED_LOCATION ${ARK_VRF_CPP_PATH})
 
+add_library(erasure_coding STATIC IMPORTED)
+target_include_directories(erasure_coding INTERFACE erasure-coding/include)
+if (MSVC)
+    set(ERASURE_CODING_PATH "${CMAKE_CURRENT_LIST_DIR}/erasure-coding/target/release/erasure_coding.lib")
+else()
+    set(ERASURE_CODING_PATH "${CMAKE_CURRENT_LIST_DIR}/erasure-coding/target/release/erasure_coding.a")
+endif()
+add_custom_target(
+        erasure_coding_lib ${CARGO} build --release
+        BYPRODUCTS ${ERASURE_CODING_PATH}
+        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/erasure-coding"
+)
+add_dependencies(erasure_coding DEPENDS erasure_coding_lib)
+set_target_properties(erasure_coding PROPERTIES IMPORTED_LOCATION ${ERASURE_CODING_PATH})
+
 add_library(3rdparty OBJECT hash-library/keccak.cpp nanobench.cpp)
 target_include_directories(3rdparty PUBLIC .)
 set_target_properties(3rdparty PROPERTIES LINKER_LANGUAGE CXX)
-target_link_libraries(3rdparty PUBLIC ark_vrf_cpp)
+target_link_libraries(3rdparty PUBLIC ark_vrf_cpp erasure_coding)
 
 include(ExternalProject)
 ExternalProject_Add(
