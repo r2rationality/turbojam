@@ -19,7 +19,7 @@ RUN apt-get install -y pv gawk telnet whois
 RUN apt-get install -y libboost1.83-all-dev libboost-url1.83-dev libsodium-dev libsecp256k1-dev libzstd-dev libssl-dev libfmt-dev libspdlog-dev libbotan-2-dev
 RUN apt-get install -y jq ninja-build clang-19 clang-tools-19
 RUN apt-get install -y jq libsecp256k1-dev libgoogle-perftools-dev google-perftools
-RUN apt-get install -y jq sloccount
+RUN apt-get install -y jq sloccount net-tools
 RUN mkdir -p /home/dev
 RUN useradd -m -s /bin/bash -d /home/dev -G sudo dev
 RUN chown -R dev:dev /home/dev
