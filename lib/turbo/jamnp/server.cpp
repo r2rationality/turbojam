@@ -113,7 +113,7 @@ namespace turbo::jamnp {
                 break;
             case QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED:
                 logger::info("QUIC_CONNECTION_EVENT_PEER_STREAM_STARTED");
-                MsQuic->SetCallbackHandler(ev->PEER_STREAM_STARTED.Stream, (void*)_server_stream_callback, NULL);
+                MsQuic->SetCallbackHandler(ev->PEER_STREAM_STARTED.Stream, reinterpret_cast<void*>(_server_stream_callback), NULL);
                 break;
             case QUIC_CONNECTION_EVENT_RESUMED:
                 logger::info("QUIC_CONNECTION_EVENT_RESUMED");
@@ -133,7 +133,7 @@ namespace turbo::jamnp {
             switch (ev->Type) {
                 case QUIC_LISTENER_EVENT_NEW_CONNECTION:
                     logger::info("QUIC_LISTENER_EVENT_NEW_CONNECTION");
-                    MsQuic->SetCallbackHandler(ev->NEW_CONNECTION.Connection, _server_connection_callback, NULL);
+                    MsQuic->SetCallbackHandler(ev->NEW_CONNECTION.Connection, reinterpret_cast<void *>(_server_connection_callback), NULL);
                     Status = MsQuic->ConnectionSetConfiguration(ev->NEW_CONNECTION.Connection, self._cfg.config());
                     break;
                 default:

@@ -18,10 +18,8 @@
 // include it the last since it includes Windows headers
 #include <msquic.hpp>
 
-extern "C" const MsQuicApi *MsQuic;
-
 namespace turbo::jamnp::quic {
-    extern std::string status_name(long status);
+    extern std::string status_name(QUIC_STATUS status);
 
     struct error: turbo::error {
         error(const std::string &msg):

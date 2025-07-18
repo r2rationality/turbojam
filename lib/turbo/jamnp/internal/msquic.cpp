@@ -13,14 +13,11 @@
 
 #include "msquic.hpp"
 
-extern "C" {
-    const MsQuicApi *MsQuic = nullptr;
-}
+const MsQuicApi *MsQuic = nullptr;
 
 namespace turbo::jamnp::quic {
-    std::string status_name(const long status)
+    std::string status_name(const QUIC_STATUS status)
     {
-        static_assert(std::is_same_v<long, QUIC_STATUS>);
         static std::unordered_map<QUIC_STATUS, std::string> names {
             { QUIC_STATUS_SUCCESS, "QUIC_STATUS_SUCCESS" },
             { QUIC_STATUS_PENDING, "QUIC_STATUS_PENDING" },

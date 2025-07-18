@@ -20,7 +20,7 @@ target_include_directories(erasure_coding INTERFACE erasure-coding/include)
 if (MSVC)
     set(ERASURE_CODING_PATH "${CMAKE_CURRENT_LIST_DIR}/erasure-coding/target/release/erasure_coding.lib")
 else()
-    set(ERASURE_CODING_PATH "${CMAKE_CURRENT_LIST_DIR}/erasure-coding/target/release/erasure_coding.a")
+    set(ERASURE_CODING_PATH "${CMAKE_CURRENT_LIST_DIR}/erasure-coding/target/release/liberasure_coding.a")
 endif()
 add_custom_target(
         erasure_coding_lib ${CARGO} build --release

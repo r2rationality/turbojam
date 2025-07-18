@@ -140,8 +140,8 @@ namespace {
         {
             uint32_t msg_len = 0;
             uint8_vector msg_buf {};
-            co_await boost::asio::async_read(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)));
-            co_await boost::asio::async_read(conn, boost::asio::buffer(msg_buf.data(), msg_buf.size()));
+            co_await boost::asio::async_read(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
+            co_await boost::asio::async_read(conn, boost::asio::buffer(msg_buf.data(), msg_buf.size()), boost::asio::use_awaitable);
             decoder dec { msg_buf };
             co_return codec::from<message_t>(dec);
         }
@@ -150,8 +150,8 @@ namespace {
         {
             const encoder enc { msg };
             const uint32_t msg_len = enc.bytes().size();
-            co_await boost::asio::async_write(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)));
-            co_await boost::asio::async_write(conn, boost::asio::buffer(enc.bytes()));
+            co_await boost::asio::async_write(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
+            co_await boost::asio::async_write(conn, boost::asio::buffer(enc.bytes()), boost::asio::use_awaitable);
         }
 
         boost::asio::awaitable<void> _handle_client(stream_protocol::socket conn)
