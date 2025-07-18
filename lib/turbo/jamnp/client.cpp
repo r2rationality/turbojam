@@ -1,183 +1,10 @@
 #include <turbo/common/logger.hpp>
 #include <turbo/common/scheduler.hpp>
 #include "client.hpp"
-
-#include <openssl/evp.h>
-#include <openssl/pem.h>
-#include <openssl/x509.h>
-#include <openssl/x509v3.h>
-
-#ifdef _WIN32
-#   include <openssl/applink.c>
-#endif
-
-// include it the last since it includes Windows headers
-#include <msquic.hpp>
-
-const MsQuicApi *MsQuic = nullptr;
+#include "internal/msquic.hpp"
 
 namespace turbo::jamnp {
-    static std::string status_name(const QUIC_STATUS status)
-    {
-        static std::unordered_map<QUIC_STATUS, std::string> names {
-            { QUIC_STATUS_SUCCESS, "QUIC_STATUS_SUCCESS" },
-            { QUIC_STATUS_PENDING, "QUIC_STATUS_PENDING" },
-            { QUIC_STATUS_CONTINUE, "QUIC_STATUS_CONTINUE" },
-            { QUIC_STATUS_OUT_OF_MEMORY, "QUIC_STATUS_OUT_OF_MEMORY" },
-            { QUIC_STATUS_INVALID_PARAMETER, "QUIC_STATUS_INVALID_PARAMETER" },
-            { QUIC_STATUS_INVALID_STATE, "QUIC_STATUS_INVALID_STATE" },
-            { QUIC_STATUS_NOT_SUPPORTED, "QUIC_STATUS_NOT_SUPPORTED" },
-            { QUIC_STATUS_NOT_FOUND, "QUIC_STATUS_NOT_FOUND" },
-            { QUIC_STATUS_BUFFER_TOO_SMALL, "QUIC_STATUS_BUFFER_TOO_SMALL" },
-            { QUIC_STATUS_HANDSHAKE_FAILURE, "QUIC_STATUS_HANDSHAKE_FAILURE" },
-            { QUIC_STATUS_ABORTED, "QUIC_STATUS_ABORTED" },
-            { QUIC_STATUS_ADDRESS_IN_USE, "QUIC_STATUS_ADDRESS_IN_USE" },
-            { QUIC_STATUS_INVALID_ADDRESS, "QUIC_STATUS_INVALID_ADDRESS" },
-            { QUIC_STATUS_CONNECTION_TIMEOUT, "QUIC_STATUS_CONNECTION_TIMEOUT" },
-            { QUIC_STATUS_CONNECTION_IDLE, "QUIC_STATUS_CONNECTION_IDLE" },
-            { QUIC_STATUS_INTERNAL_ERROR, "QUIC_STATUS_INTERNAL_ERROR" },
-            { QUIC_STATUS_UNREACHABLE, "QUIC_STATUS_UNREACHABLE" },
-            { QUIC_STATUS_CONNECTION_REFUSED, "QUIC_STATUS_CONNECTION_REFUSED" },
-            { QUIC_STATUS_PROTOCOL_ERROR, "QUIC_STATUS_PROTOCOL_ERROR" },
-            { QUIC_STATUS_VER_NEG_ERROR, "QUIC_STATUS_VER_NEG_ERROR" },
-            { QUIC_STATUS_USER_CANCELED, "QUIC_STATUS_USER_CANCELED" },
-            { QUIC_STATUS_ALPN_NEG_FAILURE, "QUIC_STATUS_ALPN_NEG_FAILURE" },
-            { QUIC_STATUS_STREAM_LIMIT_REACHED, "QUIC_STATUS_STREAM_LIMIT_REACHED" }
-        };
-        if (const auto it = names.find(status); it != names.end())
-            return fmt::format("{} ({:08X})", it->second, status);
-        return fmt::format("QUIC_STATUS_UNKNOWN {:08X}", status);
-    }
-
-    struct api_initializer_t {
-        static void init_msquic_api()
-        {
-            static initializer_t api {};
-        }
-
-        api_initializer_t()
-        {
-            init_msquic_api();
-        }
-    private:
-        struct initializer_t {
-            initializer_t()
-            {
-                if (!_api.IsValid()) [[unlikely]]
-                    throw error(fmt::format("failed to initialize MsQuic API! Error: {}", status_name(_api.GetInitStatus())));
-                MsQuic = &_api;
-            }
-        private:
-            MsQuicApi _api {};
-        };
-    };
-
-    using receving_opt_t = std::optional<coro::task_t<uint8_vector>::promise_type>;
-
-    struct request_t {
-        std::function<void()> notify_shutdown_func {};
-        std::mutex mutex alignas (64U) {};
-        MsQuicStream *stream = nullptr;
-        std::coroutine_handle<> starting {};
-        std::coroutine_handle<> sending {};
-        std::coroutine_handle<> receiving {};
-        uint8_vector receive_buf {};
-
-        coro::task_t<void> send(const buffer send_buf)
-        {
-            logger::debug("stream::send: called with {} bytes", send_buf.size());
-            std::unique_lock lk { mutex };
-            if (!stream) [[unlikely]]
-                throw error("stream::send called on a non-active stream!");
-            if (sending) [[unlikely]]
-                throw error("stream::send called on a stream that is already sending!");
-            co_await coro::external_task_t{[&](auto h) {
-                sending = h;
-                lk.unlock();
-                const auto buf_scope = new QuicBufferScope { numeric_cast<uint32_t>(send_buf.size()) };
-                const auto buf = static_cast<QUIC_BUFFER *>(*buf_scope);
-                memcpy(buf->Buffer, send_buf.data(), send_buf.size());
-                if (const auto res = stream->Send(buf, 1, QUIC_SEND_FLAG_FIN, buf_scope); QUIC_FAILED(res)) [[unlikely]] {
-                    delete buf_scope;
-                    throw error(fmt::format("stream: send failed with status {}", status_name(res)));
-                }
-                logger::debug("stream::send: created the send request with {} bytes", send_buf.size());
-            }};
-            logger::debug("stream::send: completed with {} bytes", send_buf.size());
-        }
-
-        coro::task_t<uint8_vector> receive()
-        {
-            std::unique_lock lk { mutex };
-            if (receive_buf.empty()) {
-                if (!stream) [[unlikely]]
-                    throw error("stream::send called on a non-active stream!");
-                if (receiving) [[unlikely]]
-                    throw error("stream::send called on a stream that is already sending!");
-                co_await coro::external_task_t{[&](auto h) {
-                    receiving = h;
-                    lk.unlock();
-                }};
-                lk.lock();
-            }
-            uint8_vector res {};
-            std::swap(receive_buf, res);
-            co_return res;
-        }
-
-        std::strong_ordering operator<=>(const request_t &o) const noexcept
-        {
-            return stream <=> o.stream;
-        }
-    };
-
-    struct config_t {
-        config_t(std::string app_name, std::string alpn_id, const std::string &cert_prefix):
-            _app_name{std::move(app_name)},
-            _alpn_id{std::move(alpn_id)},
-            _pk_path{cert_prefix + ".key"},
-            _cert_path{cert_prefix + ".cert"},
-            _cred_file {
-                 .PrivateKeyFile=_pk_path.c_str(),
-                 .CertificateFile=_cert_path.c_str()
-            }
-        {
-            if (!_reg.IsValid()) [[unlikely]]
-                throw error(fmt::format("failed to initialize MsQuicRegistration! Error: {}", status_name(_reg.GetInitStatus())));
-            if (!_config.IsValid()) [[unlikely]]
-                throw error(fmt::format("failed to initialize MsQuicConfiguration! Error: {}", status_name(_config.GetInitStatus())));
-        }
-
-        const MsQuicRegistration &reg() const
-        {
-            return _reg;
-        }
-        
-        const MsQuicConfiguration &config() const
-        {
-            return _config;
-        }
-    private:
-        const std::string _app_name;
-        const std::string _alpn_id;
-        const MsQuicRegistration _reg{_app_name.c_str(), QUIC_EXECUTION_PROFILE_LOW_LATENCY, true};
-        const MsQuicAlpn _alpn{_alpn_id.c_str()};
-        const std::string _pk_path;
-        const std::string _cert_path;
-        QUIC_CERTIFICATE_FILE _cred_file;
-        const QUIC_CREDENTIAL_CONFIG _cred_cfg{
-            .Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE,
-            .Flags = QUIC_CREDENTIAL_FLAG_CLIENT
-                | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION
-                | QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED,
-            .CertificateFile = &_cred_file,
-            .Principal = nullptr,
-            .Reserved = nullptr
-        };
-        const MsQuicCredentialConfig _cred{_cred_cfg};
-        MsQuicSettings _settings {};
-        const MsQuicConfiguration _config { _reg, _alpn, _settings, _cred };
-    };
+    using namespace quic;
 
     template<typename CFG>
     struct client_t<CFG>::impl_t {
@@ -298,7 +125,7 @@ namespace turbo::jamnp {
     private:
         address_t _server_addr;
         api_initializer_t _init {};
-        config_t _cfg;
+        config_client_t _cfg;
         std::mutex _mutex alignas(64U) {};
         MsQuicConnection *_conn = nullptr;
         std::coroutine_handle<> _connecting {};
@@ -363,7 +190,7 @@ namespace turbo::jamnp {
                     break;
                 case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_TRANSPORT: {
                     logger::debug("connection: shut down by transport: ErrorCode: {:08X} Status: {}!",
-                        event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode, status_name(event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status));
+                        event->SHUTDOWN_INITIATED_BY_TRANSPORT.ErrorCode, quic::status_name(event->SHUTDOWN_INITIATED_BY_TRANSPORT.Status));
                     break;
                 }
                 case QUIC_CONNECTION_EVENT_SHUTDOWN_INITIATED_BY_PEER:
@@ -491,7 +318,7 @@ namespace turbo::jamnp {
                     _conn = new MsQuicConnection { _cfg.reg(), CleanUpAutoDelete, _connection_callback, this };
                     lk.unlock();
                     if (!_conn->IsValid()) [[unlikely]]
-                        throw error(fmt::format("failed to initialize MsQuicConnection! Error: {}", status_name(_conn->GetInitStatus())));
+                        throw error(fmt::format("failed to initialize MsQuicConnection! Error: {}", quic::status_name(_conn->GetInitStatus())));
                     std::thread{[this] {
                         logger::debug("connection timeout thread: started");
                         std::this_thread::sleep_for(std::chrono::seconds{5U});
@@ -505,7 +332,7 @@ namespace turbo::jamnp {
                     logger::debug("created MSQUIC connection object");
                     if (const auto res = _conn->Start(_cfg.config(), QUIC_ADDRESS_FAMILY_INET6, _server_addr.host.c_str(), _server_addr.port); QUIC_FAILED(res)) [[unlikely]] {
                         _conn->Shutdown(1);
-                        throw error(fmt::format("connection start failed with {}", status_name(res)));
+                        throw error(fmt::format("connection start failed with {}", quic::status_name(res)));
                     }
                     logger::debug("called MSQUIC connection start");
                 }};
@@ -522,7 +349,7 @@ namespace turbo::jamnp {
                 }
                 logger::debug("created MSQUIC stream");
                 if (const auto res = st->Start(); QUIC_FAILED(res)) [[unlikely]]
-                    throw error(fmt::format("stream: start failed with code {}", status_name(res)));
+                    throw error(fmt::format("stream: start failed with code {}", quic::status_name(res)));
                 logger::debug("called MSQUIC stream start");
             }};
             logger::debug("create stream: stream ready");

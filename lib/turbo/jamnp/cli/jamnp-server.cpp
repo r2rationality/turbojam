@@ -46,12 +46,14 @@ namespace turbo::cli::jamnp_server {
                 const auto key_pair = dev_ed25519(dev_trivial_seed(dev_val_idx));
                 write_cert(cert_prefix + ".cert", cert_prefix + ".key", key_pair);
             }
-            address_t server_addr {
+            address_t addr {
                 "::1",
                 numeric_cast<uint16_t>(40000U + dev_val_idx)
             };
             logger::info("dev validator index {}", dev_val_idx);
-            logger::info("starting a server listening at {}", server_addr);
+            logger::info("starting a server listening at {}", addr);
+            server_t server { std::move(addr), "turbojam-server", "jamnp-s/0/b5af8eda", cert_prefix };
+            server.run();
         }
     };
     static auto instance = command::reg(std::make_shared<cmd>());
