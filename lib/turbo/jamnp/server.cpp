@@ -23,7 +23,7 @@ namespace turbo::jamnp {
         void run()
         {
             HQUIC listener = nullptr;
-            if (const auto status = MsQuic->ListenerOpen(_cfg.reg(), _server_listener_callback, NULL, &listener); QUIC_FAILED(status)) [[unlikely]]
+            if (const auto status = MsQuic->ListenerOpen(_cfg.reg(), _server_listener_callback, this, &listener); QUIC_FAILED(status)) [[unlikely]]
                 throw error{"ListenerOpen failed", status};
             const QUIC_BUFFER alpn_id {
                 .Length = numeric_cast<uint32_t>(_cfg.alpn_id().size()),
@@ -32,7 +32,7 @@ namespace turbo::jamnp {
             QUIC_ADDR address {
                 .Ipv6 = {
                     .sin6_family = AF_INET6,
-                    .sin6_port=_addr.port,
+                    .sin6_port=htons(_addr.port),
                     .sin6_flowinfo = 0,
                     .sin6_addr = {},
                     .sin6_scope_id = 0
@@ -46,8 +46,12 @@ namespace turbo::jamnp {
                 if (listener)
                     MsQuic->ListenerClose(listener);
             }};
-            logger::info("Server started - waiting for connections");
-            while (!_done.load(std::memory_order_relaxed)) {
+            {
+                char str[INET6_ADDRSTRLEN];
+                const char* l_addr = inet_ntop(AF_INET6, &address.Ipv6.sin6_addr, str, INET6_ADDRSTRLEN);
+                logger::info("Server started: waiting for connections at {}:{}", l_addr, ntohs(address.Ipv6.sin6_port));
+            }
+            while (!_destroy.load(std::memory_order_relaxed)) {
                 std::this_thread::sleep_for(std::chrono::seconds{1});
             }
             logger::info("Server stopped");
@@ -56,11 +60,11 @@ namespace turbo::jamnp {
         api_initializer_t _init {};
         address_t _addr;
         config_server_t _cfg;
-        std::atomic<bool> _done{true};
+        std::atomic<bool> _destroy{false};
 
         static _IRQL_requires_max_(DISPATCH_LEVEL) _Function_class_(QUIC_STREAM_CALLBACK)
         QUIC_STATUS QUIC_API
-        _server_stream_callback(HQUIC Stream, void* ctx, QUIC_STREAM_EVENT *ev)
+        _server_stream_callback(HQUIC Stream, void */*ctx*/, QUIC_STREAM_EVENT *ev)
         {
             switch (ev->Type) {
                 case QUIC_STREAM_EVENT_SEND_COMPLETE:
@@ -89,7 +93,7 @@ namespace turbo::jamnp {
 
         static _IRQL_requires_max_(DISPATCH_LEVEL) _Function_class_(QUIC_CONNECTION_CALLBACK)
         QUIC_STATUS QUIC_API
-        _server_connection_callback(HQUIC Connection, void *ctx, QUIC_CONNECTION_EVENT *ev)
+        _server_connection_callback(HQUIC Connection, void */*ctx*/, QUIC_CONNECTION_EVENT *ev)
         {
             switch (ev->Type) {
             case QUIC_CONNECTION_EVENT_CONNECTED:
@@ -126,14 +130,14 @@ namespace turbo::jamnp {
 
         static _IRQL_requires_max_(PASSIVE_LEVEL) _Function_class_(QUIC_LISTENER_CALLBACK)
         QUIC_STATUS QUIC_API
-        _server_listener_callback(HQUIC listener, void* ctx, QUIC_LISTENER_EVENT* ev)
+        _server_listener_callback(HQUIC /*listener*/, void* ctx, QUIC_LISTENER_EVENT* ev)
         {
             auto &self = *reinterpret_cast<impl_t *>(ctx);
             QUIC_STATUS Status = QUIC_STATUS_NOT_SUPPORTED;
             switch (ev->Type) {
                 case QUIC_LISTENER_EVENT_NEW_CONNECTION:
                     logger::info("QUIC_LISTENER_EVENT_NEW_CONNECTION");
-                    MsQuic->SetCallbackHandler(ev->NEW_CONNECTION.Connection, reinterpret_cast<void *>(_server_connection_callback), NULL);
+                    MsQuic->SetCallbackHandler(ev->NEW_CONNECTION.Connection, reinterpret_cast<void *>(_server_connection_callback), ctx);
                     Status = MsQuic->ConnectionSetConfiguration(ev->NEW_CONNECTION.Connection, self._cfg.config());
                     break;
                 default:

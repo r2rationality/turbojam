@@ -26,7 +26,7 @@ namespace turbo::cli::jamnp_fetch_blocks {
             cmd.opts.try_emplace("port", "a UDP port at which the target JAMNP server listens", "40000");
         }
 
-        void run(const arguments &args, const options &opts) const override
+        void run(const arguments &, const options &opts) const override
         {
             const file::tmp_directory tmp_dir { "tj" };
             const auto cert_prefix = (static_cast<std::filesystem::path>(tmp_dir) / "client").string();
