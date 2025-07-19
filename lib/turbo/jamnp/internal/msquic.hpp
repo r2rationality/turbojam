@@ -152,16 +152,6 @@ namespace turbo::jamnp::quic {
         const std::string _pk_path;
         const std::string _cert_path;
         QUIC_CERTIFICATE_FILE _cred_file;
-        const QUIC_CREDENTIAL_CONFIG _cred_cfg{
-            .Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE,
-            .Flags = QUIC_CREDENTIAL_FLAG_CLIENT
-                | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION
-                | QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED,
-            .CertificateFile = &_cred_file,
-            .Principal = nullptr,
-            .Reserved = nullptr
-        };
-        const MsQuicCredentialConfig _cred{_cred_cfg};
     };
 
     struct config_server_t: config_base_t {
@@ -186,6 +176,15 @@ namespace turbo::jamnp::quic {
             return s;
         }
 
+        const QUIC_CREDENTIAL_CONFIG _cred_cfg{
+            .Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE,
+            .Flags = QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION
+                | QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED,
+            .CertificateFile = &_cred_file,
+            .Principal = nullptr,
+            .Reserved = nullptr
+        };
+        const MsQuicCredentialConfig _cred{_cred_cfg};
         MsQuicSettings _settings = _init_settings();
         const MsQuicConfiguration _config { _reg, _alpn, _settings, _cred };
     };
@@ -203,6 +202,16 @@ namespace turbo::jamnp::quic {
             return _config;
         }
     protected:
+        const QUIC_CREDENTIAL_CONFIG _cred_cfg{
+            .Type = QUIC_CREDENTIAL_TYPE_CERTIFICATE_FILE,
+            .Flags = QUIC_CREDENTIAL_FLAG_CLIENT
+                | QUIC_CREDENTIAL_FLAG_NO_CERTIFICATE_VALIDATION
+                | QUIC_CREDENTIAL_FLAG_INDICATE_CERTIFICATE_RECEIVED,
+            .CertificateFile = &_cred_file,
+            .Principal = nullptr,
+            .Reserved = nullptr
+        };
+        const MsQuicCredentialConfig _cred{_cred_cfg};
         MsQuicSettings _settings {};
         const MsQuicConfiguration _config { _reg, _alpn, _settings, _cred };
     };
