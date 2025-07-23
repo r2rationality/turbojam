@@ -60,9 +60,20 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
-        //test_program(file::install_path("test/pvm-test-vectors/pvm/programs/inst_load_i16.json"));
-        for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/programs"), ".json")) {
-            test_program(path);
-        }
+        "sign_extend"_test = [] {
+            static constexpr machine::register_val_t neg1 = -1LL;
+            for (size_t num_bytes: { 1, 2, 3, 4, 5, 6, 7, 8 }) {
+                expect_equal(0x00, machine::sign_extend(num_bytes, 0x00));
+                expect_equal(0x01, machine::sign_extend(num_bytes, 0x01));
+                expect_equal(0xFFFFFFFFFFFFFFFF, machine::sign_extend(num_bytes, neg1 >> ((8U - num_bytes) << 3U)));
+            }
+            expect_equal(0xFFFFFFFFFF800000ULL, machine::sign_extend(3, 0x800000ULL));
+        };
+        "conformance tests"_test = [] {
+            //test_program(file::install_path("test/pvm-test-vectors/pvm/programs/inst_load_i16.json"));
+            for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/programs"), ".json")) {
+                test_program(path);
+            }
+        };
     };
 };

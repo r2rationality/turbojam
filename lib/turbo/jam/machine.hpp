@@ -235,6 +235,17 @@ namespace turbo::jam::machine {
         }
     };
 
+    inline register_val_t sign_extend(const size_t num_bytes, const register_val_t value)
+    {
+        if (num_bytes > 8) [[unlikely]]
+            throw exit_panic_t {};
+        if (num_bytes == 0) [[unlikely]]
+            return 0;
+        const size_t bit_count = num_bytes << 3U;
+        const size_t extend_bits = 64U - bit_count;
+        return static_cast<register_val_t>(static_cast<register_val_signed_t>(value << extend_bits) >> extend_bits);
+    }
+
     struct machine_t {
         machine_t() =delete;
         machine_t(const machine_t &o) =delete;

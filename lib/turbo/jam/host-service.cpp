@@ -424,13 +424,14 @@ namespace turbo::jam {
         const auto [t_id, t] = _get_service(omega[7]);
         std::optional<uint8_vector> m {};
         if (t) {
-            auto info = t->info.combine();
-            // JAM 0.6.5 mentions an element t_t which is not part of the service's info - not clear what it means
-            encoder enc {
-                info.code_hash, info.balance, _p.slot,
-                info.min_item_gas, info.min_memo_gas,
-                info.bytes, info.items
-            };
+            const auto info = t->info.combine();
+            encoder enc { info.code_hash };
+            enc.uint_varlen(info.balance);
+            enc.uint_varlen(_p.slot.slot());
+            enc.uint_varlen(info.min_item_gas);
+            enc.uint_varlen(info.min_memo_gas);
+            enc.uint_varlen(info.bytes);
+            enc.uint_varlen(info.items);
             m.emplace(std::move(enc.bytes()));
         }
         if (m) {
