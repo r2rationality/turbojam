@@ -339,6 +339,7 @@ namespace turbo::jam {
 
     template<typename CFG>
     void host_service_base_t<CFG>::read() {
+        logger::trace("host call: read");
         const auto &omega = _p.m.regs();
         const auto [s_id, a] = _get_service(omega[7]);
         const auto ko = omega[8];
@@ -350,7 +351,9 @@ namespace turbo::jam {
             enc.uint_fixed(4, s_id);
             const auto key = _p.m.mem_read(ko, kz);
             enc.next_bytes(key);
-            const auto s_k = a->storage.make_key(crypto::blake2b::digest<opaque_hash_t>(enc.bytes()));
+            const auto key_hash = crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+            const auto s_k = a->storage.make_key(key_hash);
+            logger::trace("host call: read: key: {} hash: {} trie key: {}", key, key_hash, s_k);
             val = a->storage.get(s_k);
         }
         if (val) {
@@ -425,9 +428,10 @@ namespace turbo::jam {
         std::optional<uint8_vector> m {};
         if (t) {
             const auto info = t->info.combine();
+            const auto threshold = account_balance_threshold(t->lookup_metas, t->storage);
             encoder enc { info.code_hash };
             enc.uint_varlen(info.balance);
-            enc.uint_varlen(_p.slot.slot());
+            enc.uint_varlen(threshold);
             enc.uint_varlen(info.min_item_gas);
             enc.uint_varlen(info.min_memo_gas);
             enc.uint_varlen(info.bytes);
@@ -452,7 +456,7 @@ namespace turbo::jam {
         if (omega[8] != 0 || omega[9] != 0)
             target.emplace(_p.m.mem_read(omega[8], omega[9]).str());
         const auto msg = _p.m.mem_read(omega[10], omega[11]);
-        logger::trace("[PVM/{}] [level={}]: {}", target.value_or("default"), level, msg.str());
+        logger::trace("[PVM-log/{}] [level={}]: {}", target.value_or("default"), level, msg.str());
     }
 
     template<typename CFG>
@@ -468,7 +472,6 @@ namespace turbo::jam {
     [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CFG>::call(const machine::register_val_t id) noexcept
     {
         return this->_safe_call([&] {
-            logger::trace("PVM: host call #{}", id);
             void (host_service_accumulate_t<CFG>::*call_func)() = nullptr;
             gas_t::base_type gas_used = 10;
             switch (static_cast<host_call_t>(id)) {
@@ -504,6 +507,7 @@ namespace turbo::jam {
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     return;
             }
+            //logger::trace("PVM: host call #{} gas cost: {}", id, gas_used);
             this->_p.m.consume_gas(gas_used);
             (*this.*call_func)();
         });

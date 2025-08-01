@@ -653,6 +653,7 @@ namespace turbo::jam {
         }
 
         // (7.3)
+        logger::trace("accumulate commitments: {}", plus_res.commitments);
         if (!plus_res.commitments.empty()) {
             std::vector<merkle::hash_t> nodes {};
             nodes.reserve(plus_res.commitments.size());

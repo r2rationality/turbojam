@@ -4,6 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <functional>
+#include <ranges>
 #include <turbo/common/logger.hpp>
 #include <turbo/common/pool-allocator.hpp>
 #include <turbo/crypto/blake2b.hpp>
@@ -74,10 +75,12 @@ namespace turbo::jam::merkle {
                     ++cnt;
                     obs(node->key, *node->value);
                 }
-                if (node->right)
+                if (node->right) {
                     stack.emplace_back(node->right.get());
-                if (node->left)
+                }
+                if (node->left) {
                     stack.emplace_back(node->left.get());
+                }
             }
             if (cnt != _size) [[unlikely]]
                 throw error(fmt::format("internal error: the action trie size does not match the recorded one: {} != {}!", cnt, _size));
@@ -227,22 +230,45 @@ namespace turbo::jam::merkle {
         {
             if (!root)
                 return false;
-            auto [shared_sz, node_ptr] = _find(root, key, true);
-            auto &node = *node_ptr;
-
-            // Check if this node is the matching key
-            if (node->prefix_sz != prefix_max) {
-                if (shared_sz < node->prefix_sz)
-                    return false;
+            uint8_t shared_sz = 0;
+            std::vector<node_ptr_t *> path { &root };
+            for (;;) {
+                auto &node_ptr = *path.back();
+                node_ptr->_hash.reset();
+                node_t* node = node_ptr.get();
+                shared_sz = _shared_prefix_size(node->key, key);
+                if (shared_sz < node->prefix_sz || node->prefix_sz == prefix_max)
+                    break;
                 const bool right = key.bit(node->prefix_sz);
-                auto &child = right ? node->right : node->left;
-                if (!_erase(child, key))
-                    return false;
+                if (!path.emplace_back(right ? &node->right : &node->left))
+                    break;
             }
 
-            if (!node->value) [[unlikely]]
-                throw error("a trie leaf without a value!");
-            node.reset();
+            if (auto &node = *path.back(); node) {
+                if (node->prefix_sz != prefix_max)
+                    return false;
+                if (!node->value) [[unlikely]]
+                    throw error("a trie leaf without a value!");
+                node.reset();
+                path.pop_back();
+
+                while (!path.empty()) {
+                    auto &cur_node = *path.back();
+                    if (cur_node->left) {
+                        cur_node = std::move(cur_node->left);
+                        cur_node->_hash.reset();
+                        break;
+                    }
+                    if (cur_node->right) {
+                        cur_node = std::move(cur_node->right);
+                        cur_node->_hash.reset();
+                        break;
+                    }
+                    cur_node.reset();
+                    path.pop_back();
+                }
+            }
+
             return true;
         }
 

@@ -59,17 +59,19 @@ namespace turbo::jam {
             o.foreach([&](const auto &o_k, const auto &o_v) {
                 auto my_v = get(o_k);
                 if (!my_v) [[unlikely]] {
-                    diff_it = fmt::format_to(diff_it, "missing key: {}", o_k);
+                    diff_it = fmt::format_to(diff_it, "missing key: {}\n", o_k);
                 }
                 ++key_matches;
                 if (my_v != o_v) [[unlikely]] {
-                    diff_it = fmt::format_to(diff_it, "key {}: expected {}, got {}", o_k, o_v, my_v);
+                    diff_it = fmt::format_to(diff_it, "key {}: expected {}, got {}\n", o_k, o_v, my_v);
+                } else {
+                    diff_it = fmt::format_to(diff_it, "key {}: ok\n", o_k);
                 }
             });
             if (key_matches != size()) [[unlikely]] {
                 foreach([&](const auto &k, const auto &) {
                     if (!o.get(k)) {
-                        diff_it = fmt::format_to(diff_it, "extra key: {}", k);
+                        diff_it = fmt::format_to(diff_it, "extra key: {}\n", k);
                     }
                 });
             }

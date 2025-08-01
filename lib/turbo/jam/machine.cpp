@@ -106,7 +106,7 @@ namespace turbo::jam::machine {
 
         void consume_gas(const gas_t gas)
         {
-            logger::debug("PolkaVM: charge_gas: {} ({} -> {})", gas, _gas, _gas - numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas)));
+            //logger::debug("PolkaVM: charge_gas: {} ({} -> {})", gas, _gas, _gas - numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas)));
             _gas -= numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas));
             if (_gas < 0) [[unlikely]]
                 throw exit_out_of_gas_t {};
@@ -650,11 +650,8 @@ namespace turbo::jam::machine {
                         std::size_t i = 0;
                         ((args_it = _format_op_arg(args_it, i++, op_args)), ...);
                     }, args);
-                    logger::debug("PolkaVM: [{}] {} {}", _pc, op.name, args_str);
+                    //logger::debug("PolkaVM: [{}] {} {}", _pc, op.name, args_str);
                 }, op.make_args);
-                if (_pc == 69390) [[unlikely]] {
-                    logger::debug("PolkaVM: custom break", _pc);
-                }
                 new_pc = (this->*op.exec)(data);
                 _pc += len + 1;
             }
@@ -680,16 +677,15 @@ namespace turbo::jam::machine {
 
         op_res_t branch_base(const register_val_t new_pc, const bool cond)
         {
-            // std::cout << fmt::format("branch {:08X}, {}\n", new_pc, cond);
             if (cond) {
                 if (new_pc >= _program.code.size()) [[unlikely]]
                     throw exit_panic_t {};
                 if (!_program.bitmasks.test(new_pc)) [[unlikely]]
                     throw exit_panic_t {};
-                logger::trace("PolkaVM:  -> branch resolved to jump {}", new_pc);
+                //logger::trace("PolkaVM:  -> branch resolved to jump {}", new_pc);
                 return { new_pc };
             }
-            logger::trace("PolkaVM:  -> branch resolved to fallthrough");
+            //logger::trace("PolkaVM:  -> branch resolved to fallthrough");
             return {};
         }
 
@@ -725,7 +721,7 @@ namespace turbo::jam::machine {
                 case 8: res = buffer { page_it->second.data.get() + page_off, sz }.to<uint64_t>(); break;
                 [[unlikely]] default: throw exit_panic_t {};
             }
-            logger::trace("PolkaVM: load {:08X}:{}: 0x{:X}", addr, sz, res);
+            //logger::trace("PolkaVM: load {:08X}:{}: 0x{:X}", addr, sz, res);
             return res;
         }
 
@@ -748,7 +744,7 @@ namespace turbo::jam::machine {
             const auto [page_off, page_it] = _addr_check(addr, sizeof(val));
             if (!page_it->second.is_writable) [[unlikely]]
                 throw exit_page_fault_t { addr };
-            logger::trace("PolkaVM: store {:08X}:{}: 0x{:X}", addr, sizeof(val), val);
+            //logger::trace("PolkaVM: store {:08X}:{}: 0x{:X}", addr, sizeof(val), val);
             *reinterpret_cast<T*>(page_it->second.data.get() + page_off) = val;
         }
 
