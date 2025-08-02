@@ -96,12 +96,12 @@ elseif(CMAKE_BUILD_TYPE STREQUAL Coverage)
         find_program(LLVM_COV NAMES llvm-cov llvm-cov-19 REQUIRED)
         add_custom_target(coverage
             COMMENT "Running test coverage ..."
-            COMMAND $<TARGET_FILE:run-test> ${COVERAGE_ARGS}
+            COMMAND $<TARGET_FILE:tjam-test> ${COVERAGE_ARGS}
             COMMAND echo "Indexing raw profdata"
-            COMMAND ${LLVM_PROFDATA} merge -sparse default.profraw -o run-test.profdata
+            COMMAND ${LLVM_PROFDATA} merge -sparse default.profraw -o tjam-test.profdata
             COMMAND echo "Generating coverage report into tmp/coverage"
-            COMMAND ${LLVM_COV} show -show-branches=percent -ignore-filename-regex=lib/dt/cli -ignore-filename-regex=3rdparty/ -format=html -output-dir=tmp/coverage $<TARGET_FILE:run-test> -instr-profile=run-test.profdata
-            DEPENDS run-test
+            COMMAND ${LLVM_COV} show -show-branches=percent -ignore-filename-regex=lib/dt/cli -ignore-filename-regex=3rdparty/ -format=html -output-dir=tmp/coverage $<TARGET_FILE:tjam-test> -instr-profile=tjam-test.profdata
+            DEPENDS tjam-test
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         )
     else()
