@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <turbo/common/bytes.hpp>
 #include <turbo/common/file.hpp>
+#include <turbo/common/logger.hpp>
 #include <turbo/common/numeric-cast.hpp>
 #include <turbo/common/serializable.hpp>
 
@@ -344,7 +345,8 @@ namespace turbo::jam {
                 typename T::mapped_type v;
                 decode(v);
                 if (const auto [it, created] = m.try_emplace(std::move(k), std::move(v)); !created) [[unlikely]]
-                    throw error(fmt::format("a map contains non-unique items: {}", typeid(m).name()));
+                    //throw error(fmt::format("a map contains non-unique items: {}", it->first));
+                    logger::warn("a {} map contains non-unique items: {}", typeid(m).name(), it->first);
             }
         }
 
