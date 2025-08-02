@@ -4,6 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/test.hpp>
+#include <turbo/common/timer.hpp>
 #include "chain.hpp"
 #include "machine.hpp"
 
@@ -114,11 +115,12 @@ suite turbo_jam_traces_suite = [] {
         test_file(fmt::format("{}/00000005", test_dir), genesis.state.keyvals);*/
         for (const auto testset: { "fallback", "safrole", "reports-l0", "reports-l1" }) {
             const auto test_dir = file::install_path(fmt::format("test/jam-test-vectors/traces/{}", testset));
+            auto test_files_v = file::files_with_ext_path(test_dir, ".bin") | std::views::filter([](const auto &p) { return p.filename().stem() != "genesis"; });
+            const auto test_files = std::vector<std::filesystem::path>(test_files_v.begin(), test_files_v.end());
+            const timer t { fmt::format("Testing {} traces in {}", test_files.size(), testset), logger::level::info };
             const auto genesis = codec::json::load_obj<test_genesis_t<config_tiny>>(fmt::format("{}/genesis.json", test_dir));
             expect(genesis.state.keyvals.root() == genesis.state.state_root);
-            for (const auto &path: file::files_with_ext_path(test_dir, ".bin")) {
-                if (path.filename().stem() == "genesis")
-                    continue;
+            for (const auto &path: test_files) {
                 const auto path_str = path.string();
                 test_file(path_str.substr(0, path_str.size() - 4), genesis.state.keyvals);
             }

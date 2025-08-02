@@ -8,10 +8,12 @@
 #endif
 #include <iostream>
 #include <turbo/common/test.hpp>
+#include <turbo/common/timer.hpp>
 
 int main(const int argc, const char **argv)
 {
     using namespace turbo;
+    const timer t { "run-test", logger::level::info };
     if (argc >= 2) {
         std::cerr << fmt::format("using test-filter mask: {}\n", argv[1]);
         boost::ut::cfg<boost::ut::override> = { .filter = argv[1] };
