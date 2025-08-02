@@ -642,7 +642,7 @@ namespace turbo::jam::machine {
                 const auto len = _skip_len(_pc, _program.bitmasks);
                 const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
                 const auto &op = _opcode_info(opcode);
-                std::visit([&](const auto &make_args) {
+                /*std::visit([&](const auto &make_args) {
                     const auto args = (this->*make_args)(data);
                     std::string args_str {};
                     auto args_it = std::back_inserter(args_str);
@@ -650,8 +650,8 @@ namespace turbo::jam::machine {
                         std::size_t i = 0;
                         ((args_it = _format_op_arg(args_it, i++, op_args)), ...);
                     }, args);
-                    //logger::debug("PolkaVM: [{}] {} {}", _pc, op.name, args_str);
-                }, op.make_args);
+                    logger::debug("PolkaVM: [{}] {} {}", _pc, op.name, args_str);
+                }, op.make_args);*/
                 new_pc = (this->*op.exec)(data);
                 _pc += len + 1;
             }
