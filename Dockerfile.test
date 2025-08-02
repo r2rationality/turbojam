@@ -37,6 +37,6 @@ RUN test ! -d /home/dev/turbojam/3rdparty/msquic/bld || rm -rf /home/dev/turboja
 RUN test ! -d /home/dev/turbojam/3rdparty/msquic/build || rm -rf /home/dev/turbojam/3rdparty/msquic/build
 ENV PATH=/home/dev/.cargo/bin:$PATH
 RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Coverage -DCMAKE_CXX_COMPILER=clang++-19
-RUN cmake --build build -t run-test
+RUN cmake --build build -t tjam-test
 WORKDIR /home/dev/turbojam
 CMD [ "/bin/bash" ]
