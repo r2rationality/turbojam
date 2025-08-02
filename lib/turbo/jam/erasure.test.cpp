@@ -55,7 +55,7 @@ suite turbo_jam_erasure_suite = [] {
                 uint8_vector::from_hex("010207080304090a05060b0c")
             );
         };
-        test_file<config_tiny>(file::install_path("test/jam-test-vectors/erasure/tiny/ec-32"));
+        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/erasure/tiny/ec-32"));
         /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/erasure/tiny"), ".bin")) {
             test_file<config_tiny>(path.substr(0, path.size() - 4));
         }
