@@ -380,39 +380,29 @@ namespace turbo::jam {
         const auto val_data = _p.m.mem_read(v_o, v_z);
         const auto s_k = _service.storage.make_key(key_hash);
         const auto prev_val = _service.storage.get(s_k);
-        // The threshold must be computed assuming that the new item is written
-        auto [a_i, a_o] = account_balance_threshold_stats(_service.lookup_metas, _service.storage);
-        if (!prev_val) {
-            ++a_i;
-            a_o += val_data.size();
-        } else {
-            a_o += val_data.size() - prev_val->size();
-        }
-        const auto balance_threshold = account_balance_threshold_raw(a_i, a_o);
-        const auto info = _service.info.combine();
-        if (info.balance >= balance_threshold) {
-            if (v_z == 0) {
-                if (prev_val) {
-                    logger::trace("service {} write: delete key: {}", _p.service_id, key_data);
-                    // move the stats update into the erase method?
-                    _service.info.bytes -= sizeof(key_hash);
-                    _service.info.bytes -= prev_val->size();
-                    --_service.info.items;
-                    _service.storage.erase(s_k);
-                } else {
-                    logger::trace("service {} attempt to delete a missing key: {}", _p.service_id, key_data);
-                }
+        if (v_z == 0) {
+            if (prev_val) {
+                logger::trace("service {} write: delete key: {}", _p.service_id, key_data);
+                // move the stats update into the erase method?
+                _service.info.bytes -= sizeof(key_hash);
+                _service.info.bytes -= prev_val->size();
+                --_service.info.items;
+                _service.storage.erase(s_k);
             } else {
-                logger::trace("service {} write: set key: {} hash: {} val: {} new: {}", _p.service_id, key_data, key_hash, val_data, !static_cast<bool>(prev_val));
-                if (prev_val) {
-                    _service.info.bytes -= prev_val->size();
-                } else {
-                    _service.info.bytes += sizeof(key_hash);
-                    ++_service.info.items;
-                }
-                _service.storage.set(s_k, static_cast<buffer>(val_data));
-                _service.info.bytes += v_z;
+                logger::trace("service {} attempt to delete a missing key: {}", _p.service_id, key_data);
             }
+        } else {
+            logger::trace("service {} write: set key: {} hash: {} val: {} new: {}", _p.service_id, key_data, key_hash, val_data, !static_cast<bool>(prev_val));
+            if (prev_val) {
+                _service.info.bytes -= prev_val->size();
+            } else {
+                _service.info.bytes += sizeof(key_hash);
+                ++_service.info.items;
+            }
+            _service.storage.set(s_k, static_cast<buffer>(val_data));
+            _service.info.bytes += v_z;
+        }
+        if (_service.info.balance >= _service.info.threshold()) {
             const machine::register_val_t l = prev_val ? prev_val->size() : machine::host_call_res_t::none;
             _p.m.set_reg(7, l);
         } else {
@@ -427,15 +417,13 @@ namespace turbo::jam {
         const auto [t_id, t] = _get_service(omega[7]);
         std::optional<uint8_vector> m {};
         if (t) {
-            const auto info = t->info.combine();
-            const auto threshold = account_balance_threshold(t->lookup_metas, t->storage);
-            encoder enc { info.code_hash };
-            enc.uint_varlen(info.balance);
-            enc.uint_varlen(threshold);
-            enc.uint_varlen(info.min_item_gas);
-            enc.uint_varlen(info.min_memo_gas);
-            enc.uint_varlen(info.bytes);
-            enc.uint_varlen(info.items);
+            encoder enc { t->info.code_hash };
+            enc.uint_varlen(t->info.balance);
+            enc.uint_varlen(t->info.threshold());
+            enc.uint_varlen(t->info.min_item_gas);
+            enc.uint_varlen(t->info.min_memo_gas);
+            enc.uint_varlen(t->info.bytes);
+            enc.uint_varlen(t->info.items);
             m.emplace(std::move(enc.bytes()));
         }
         if (m) {
@@ -600,19 +588,17 @@ namespace turbo::jam {
         if (l > std::numeric_limits<uint32_t>::max())
             throw machine::exit_panic_t {};
         const auto c = this->_p.m.mem_read(o, 32);
-        const auto a_t = numeric_cast<int64_t>(account_balance_threshold_raw(0, 0));
+        const auto a_t = service_info_t{}.threshold();
         if (this->_service.info.balance >= a_t) {
-            static service_info_t empty_info {};
-            service_info_update_t a {
-                .base=empty_info,
+            service_info_t a {
                 .code_hash=static_cast<buffer>(c),
-                .balance=numeric_cast<int64_t>(a_t),
-                .min_item_gas=numeric_cast<int64_t>(g),
-                .min_memo_gas=numeric_cast<int64_t>(m),
+                .balance=a_t,
+                .min_item_gas=g,
+                .min_memo_gas=m,
                 .bytes=0,
                 .items=0
             };
-            this->_service.info.balance -= a_t;
+            this->_service.info.balance -= a.threshold();
             const auto prev_id = _ok.new_service_id;
             _ok.new_service_id = _ok.check(_ok.gen_new_service_id(prev_id, 42));
             _ok.state.services.emplace(this->_p.service_id, std::move(a));
@@ -632,8 +618,8 @@ namespace turbo::jam {
         const auto c = this->_p.m.mem_read(o, 32);
         this->_service.info.code_hash = static_cast<buffer>(c);
         // The next two items must be converted into deltas!
-        this->_service.info.min_item_gas = numeric_cast<int64_t>(g) - numeric_cast<int64_t>(this->_service.info.base.min_item_gas);
-        this->_service.info.min_memo_gas = numeric_cast<int64_t>(m) - numeric_cast<int64_t>(this->_service.info.base.min_memo_gas);
+        this->_service.info.min_item_gas = g;
+        this->_service.info.min_memo_gas = m;
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
@@ -651,13 +637,11 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
-        const auto s_info = this->_service.info.combine();
-        if (l < s_info.min_memo_gas) [[unlikely]] {
+        if (l < this->_service.info.min_memo_gas) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::low);
             return;
         }
-        if (const auto t = account_balance_threshold(this->_service.lookup_metas, this->_service.storage);
-                s_info.balance < t) [[unlikely]] {
+        if (this->_service.info.balance < this->_service.info.threshold()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::cash);
             return;
         }
@@ -673,7 +657,7 @@ namespace turbo::jam {
         const auto o = omega[8];
         const auto h = this->_p.m.mem_read(o, 32);
         auto *d_mut = this->_p.services.get_mutable_ptr(d);
-        if (d == this->_p.service_id || !d_mut || d_mut->info.base.code_hash != h) [[unlikely]] {
+        if (d == this->_p.service_id || !d_mut || d_mut->info.code_hash != h) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
@@ -740,8 +724,7 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        const auto s_info = this->_service.info.combine();
-        if (const auto t = account_balance_threshold(this->_service.lookup_metas, this->_service.storage); s_info.balance < t) [[unlikely]] {
+        if (this->_service.info.balance < this->_service.info.threshold()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::full);
             return;
         }

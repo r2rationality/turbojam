@@ -91,54 +91,6 @@ namespace turbo::jam {
         ptr_type _ptr;
     };
 
-    struct service_info_t;
-
-    // This structure captures updates rather than absolute values.
-    // For this reason int64_t types are used to track potential decreases of the aboslute values.
-    struct service_info_update_t {
-        const service_info_t &base;
-        std::optional<opaque_hash_t> code_hash {};
-        int64_t balance = 0;
-        // gas saved in the fixed format form
-        std::optional<gas_t::base_type> min_item_gas {};
-        std::optional<gas_t::base_type> min_memo_gas {};
-        int64_t bytes = 0;
-        int32_t items = 0;
-
-        bool empty() const
-        {
-            if (code_hash)
-                return false;
-            if (balance)
-                return false;
-            if (min_item_gas)
-                return false;
-            if (min_memo_gas)
-                return false;
-            if (bytes)
-                return false;
-            if (items)
-                return false;
-            return true;
-        }
-
-        void consume_from(service_info_update_t &&o)
-        {
-            if (o.code_hash)
-                code_hash = o.code_hash;
-            balance += o.balance;
-            if (o.min_item_gas)
-                min_item_gas = o.min_item_gas;
-            if (o.min_memo_gas)
-                min_memo_gas = o.min_memo_gas;
-            bytes += o.bytes;
-            items += o.items;
-        }
-
-        service_info_t combine() const;
-        void commit(persistent_value_t<service_info_t> &);
-    };
-
     struct service_info_t {
         opaque_hash_t code_hash {};
         balance_t balance = 0;
@@ -159,33 +111,25 @@ namespace turbo::jam {
             archive.process("items"sv, items);
         }
 
-        void consume_from(const service_info_update_t &o)
+        [[nodiscard]] balance_t threshold() const
         {
-            if (o.code_hash)
-                code_hash = *o.code_hash;
-            balance += o.balance;
-            if (o.min_item_gas)
-                min_item_gas = *o.min_item_gas;
-            if (o.min_memo_gas)
-                min_memo_gas = *o.min_memo_gas;
-            bytes += o.bytes;
-            items += o.items;
+            return config_base::BS_min_balance_per_service
+                + config_base::BI_min_balance_per_item * items
+                + config_base::BL_min_balance_per_octet * bytes;
+        }
+
+        void consume_from(const service_info_t &o)
+        {
+            *this = o;
+        }
+
+        void commit(persistent_value_t<service_info_t> &target)
+        {
+            target.set(*this);
         }
 
         bool operator==(const service_info_t &o) const noexcept = default;
     };
-
-    inline service_info_t service_info_update_t::combine() const
-    {
-        auto res = base;
-        res.consume_from(*this);
-        return res;
-    }
-
-    inline void service_info_update_t::commit(persistent_value_t<service_info_t> &target)
-    {
-        target.set(combine());
-    }
 
     template<typename K, typename V>
     struct state_dict_based_map_t {
@@ -392,37 +336,6 @@ namespace turbo::jam {
         }
     };
 
-    // (9.8)
-    inline balance_t account_balance_threshold_raw(const size_t a_i, const size_t a_o)
-    {
-        return config_base::BS_min_balance_per_service
-            + config_base::BI_min_balance_per_item * a_i
-            + config_base::BL_min_balance_per_octet * a_o;
-    }
-
-    template<typename L, typename S>
-    std::pair<size_t, size_t> account_balance_threshold_stats(const L &l, const S &s)
-    {
-        size_t a_i = 0;
-        size_t a_o = 0;
-        l.foreach([&](const auto &k, const auto &) {
-            a_i += 2;
-            a_o += 81 + lookup_meta_map_key_t::len_from_state_key(k);
-        });
-        s.foreach([&](const auto &, const auto &v) {
-            a_i += 1;
-            a_o += 32 + v.size();
-        });
-        return std::make_pair(a_i, a_o);
-    }
-
-    template<typename L, typename S>
-    balance_t account_balance_threshold(const L &l, const S &s)
-    {
-        const auto [a_i, a_o] = account_balance_threshold_stats(l, s);
-        return account_balance_threshold_raw(a_i, a_o);
-    }
-
     template<typename CFG>
     struct account_t {
         // preimages comes first since it requires an argument to be initialized
@@ -483,7 +396,7 @@ namespace turbo::jam {
         update_storage_map_t storage;
         update_preimage_map_t preimages;
         update_lookup_map_t lookup_metas;
-        service_info_update_t info;
+        service_info_t info;
 
         bool empty() const
         {
@@ -492,8 +405,6 @@ namespace turbo::jam {
             if (!preimages.empty())
                 return false;
             if (!lookup_metas.empty())
-                return false;
-            if (!info.empty())
                 return false;
             return true;
         }
@@ -535,15 +446,15 @@ namespace turbo::jam {
                 if (auto [it, created] = _derived.try_emplace(k, std::move(v)); !created) {
                     // Appendix B.4 says that if the same service id is assigned to different services, such a block shall be considered invalid
                     // Considering non-matching code-hashes as an indication of differing services here.
-                    if (it->second.info.code_hash && v.info.code_hash && *it->second.info.code_hash != *v.info.code_hash) [[unlikely]]
+                    if (it->second.info.code_hash != v.info.code_hash) [[unlikely]]
                         throw error(fmt::format("service {} accumulation resulted into the same service having different code hashes: {} != {}",
-                            k, *it->second.info.code_hash, *v.info.code_hash));
+                            k, it->second.info.code_hash, v.info.code_hash));
                     it->second.consume_from(std::move(v));
                 }
             }
         }
 
-        void emplace(const key_type &k, service_info_update_t &&info)
+        void emplace(const key_type &k, service_info_t info)
         {
             const auto [it, created] = _derived.try_emplace(
                 k,
@@ -579,7 +490,7 @@ namespace turbo::jam {
                     container::direct_update_api_t<service_storage_t> { b_it->second.storage },
                     container::direct_update_api_t<preimages_t> { b_it->second.preimages },
                     container::direct_update_api_t<lookup_metas_t<CFG>> { b_it->second.lookup_metas },
-                    service_info_update_t { b_it->second.info.get() }
+                    service_info_t { b_it->second.info.get() }
                 );
                 return &d_it->second;
             }
