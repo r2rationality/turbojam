@@ -174,6 +174,11 @@ namespace turbo::jam {
         bool operator==(const err_work_report_too_big_t &) const { return true; }
         void serialize(auto &) {}
     };
+    struct err_banned_validator_t final: error {
+        err_banned_validator_t(): error { "err_banned_validator_t" } {}
+        bool operator==(const err_banned_validator_t &) const { return true; }
+        void serialize(auto &) {}
+    };
     struct err_preimage_unneeded_t final: error{
         err_preimage_unneeded_t(): error { "err_preimage_unneeded_t" } {}
         bool operator==(const err_preimage_unneeded_t &) const { return true; }

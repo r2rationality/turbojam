@@ -10,26 +10,35 @@
 namespace turbo::jam {
     enum class host_call_t: uint8_t {
         gas = 0,
-        lookup = 1,
-        read = 2,
-        write = 3,
-        info = 4,
-        bless = 5,
-        assign = 6,
-        designate = 7,
-        checkpoint = 8,
-        new_ = 9,
-        upgrade = 10,
-        transfer = 11,
-        eject = 12,
-        query = 13,
-        solicit = 14,
-        forget = 15,
-        yield = 16,
-        fetch = 18,
-        provide = 27,
-        log = 100,
+        fetch = 1,
+        lookup = 2,
+        read = 3,
+        write = 4,
+        info = 5,
 
+        historical_lookup = 6,
+        export_ = 7,
+        machine = 8,
+        peek = 9,
+        poke = 10,
+        pages = 11,
+        invoke = 12,
+        expunge = 13,
+
+        bless = 14,
+        assign = 15,
+        designate = 16,
+        checkpoint = 17,
+        new_ = 18,
+        upgrade = 19,
+        transfer = 20,
+        eject = 21,
+        query = 22,
+        solicit = 23,
+        forget = 24,
+        yield = 25,
+        provide = 26,
+        log = 100
     };
 
     template<typename CFG>
@@ -85,6 +94,7 @@ namespace turbo::jam {
         using base_type = host_service_base_t<CFG>;
         using base_type::base_type;
 
+        host_service_is_authorized_t(const host_service_params_t<CFG> &params);
         [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     };
 
@@ -93,6 +103,7 @@ namespace turbo::jam {
         using base_type = host_service_base_t<CFG>;
         using base_type::base_type;
 
+        host_service_refine_t(const host_service_params_t<CFG> &params);
         [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     };
 
@@ -128,6 +139,7 @@ namespace turbo::jam {
         using base_type = host_service_base_t<CFG>;
         using base_type::base_type;
 
+        host_service_on_transfer_t(const host_service_params_t<CFG> &params);
         [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     };
 }

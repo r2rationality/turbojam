@@ -9,13 +9,13 @@
 
 namespace turbo::jam {
     // JAM (4.3)
-    template<typename CONSTANTS>
+    template<typename CFG>
     struct extrinsic_t {
-        tickets_extrinsic_t<CONSTANTS> tickets;
+        tickets_extrinsic_t<CFG> tickets;
         preimages_extrinsic_t preimages;
-        guarantees_extrinsic_t<CONSTANTS> guarantees;
-        assurances_extrinsic_t<CONSTANTS> assurances;
-        disputes_extrinsic_t<CONSTANTS> disputes;
+        guarantees_extrinsic_t<CFG> guarantees;
+        assurances_extrinsic_t<CFG> assurances;
+        disputes_extrinsic_t<CFG> disputes;
 
         void serialize(auto &archive)
         {
@@ -47,7 +47,7 @@ namespace turbo::jam {
 
     // JAM (5.1)
 
-    template<typename CONSTANTS>
+    template<typename CFG>
     struct header_t {
         // H_p
         header_hash_t parent {};
@@ -56,11 +56,11 @@ namespace turbo::jam {
         // H_x - merkle commitment (H^#) to the block's external data
         opaque_hash_t extrinsic_hash {};
         // H_t
-        time_slot_t<CONSTANTS> slot {};
+        time_slot_t<CFG> slot {};
         // H_e
-        optional_t<epoch_mark_t<CONSTANTS>> epoch_mark {};
+        optional_t<epoch_mark_t<CFG>> epoch_mark {};
         // H_w
-        optional_t<tickets_mark_t<CONSTANTS>> tickets_mark {};
+        optional_t<tickets_mark_t<CFG>> tickets_mark {};
         // H_o
         offenders_mark_t offenders_mark {};
         // H_i
@@ -94,7 +94,7 @@ namespace turbo::jam {
             return res;
         }
 
-        void verify_signatures(const bandersnatch_public_t &vkey, const tickets_or_keys_t<CONSTANTS> &gamma_s, const entropy_t &eta3) const;
+        void verify_signatures(const bandersnatch_public_t &vkey, const tickets_or_keys_t<CFG> &gamma_s, const entropy_t &eta3) const;
 
         void serialize_unsigned(auto &archive)
         {
@@ -121,10 +121,10 @@ namespace turbo::jam {
     };
 
     // JAM (4.2)
-    template<typename CONSTANTS>
+    template<typename CFG>
     struct block_t {
-        header_t<CONSTANTS> header;
-        extrinsic_t<CONSTANTS> extrinsic;
+        header_t<CFG> header;
+        extrinsic_t<CFG> extrinsic;
 
         void serialize(auto &archive)
         {
@@ -137,12 +137,12 @@ namespace turbo::jam {
     };
 
     // JAM (6.3) - Changed: new order k, y_z, y_s, y_a but not reflected in the tests yet
-    template<typename CONSTANTS=config_prod>
+    template<typename CFG=config_prod>
     struct safrole_state_t {
-        validators_data_t<CONSTANTS> k {}; // prior next epoch validator keys and metadata
+        validators_data_t<CFG> k {}; // prior next epoch validator keys and metadata
         bandersnatch_ring_commitment_t z {}; // prior bandersnatch ring commitment
-        tickets_or_keys_t<CONSTANTS> s; // prior sealing key series
-        tickets_accumulator_t<CONSTANTS> a {}; // prior sealing key ticket accumulator
+        tickets_or_keys_t<CFG> s; // prior sealing key series
+        tickets_accumulator_t<CFG> a {}; // prior sealing key ticket accumulator
 
         void serialize(auto &archive)
         {
@@ -196,7 +196,7 @@ namespace turbo::jam {
 
     struct reports_output_data_t {
         reports_output_items_t reported {};
-        sequence_t<ed25519_public_t> reporters {};
+        set_t<ed25519_public_t> reporters {};
 
         void serialize(auto &archive)
         {

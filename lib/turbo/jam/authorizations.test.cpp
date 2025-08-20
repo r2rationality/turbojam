@@ -37,8 +37,8 @@ namespace {
         file::tmp_directory tmp_dir_pre { fmt::format("test-jam-authorizations-{}-pre", static_cast<void *>(this)) };
         file::tmp_directory tmp_dir_post { fmt::format("test-authorizations-safrole-{}-post", static_cast<void *>(this)) };
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
-        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
+        state_t<CONSTANTS> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
+        state_t<CONSTANTS> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
 
         static void serialize_state(auto &archive, const std::string_view &name, state_t<CONSTANTS> &st)
         {

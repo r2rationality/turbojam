@@ -41,15 +41,15 @@ namespace {
         file::tmp_directory tmp_dir_pre { fmt::format("test-jam-preimages-{}-pre", static_cast<void *>(this)) };
         file::tmp_directory tmp_dir_post { fmt::format("test-jam-preimages-{}-post", static_cast<void *>(this)) };
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
-        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
+        state_t<CONSTANTS> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
+        state_t<CONSTANTS> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
 
         void serialize_state(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
         {
             using namespace std::string_view_literals;
             archive.push(name);
             {
-                auto new_pi = st.pi.get();
+                std::decay_t<typename decltype(st.pi)::element_type> new_pi{};
                 archive.process("vals_curr_stats"sv, new_pi.current);
                 archive.process("vals_last_stats"sv, new_pi.last);
                 st.pi.set(std::move(new_pi));
@@ -88,8 +88,15 @@ namespace {
             expect(tc == j_tc) << "the json test case does not match the binary one" << path;
         }
         const file::tmp_directory state_dir { "test-jam-statistics" };
-        state_t<CFG> new_st { tc.pre };
-        new_st.pi.set(state_t<CFG>::pi_prime(statistics_t<CFG> { new_st.pi.get() }, tc.pre.tau.get(), tc.in.slot, tc.in.author_index, tc.in.extrinsic));
+        state_t<CFG> new_st{tc.pre};
+        reports_output_data_t reports_res{};
+        const auto &new_kappa = tc.pre.kappa.get();
+        for (const auto &g: tc.in.extrinsic.guarantees) {
+            for (const auto &s: g.signatures)
+                reports_res.reporters.emplace(new_kappa[s.validator_index].ed25519);
+        }
+        new_st.pi.set(state_t<CFG>::pi_prime(statistics_t<CFG>{new_st.pi.get()}, reports_res,
+            new_kappa, tc.pre.tau.get(), tc.in.slot, tc.in.author_index, tc.in.extrinsic));
         new_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
         expect(new_st.pi.get().current == tc.post.pi.get().current) << path;
         expect(new_st.pi.get().last == tc.post.pi.get().last) << path;

@@ -776,21 +776,22 @@ namespace turbo::jam {
 
         bool operator==(const reported_work_package_t &o) const noexcept = default;
     };
-    using reported_work_seq_t = set_t<reported_work_package_t>;
 
+    template<typename CFG>
+    using reported_work_seq_t = set_t<reported_work_package_t, 0, CFG::C_core_count>;
+
+    template<typename CFG>
     struct block_info_t {
-        header_hash_t header_hash {};
-        mmr_t mmr {};
-        state_root_t state_root {};
-        reported_work_seq_t reported {};
+        header_hash_t header_hash {}; // h
+        opaque_hash_t beefy_root {}; // b - MMR root
+        state_root_t state_root {}; // s
+        reported_work_seq_t<CFG> reported {}; // p
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("header_hash"sv, header_hash);
-            archive.push("mmr");
-            archive.process("peaks"sv, mmr);
-            archive.pop();
+            archive.process("beefy_root"sv, beefy_root);
             archive.process("state_root"sv, state_root);
             archive.process("reported"sv, reported);
         }
@@ -798,8 +799,25 @@ namespace turbo::jam {
         bool operator==(const block_info_t &o) const noexcept = default;
     };
 
-    template<typename CFG=config_prod>
-    using blocks_history_t = sequence_t<block_info_t, 0, CFG::H_max_blocks_history>;
+    template<typename CFG>
+    using blocks_history_t = sequence_t<block_info_t<CFG>, 0, CFG::H_max_blocks_history>;
+
+    template<typename CFG>
+    struct recent_blocks_t {
+        blocks_history_t<CFG> history;
+        mmr_t mmr{};
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("history"sv, history);
+            archive.push("mmr");
+            archive.process("peaks", mmr);
+            archive.pop();
+        }
+
+        bool operator==(const recent_blocks_t &o) const noexcept = default;
+    };
 
     struct activity_record_t {
         uint32_t blocks;
@@ -1175,9 +1193,13 @@ namespace turbo::jam {
 
     using free_services_t = sequence_t<always_accumulate_map_item_t>;
 
+    template<typename CFG>
+    using assigners_t = fixed_sequence_t<service_id_t, CFG::C_core_count>;
+
+    template<typename CFG>
     struct privileges_t {
         service_id_t bless;
-        service_id_t assign;
+        assigners_t<CFG> assign;
         service_id_t designate;
         free_services_t always_acc;
 

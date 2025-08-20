@@ -37,21 +37,22 @@ namespace turbo::jam {
         return res;
     }
 
-    state_key_t state_dict_t::make_key(const uint32_t service_id, const state_key_subhash_t &h)
+    state_key_t state_dict_t::make_key(const uint32_t service_id, const buffer &k)
     {
+        const auto a = crypto::blake2b::digest(k);
         byte_array<4> n;
         encoder::uint_fixed(n, sizeof(service_id), service_id);
-        state_key_t res {};
+        state_key_t res;
         res[0] = n[0];
-        res[1] = h[0];
+        res[1] = a[0];
         res[2] = n[1];
-        res[3] = h[1];
+        res[3] = a[1];
         res[4] = n[2];
-        res[5] = h[2];
+        res[5] = a[2];
         res[6] = n[3];
-        res[7] = h[3];
-        static_assert(sizeof(res) - 8 == sizeof(h) - 4);
-        memcpy(res.data() + 8, h.data() + 4, h.size() - 4);
+        res[7] = a[3];
+        static_assert(sizeof(a) >= sizeof(res) - 4);
+        memcpy(res.data() + 8, a.data() + 4, sizeof(res) - 8);
         return res;
     }
 }

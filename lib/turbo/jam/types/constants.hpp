@@ -11,16 +11,16 @@ namespace turbo::jam {
     // Constants that are the same in all configurations
     struct config_base {
         // JAM I.4.5 Signing Contexts
-        static constexpr std::string_view jam_entropy { "jam_entropy" };
-        static constexpr std::string_view jam_fallback_seal { "jam_fallback_seal" };
-        static constexpr std::string_view jam_ticket_seal { "jam_ticket_seal" };
-        static constexpr std::string_view jam_valid { "jam_valid" };
-        static constexpr std::string_view jam_invalid { "jam_invalid" };
-        static constexpr std::string_view jam_available { "jam_available" };
-        static constexpr std::string_view jam_guarantee { "jam_guarantee" };
-        static constexpr std::string_view jam_audit { "jam_audit" };
-        static constexpr std::string_view jam_announce { "jam_announce" };
-        static constexpr std::string_view jam_beefy { "jam_beefy" };
+        static constexpr std::string_view jam_entropy{"jam_entropy"};
+        static constexpr std::string_view jam_fallback_seal{"jam_fallback_seal"};
+        static constexpr std::string_view jam_ticket_seal{"jam_ticket_seal"};
+        static constexpr std::string_view jam_valid{"jam_valid"};
+        static constexpr std::string_view jam_invalid{"jam_invalid"};
+        static constexpr std::string_view jam_available{"jam_available"};
+        static constexpr std::string_view jam_guarantee{"jam_guarantee"};
+        static constexpr std::string_view jam_audit{"jam_audit"};
+        static constexpr std::string_view jam_announce{"jam_announce"};
+        static constexpr std::string_view jam_beefy{"jam_beefy"};
 
         static constexpr size_t A_audit_period = 8;
         static constexpr size_t BI_min_balance_per_item = 10;
@@ -52,8 +52,7 @@ namespace turbo::jam {
         static constexpr size_t V_validator_count = C_core_count * validator_factor;
         static_assert(V_validator_count == 1023U);
         static constexpr size_t WA_max_is_authorized_code_size = 64'000;
-        // static constexpr size_t WB_max_work_package_size = 13'794'305; // GP 0.6.7
-        static constexpr size_t WB_max_work_package_size = 12ULL << 20U; // GP 0.6.6
+        static constexpr size_t WB_max_work_package_size = 13'794'305;
         static constexpr size_t WC_max_service_code_size = 4'000'000;
         static constexpr size_t WE_segment_piece_size = (C_core_count + 1) * 2;
         static_assert(WE_segment_piece_size == 684U);

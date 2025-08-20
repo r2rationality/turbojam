@@ -16,6 +16,10 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/write.hpp>
 
+#if !defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
+#   error Local sockets not available on this platform.
+#endif
+
 namespace turbo::cli::fuzzer {
     using namespace turbo::jam;
     using namespace turbo::jam::fuzzer;
@@ -25,17 +29,17 @@ namespace turbo::cli::fuzzer {
     static boost::asio::awaitable<message_t<CFG>> read_message(stream_protocol::socket &conn)
     {
         uint32_t msg_len = 0;
-        uint8_vector msg_buf {};
         co_await boost::asio::async_read(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
+        uint8_vector msg_buf(msg_len);
         co_await boost::asio::async_read(conn, boost::asio::buffer(msg_buf.data(), msg_buf.size()), boost::asio::use_awaitable);
-        decoder dec { msg_buf };
+        decoder dec{msg_buf};
         co_return codec::from<message_t<CFG>>(dec);
     }
 
     template<typename CFG>
     static boost::asio::awaitable<void> write_message(stream_protocol::socket &conn, message_t<CFG> msg)
     {
-        const encoder enc { msg };
+        const encoder enc{msg};
         const uint32_t msg_len = enc.bytes().size();
         co_await boost::asio::async_write(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
         co_await boost::asio::async_write(conn, boost::asio::buffer(enc.bytes()), boost::asio::use_awaitable);

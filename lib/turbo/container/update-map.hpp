@@ -82,8 +82,8 @@ namespace turbo::container {
     template<typename M>
     struct direct_update_api_t {
         using target_type = M;
+        using key_type = typename M::alt_key_type;
         using alt_key_type = typename M::alt_key_type;
-        using key_type = typename M::key_type;
         using mapped_type = typename M::mapped_type;
         using observer_t = std::function<void(const key_type &k, const mapped_type &v)>;
 
@@ -92,11 +92,6 @@ namespace turbo::container {
         direct_update_api_t(const M &base):
             _base { &base }
         {
-        }
-
-        key_type make_key(const alt_key_type &k) const
-        {
-            return _base->make_key(k);
         }
 
         void erase(M &target, const key_type &k) const
@@ -117,7 +112,7 @@ namespace turbo::container {
         {
             if (_base)
                 return _base->get(k);
-            return decltype(_base->get(k)) {};
+            return decltype(_base->get(k)){};
         }
 
         void set(M &target, const key_type &k, mapped_type v) const
@@ -134,19 +129,13 @@ namespace turbo::container {
     template<typename M>
     struct update_map_t {
         using base_map_api_type = M;
-        using alt_key_type = typename M::alt_key_type;
-        using key_type = typename M::key_type;
+        using key_type = typename M::alt_key_type;
         using mapped_type = typename M::mapped_type;
         using observer_t = std::function<void(const key_type &k, const mapped_type &v)>;
 
         update_map_t(base_map_api_type base):
             _base { std::move(base) }
         {
-        }
-
-        [[nodiscard]] key_type make_key(const alt_key_type &k) const
-        {
-            return _base.make_key(k);
         }
 
         bool empty() const

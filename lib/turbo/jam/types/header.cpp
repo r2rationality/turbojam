@@ -7,8 +7,8 @@
 #include "header.hpp"
 
 namespace turbo::jam {
-    template<typename CONSTANTS>
-    void header_t<CONSTANTS>::verify_signatures(const bandersnatch_public_t &vkey, const tickets_or_keys_t<CONSTANTS> &gamma_s, const entropy_t &eta3) const
+    template<typename CFG>
+    void header_t<CFG>::verify_signatures(const bandersnatch_public_t &vkey, const tickets_or_keys_t<CFG> &gamma_s, const entropy_t &eta3) const
     {
         using namespace std::string_view_literals;
         entropy_t seal_vrf_output;
@@ -18,14 +18,14 @@ namespace turbo::jam {
             uint8_vector seal_input {};
             std::visit([&](const auto &s) {
                 using T = std::decay_t<decltype(s)>;
-                if constexpr (std::is_same_v<T, tickets_t<CONSTANTS>>) {
+                if constexpr (std::is_same_v<T, tickets_t<CFG>>) {
                     auto &i = s[slot.slot() % s.size()];
                     if (i.id != seal_vrf_output) [[unlikely]]
                         throw err_bad_signature_t {};
                     seal_input << "jam_ticket_seal"sv;
                     seal_input << eta3;
                     seal_input << i.attempt;
-                } else if constexpr (std::is_same_v<T, keys_t<CONSTANTS>>) {
+                } else if constexpr (std::is_same_v<T, keys_t<CFG>>) {
                     auto &i = s[slot.slot() % s.size()];
                     if (i != vkey) [[unlikely]]
                         throw err_bad_signature_t {};

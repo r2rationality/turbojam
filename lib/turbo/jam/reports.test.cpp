@@ -12,8 +12,9 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
+    template<typename CFG>
     struct tmp_account_t {
-        service_info_t service;
+        service_info_t<CFG> service;
 
         void serialize(auto &archive)
         {
@@ -22,13 +23,14 @@ namespace {
         }
     };
 
-    using tmp_accounts_t = map_t<service_id_t, tmp_account_t, accounts_config_t>;
+    template<typename CFG>
+    using tmp_accounts_t = map_t<service_id_t, tmp_account_t<CFG>, accounts_config_t>;
     using known_packages_t = sequence_t<work_package_hash_t>;
 
-    template<typename CONSTANTS>
-    struct input_t {
-        guarantees_extrinsic_t<CONSTANTS> guarantees;
-        time_slot_t<CONSTANTS> slot;
+    template<typename CFG>
+    struct test_input_t {
+        guarantees_extrinsic_t<CFG> guarantees;
+        time_slot_t<CFG> slot;
         known_packages_t known_packages;
 
         void serialize(auto &archive)
@@ -39,7 +41,7 @@ namespace {
             archive.process("known_packages"sv, known_packages);
         }
 
-        bool operator==(const input_t &o) const
+        bool operator==(const test_input_t &o) const
         {
             if (guarantees != o.guarantees)
                 return false;
@@ -74,7 +76,8 @@ namespace {
         err_too_many_dependencies_t,
         err_segment_root_lookup_invalid_t,
         err_bad_signature_t,
-        err_work_report_too_big_t
+        err_work_report_too_big_t,
+        err_banned_validator_t
     >;
 
     struct err_code_t: err_group_t<err_code_t, err_code_base_t> {
@@ -108,7 +111,8 @@ namespace {
                 "too_many_dependencies"sv,
                 "segment_root_lookup_invalid"sv,
                 "bad_signature"sv,
-                "work_report_too_big"sv
+                "work_report_too_big"sv,
+                "banned_validator"sv
             };
             archive.template process_variant<err_code_base_t>(*this, names);
         }
@@ -131,39 +135,39 @@ namespace {
         }
     };
 
-    template<typename CONSTANTS>
+    template<typename CFG>
     struct test_case_t {
         file::tmp_directory tmp_dir_pre { fmt::format("test-jam-reports-{}-pre", static_cast<void *>(this)) };
         file::tmp_directory tmp_dir_post { fmt::format("test-jam-reports-{}-post", static_cast<void *>(this)) };
-        input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
+        test_input_t<CFG> in;
+        state_t<CFG> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
         output_t out;
-        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
+        state_t<CFG> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
 
-        void serialize_accounts(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
+        void serialize_accounts(auto &archive, const std::string_view name, state_t<CFG> &st)
         {
-            tmp_accounts_t taccs;
+            tmp_accounts_t<CFG> taccs;
             archive.process(name, taccs);
             st.delta.clear();
             for (auto &&[id, tacc]: taccs) {
-                account_t<CONSTANTS> acc {
-                    .preimages=preimages_t { st.triedb, preimages_t::make_trie_key_func(id) },
-                    .lookup_metas=lookup_metas_t<CONSTANTS> { st.triedb, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) },
-                    .storage=service_storage_t { st.triedb, service_storage_t::make_trie_key_func(id) },
-                    .info={ st.triedb, state_dict_t::make_key(255U, id), std::move(tacc.service) }
+                account_t<CFG> acc {
+                    .preimages=preimages_t{st.triedb, preimages_t::make_trie_key_func(id)},
+                    .lookup_metas=lookup_metas_t<CFG>{st.triedb, lookup_metas_t<CFG>::make_trie_key_func(id)},
+                    .storage=service_storage_t{st.triedb, service_storage_t::make_trie_key_func(id)},
+                    .info={st.triedb, state_dict_t::make_key(255U, id), std::move(tacc.service)}
                 };
                 st.delta.try_emplace(std::move(id), std::move(acc));
             }
         }
 
-        void serialize_state(auto &archive, state_t<CONSTANTS> &self)
+        void serialize_state(auto &archive, state_t<CFG> &self)
         {
             archive.process("avail_assignments"sv, self.rho);
             archive.process("curr_validators"sv, self.kappa);
             archive.process("prev_validators"sv, self.lambda);
             archive.process("entropy"sv, self.eta);
             {
-                auto new_psi = self.psi.get();
+                std::decay_t<typename decltype(self.psi)::element_type> new_psi{};
                 archive.process("offenders"sv, new_psi.offenders);
                 self.psi.set(std::move(new_psi));
             }
@@ -171,7 +175,7 @@ namespace {
             archive.process("auth_pools"sv, self.alpha);
             serialize_accounts(archive, "accounts"sv, self);
             {
-                auto new_pi = self.pi.get();
+                std::decay_t<typename decltype(self.pi)::element_type> new_pi{};
                 archive.process("cores_statistics"sv, new_pi.cores);
                 archive.process("services_statistics"sv, new_pi.services);
                 self.pi.set(std::move(new_pi));
@@ -214,15 +218,15 @@ namespace {
                 expect(tc == j_tc) << "the json test case does not match the binary one" << path;
             }
             std::optional<output_t> out {};
-            state_t<CFG> res_st = tc.pre;
+            auto new_st = tc.pre.working_copy();
             err_code_t::catch_into(
                 [&] {
-                    auto tmp_st = tc.pre;
+                    auto tmp_st = new_st.working_copy();
                     auto tmp_rho = tmp_st.rho.get();
                     auto tmp_pi = tmp_st.pi.get();
                     out.emplace(
                         tmp_st.update_reports(
-                            tmp_rho, tmp_pi, tmp_st.beta.get(),
+                            tmp_rho, tmp_pi, tmp_st.beta.get().history,
                             tmp_st.eta.get(), tmp_st.psi.get(),
                             tmp_st.kappa.get(), tmp_st.lambda.get(),
                             tc.pre.alpha.get(),
@@ -232,7 +236,7 @@ namespace {
                     );
                     tmp_st.rho.set(std::move(tmp_rho));
                     tmp_st.pi.set(std::move(tmp_pi));
-                    res_st = std::move(tmp_st);
+                    new_st.commit(std::move(tmp_st));
                 },
                 [&](err_code_t err) {
                     out.emplace(std::move(err));
@@ -240,7 +244,7 @@ namespace {
             );
             if (out.has_value()) {
                 expect(out == tc.out) << path;
-                expect(res_st == tc.post) << path;
+                expect(new_st == tc.post) << path;
             } else {
                 expect(false) << path;
             }
@@ -252,6 +256,7 @@ namespace {
 
 suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
+        //test_file<config_tiny>("test/jam-test-vectors/stf/reports/tiny/different_core_same_guarantors-1");
         "tiny"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/reports/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

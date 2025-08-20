@@ -11,9 +11,9 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
-    template<typename CONSTANTS>
-    struct input_t {
-        disputes_extrinsic_t<CONSTANTS> disputes;
+    template<typename CFG>
+    struct test_input_t {
+        disputes_extrinsic_t<CFG> disputes;
 
         void serialize(auto &archive)
         {
@@ -21,7 +21,7 @@ namespace {
             archive.process("disputes"sv, disputes);
         }
 
-        bool operator==(const input_t &o) const
+        bool operator==(const test_input_t &o) const
         {
             if (disputes != o.disputes)
                 return false;
@@ -112,50 +112,44 @@ namespace {
         }
     };
 
-    template<typename CONSTANTS>
-    struct test_case_t {
-        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-disputes-{}-pre", static_cast<void *>(this)) };
-        file::tmp_directory tmp_dir_post { fmt::format("test-jam-disputes-{}-post", static_cast<void *>(this)) };
-        input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
-        output_t out;
-        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
+    template<typename CFG>
+    struct test_state_t {
+        disputes_records_t psi;
+        availability_assignments_t<CFG> rho;
+        time_slot_t<CFG> tau;
+        validators_data_t<CFG> kappa;
+        validators_data_t<CFG> lambda;
 
-        static void serialize_state(auto &archive, state_t<CONSTANTS> &st)
+        void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("psi"sv, st.psi);
-            archive.process("rho"sv, st.rho);
-            archive.process("tau"sv, st.tau);
-            archive.process("kappa"sv, st.kappa);
-            archive.process("lambda"sv, st.lambda);
+            archive.process("psi"sv, psi);
+            archive.process("rho"sv, rho);
+            archive.process("tau"sv, tau);
+            archive.process("kappa"sv, kappa);
+            archive.process("lambda"sv, lambda);
         }
+
+        bool operator==(const test_state_t &) const = default;
+    };
+
+    template<typename CFG>
+    struct test_case_t {
+        test_input_t<CFG> in;
+        test_state_t<CFG> pre;
+        output_t out;
+        test_state_t<CFG> post;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("input"sv, in);
-            archive.push("pre_state"sv);
-            serialize_state(archive, pre);
-            archive.pop();
+            archive.process("pre_state"sv, pre);
             archive.process("output"sv, out);
-            archive.push("post_state"sv);
-            serialize_state(archive, post);
-            archive.pop();
+            archive.process("post_state"sv, post);
         }
 
-        bool operator==(const test_case_t &o) const
-        {
-            if (in != o.in)
-                return false;
-            if (pre != o.pre)
-                return false;
-            if (out != o.out)
-                return false;
-            if (post != o.post)
-                return false;
-            return true;
-        }
+        bool operator==(const test_case_t &o) const = default;
     };
 
     template<typename CFG>
@@ -167,22 +161,16 @@ namespace {
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
         std::optional<output_t> out {};
-        state_t<CFG> res_st = tc.pre;
+        auto new_st = tc.pre;
         err_code_t::catch_into(
             [&] {
-                auto tmp_st = tc.pre;
                 offenders_mark_t new_offenders {};
-                auto tmp_rho = tmp_st.rho.get();
-                tmp_st.psi.set(
-                    tmp_st.psi_prime(new_offenders, tmp_rho,
-                        tc.pre.kappa.get(), tc.pre.lambda.get(),
-                        tc.pre.tau.get(), tc.pre.psi.storage(),
-                        tc.in.disputes
-                    )
+                new_st.psi = *state_t<CFG>::psi_prime(new_offenders, new_st.rho,
+                    tc.pre.kappa, tc.pre.lambda,
+                    tc.pre.tau, std::make_shared<decltype(tc.pre.psi)>(tc.pre.psi),
+                    tc.in.disputes
                 );
-                tmp_st.rho.set(std::move(tmp_rho));
-                out.emplace(output_data_t { .offenders_mark=std::move(new_offenders) });
-                res_st = std::move(tmp_st);
+                out.emplace(output_data_t{ .offenders_mark=std::move(new_offenders) });
             },
             [&](err_code_t err) {
                 out.emplace(std::move(err));
@@ -190,7 +178,7 @@ namespace {
         );
         if (out.has_value()) {
             expect(out == tc.out) << path;
-            expect(res_st == tc.post) << path;
+            expect(new_st == tc.post) << path;
         } else {
             expect(false) << path;
         }

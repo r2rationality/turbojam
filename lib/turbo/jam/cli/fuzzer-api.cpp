@@ -9,11 +9,13 @@
 #include <future>
 #include <turbo/common/cli.hpp>
 #include <turbo/common/mutex.hpp>
+#include <turbo/common/variant.hpp>
 #include <turbo/jam/chain.hpp>
 #include "fuzzer.hpp"
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/signal_set.hpp>
 #include <boost/asio/use_future.hpp>
 
 namespace {
@@ -33,35 +35,23 @@ namespace {
             _futures.emplace_back(boost::asio::co_spawn(_ioc, _listen(), boost::asio::use_future));
         }
 
+        ~server_t() noexcept
+        {
+            std::filesystem::remove(_sock_path);
+        }
+
         void run()
         {
-            for (;;) {
-                {
-                    std::scoped_lock lock { _futures_mutex };
-                    for (auto it = _futures.begin(); it != _futures.end();) {
-                        if (it->wait_for(std::chrono::milliseconds { 0 }) == std::future_status::ready) {
-                            logger::info("one async operation has completed");
-                            logger::run_log_errors([&] {
-                                it->get();
-                            });
-                            it = _futures.erase(it);
-                        } else {
-                            ++it;
-                        }
-                    }
-                    if (_futures.empty()) [[unlikely]]
-                        break;
-                }
-                _ioc.run_for(std::chrono::milliseconds { 100 });
-                if (_ioc.stopped())
-                    _ioc.restart();
-            }
+            boost::asio::signal_set signals{_ioc, SIGINT, SIGTERM};
+            signals.async_wait([this](auto, auto){ _guard.reset(); _ioc.stop(); });
+            _ioc.run();
         }
     private:
         std::string _chain_id;
         std::string _sock_path;
         file::tmp_directory _tmp_dir { "turbo-jam-fuzzer" };
         boost::asio::io_context _ioc {};
+        decltype(boost::asio::make_work_guard(_ioc)) _guard = boost::asio::make_work_guard(_ioc);
         std::mutex _futures_mutex alignas(mutex::alignment) {};
         std::vector<std::future<void>> _futures {};
 
@@ -74,41 +64,16 @@ namespace {
             };
             {
                 const auto handshake = co_await read_message<CFG>(conn);
-                const peer_info_t &peer_info = std::get<peer_info_t>(handshake);
-                if (peer_info.jam_version != my_peer_info.jam_version) [[unlikely]]
-                    throw error(fmt::format("jam version mismatch: {} != {}", peer_info.jam_version, my_peer_info.jam_version));
+                const peer_info_t &peer_info = variant::get_nice<peer_info_t>(handshake);
+                my_peer_info.compatible_with(peer_info);
+                co_await write_message<CFG>(conn, message_t<CFG>{my_peer_info});
             }
-            std::optional<chain_t<CFG>> chain {};
+            processor_t<CFG> processor{_chain_id, _tmp_dir};
             for (;;) {
-                auto msg = co_await read_message<CFG>(conn);
-                auto resp = std::visit([&](auto &&m) -> message_t<CFG> {
-                    using T = std::decay_t<decltype(m)>;
-                    if constexpr (std::is_same_v<T, set_state_t<CFG>>) {
-                        chain.emplace(_chain_id, _tmp_dir.path(), m.state, m.state);
-                        if (chain->genesis_header() != m.header) [[unlikely]]
-                            throw error("the provided header does not match the provided state and the genesis_header construction rules");
-                        return chain->state_root();
-                    } else if constexpr (std::is_same_v<T, import_block_t<CFG>>) {
-                        if (!chain) [[unlikely]]
-                            throw error("import_block is not allowed before set_state");
-                        logger::run_log_errors([&] {
-                            chain->apply(m);
-                        });
-                        return chain->state_root();
-                    } else if constexpr (std::is_same_v<T, get_state_t>) {
-                        if (!chain) [[unlikely]]
-                            throw error("get_state is not allowed before set_state");
-                        const auto &beta = chain->state().beta.get();
-                        if (beta.empty() || beta.back().header_hash != m.header_hash) [[unlikely]]
-                            throw error("get_state supports returning the state of only the latest block!");
-                        return chain->state().snapshot();
-                    } else {
-                        throw error(fmt::format("unexpected message type: {}", typeid(T).name()));
-                    }
-                }, std::move(msg));
-                co_await write_message(conn, std::move(resp));
+                auto msg_in = co_await read_message<CFG>(conn);
+                auto msg_out = processor.process(std::move(msg_in));
+                co_await write_message(conn, std::move(msg_out));
             }
-            co_return;
         }
 
         boost::asio::awaitable<void> _listen()
@@ -118,6 +83,9 @@ namespace {
             std::filesystem::remove(_sock_path);
             const stream_protocol::endpoint ep{_sock_path};
             stream_protocol::acceptor acceptor{_ioc, ep};
+#if         defined(__unix__) || defined (__unix)
+                ::chmod(_sock_path.c_str(), 0666);
+#endif
             for (;;) {
                 auto conn = co_await acceptor.async_accept(boost::asio::use_awaitable);
                 std::scoped_lock lock { _futures_mutex };
@@ -133,7 +101,7 @@ namespace turbo::cli::fuzzer_api {
         void configure(config &cmd) const override
         {
             cmd.name = "fuzzer-api";
-            cmd.desc = "Launch a local local fuzzing API listening at <unix-socket-path>";
+            cmd.desc = "Launch a local fuzzing API listening at <unix-socket-path>";
             cmd.args.expect({ "<unix-socket-path>" });
         }
 

@@ -17,7 +17,7 @@ suite turbo_jam_triedb_suite = [] {
     "turbo::jam::triedb"_test = [] {
         "set get and erase"_test = [] {
             const file::tmp_directory db_dir { "test-turbo-jam-triedb-1" };
-            client_t client { db_dir.path() };
+            db_t client { db_dir.path() };
 
             // small inplace value
             {
@@ -52,9 +52,9 @@ suite turbo_jam_triedb_suite = [] {
 
         "foreach and clear"_test = [] {
             const file::tmp_directory db_dir { "test-turbo-jam-triedb-2" };
-            client_t client { db_dir.path() };
+            db_t client { db_dir.path() };
 
-            const std::map<client_t::key_t, uint8_vector> expected {
+            const std::map<key_t, uint8_vector> expected {
                 { state_dict_t::make_key(1U), uint8_vector::from_hex("00112233") },
                 { state_dict_t::make_key(2U), uint8_vector(0x1000U) },
                 { state_dict_t::make_key(3U), uint8_vector::from_hex("AABBCCDD") },
@@ -64,7 +64,7 @@ suite turbo_jam_triedb_suite = [] {
                 client.set(k, v);
 
             {
-                std::map<client_t::key_t, uint8_vector> observed {};
+                std::map<key_t, uint8_vector> observed {};
                 client.foreach([&](const auto& k, auto v) {
                     observed.emplace(k, v);
                 });
@@ -73,7 +73,7 @@ suite turbo_jam_triedb_suite = [] {
 
             client.clear();
             {
-                std::map<client_t::key_t, uint8_vector> observed {};
+                std::map<key_t, uint8_vector> observed {};
                 client.foreach([&](const auto& k, auto v) {
                     observed.emplace(k, v);
                 });
@@ -83,7 +83,7 @@ suite turbo_jam_triedb_suite = [] {
 
         "erase of deep node"_test = [&] {
             const file::tmp_directory db_dir { "test-turbo-jam-triedb-3" };
-            client_t client { db_dir.path() };
+            db_t client { db_dir.path() };
             for (const auto &k: {
                 "00FF00FF00FF00FF2109EB7C5B05BBFB96DBC5F4898F506E8E4FBE3457C497"sv,
                 "00FF00FF00FF00FF2109EB7C5B05BBFB96DBC5F4898F506E8E4FBE3457C497"sv,

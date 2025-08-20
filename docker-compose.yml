@@ -5,3 +5,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+    volumes:
+      - D:/data:/data-ext
+      - /var/run/docker.sock:/var/run/docker.sock

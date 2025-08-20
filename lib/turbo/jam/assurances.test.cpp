@@ -101,9 +101,9 @@ namespace {
         file::tmp_directory tmp_dir_pre { fmt::format("test-jam-assurances-{}-pre", static_cast<void *>(this)) };
         file::tmp_directory tmp_dir_post { fmt::format("test-jam-assurances-{}-post", static_cast<void *>(this)) };
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
+        state_t<CONSTANTS> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
         output_t<CONSTANTS> out;
-        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
+        state_t<CONSTANTS> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
 
         static void serialize_state(auto &archive, const std::string_view &name, state_t<CONSTANTS> &st)
         {
@@ -118,7 +118,6 @@ namespace {
         {
             using namespace std::string_view_literals;
             archive.process("input"sv, in);
-
             serialize_state(archive, "pre_state"sv, pre);
             archive.process("output"sv, out);
             serialize_state(archive, "post_state"sv, post);
@@ -147,18 +146,18 @@ namespace {
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
         std::optional<output_t<CFG>> out {};
-        state_t<CFG> res_st = tc.pre;
+        state_t<CFG> new_st = tc.pre.working_copy();
         err_code_t::catch_into(
             [&] {
-                auto tmp_st = tc.pre;
+                auto tmp_st = new_st.working_copy();
                 output_data_t<CFG> res {};
-                auto tmp_pi = tmp_st.pi.get();
+                std::decay_t<typename decltype(tmp_st.pi)::element_type> tmp_pi;
                 auto tmp_rho = tmp_st.rho.get();
                 // ignore the updated statistics as they are tested in a separate set of tests
                 out.emplace(output_data_t { state_t<CFG>::rho_dagger_2(tmp_rho, tmp_pi, tc.pre.kappa.get(),
                     tc.in.slot, tc.in.parent, tc.in.assurances) });
                 tmp_st.rho.set(std::move(tmp_rho));
-                res_st = std::move(tmp_st);
+                new_st.commit(std::move(tmp_st));
             },
             [&](err_code_t err) {
                 out.emplace(std::move(err));
@@ -166,7 +165,14 @@ namespace {
         );
         if (out.has_value()) {
             expect(out == tc.out) << path;
-            expect(res_st == tc.post) << path;
+            const auto state_matches = new_st == tc.post;
+            expect(state_matches) << path;
+            if (!state_matches) {
+                logger::info("pre_state == post_state: {}", tc.pre == tc.post ? "true" : "false");
+                logger::info("pre_state == new_state: {}", tc.pre == new_st ? "true" : "false");
+                const auto diff = new_st.snapshot().diff(tc.post.snapshot());
+                logger::info("diff: {}", diff);
+            }
         } else {
             expect(false) << path;
         }

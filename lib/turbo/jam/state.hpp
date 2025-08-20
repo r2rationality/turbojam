@@ -6,15 +6,15 @@
 
 #include <turbo/container/update-map.hpp>
 #include <turbo/common/logger.hpp>
-#include <turbo/storage/filedb.hpp>
+#include <turbo/storage/file.hpp>
 
 #include "triedb.hpp"
 #include "types/header.hpp"
 #include "types/state-dict.hpp"
 
 namespace turbo::jam {
-    using kv_store_t = storage::filedb::client_t;
-    using kv_store_ptr_t = std::shared_ptr<kv_store_t>;
+    //using kv_store_t = storage::file::client_t;
+    //using kv_store_ptr_t = std::shared_ptr<kv_store_t>;
 
     template<typename T>
     byte_sequence_t encode(const T &v)
@@ -29,40 +29,50 @@ namespace turbo::jam {
         using ptr_type = std::shared_ptr<element_type>;
         using serialize_func_t = std::function<void(const element_type &)>;
 
-        persistent_value_t(const triedb::client_ptr_t &db, const uint8_t code, element_type val={}):
-            _db { db },
-            _key { state_dict_t::make_key(code) },
-            _ptr { std::make_shared<T>(std::move(val)) }
+        persistent_value_t(const triedb::db_ptr_t &db, const uint8_t code):
+            persistent_value_t{db, state_dict_t::make_key(code)}
+        {
+        }
+
+        persistent_value_t(const triedb::db_ptr_t &db, const state_key_t &key):
+            _db{db},
+            _key{key}
         {
             if (!_db) [[unlikely]]
                 throw error("a persistent value requires an initialized state_dict!");
         }
 
-        persistent_value_t(const triedb::client_ptr_t &db, const state_key_t &key, element_type val={}):
-            _db { db },
-            _key { key },
-            _ptr { std::make_shared<T>(std::move(val)) }
+        persistent_value_t(const triedb::db_ptr_t &db, const state_key_t &key, T val):
+            _db{db},
+            _key{key}
         {
             if (!_db) [[unlikely]]
                 throw error("a persistent value requires an initialized state_dict!");
+            set(std::move(val));
         }
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            // TODO: can be optimized for the decoding case. That happens only unit tests though.
-            auto tmp = get();
+            // TODO: can be optimized for the decoding case. That happens only in unit tests though.
+            T tmp;
             archive.process(tmp);
             set(std::move(tmp));
         }
 
         const element_type &get() const
         {
-            return *_ptr;
+            return *storage();
         }
 
         const ptr_type &storage() const
         {
+            if (!_ptr) {
+                const auto bytes = _db->get(_key);
+                if (!bytes) [[unlikely]]
+                    throw error(fmt::format("a required state element is missing: {}", _key));
+                _ptr = std::make_shared<element_type>(jam::from_bytes<element_type>(*bytes));
+            }
             return _ptr;
         }
 
@@ -81,24 +91,34 @@ namespace turbo::jam {
             }
         }
 
+        void reset()
+        {
+            _ptr.reset();
+        }
+
         bool operator==(const persistent_value_t &o) const
         {
             return *_ptr == *o._ptr;
         }
     private:
-        triedb::client_ptr_t _db;
+        triedb::db_ptr_t _db;
         state_key_t _key;
-        ptr_type _ptr;
+        mutable ptr_type _ptr{};
     };
 
+    template<typename CFG>
     struct service_info_t {
-        opaque_hash_t code_hash {};
-        balance_t balance = 0;
+        opaque_hash_t code_hash {}; // c
+        balance_t balance = 0; // b
         // gas saved in the fixed format form
-        gas_t::base_type min_item_gas = 0;
-        gas_t::base_type min_memo_gas = 0;
-        uint64_t bytes = 0;
+        gas_t::base_type min_item_gas = 0; // g
+        gas_t::base_type min_memo_gas = 0; // m
+        uint64_t bytes = 0; // b
+        uint64_t deposit_offset = 0; // f
         uint32_t items = 0;
+        time_slot_t<CFG> creation_slot = 0; // r
+        time_slot_t<CFG> last_accumulation_slot = 0; // a
+        service_id_t parent_service = 0; // p
 
         void serialize(auto &archive)
         {
@@ -108,27 +128,32 @@ namespace turbo::jam {
             archive.process("min_item_gas"sv, min_item_gas);
             archive.process("min_memo_gas"sv, min_memo_gas);
             archive.process("bytes"sv, bytes);
+            archive.process("deposit_offset"sv, deposit_offset);
             archive.process("items"sv, items);
+            archive.process("creation_slot"sv, creation_slot);
+            archive.process("last_accumulation_slot"sv, last_accumulation_slot);
+            archive.process("parent_service"sv, parent_service);
         }
 
         [[nodiscard]] balance_t threshold() const
         {
-            return config_base::BS_min_balance_per_service
+            const auto t = config_base::BS_min_balance_per_service
                 + config_base::BI_min_balance_per_item * items
                 + config_base::BL_min_balance_per_octet * bytes;
+            return t >= deposit_offset ? t - deposit_offset : 0;
         }
 
-        void consume_from(const service_info_t &o)
+        void consume_from(const service_info_t<CFG> &o)
         {
             *this = o;
         }
 
-        void commit(persistent_value_t<service_info_t> &target)
+        void commit(persistent_value_t<service_info_t<CFG>> &target)
         {
             target.set(*this);
         }
 
-        bool operator==(const service_info_t &o) const noexcept = default;
+        bool operator==(const service_info_t<CFG> &o) const noexcept = default;
     };
 
     template<typename K, typename V>
@@ -137,85 +162,34 @@ namespace turbo::jam {
         using key_type = state_key_t;
         using mapped_type = V;
         using keys_t = std::set<state_key_t>;
-        using observer_t = std::function<void(const state_key_t &k, mapped_type v)>;
+        //using observer_t = std::function<void(const state_key_t &k, mapped_type v)>;
         using trie_key_func_t = std::function<key_type(const alt_key_type &)>;
 
-        state_dict_based_map_t(const triedb::client_ptr_t triedb, const trie_key_func_t &try_key_func):
-            _triedb { triedb },
-            _try_key_func { try_key_func }
+        state_dict_based_map_t(const storage::db_ptr_t triedb, const trie_key_func_t &try_key_func):
+            _triedb{triedb},
+            _try_key_func{try_key_func}
         {
         }
 
-        void serialize(auto &archive)
+        void erase(const alt_key_type &k)
         {
-            using namespace std::string_view_literals;
-            archive.process_map(*this, "hash"sv, "blob"sv);
+            _erase(make_key(k));
         }
 
-        [[nodiscard]] bool empty() const
+        std::optional<mapped_type> get(const alt_key_type &k) const
         {
-            return _keys.empty();
-        }
-
-        [[nodiscard]] key_type make_key(const alt_key_type &k) const
-        {
-            return _try_key_func(k);
-        }
-
-        void erase(const state_key_t &k)
-        {
-            if (_keys.contains(k))
-                _triedb->erase(k);
-        }
-
-        void foreach(const observer_t &obs) const
-        {
-            for (const auto &k: _keys) {
-                auto v = _triedb->get(k);
-                if (!v) [[unlikely]]
-                    throw error(fmt::format("internal error: missing value for key {}", k));
-                obs(k, _decode(std::move(*v)));
-            }
-        }
-
-        std::optional<mapped_type> get(const state_key_t &k) const
-        {
-            if (_keys.contains(k)) {
-                if (auto v = _triedb->get(k); v) {
-                    return _decode(std::move(*v));
-                }
+            if (auto v = _triedb->get(make_key(k)); v) {
+                return _decode(std::move(*v));
             }
             return {};
         }
 
-        void set(const state_key_t &trie_key, mapped_type val)
+        void set(const alt_key_type &k, mapped_type val)
         {
-            _keys.emplace(trie_key);
-            _triedb->set(trie_key, _encode(val));
-        }
-
-        [[nodiscard]] size_t size() const
-        {
-            return _keys.size();
-        }
-
-        [[nodiscard]] bool operator==(const state_dict_based_map_t &o) const
-        {
-            size_t num_diff = 0;
-            foreach([&](const auto &k, const auto &v) {
-                const auto &o_v = o.get(k);
-                if (o_v != v)
-                    ++num_diff;
-            });
-            o.foreach([&](const auto &k, const auto &) {
-                if (!get(k))
-                    ++num_diff;
-            });
-            return num_diff == 0;
+            _set(make_key(k), std::move(val));
         }
     private:
-        triedb::client_ptr_t _triedb;
-        std::set<key_type> _keys {};
+        storage::db_ptr_t _triedb;
         trie_key_func_t _try_key_func;
 
         static uint8_vector _encode(V v)
@@ -239,6 +213,29 @@ namespace turbo::jam {
                 return res;
             }
         }
+
+        [[nodiscard]] key_type make_key(const alt_key_type &k) const
+        {
+            return _try_key_func(k);
+        }
+
+        void _erase(const state_key_t &k)
+        {
+            _triedb->erase(k);
+        }
+
+        std::optional<mapped_type> _get(const state_key_t &k) const
+        {
+            if (auto v = _triedb->get(k); v) {
+                return _decode(std::move(*v));
+            }
+            return {};
+        }
+
+        void _set(const state_key_t &trie_key, mapped_type val)
+        {
+            _triedb->set(trie_key, _encode(val));
+        }
     };
 
     struct preimages_t: state_dict_based_map_t<opaque_hash_t, uint8_vector> {
@@ -248,21 +245,25 @@ namespace turbo::jam {
         static trie_key_func_t make_trie_key_func(const service_id_t service_id)
         {
             return [service_id](const opaque_hash_t &k) {
-                state_key_subhash_t kh;
-                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 2ULL);
-                memcpy(kh.data() + 4, k.data() + 1, kh.size() - 4);
-                return state_dict_t::make_key(service_id, kh);
+                encoder enc{};
+                enc.uint_fixed(4, (1ULL << 32U) - 2ULL);
+                enc.bytes() << k;
+                return state_dict_t::make_key(service_id, enc.bytes());
             };
         }
     };
 
     struct storage_items_config_t {
+        std::string key_name = "key";
+        std::string val_name = "blob";
+    };
+    using storage_items_t = map_t<byte_sequence_t, byte_sequence_t, storage_items_config_t>;
+
+    struct preimage_items_config_t {
         std::string key_name = "hash";
         std::string val_name = "blob";
     };
-    using storage_items_t = map_t<opaque_hash_t, byte_sequence_t, storage_items_config_t>;
-
-    using preimage_items_t = map_t<opaque_hash_t, byte_sequence_t, storage_items_config_t>;
+    using preimage_items_t = map_t<opaque_hash_t, byte_sequence_t, preimage_items_config_t>;
 
     struct lookup_meta_map_key_t {
         opaque_hash_t hash;
@@ -312,26 +313,25 @@ namespace turbo::jam {
         static typename base_type::trie_key_func_t make_trie_key_func(const service_id_t service_id)
         {
             return [service_id](const lookup_meta_map_key_t &k) {
-                state_key_subhash_t kh;
-                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, k.length);
-                const auto hh = crypto::blake2b::digest(k.hash);
-                memcpy(kh.data() + 4, hh.data() + 2, kh.size() - 4);
-                return state_dict_t::make_key(service_id, kh);
+                encoder enc{};
+                enc.uint_fixed(4, k.length);
+                enc.bytes() << k.hash;
+                return state_dict_t::make_key(service_id, enc.bytes());
             };
         }
     };
 
-    struct service_storage_t: state_dict_based_map_t<opaque_hash_t, uint8_vector> {
-        using base_type = state_dict_based_map_t<opaque_hash_t, uint8_vector>;
+    struct service_storage_t: state_dict_based_map_t<uint8_vector, uint8_vector> {
+        using base_type = state_dict_based_map_t<uint8_vector, uint8_vector>;
         using base_type::base_type;
 
         static typename base_type::trie_key_func_t make_trie_key_func(const service_id_t service_id)
         {
-            return [service_id](const opaque_hash_t &k) {
-                state_key_subhash_t kh;
-                encoder::uint_fixed(std::span { kh.begin(), kh.begin() + 4 }, 4, (1ULL << 32U) - 1ULL);
-                memcpy(kh.data() + 4, k.data(), kh.size() - 4);
-                return state_dict_t::make_key(service_id, kh);
+            return [service_id](const buffer &k) {
+                encoder enc{};
+                enc.uint_fixed(4, (1ULL << 32U) - 1ULL);
+                enc.bytes() << k;
+                return state_dict_t::make_key(service_id, enc.bytes());
             };
         }
     };
@@ -342,7 +342,7 @@ namespace turbo::jam {
         preimages_t preimages;
         lookup_metas_t<CFG> lookup_metas;
         service_storage_t storage;
-        persistent_value_t<service_info_t> info;
+        persistent_value_t<service_info_t<CFG>> info;
 
         void serialize(auto &archive)
         {
@@ -353,7 +353,7 @@ namespace turbo::jam {
             archive.process("info"sv, info);
         }
 
-        bool operator==(const account_t &o) const = default;
+        //bool operator==(const account_t &o) const = default;
     };
 
     struct accounts_config_t {
@@ -365,8 +365,8 @@ namespace turbo::jam {
     struct accounts_t: map_t<service_id_t, account_t<CFG>, accounts_config_t> {
         using base_type = map_t<service_id_t, account_t<CFG>, accounts_config_t>;
 
-        accounts_t(const triedb::client_ptr_t &triedb):
-            _triedb { triedb }
+        accounts_t(const triedb::db_ptr_t &triedb):
+            _triedb{triedb}
         {
         }
 
@@ -374,14 +374,24 @@ namespace turbo::jam {
         {
             return base_type::try_emplace(
                 service_id,
-                preimages_t { _triedb, preimages_t::make_trie_key_func(service_id) },
-                lookup_metas_t<CFG> { _triedb, lookup_metas_t<CFG>::make_trie_key_func(service_id) },
-                service_storage_t { _triedb, service_storage_t::make_trie_key_func(service_id) },
-                persistent_value_t<service_info_t> { _triedb, state_dict_t::make_key(255U, service_id) }
+                preimages_t{_triedb, preimages_t::make_trie_key_func(service_id)},
+                lookup_metas_t<CFG>{_triedb, lookup_metas_t<CFG>::make_trie_key_func(service_id)},
+                service_storage_t{_triedb, service_storage_t::make_trie_key_func(service_id)},
+                persistent_value_t<service_info_t<CFG>>{_triedb, state_dict_t::make_key(255U, service_id)}
             );
         }
+
+        accounts_t &operator=(const accounts_t &o)
+        {
+            if (&o != this) {
+                this->clear();
+                for (const auto &[s_id, s]: o)
+                    try_create(s_id);
+            }
+            return *this;
+        }
     private:
-        triedb::client_ptr_t _triedb;
+        triedb::db_ptr_t _triedb;
     };
 
     template<typename CFG>
@@ -396,7 +406,7 @@ namespace turbo::jam {
         update_storage_map_t storage;
         update_preimage_map_t preimages;
         update_lookup_map_t lookup_metas;
-        service_info_t info;
+        service_info_t<CFG> info;
 
         bool empty() const
         {
@@ -427,34 +437,45 @@ namespace turbo::jam {
     };
 
     template<typename CFG>
-    using mutable_services_base_t = std::map<service_id_t, mutable_service_state_t<CFG>>;
+    using mutable_services_base_t = std::map<service_id_t, std::optional<mutable_service_state_t<CFG>>>;
 
     template<typename CFG>
     struct accounts_update_api_t {
         using base_type = accounts_t<CFG>;
         using key_type = typename accounts_t<CFG>::key_type;
         using mapped_type = mutable_service_state_t<CFG>;
+        using observer_key_type = std::function<void(const key_type &)>;
 
         accounts_update_api_t(const accounts_t<CFG> &base):
-            _base { base }
+            _base{base}
         {
         }
 
         void consume_from(accounts_update_api_t &&o)
         {
             for (auto &&[k, v]: o._derived) {
-                if (auto [it, created] = _derived.try_emplace(k, std::move(v)); !created) {
-                    // Appendix B.4 says that if the same service id is assigned to different services, such a block shall be considered invalid
-                    // Considering non-matching code-hashes as an indication of differing services here.
-                    if (it->second.info.code_hash != v.info.code_hash) [[unlikely]]
-                        throw error(fmt::format("service {} accumulation resulted into the same service having different code hashes: {} != {}",
-                            k, it->second.info.code_hash, v.info.code_hash));
-                    it->second.consume_from(std::move(v));
+                if (v) {
+                    const auto v_code_hash = v->info.code_hash;
+                    if (auto [it, created] = _derived.try_emplace(k, std::move(v)); !created) {
+                        // Appendix B.4 says that if the same service id is assigned to different services, such a block shall be considered invalid
+                        // Considering non-matching code-hashes as an indication of differing services here.
+                        if (it->second) {
+                            it->second->consume_from(std::move(*v));
+                            if (it->second->info.code_hash != v_code_hash) [[unlikely]]
+                                throw error(fmt::format("service {} accumulation resulted into the same service having different code hashes: {} != {}",
+                                    k, it->second->info.code_hash, v_code_hash));
+                        } else {
+                            it->second = std::move(v);
+                        }
+                    }
+                } else {
+                    if (const auto it = _derived.find(k); it != _derived.end())
+                        _derived.erase(it);
                 }
             }
         }
 
-        void emplace(const key_type &k, service_info_t info)
+        void emplace(const key_type &k, service_info_t<CFG> info)
         {
             const auto [it, created] = _derived.try_emplace(
                 k,
@@ -471,6 +492,18 @@ namespace turbo::jam {
                 throw error(fmt::format("key {} already exists", k));
         }
 
+        void foreach_key(const observer_key_type &obs)
+        {
+            for (const auto &[k, v]: _derived) {
+                if (v)
+                    obs(k);
+            }
+            for (const auto &[k, v]: _base.get()) {
+                if (!_derived.contains(k))
+                    obs(k);
+            }
+        }
+
         [[nodiscard]] bool contains(const key_type &k) const
         {
             if (const auto d_it = _derived.find(k); d_it != _derived.end())
@@ -480,19 +513,31 @@ namespace turbo::jam {
             return false;
         }
 
+        void erase(const key_type &k)
+        {
+            auto [d_it, created] = _derived.try_emplace(k);
+            if (!created)
+                d_it->second.reset();
+        }
+
         mapped_type *get_mutable_ptr(const key_type &k)
         {
-            if (const auto d_it = _derived.find(k); d_it != _derived.end())
-                return &d_it->second;
+            if (const auto d_it = _derived.find(k); d_it != _derived.end()) {
+                if (d_it->second)
+                    return &(*d_it->second);
+                return nullptr;
+            }
             if (auto b_it = _base.get().find(k); b_it != _base.get().end()) {
-                const auto [d_it, created] = _derived.try_emplace(
+                auto [d_it, created] = _derived.try_emplace(
                     k,
-                    container::direct_update_api_t<service_storage_t> { b_it->second.storage },
-                    container::direct_update_api_t<preimages_t> { b_it->second.preimages },
-                    container::direct_update_api_t<lookup_metas_t<CFG>> { b_it->second.lookup_metas },
-                    service_info_t { b_it->second.info.get() }
+                    mapped_type{
+                        container::direct_update_api_t<service_storage_t>{b_it->second.storage},
+                        container::direct_update_api_t<preimages_t>{b_it->second.preimages},
+                        container::direct_update_api_t<lookup_metas_t<CFG>>{b_it->second.lookup_metas},
+                        service_info_t<CFG>{b_it->second.info.get()}
+                    }
                 );
-                return &d_it->second;
+                return &(*d_it->second);
             }
             return nullptr;
         }
@@ -501,14 +546,18 @@ namespace turbo::jam {
         {
             if (auto ptr = get_mutable_ptr(k); ptr)
                 return *ptr;
-            throw err_bad_service_id_t {};
+            throw err_bad_service_id_t{};
         }
 
         void commit(accounts_t<CFG> &target)
         {
             for (auto &&[k, v]: _derived) {
-                auto [it, created] = target.try_create(k);
-                v.commit(it->second);
+                if (v) {
+                    auto [it, created] = target.try_create(k);
+                    v->commit(it->second);
+                } else {
+                    target.erase(k);
+                }
             }
             _derived.clear();
         }
@@ -523,12 +572,12 @@ namespace turbo::jam {
     // JAM (12.13)
     template<typename CFG>
     struct mutable_state_t {
-        mutable_services_state_t<CFG> services;
-        privileges_t chi;
-        std::optional<validators_data_t<CFG>> iota {};
-        std::map<core_index_t, auth_queue_t<CFG>> phi {};
+        mutable_services_state_t<CFG> services; // d
+        privileges_t<CFG> chi; // x -> (m, a, v, z)
+        std::optional<validators_data_t<CFG>> iota {}; // i
+        std::map<core_index_t, auth_queue_t<CFG>> phi {}; // q
 
-        mutable_state_t(const accounts_t<CFG> &d, const privileges_t &c):
+        mutable_state_t(const accounts_t<CFG> &d, const privileges_t<CFG> &c):
             services { d },
             chi { c }
         {
@@ -560,7 +609,17 @@ namespace turbo::jam {
         // JAM: m
         deferred_transfer_metadata_t<CFG> metadata;
         // JAM: g
-        gas_t gas_limit;
+        gas_t::base_type gas_limit;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("source"sv, source);
+            archive.process("destination"sv, destination);
+            archive.process("amount"sv, amount);
+            archive.process("metadata"sv, metadata);
+            archive.process("gas_limit"sv, gas_limit);
+        }
     };
     template<typename CFG>
     using deferred_transfers_t = sequence_t<deferred_transfer_t<CFG>>;
@@ -640,9 +699,9 @@ namespace turbo::jam {
     template<typename CFG>
     struct accumulate_result_t {
         mutable_state_t<CFG> state;
-        deferred_transfers_t<CFG> transfers {};
-        std::optional<opaque_hash_t> commitment {};
-        gas_t gas {};
+        deferred_transfers_t<CFG> transfers{};
+        std::optional<opaque_hash_t> commitment{};
+        gas_t gas{};
         size_t num_reports = 0;
     };
     template<typename CFG>
@@ -652,7 +711,7 @@ namespace turbo::jam {
     using service_commitments_t = std::map<service_id_t, opaque_hash_t>;
     // JAM (12.15): U + (12.24) num_items
     struct service_work_item_t {
-        gas_t gas_used {};
+        gas_t gas_used{};
         size_t num_reports = 0;
     };
     using service_work_items_t = std::map<service_id_t, service_work_item_t>;
@@ -661,16 +720,16 @@ namespace turbo::jam {
     template<typename CFG>
     struct delta_star_result_t {
         size_t num_accumulated = 0;
-        service_results_t<CFG> results {};
+        service_results_t<CFG> results{};
     };
 
     // JAM (12.16)
     template<typename CFG>
     struct delta_plus_result_t {
         mutable_state_t<CFG> state;
-        deferred_transfers_t<CFG> transfers {};
-        service_commitments_t commitments {};
-        service_work_items_t work_items {};
+        deferred_transfers_t<CFG> transfers{};
+        service_commitments_t commitments{};
+        service_work_items_t work_items{};
         size_t num_accumulated = 0;
 
         void consume_from(delta_star_result_t<CFG> &&o)
@@ -693,10 +752,13 @@ namespace turbo::jam {
         std::shared_ptr<ready_queue_t<CFG>> new_nu;
         std::shared_ptr<auth_queues_t<CFG>> new_phi;
         std::shared_ptr<validators_data_t<CFG>> new_iota;
-        std::shared_ptr<privileges_t> new_chi;
+        std::shared_ptr<privileges_t<CFG>> new_chi;
         std::optional<mutable_services_state_t<CFG>> service_updates {};
         accumulate_root_t root {};
     };
+
+    template<typename CFG=config_prod>
+    struct state_copy_t;
 
     // JAM (4.4) - lowercase sigma
     // persistent_value with std::shared_ptr ensures that:
@@ -705,27 +767,33 @@ namespace turbo::jam {
     // TODO: state_dict should use copy_on_write_ptr_t instead of std::shared_ptr
     template<typename CFG=config_prod>
     struct state_t {
-        using observer_t = std::function<void(const merkle::key_t &, buffer)>;
+        using observer_t = storage::observer_t;
 
-        triedb::client_ptr_t triedb;
-        persistent_value_t<auth_pools_t<CFG>> alpha { triedb, 1U }; // authorizations
-        persistent_value_t<auth_queues_t<CFG>> phi {  triedb, 2U }; // work authorizer queue
-        persistent_value_t<blocks_history_t<CFG>> beta { triedb, 3U }; // most recent blocks
-        persistent_value_t<safrole_state_t<CFG>> gamma { triedb, 4U }; // safrole state
-        persistent_value_t<disputes_records_t> psi { triedb, 5U }; // judgements
-        persistent_value_t<entropy_buffer_t> eta { triedb, 6U };
-        persistent_value_t<validators_data_t<CFG>> iota { triedb, 7U };
-        persistent_value_t<validators_data_t<CFG>> kappa { triedb, 8U };
-        persistent_value_t<validators_data_t<CFG>> lambda { triedb, 9U };
-        persistent_value_t<availability_assignments_t<CFG>> rho { triedb, 10U }; // assigned work reports
-        persistent_value_t<time_slot_t<CFG>> tau { triedb, 11U };
-        persistent_value_t<privileges_t> chi { triedb, 12U };
-        persistent_value_t<statistics_t<CFG>> pi { triedb, 13U };
-        persistent_value_t<ready_queue_t<CFG>> nu { triedb, 14U }; // JAM (12.3): work reports ready to be accumulated
-        persistent_value_t<accumulated_queue_t<CFG>> ksi { triedb, 15U }; // JAM (12.1): recently accumulated reports
-        accounts_t<CFG> delta { triedb }; // services
+        triedb::db_ptr_t triedb;
+        persistent_value_t<auth_pools_t<CFG>> alpha{triedb, 1U}; // authorizations
+        persistent_value_t<auth_queues_t<CFG>> phi{triedb, 2U}; // work authorizer queue
+        persistent_value_t<recent_blocks_t<CFG>> beta{triedb, 3U}; // most recent blocks
+        persistent_value_t<safrole_state_t<CFG>> gamma{triedb, 4U}; // safrole state
+        persistent_value_t<disputes_records_t> psi{triedb, 5U}; // judgements
+        persistent_value_t<entropy_buffer_t> eta{triedb, 6U};
+        persistent_value_t<validators_data_t<CFG>> iota{triedb, 7U};
+        persistent_value_t<validators_data_t<CFG>> kappa{triedb, 8U};
+        persistent_value_t<validators_data_t<CFG>> lambda{triedb, 9U};
+        persistent_value_t<availability_assignments_t<CFG>> rho{triedb, 10U}; // assigned work reports
+        persistent_value_t<time_slot_t<CFG>> tau{triedb, 11U};
+        persistent_value_t<privileges_t<CFG>> chi{triedb, 12U};
+        persistent_value_t<statistics_t<CFG>> pi{triedb, 13U};
+        persistent_value_t<ready_queue_t<CFG>> nu{triedb, 14U}; // JAM (12.3): work reports ready to be accumulated
+        persistent_value_t<accumulated_queue_t<CFG>> ksi{triedb, 15U}; // JAM (12.1): recently accumulated reports
+        accounts_t<CFG> delta{triedb}; // services
+
+        header_t<CFG> make_genesis_header() const;
 
         state_t &operator=(const state_snapshot_t &o);
+        state_t &operator=(const state_t &o) = delete;
+
+        state_copy_t<CFG> working_copy() const;
+        void commit(state_copy_t<CFG> &&o);
 
         // (4.1): Kapital upsilon
         void apply(const block_t<CFG> &);
@@ -734,9 +802,9 @@ namespace turbo::jam {
         // (4.5)
         static time_slot_t<CFG> tau_prime(const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &blk_slot);
         // (4.6)
-        static blocks_history_t<CFG> beta_dagger(const blocks_history_t<CFG> &prev_beta, const state_root_t &sr);
+        static recent_blocks_t<CFG> beta_dagger(const recent_blocks_t<CFG> &prev_beta, const state_root_t &sr);
         // (4.17)
-        static blocks_history_t<CFG> beta_prime(blocks_history_t<CFG> tmp_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t &wp);
+        static recent_blocks_t<CFG> beta_prime(recent_blocks_t<CFG> tmp_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t<CFG> &wp);
         // JAM (4.7)
         static entropy_buffer_t eta_prime(const time_slot_t<CFG> &prev_tau, const entropy_buffer_t &prev_eta, const time_slot_t<CFG> &blk_slot, const entropy_t &blk_entropy);
         // JAM (4.8)
@@ -758,7 +826,9 @@ namespace turbo::jam {
         static auth_pools_t<CFG> alpha_prime(const time_slot_t<CFG> &slot, const core_authorizers_t &cas,
             const auth_queues_t<CFG> &new_phi, const auth_pools_t<CFG> &prev_alpha);
         // JAM (4.20)
-        static statistics_t<CFG> pi_prime(statistics_t<CFG> &&tmp_pi, const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &slot, validator_index_t val_idx, const extrinsic_t<CFG> &extrinsic);
+        static statistics_t<CFG> pi_prime(statistics_t<CFG> &&tmp_pi,
+            const reports_output_data_t &report_res, const validators_data_t<CFG> &new_kappa,
+            const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &slot, validator_index_t val_idx, const extrinsic_t<CFG> &extrinsic);
         // JAM (4.12)
         // JAM (4.13)
         // JAM (4.14)
@@ -785,7 +855,7 @@ namespace turbo::jam {
             statistics_t<CFG> &tmp_pi, const entropy_buffer_t &new_eta,
             const time_slot_t<CFG> &prev_tau,
             const std::shared_ptr<auth_queues_t<CFG>> &prev_phi, const std::shared_ptr<validators_data_t<CFG>> &prev_iota,
-            const std::shared_ptr<privileges_t> &prev_chi,
+            const std::shared_ptr<privileges_t<CFG>> &prev_chi,
             const std::shared_ptr<ready_queue_t<CFG>> &prev_nu, const std::shared_ptr<accumulated_queue_t<CFG>> &prev_ksi,
             const accounts_t<CFG> &prev_delta,
             const time_slot_t<CFG> &slot, const work_reports_t<CFG> &reports);
@@ -800,30 +870,39 @@ namespace turbo::jam {
         state_snapshot_t snapshot() const;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
+        struct guarantors_t {
+            guarantor_assignments_t guarantors;
+            validators_data_t<CFG> validators;
+        };
 
         static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CFG> &);
         static validators_data_t<CFG> _capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o);
         static keys_t<CFG> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CFG> &kappa);
         static tickets_t<CFG> _permute_tickets(const tickets_accumulator_t<CFG> &gamma_a);
         static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CFG> &slot);
+        static guarantors_t _guarantors(const entropy_buffer_t &eta, const validators_data_t<CFG> &kappa, const validators_data_t<CFG> &lambda,
+            const offenders_mark_t &psi_o, const time_slot_t<CFG> &g_slot, const time_slot_t<CFG> &blk_slot);
 
         static delta_plus_result_t<CFG> accumulate_plus(
             statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
-            const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+            const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
             const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports
         );
         static delta_star_result_t<CFG> accumulate_star(
             statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
-            const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+            const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
             const time_slot_t<CFG> &slot, const std::span<const work_report_t<CFG>> reports);
         static accumulate_result_t<CFG> invoke_accumulate(
             const entropy_buffer_t &new_eta,
-            const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+            const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
             const time_slot_t<CFG> &slot,
             const service_id_t service_id, const accumulate_operands_t &ops);
         static gas_t invoke_on_transfer(
-            const entropy_buffer_t &new_eta, const accounts_t<CFG> &prev_delta,
-            time_slot_t<CFG> slot, service_id_t service_id,
-            const accumulate_operands_t &operands, const deferred_transfers_t<CFG> &transfers);
+            const entropy_buffer_t &new_eta, mutable_services_state_t<CFG> &new_delta,
+            time_slot_t<CFG> slot, service_id_t service_id, const deferred_transfers_t<CFG> &transfers);
+    };
+
+    template<typename CFG>
+    struct state_copy_t: state_t<CFG> {
     };
 }

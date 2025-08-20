@@ -17,41 +17,17 @@
 
 namespace turbo::jam {
     template<typename CFG>
-    bool state_t<CFG>::operator==(const state_t &o) const noexcept
+    header_t<CFG> state_t<CFG>::make_genesis_header() const
     {
-        if (alpha.get() != o.alpha.get())
-            return false;
-        if (beta.get() != o.beta.get())
-            return false;
-        if (gamma.get() != o.gamma.get())
-            return false;
-        if (delta != o.delta)
-            return false;
-        if (eta.get() != o.eta.get())
-            return false;
-        if (iota.get() != o.iota.get())
-            return false;
-        if (kappa.get() != o.kappa.get())
-            return false;
-        if (lambda.get() != o.lambda.get())
-            return false;
-        if (nu.get() != o.nu.get())
-            return false;
-        if (ksi.get() != o.ksi.get())
-            return false;
-        if (pi.get() != o.pi.get())
-            return false;
-        if (rho.get() != o.rho.get())
-            return false;
-        if (tau.get() != o.tau.get())
-            return false;
-        if (phi.get() != o.phi.get())
-            return false;
-        if (chi.get() != o.chi.get())
-            return false;
-        if (psi.get() != o.psi.get())
-            return false;
-        return true;
+        // Genesis Block Header expectations from here: https://docs.jamcha.in/basics/genesis-config
+        header_t<CFG> h {};
+        h.epoch_mark.emplace(
+            eta.get()[1],
+            eta.get()[2],
+            gamma.get().k
+        );
+        h.author_index = 0xFFFFU;
+        return h;
     }
 
     // JAM paper (6.14)
@@ -61,7 +37,7 @@ namespace turbo::jam {
         validators_data_t<CFG> res;
         for (size_t i = 0; i < iota.size(); ++i) {
             const auto &v = iota[i];
-            if (const auto it = std::find(psi_o.begin(), psi_o.end(), v.ed25519); it != psi_o.end()) [[unlikely]] {
+            if (psi_o.contains(v.ed25519)) [[unlikely]] {
                 res[i] = {};
             } else {
                 res[i] = v;
@@ -134,17 +110,15 @@ namespace turbo::jam {
             //static_assert(sizeof(key.hash) == sizeof(crypto::blake2b::hash_t));
             //key.length = numeric_cast<decltype(lookup_meta_map_key_t::length)>(p.blob.size());
             //crypto::blake2b::digest(*reinterpret_cast<crypto::blake2b::hash_t *>(&key.hash), p.blob);
-            const lookup_meta_map_key_t key { crypto::blake2b::digest<opaque_hash_t>(p.blob), static_cast<uint32_t>(p.blob.size()) };
-            const auto l_k = service.lookup_metas.make_key(key);
-            const auto p_k = service.preimages.make_key(key.hash);
-            auto l_val = service.lookup_metas.get(l_k);
+            const lookup_meta_map_key_t key{crypto::blake2b::digest<opaque_hash_t>(p.blob), static_cast<uint32_t>(p.blob.size())};
+            auto l_val = service.lookup_metas.get(key);
             if (!l_val) [[unlikely]]
                 throw err_preimage_unneeded_t {};
-            if (service.preimages.get(p_k)) [[unlikely]]
+            if (service.preimages.get(key.hash)) [[unlikely]]
                 throw err_preimage_unneeded_t {};
-            service.preimages.set(p_k, uint8_vector { p.blob });
+            service.preimages.set(key.hash, uint8_vector { p.blob });
             l_val->emplace_back(slot);
-            service.lookup_metas.set(l_k, std::move(*l_val));
+            service.lookup_metas.set(key, std::move(*l_val));
             auto &service_stats = new_pi.services[p.requester];
             ++service_stats.provided_count;
             service_stats.provided_size += p.blob.size();
@@ -228,9 +202,10 @@ namespace turbo::jam {
         for (const auto &t: extrinsic) {
             if (t.attempt >= CFG::N_ticket_attempts) [[unlikely]]
                 throw err_bad_ticket_attempt_t {};
+        }
 
+        for (const auto &t: extrinsic) {
             uint8_vector aux {};
-
             uint8_vector input {};
             input<< std::string_view { "jam_ticket_seal" };
             input << new_eta[2];
@@ -246,8 +221,7 @@ namespace turbo::jam {
             const auto it = std::lower_bound(res.gamma_ptr->a.begin(), res.gamma_ptr->a.end(), tb);
             if (it != res.gamma_ptr->a.end() && *it == tb) [[unlikely]]
                 throw err_duplicate_ticket_t {};
-            if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, res.gamma_ptr->z,
-                    t.signature, input, aux) != 0) [[unlikely]]
+            if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, res.gamma_ptr->z, t.signature, input, aux) != 0) [[unlikely]]
                 throw err_bad_ticket_proof_t {};
             res.gamma_ptr->a.insert(it, std::move(tb));
         }
@@ -258,7 +232,9 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    statistics_t<CFG> state_t<CFG>::pi_prime(statistics_t<CFG> &&tmp_pi, const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &slot, validator_index_t val_idx, const extrinsic_t<CFG> &extrinsic)
+    statistics_t<CFG> state_t<CFG>::pi_prime(statistics_t<CFG> &&tmp_pi,
+        const reports_output_data_t &reports_res, const validators_data_t<CFG> &new_kappa, const time_slot_t<CFG> &prev_tau,
+        const time_slot_t<CFG> &slot, validator_index_t val_idx, const extrinsic_t<CFG> &extrinsic)
     {
         auto new_pi = std::move(tmp_pi);
         if (slot.epoch() > prev_tau.epoch()) {
@@ -274,10 +250,9 @@ namespace turbo::jam {
         for (const auto &p: extrinsic.preimages) {
             stats.pre_images_size += p.blob.size();
         }
-        for (const auto &g: extrinsic.guarantees) {
-            for (const auto &s: g.signatures) {
-                ++new_pi.current.at(s.validator_index).guarantees;
-            }
+        for (size_t vi = 0; vi < new_pi.current.size(); ++vi) {
+            if (reports_res.reporters.contains(new_kappa[vi].ed25519))
+                ++new_pi.current[vi].guarantees;
         }
         for (const auto &a: extrinsic.assurances) {
             ++new_pi.current.at(a.validator_index).assurances;
@@ -298,6 +273,21 @@ namespace turbo::jam {
             res[vi] = (res[vi] + shift) % CFG::C_core_count;
         }
         return res;
+    }
+
+    template<typename CFG>
+    state_t<CFG>::guarantors_t state_t<CFG>::_guarantors(const entropy_buffer_t &eta,
+        const validators_data_t<CFG> &kappa, const validators_data_t<CFG> &lambda,
+        const offenders_mark_t &psi, const time_slot_t<CFG> &g_slot, const time_slot_t<CFG> &blk_slot)
+    {
+        const auto same_rotation = g_slot.slot() / CFG::R_core_assignment_rotation_period == blk_slot.slot() / CFG::R_core_assignment_rotation_period;
+        if (same_rotation)
+            return {_guarantor_assignments(eta[2], blk_slot), _capital_phi(kappa, psi)};
+        const auto base_slot = blk_slot.slot() - CFG::R_core_assignment_rotation_period;
+        const auto same_epoch = base_slot / CFG::E_epoch_length == blk_slot.slot() / CFG::E_epoch_length;
+        const auto &e = same_epoch ? eta[2] : eta[3];
+        const auto &k = same_epoch ? kappa : lambda;
+        return {_guarantor_assignments(e, base_slot), _capital_phi(k, psi)};
     }
 
     // JAM (12.7) - E: remove packages and update dependencies
@@ -331,7 +321,7 @@ namespace turbo::jam {
     template<typename CFG>
     delta_plus_result_t<CFG> state_t<CFG>::accumulate_plus(
         statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
-        const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+        const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
         const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports)
     {
         delta_plus_result_t<CFG> res { { prev_delta, prev_chi } };
@@ -356,7 +346,7 @@ namespace turbo::jam {
     template<typename CFG>
     delta_star_result_t<CFG> state_t<CFG>::accumulate_star(
         statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
-        const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+        const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
         const time_slot_t<CFG> &slot, const std::span<const work_report_t<CFG>> reports)
     {
         accumulate_service_operands_t service_ops {};
@@ -384,16 +374,6 @@ namespace turbo::jam {
         delta_star_result_t<CFG> res {};
         for (const auto &[service_id, ops]: service_ops) {
             auto acc_res = invoke_accumulate(new_eta, prev_delta, prev_chi, slot, service_id, ops);
-
-            // (12.28) (12.29) (12.30) (12.31)
-            if (!acc_res.transfers.empty()) {
-                const auto gas_used = invoke_on_transfer(new_eta, prev_delta, slot, service_id,
-                    ops, acc_res.transfers);
-                auto &stats = new_pi.services[service_id];
-                stats.on_transfers_count += acc_res.transfers.size();
-                stats.on_transfers_gas_used += gas_used;
-            }
-
             if (acc_res.num_reports) {
                 res.num_accumulated += acc_res.num_reports;
                 res.results.try_emplace(service_id, std::move(acc_res));
@@ -406,7 +386,7 @@ namespace turbo::jam {
     template<typename CFG>
     accumulate_result_t<CFG> state_t<CFG>::invoke_accumulate(
         const entropy_buffer_t &new_eta,
-        const accounts_t<CFG> &prev_delta, const privileges_t &prev_chi,
+        const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
         const time_slot_t<CFG> &slot,
         const service_id_t service_id, const accumulate_operands_t &ops)
     {
@@ -416,19 +396,22 @@ namespace turbo::jam {
         arg_enc.uint_varlen(service_id);
         arg_enc.process(ops);
 
-        accumulate_context_t<CFG> ctx_ok {
+        accumulate_context_t<CFG> ctx_err {
             service_id, new_eta, slot,
             { prev_delta, prev_chi },
         };
-        auto ctx_err = ctx_ok;
+        auto ctx_ok = ctx_err;
 
         const auto &prev_service_info = service.info.get();
-        const auto p_k = service.preimages.make_key(prev_service_info.code_hash);
-        if (const auto code = service.preimages.get(p_k); code && code->size() <= CFG::WC_max_service_code_size) {
+        const auto code = service.preimages.get(prev_service_info.code_hash);
+        if (!code) [[unlikely]] {
+            logger::warn("service {} accumulate: preimage for code hash {} is not available!", service_id, prev_service_info.code_hash);
+        } else if (code->size() > CFG::WC_max_service_code_size) [[unlikely]] {
+            logger::warn("service {} accumulate: preimage for code hash {} is too large!", service_id, prev_service_info.code_hash);
+        } else [[likely]] {
             const auto code_hash = crypto::blake2b::digest(*code);
             if (code_hash != prev_service_info.code_hash) [[unlikely]]
                 throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
-
             gas_t::base_type gas_limit = 0;
             for (const auto &fs: prev_chi.always_acc) {
                 if (fs.id == service_id)
@@ -482,46 +465,42 @@ namespace turbo::jam {
 
     template<typename CFG>
     gas_t state_t<CFG>::invoke_on_transfer(
-        const entropy_buffer_t &new_eta, const accounts_t<CFG> &prev_delta,
-        time_slot_t<CFG> slot, service_id_t service_id,
-        const accumulate_operands_t &operands, const deferred_transfers_t<CFG> &transfers)
+        const entropy_buffer_t &new_eta, mutable_services_state_t<CFG> &new_delta,
+        time_slot_t<CFG> slot, service_id_t service_id, const deferred_transfers_t<CFG> &transfers)
     {
-        auto &service = prev_delta.at(service_id);
-        const auto &prev_service_info = service.info.get();
-        const auto p_k = service.preimages.make_key(prev_service_info.code_hash);
-        const auto code = service.preimages.get(p_k);
-        if (!code || code->size() > CFG::WC_max_service_code_size)
-            return {};
-        if (const auto code_hash = crypto::blake2b::digest(*code); code_hash != prev_service_info.code_hash) [[unlikely]]
-            throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
-        gas_t::base_type gas_limit = 0;
-        encoder arg_enc {};
-        arg_enc.uint_varlen(slot.slot());
-        arg_enc.uint_varlen(service_id);
-        arg_enc.uint_varlen(transfers.size());
-        for (const auto &t: transfers) {
-            gas_limit += t.gas_limit;
-            arg_enc.process(t);
+        const auto *service_ptr = new_delta.get_mutable_ptr(service_id);
+        if (!service_ptr) [[unlikely]]
+            throw error(fmt::format("invoke_on_transfer: unknown service id {}", service_id));
+        const auto &service_info = service_ptr->info;
+        auto code = service_ptr->preimages.get(service_info.code_hash);
+        if (!code) [[unlikely]] {
+            logger::warn("service {} on_transfer: preimage for code hash {} is not available!", service_id, service_info.code_hash);
+        } else if (code->size() > CFG::WC_max_service_code_size) [[unlikely]] {
+            logger::warn("service {} on_transfer: preimage for code hash {} is too large!", service_id, service_info.code_hash);
+        } else [[likely]] {
+            if (const auto code_hash = crypto::blake2b::digest(*code); code_hash != service_info.code_hash) [[unlikely]]
+            throw error(fmt::format("the blob registered for code hash {} has hash {}", service_info.code_hash, code_hash));
+            gas_t::base_type gas_limit = 0;
+            const auto inv_res = machine::invoke(
+                static_cast<buffer>(*code), 10U, gas_limit, buffer{},
+                [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
+                    const host_service_params_t<CFG> params{
+                        .m=m,
+                        .services=new_delta,
+                        .service_id=service_id,
+                        .slot=slot,
+                        .fetch={
+                            .nonce=&new_eta[0],
+                            .transfers=&transfers
+                        }
+                    };
+                    host_service_on_transfer_t<CFG> host_service{params};
+                    return host_service.call(id);
+                }
+            );
+            return inv_res.gas_used;
         }
-        mutable_services_state_t<CFG> services_state { prev_delta };
-        const auto inv_res = machine::invoke(
-            static_cast<buffer>(*code), 10U, gas_limit, arg_enc.bytes(),
-            [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                const host_service_params_t<CFG> params {
-                    .m=m,
-                    .services=services_state,
-                    .service_id=service_id,
-                    .slot=slot,
-                    .fetch={
-                        .nonce=&new_eta[0],
-                        .operands=&operands
-                    }
-                };
-                host_service_on_transfer_t<CFG> host_service { params };
-                return host_service.call(id);
-            }
-        );
-        return inv_res.gas_used;
+        return {};
     }
 
     // produces: accumulate_root, iota', psi' and chi'
@@ -530,7 +509,7 @@ namespace turbo::jam {
         statistics_t<CFG> &new_pi, const entropy_buffer_t &new_eta,
         const time_slot_t<CFG> &prev_tau,
         const std::shared_ptr<auth_queues_t<CFG>> &prev_phi, const std::shared_ptr<validators_data_t<CFG>> &prev_iota,
-        const std::shared_ptr<privileges_t> &prev_chi,
+        const std::shared_ptr<privileges_t<CFG>> &prev_chi,
         const std::shared_ptr<ready_queue_t<CFG>> &prev_nu, const std::shared_ptr<accumulated_queue_t<CFG>> &prev_ksi,
         const accounts_t<CFG> &prev_delta,
         const time_slot_t<CFG> &slot, const work_reports_t<CFG> &reports)
@@ -603,9 +582,25 @@ namespace turbo::jam {
 
         // (12.22)
         auto plus_res = accumulate_plus(new_pi, new_eta, prev_delta, *prev_chi, slot, gas_limit, work_immediate);
+
+        // (12.28)
+        {
+            std::map<service_id_t, deferred_transfers_t<CFG>> dst_transfers{};
+            for (auto &t: plus_res.transfers) {
+                auto [it, created] = dst_transfers.try_emplace(t.destination);
+                it->second.emplace_back(t);
+            }
+            for (const auto &[service_id, transfers]: dst_transfers) {
+                const auto gas_used = invoke_on_transfer(new_eta, plus_res.state.services, slot, service_id, transfers);
+                auto &stats = new_pi.services[service_id];
+                stats.on_transfers_count += transfers.size();
+                stats.on_transfers_gas_used += gas_used;
+            }
+        }
+
         // (12.23)
         res.service_updates.emplace(std::move(plus_res.state.services));
-        res.new_chi = std::make_shared<privileges_t>(std::move(plus_res.state.chi));
+        res.new_chi = std::make_shared<privileges_t<CFG>>(std::move(plus_res.state.chi));
         if (plus_res.state.iota)
             res.new_iota = std::make_shared<validators_data_t<CFG>>(std::move(*plus_res.state.iota));
         if (!plus_res.state.phi.empty()) {
@@ -619,6 +614,7 @@ namespace turbo::jam {
             auto &s_stats = new_pi.services[s_id];
             s_stats.accumulate_count = work_info.num_reports;
             s_stats.accumulate_gas_used = work_info.gas_used;
+            res.service_updates->get_mutable(s_id).info.last_accumulation_slot = slot;
         }
 
         // (12.33)
@@ -706,10 +702,7 @@ namespace turbo::jam {
             }
 
             std::optional<core_index_t> prev_core {};
-            const auto current_guarantors = _guarantor_assignments(new_eta[2], slot);
-            const auto current_guarantor_sigs = _capital_phi(new_kappa, new_psi.offenders);
-            const auto prev_guarantors = _guarantor_assignments(new_eta[3], slot.slot() - CFG::R_core_assignment_rotation_period);
-            const auto prev_guarantor_sigs = _capital_phi(new_lambda, new_psi.offenders);
+
             for (const auto &g: guarantees) {
                 // JAM Paper (11.33)
                 const auto blk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
@@ -719,10 +712,11 @@ namespace turbo::jam {
                     throw err_anchor_not_recent_t {};
                 if (blk_it->state_root != g.report.context.state_root) [[unlikely]]
                     throw err_bad_state_root_t {};
-                if (blk_it->mmr.root() != g.report.context.beefy_root) [[unlikely]]
+                if (blk_it->beefy_root != g.report.context.beefy_root) [[unlikely]]
                     throw err_bad_beefy_mmr_root_t {};
                 if (g.report.core_index >= tmp_rho.size()) [[unlikely]]
                     throw err_bad_core_index_t {};
+                // (11.24)
                 if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
                     throw err_out_of_order_guarantee_t {};
                 // JAM (11.3)
@@ -738,9 +732,8 @@ namespace turbo::jam {
                     if (current_rotation - report_rotation >= 2) [[unlikely]]
                         throw err_report_epoch_before_last_t {};
                 }
-                const auto same_rotation = g.slot.epoch_slot() / CFG::R_core_assignment_rotation_period == slot.epoch_slot() / CFG::R_core_assignment_rotation_period;
-                const auto &guarantors = same_rotation ? current_guarantors : prev_guarantors;
-                const auto &guarantor_sigs = same_rotation ? current_guarantor_sigs : prev_guarantor_sigs;
+
+                const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi.offenders, g.slot, slot);
 
                 // JAM Paper (11.34)
                 if (g.report.context.lookup_anchor_slot.slot() + CFG::L_max_lookup_anchor_age < slot) [[unlikely]]
@@ -791,10 +784,9 @@ namespace turbo::jam {
                 };
                 res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
 
-                uint8_vector msg {};
-                msg << std::string_view { "jam_guarantee" };
+                uint8_vector msg{CFG::jam_guarantee};
                 {
-                    encoder enc { g.report };
+                    encoder enc{g.report};
                     msg << crypto::blake2b::digest(enc.bytes());
                 }
                 std::optional<validator_index_t> prev_validator {};
@@ -807,14 +799,22 @@ namespace turbo::jam {
                         throw err_not_sorted_or_unique_guarantors_t {};
                     prev_validator = s.validator_index;
 
-                    if (guarantors[s.validator_index] != g.report.core_index) [[unlikely]]
+                    if (guarantors.guarantors[s.validator_index] != g.report.core_index) [[unlikely]]
                         throw err_wrong_assignment_t {};
 
-                    const auto &vk = guarantor_sigs[s.validator_index].ed25519;
+                    const auto &vk = guarantors.validators[s.validator_index].ed25519;
+                    static const ed25519_public_t offender_vk{};
+                    if (vk == offender_vk) [[unlikely]]
+                        throw err_banned_validator_t{};
+
                     if (!crypto::ed25519::verify(s.signature, msg, vk)) [[unlikely]]
                         throw err_bad_signature_t {};
-                    res.reporters.emplace_back(vk);
+                    res.reporters.emplace(vk);
                 }
+
+                // (11.23)
+                // No need to check for g.signatures.size() > validators per core
+                // since core assignment check won't pass in that case
                 if (g.signatures.size() < CFG::min_guarantors) [[unlikely]]
                     throw err_insufficient_guarantees_t {};
 
@@ -1035,28 +1035,29 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    blocks_history_t<CFG> state_t<CFG>::beta_dagger(const blocks_history_t<CFG> &prev_beta, const state_root_t &sr)
+    recent_blocks_t<CFG> state_t<CFG>::beta_dagger(const recent_blocks_t<CFG> &prev_beta, const state_root_t &sr)
     {
-        blocks_history_t<CFG> new_beta = prev_beta;
-        if (!new_beta.empty())
-            new_beta.back().state_root = sr;
+        recent_blocks_t<CFG> new_beta = prev_beta;
+        if (!new_beta.history.empty())
+            new_beta.history.back().state_root = sr;
         return new_beta;
     }
 
     template<typename CFG>
-    blocks_history_t<CFG> state_t<CFG>::beta_prime(blocks_history_t<CFG> tmp_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &accumulation_result, const reported_work_seq_t &wp)
+    recent_blocks_t<CFG> state_t<CFG>::beta_prime(recent_blocks_t<CFG> tmp_beta, const header_hash_t &hh,
+        const std::optional<opaque_hash_t> &accumulation_result, const reported_work_seq_t<CFG> &wp)
     {
-        blocks_history_t<CFG> new_beta = std::move(tmp_beta);
-        static mmr_t empty_mmr {};
-        const mmr_t &prev_mmr = new_beta.empty() ? empty_mmr : new_beta.back().mmr;
-        block_info_t bi {
+        recent_blocks_t<CFG> new_beta = std::move(tmp_beta);
+        if (accumulation_result)
+            new_beta.mmr = new_beta.mmr.append(*accumulation_result);
+        block_info_t<CFG> bi {
             .header_hash=hh,
-            .mmr=accumulation_result ? prev_mmr.append(*accumulation_result) : prev_mmr,
+            .beefy_root=new_beta.mmr.root(),
             .reported=wp
         };
-        if (new_beta.size() == new_beta.max_size) [[likely]]
-            new_beta.erase(new_beta.begin());
-        new_beta.emplace_back(std::move(bi));
+        if (new_beta.history.size() == new_beta.history.max_size) [[likely]]
+            new_beta.history.erase(new_beta.history.begin());
+        new_beta.history.emplace_back(std::move(bi));
         return new_beta;
     }
 
@@ -1090,7 +1091,7 @@ namespace turbo::jam {
     void state_t<CFG>::apply(const block_t<CFG> &blk)
     {
         // Work on a copy so that in case of errors the original state remains intact
-        auto new_st = *this;
+        auto new_st = working_copy();
         // JAM (4.5) update tau
         new_st.tau.set(state_t::tau_prime(tau.get(), blk.header.slot));
 
@@ -1146,9 +1147,9 @@ namespace turbo::jam {
         auto ready_reports = rho_dagger_2(
             new_rho, new_pi, new_st.kappa.get(),  blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
         // JAM (4.12)
-        new_st.update_reports(
+        const auto report_res = new_st.update_reports(
             new_rho, new_pi,
-            new_beta,
+            new_beta.history,
             new_st.eta.get(), new_st.psi.get(),
             new_st.kappa.get(), new_st.lambda.get(),
             alpha.get(), delta,
@@ -1174,7 +1175,7 @@ namespace turbo::jam {
 
         // (4.17)
         {
-            reported_work_seq_t reported_work {};
+            reported_work_seq_t<CFG> reported_work {};
             reported_work.reserve(ready_reports.size());
             for (const auto &g: blk.extrinsic.guarantees) {
                 reported_work.emplace_hint(reported_work.end(), g.report.package_spec.hash, g.report.package_spec.exports_root);
@@ -1195,13 +1196,13 @@ namespace turbo::jam {
         }
 
         // (4.20) but most updates are applied when the respective extrinsics are processed
-        new_st.pi.set(pi_prime(std::move(new_pi), tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic));
+        new_st.pi.set(pi_prime(std::move(new_pi), report_res, new_st.kappa.get(),tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic));
 
         // commit the service updates to the global key-value store only once everything else has succeeded
         if (accumulate_res.service_updates)
             accumulate_res.service_updates->commit(new_st.delta);
 
-        *this = std::move(new_st);
+        commit(std::move(new_st));
     }
 
     template<typename CFG>
@@ -1272,75 +1273,76 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
+    state_copy_t<CFG> state_t<CFG>::working_copy() const
+    {
+        state_copy_t<CFG> copy {
+            std::make_shared<triedb::db_t>(
+                std::make_shared<storage::update::db_t>(triedb->store()),
+                *triedb
+            )
+        };
+        copy.delta = this->delta;
+        return copy;
+    }
+
+    template<typename CFG>
+    void state_t<CFG>::commit(state_copy_t<CFG> &&copy)
+    {
+        auto &db = dynamic_cast<storage::update::db_t &>(*copy.triedb->store());
+        db.commit();
+        const_cast<state_dict_ptr_t &>(triedb->trie()) = std::move(copy.triedb->trie());
+        alpha.reset();
+        phi.reset();
+        beta.reset();
+        gamma.reset();
+        psi.reset();
+        eta.reset();
+        iota.reset();
+        kappa.reset();
+        lambda.reset();
+        rho.reset();
+        tau.reset();
+        chi.reset();
+        pi.reset();
+        nu.reset();
+        ksi.reset();
+        delta = copy.delta;
+    }
+
+    template<typename CFG>
+    bool state_t<CFG>::operator==(const state_t &o) const noexcept
+    {
+        return triedb->trie()->root() == o.triedb->trie()->root();
+    }
+
+    template<typename CFG>
     state_t<CFG> &state_t<CFG>::operator=(const state_snapshot_t &st)
     {
-        const auto decode_service_info = [&](const state_key_t &key, decoder &dec) {
-            const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
-            const auto [it, created] = delta.try_create(service_id);
-            dec.process(it->second.info);
-        };
-        const auto decode_service_data = [&](const state_key_t &key, decoder &dec) {
-            const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4> { key[0], key[2], key[4], key[6] });
-            const auto [s_it, created] = delta.try_create(service_id);
-            auto &service = s_it->second;
-            const auto typ = decoder::uint_fixed<uint32_t>(byte_array<4> { key[1], key[3], key[5], key[7] });
-            switch (typ) {
-                case 0xFFFFFFFFU: {
-                    const auto data = dec.next_bytes(dec.size());
-                    service.storage.set(key, std::move(data));
-                    break;
-                }
-                case 0xFFFFFFFEU: {
-                    const auto data= dec.next_bytes(dec.size());
-                    service.preimages.set(key, data);
-                    break;
-                }
-                default: {
-                    lookup_meta_map_val_t<CFG> meta;
-                    dec.process(meta);
-                    service.lookup_metas.set(key, std::move(meta));
-                    break;
-                }
-            }
-        };
         triedb->clear();
-        const auto decode_state_item_or_service_data = [&](const state_key_t &key, decoder &dec, const size_t ksum, auto &item) {
-            if (ksum == 0)
-                dec.process(item);
-            else
-                decode_service_data(key, dec);
-        };
-        // TODO: verify that deserialization always clears the previous state!
-        using namespace std::string_view_literals;
+        alpha.reset();
+        phi.reset();
+        beta.reset();
+        gamma.reset();
+        psi.reset();
+        eta.reset();
+        iota.reset();
+        kappa.reset();
+        lambda.reset();
+        rho.reset();
+        tau.reset();
+        chi.reset();
+        pi.reset();
+        nu.reset();
+        ksi.reset();
+        delta.clear();
         for (const auto &[key, bytes]: st) {
-            decoder dec { bytes };
-            const auto ksum = std::accumulate(key.begin() + 1, key.end(), size_t { 0 });
-            const auto k2sum = key[2] + key[4] + key[6] + std::accumulate(key.begin() + 8, key.end(), size_t { 0 });
-            switch (const auto typ = key[0]; typ) {
-                case 1: decode_state_item_or_service_data(key, dec, ksum, alpha); break;
-                case 2: decode_state_item_or_service_data(key, dec, ksum, phi); break;
-                case 3: decode_state_item_or_service_data(key, dec, ksum, beta); break;
-                case 4: decode_state_item_or_service_data(key, dec, ksum, gamma); break;
-                case 5: decode_state_item_or_service_data(key, dec, ksum, psi); break;
-                case 6: decode_state_item_or_service_data(key, dec, ksum, eta); break;
-                case 7: decode_state_item_or_service_data(key, dec, ksum, iota); break;
-                case 8: decode_state_item_or_service_data(key, dec, ksum, kappa); break;
-                case 9: decode_state_item_or_service_data(key, dec, ksum, lambda); break;
-                case 10: decode_state_item_or_service_data(key, dec, ksum, rho); break;
-                case 11: decode_state_item_or_service_data(key, dec, ksum, tau); break;
-                case 12: decode_state_item_or_service_data(key, dec, ksum, chi); break;
-                case 13: decode_state_item_or_service_data(key, dec, ksum, pi); break;
-                case 14: decode_state_item_or_service_data(key, dec, ksum, nu); break;
-                case 15: decode_state_item_or_service_data(key, dec, ksum, ksi); break;
-                case 255:
-                    if (k2sum == 0)
-                        decode_service_info(key, dec);
-                    else
-                        decode_service_data(key, dec);
-                    break;
-                default:
-                    decode_service_data(key, dec);
-                    break;
+            triedb->set(key, bytes);
+            const auto ksum =  + key[2] + key[4] + key[6] + std::accumulate(key.begin() + 8U, key.end(), size_t{0});
+            if (key[0] == 255 && ksum == 0) {
+                const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4>{key[1], key[3], key[5], key[7]});
+                decoder dec{bytes};
+                const auto [it, created] = delta.try_create(service_id);
+                dec.process(it->second.info);
             }
         }
         return *this;
@@ -1348,4 +1350,7 @@ namespace turbo::jam {
 
     template struct state_t<config_prod>;
     template struct state_t<config_tiny>;
+
+    template struct state_copy_t<config_prod>;
+    template struct state_copy_t<config_tiny>;
 }

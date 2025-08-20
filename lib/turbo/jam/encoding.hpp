@@ -140,6 +140,12 @@ namespace turbo::jam {
             _bytes << bytes;
         }
 
+        void process_string(const std::string &s)
+        {
+            process_varlen_uint(s.size());
+            _bytes << buffer{s};
+        }
+
         void process_bytes_fixed(const buffer bytes)
         {
             _bytes << bytes;
@@ -173,6 +179,8 @@ namespace turbo::jam {
                 // since the encoder methods do not update the value, it's safe to const_cast the value
                 // this is needed to not implement a custom cost serialize method in each of the serialized classes
                 const_cast<T &>(val).serialize(*this);
+            } else if constexpr (std::is_same_v<T, std::string>) {
+                process_string(val);
             } else if constexpr (std::is_same_v<T, uint64_t>) {
                 uint_fixed(8, val);
             } else if constexpr (std::is_same_v<T, uint32_t>) {
@@ -275,6 +283,8 @@ namespace turbo::jam {
                 val = T::from_bytes(*this);
             } else if constexpr (codec::serializable_c<T>) {
                 val.serialize(*this);
+            } else if constexpr (std::is_same_v<T, std::string>) {
+                process_string(val);
             } else if constexpr (std::is_same_v<uint64_t, T>) {
                 val = uint_fixed<T>(8);
             } else if constexpr (std::is_same_v<uint32_t, T>) {
@@ -384,6 +394,14 @@ namespace turbo::jam {
             memcpy(bytes.data(), data.data(), sz);
         }
 
+        void process_string(std::string &s)
+        {
+            const auto sz = uint_varlen<size_t>();
+            s.resize(sz);
+            const auto data = next_bytes(sz);
+            memcpy(s.data(), data.data(), sz);
+        }
+
         void process_bytes_fixed(const std::span<uint8_t> bytes)
         {
             for (size_t i = 0; i < bytes.size(); ++i)
@@ -409,6 +427,11 @@ namespace turbo::jam {
         [[nodiscard]] bool empty() const noexcept
         {
             return _ptr >= _end;
+        }
+
+        [[nodiscard]] buffer bytes() const noexcept
+        {
+            return {_ptr, size()};
         }
 
         [[nodiscard]] size_t size() const noexcept

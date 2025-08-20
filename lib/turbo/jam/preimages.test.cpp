@@ -102,9 +102,9 @@ namespace {
         file::tmp_directory tmp_dir_pre { fmt::format("test-jam-preimages-{}-pre", static_cast<void *>(this)) };
         file::tmp_directory tmp_dir_post { fmt::format("test-jam-preimages-{}-post", static_cast<void *>(this)) };
         input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
+        state_t<CONSTANTS> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
         output_t out;
-        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
+        state_t<CONSTANTS> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
 
         void serialize_state(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
         {
@@ -113,23 +113,23 @@ namespace {
             tmp_accounts_t<CONSTANTS> taccs;
             archive.process("accounts"sv, taccs);
             for (auto &&[id, tacc]: taccs) {
-                preimages_t preimages { st.triedb, preimages_t::make_trie_key_func(id) };
+                preimages_t preimages{st.triedb, preimages_t::make_trie_key_func(id)};
                 for (auto &&[k, v]: tacc.preimages) {
-                    preimages.set(preimages.make_key(k), uint8_vector { static_cast<buffer>(v) });
+                    preimages.set(k, uint8_vector { static_cast<buffer>(v) });
                 }
-                lookup_metas_t<CONSTANTS> lookup_metas { st.triedb, lookup_metas_t<CONSTANTS>::make_trie_key_func(id) };
+                lookup_metas_t<CONSTANTS> lookup_metas{st.triedb, lookup_metas_t<CONSTANTS>::make_trie_key_func(id)};
                 for (auto &&[k, v]: tacc.lookup_metas) {
-                    lookup_metas.set(lookup_metas.make_key(k), std::move(v));
+                    lookup_metas.set(k, std::move(v));
                 }
                 st.delta.try_emplace(std::move(id), account_t<CONSTANTS> {
                     .preimages=std::move(preimages),
                     .lookup_metas=std::move(lookup_metas),
                     .storage=service_storage_t { st.triedb, service_storage_t::make_trie_key_func(id) },
-                    .info={ st.triedb, state_dict_t::make_key(255U, id) }
+                    .info={st.triedb, state_dict_t::make_key(255U, id), {}}
                 });
             }
             {
-                auto new_pi = st.pi.get();
+                std::decay_t<typename decltype(st.pi)::element_type> new_pi{};
                 archive.process("statistics"sv, new_pi.services);
                 st.pi.set(std::move(new_pi));
             }
@@ -168,15 +168,15 @@ namespace {
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
         std::optional<output_t> out {};
-        auto res_st = tc.pre;
+        auto new_st = tc.pre.working_copy();
         err_code_t::catch_into(
             [&] {
-                auto tmp_st = tc.pre;
+                auto tmp_st = new_st.working_copy();
                 auto new_pi = tmp_st.pi.get();
                 tmp_st.provide_preimages(new_pi, tc.in.slot, tc.in.preimages);
                 tmp_st.pi.set(std::move(new_pi));
                 out.emplace(ok_t {});
-                res_st = std::move(tmp_st);
+                new_st.commit(std::move(tmp_st));
             },
             [&](err_code_t err) {
                 out.emplace(std::move(err));
@@ -184,7 +184,7 @@ namespace {
         );
         if (out.has_value()) {
             expect(out == tc.out) << path;
-            expect(res_st == tc.post) << path;
+            expect(new_st == tc.post) << path;
         } else {
             expect(false) << path;
         }

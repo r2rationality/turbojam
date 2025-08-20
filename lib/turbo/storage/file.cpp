@@ -6,9 +6,9 @@
 #include <filesystem>
 #include <turbo/common/file.hpp>
 #include <turbo/common/logger.hpp>
-#include "filedb.hpp"
+#include "file.hpp"
 
-namespace turbo::storage::filedb {
+namespace turbo::storage::file {
     /*
      * This is intended as a low-overhead (RAM, CPU) storage for up to a million 10k+ objects.
      * It stores file in 256 subdirectories based on the first byte of the key.
@@ -21,15 +21,34 @@ namespace turbo::storage::filedb {
      *
      *
      */
-    struct client_t::impl {
+    struct db_t::impl {
         explicit impl(const std::string_view dir_path):
-            _dir_path { dir_path }
+            _dir_path{dir_path}
         {
+        }
+
+        void clear()
+        {
+            for (auto &dir: _sub_dirs) {
+                if (dir) {
+                    std::filesystem::remove_all(*dir);
+                    dir.reset();
+                }
+            }
+        }
+
+        size_t size() const
+        {
+            return _size;
         }
 
         void erase(const buffer key)
         {
-            std::filesystem::remove(_key_path(key));
+            const auto path = _key_path(key);
+            if (std::filesystem::exists(path)) {
+                --_size;
+                std::filesystem::remove(path);
+            }
         }
 
         void foreach(const observer_t &obs)
@@ -52,19 +71,22 @@ namespace turbo::storage::filedb {
         {
             const auto key_path = _key_path(key);
             if (std::filesystem::exists(key_path))
-                return file::read(key_path);
+                return turbo::file::read(key_path);
             return {};
         }
 
         void set(const buffer key, const buffer val)
         {
             const auto final_path = _key_path(key);
+            if (!std::filesystem::exists(final_path))
+                ++_size;
             // Write as a single OS call to ensure. The OS guarantees the call to be atomic with regard to other OS processes.
-            file::write(final_path, val);
+            turbo::file::write(final_path, val);
         }
     private:
         const std::filesystem::path _dir_path;
-        mutable std::array<std::optional<std::string>, 256> _sub_dirs {};
+        mutable std::array<std::optional<std::string>, 256> _sub_dirs{};
+        size_t _size{0};
 
         const std::string &_subdir_path(const uint8_t byte0) const
         {
@@ -85,29 +107,39 @@ namespace turbo::storage::filedb {
         }
     };
 
-    client_t::client_t(const std::string_view dir_path):
-        _impl { std::make_unique<impl>(dir_path) }
+    db_t::db_t(const std::string_view dir_path):
+        _impl{std::make_unique<impl>(dir_path)}
     {
     }
 
-    client_t::~client_t() = default;
+    db_t::~db_t() = default;
 
-    void client_t::erase(const buffer key)
+    void db_t::clear()
+    {
+        return _impl->clear();
+    }
+
+    size_t db_t::size() const
+    {
+        return _impl->size();
+    }
+
+    void db_t::erase(const buffer key)
     {
         _impl->erase(key);
     }
 
-    void client_t::foreach(const observer_t &obs)
+    void db_t::foreach(const observer_t &obs) const
     {
         _impl->foreach(obs);
     }
 
-    std::optional<uint8_vector> client_t::get(const buffer key) const
+    std::optional<uint8_vector> db_t::get(const buffer key) const
     {
         return _impl->get(key);
     }
 
-    void client_t::set(const buffer key, const buffer val)
+    void db_t::set(const buffer key, const buffer val)
     {
         _impl->set(key, val);
     }

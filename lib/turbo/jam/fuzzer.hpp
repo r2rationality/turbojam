@@ -36,6 +36,12 @@ namespace turbo::jam::fuzzer {
             archive.process("app_version"sv, app_version);
             archive.process("jam_version"sv, jam_version);
         }
+
+        void compatible_with(const peer_info_t &o) const
+        {
+            if (jam_version != o.jam_version) [[unlikely]]
+                throw error(fmt::format("jam version mismatch: {} != {}", jam_version, o.jam_version));
+        }
     };
 
     template<typename CFG>
@@ -45,6 +51,8 @@ namespace turbo::jam::fuzzer {
     struct set_state_t {
         header_t<CFG> header;
         state_snapshot_t state;
+
+        static set_state_t from_snapshot(const state_snapshot_t &state);
 
         void serialize(auto &archive)
         {
@@ -92,5 +100,15 @@ namespace turbo::jam::fuzzer {
             };
             archive.template process_variant<base_type>(*this, names);
         }
+    };
+
+    template<typename CFG>
+    struct processor_t {
+        processor_t(std::string chain_id, file::tmp_directory tmp_dir);
+        ~processor_t();
+        message_t<CFG> process(message_t<CFG> msg);
+    private:
+        struct impl_t;
+        std::unique_ptr<impl_t> _impl;
     };
 }

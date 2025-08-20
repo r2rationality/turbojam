@@ -13,3 +13,6 @@
 [submodule "lib/turbo/common"]
 	path = lib/turbo/common
 	url = https://github.com/r2rationality/turbo-common.git
+[submodule "test/jam-conformance"]
+	path = test/jam-conformance
+	url = https://github.com/davxy/jam-conformance.git

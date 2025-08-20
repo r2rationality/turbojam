@@ -10,11 +10,12 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
-    struct input_t {
+    template<typename CFG>
+    struct test_input_t {
         header_hash_t header_hash;
         state_root_t parent_state_root;
         opaque_hash_t accumulate_root;
-        reported_work_seq_t work_packages;
+        reported_work_seq_t<CFG> work_packages;
 
         void serialize(auto &archive)
         {
@@ -25,7 +26,7 @@ namespace {
             archive.process("work_packages"sv, work_packages);
         }
 
-        bool operator==(const input_t &o) const
+        bool operator==(const test_input_t &o) const
         {
             if (header_hash != o.header_hash)
                 return false;
@@ -39,28 +40,31 @@ namespace {
         }
     };
 
-    template<typename CONSTANTS=config_prod>
-    struct test_case_t {
-        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-history-{}-pre", static_cast<void *>(this)) };
-        file::tmp_directory tmp_dir_post { fmt::format("test-jam-history-{}-post", static_cast<void *>(this)) };
-        input_t in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::client_t>(tmp_dir_pre.path()) };
-        state_t<CONSTANTS> post { std::make_shared<triedb::client_t>(tmp_dir_post.path()) };
+    template<typename CFG>
+    struct test_state_t {
+        recent_blocks_t<CFG> beta;
 
-        static void serialize_state(auto &archive, const std::string_view &name, state_t<CONSTANTS> &st)
+        void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.push(name);
-            archive.process("beta"sv, st.beta);
-            archive.pop();
+            archive.process("beta"sv, beta);
         }
+
+        bool operator==(const test_state_t &o) const = default;
+    };
+
+    template<typename CFG>
+    struct test_case_t {
+        test_input_t<CFG> in;
+        test_state_t<CFG> pre;
+        test_state_t<CFG> post;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("input"sv, in);
-            serialize_state(archive, "pre_state"sv, pre);
-            serialize_state(archive, "post_state"sv, post);
+            archive.process("pre_state"sv, pre);
+            archive.process("post_state"sv, post);
         }
 
         bool operator==(const test_case_t &o) const
@@ -84,11 +88,10 @@ namespace {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
-        state_t<CFG> new_st { std::make_shared<triedb::client_t>(store_dir.path()) };
-        new_st = tc.pre;
-        auto tmp_beta = new_st.beta_dagger(tc.pre.beta.get(), tc.in.parent_state_root);
-        new_st.beta.set(state_t<CFG>::beta_prime(std::move(tmp_beta), tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages));
-        expect(new_st == tc.post) << path;
+        state_t<CFG> new_st { std::make_shared<triedb::db_t>(store_dir.path()) };
+        auto tmp_beta = new_st.beta_dagger(tc.pre.beta, tc.in.parent_state_root);
+        auto new_beta = state_t<CFG>::beta_prime(std::move(tmp_beta), tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages);
+        expect(new_beta == tc.post.beta) << path;
     }
 }
 

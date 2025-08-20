@@ -27,7 +27,7 @@ suite turbo_jam_state_dict_suite = [] {
         };
         "service_item_key"_test = [] {
             expect_equal(
-                state_key_t::from_hex("FE00CA01AF02DE030405060708090a0b0c0d0e0f101112131415161718191a"),
+                state_key_t::from_hex("FE38CA90AF96DE2F7D604FE0FCADE7D8FC03C7E6285DA2035BAC5A9362C1D6"),
                 state_dict_t::make_key(0xDEAFCAFE, state_key_subhash_t::from_hex<state_key_subhash_t>("000102030405060708090a0b0c0d0e0f101112131415161718191a"))
             );
         };

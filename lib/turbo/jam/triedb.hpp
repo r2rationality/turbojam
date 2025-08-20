@@ -7,22 +7,39 @@
 #include <functional>
 #include <turbo/common/bytes.hpp>
 #include <turbo/jam/types/state-dict.hpp>
-#include <turbo/storage/filedb.hpp>
+#include <turbo/storage/file.hpp>
+#include <turbo/storage/update.hpp>
+
+#define MY_NDEBUG
 
 namespace turbo::jam::triedb {
-    struct client_t {
-        using store_t = storage::filedb::client_t;
-        using store_ptr_t = std::shared_ptr<store_t>;
-        using key_t = merkle::key_t;
-        using value_t = std::optional<uint8_vector>;
-        using observer_t = std::function<void(const merkle::key_t &, uint8_vector)>;
+    using key_t = merkle::key_t;
+    using value_t = storage::value_t;
 
-        client_t(const std::string &db_dir):
-            _db_dir { db_dir }
+    // Instances are:
+    // - not thread safe
+    // - each maintains its own copy of the data even when they share the same data directory
+    // - a copy creates a physical copy on disk
+    struct db_t: storage::db_t {
+        using store_t = storage::db_t;
+        using store_ptr_t = std::shared_ptr<store_t>;
+        using observer_t = storage::observer_t;
+
+        explicit db_t(store_ptr_t store, const db_t &o):
+            _store{std::move(store)},
+            _trie{std::make_shared<state_dict_t>(*o.trie())}
+#if         !defined(NDEBUG)
+                , _snapshot{o._snapshot}
+#endif
         {
         }
 
-        void clear()
+        explicit db_t(const std::string_view db_dir):
+            _store{std::make_shared<storage::file::db_t>(db_dir)}
+        {
+        }
+
+        void clear() override
         {
             _trie->foreach([&](const auto &, const auto &v) {
                 std::visit([&](const auto &vv) {
@@ -33,15 +50,14 @@ namespace turbo::jam::triedb {
                 }, v);
             });
             _trie->clear();
+#if         !defined(NDEBUG)
+                _snapshot.clear();
+#endif
         }
 
-        [[nodiscard]] bool empty() const
+        void erase(const buffer key) override
         {
-            return _trie->empty();
-        }
-
-        void erase(const merkle::key_t &k)
-        {
+            const key_t k{key};
 #if         !defined(NDEBUG)
                 _snapshot.erase(k);
 #endif
@@ -69,7 +85,7 @@ namespace turbo::jam::triedb {
 #endif
         }
 
-        void foreach(const observer_t &obs) const
+        void foreach(const observer_t &obs) const override
         {
             _trie->foreach([&](const auto &k, const auto &v) {
                 std::visit([&](const auto &vv) {
@@ -78,16 +94,17 @@ namespace turbo::jam::triedb {
                         auto val = _store->get(vv);
                         if (!val) [[unlikely]]
                             throw error(fmt::format("internal error: failed to get value for key {} from the store", k));
-                        obs(k, std::move(*val));
+                        obs(static_cast<buffer>(k), *val);
                     } else {
-                        obs(k, buffer { vv.data(), vv.size() });
+                        obs(static_cast<buffer>(k), buffer {vv.data(), vv.size()});
                     }
                 }, v);
             });
         }
 
-        value_t get(const key_t &k) const
+        value_t get(const buffer key) const override
         {
+            const key_t k{key};
             if (auto val = _trie->get(k); val) {
                 return std::visit([&](const auto &vv) {
                     using T = std::decay_t<decltype(vv)>;
@@ -101,8 +118,9 @@ namespace turbo::jam::triedb {
             return {};
         }
 
-        void set(const key_t &k, uint8_vector val)
+        void set(const buffer key, const buffer val) override
         {
+            const key_t k{key};
 #           if !defined(NDEBUG)
                 _snapshot[k] = byte_sequence_t { val };
 #           endif
@@ -134,22 +152,12 @@ namespace turbo::jam::triedb {
         {
             return _trie;
         }
-    private:
-        static state_dict_ptr_t load(const std::string &path)
-        {
-            auto trie = std::make_shared<state_dict_t>();
-            if (std::filesystem::exists(path)) {
-                throw error(fmt::format("triedb: trie loading from a file is not implemented yet!"));
-            }
-            return trie;
-        }
-
-        std::filesystem::path _db_dir;
-        store_ptr_t _store = std::make_shared<store_t>((_db_dir / "db").string());
-        state_dict_ptr_t _trie = load((_db_dir / "trie.bin").string());
+    protected:
+        store_ptr_t _store;
+        state_dict_ptr_t _trie = std::make_shared<state_dict_t>();
 #if !defined(NDEBUG)
-        state_snapshot_t _snapshot {};
+        state_snapshot_t _snapshot{};
 #endif
     };
-    using client_ptr_t = std::shared_ptr<client_t>;
+    using db_ptr_t = std::shared_ptr<db_t>;
 }
