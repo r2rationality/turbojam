@@ -3,8 +3,8 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <turbo/common/test.hpp>
 #include "state.hpp"
+#include "test-vectors.hpp"
 
 namespace {
     using namespace turbo;
@@ -105,10 +105,10 @@ namespace {
 
 suite turbo_jam_statistics_suite = [] {
     "turbo::jam::statistics"_test = [] {
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/statistics/tiny"), ".bin")) {
+        for (const auto &path: file::files_with_ext(test_vector_dir("stf/statistics/tiny"), ".bin")) {
             test_file<config_tiny>(path.substr(0, path.size() - 4));
         }
-        for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/statistics/full"), ".bin")) {
+        for (const auto &path: file::files_with_ext(test_vector_dir("stf/statistics/full"), ".bin")) {
             test_file<config_prod>(path.substr(0, path.size() - 4));
         }
     };

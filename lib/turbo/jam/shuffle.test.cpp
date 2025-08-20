@@ -4,10 +4,10 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <boost/json.hpp>
-#include <turbo/common/test.hpp>
 #include <turbo/codec/json.hpp>
 #include "state.hpp"
 #include "shuffle.hpp"
+#include "test-vectors.hpp"
 
 namespace {
     using namespace turbo;
@@ -34,7 +34,7 @@ suite turbo_jam_shuffle_suite = [] {
             expect_equal(seq, res);
         };
         "test vectors"_test = [] {
-            const auto test_vectors = json::load(file::install_path("test/jam-test-vectors/shuffle/shuffle_tests.json"));
+            const auto test_vectors = json::load(jam::test_vector_dir("shuffle/shuffle_tests.json"));
             size_t case_no = 0;
             for (const auto &vector: test_vectors.as_array()) {
                 const auto len = boost::json::value_to<size_t>(vector.at("input"));

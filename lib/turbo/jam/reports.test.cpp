@@ -3,9 +3,9 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <turbo/common/test.hpp>
 #include "types/errors.hpp"
 #include "state.hpp"
+#include "test-vectors.hpp"
 
 namespace {
     using namespace std::string_view_literals;
@@ -258,12 +258,12 @@ suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
         //test_file<config_tiny>("test/jam-test-vectors/stf/reports/tiny/different_core_same_guarantors-1");
         "tiny"_test = [] {
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/reports/tiny"), ".bin")) {
+            for (const auto &path: file::files_with_ext(test_vector_dir("stf/reports/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
         };
         "full"_test = [] {
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/reports/full"), ".bin")) {
+            for (const auto &path: file::files_with_ext(test_vector_dir("stf/reports/full"), ".bin")) {
                 test_file<config_prod>(path.substr(0, path.size() - 4));
             }
         };

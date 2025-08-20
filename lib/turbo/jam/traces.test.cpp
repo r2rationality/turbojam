@@ -3,11 +3,11 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <turbo/common/test.hpp>
 #include <turbo/common/timer.hpp>
 #include "chain.hpp"
 #include "machine.hpp"
 #include "traces.hpp"
+#include "test-vectors.hpp"
 
 namespace {
     using namespace turbo;
@@ -58,7 +58,7 @@ suite turbo_jam_traces_suite = [] {
         //override_test.emplace(file::install_path("test/jam-test-vectors/traces/preimages/00000090"));
         if (!override_test) {
             std::set<std::filesystem::path> test_sets{};
-            for (const auto &e: std::filesystem::directory_iterator{file::install_path("test/jam-test-vectors/traces")}) {
+            for (const auto &e: std::filesystem::directory_iterator{test_vector_dir("traces")}) {
                 if (e.is_directory() && !e.path().filename().string().starts_with("."))
                     test_sets.emplace(e.path());
             }

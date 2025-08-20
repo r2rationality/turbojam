@@ -3,9 +3,9 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <turbo/common/test.hpp>
 #include "types/errors.hpp"
 #include "state.hpp"
+#include "test-vectors.hpp"
 
 namespace {
     using namespace std::string_view_literals;
@@ -214,13 +214,13 @@ namespace {
 suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         "conformance test vectors"_test = [] {
-            test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/safrole/tiny/publish-tickets-no-mark-1"));
-            /*for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/safrole/tiny"), ".bin")) {
+            //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/safrole/tiny/publish-tickets-no-mark-1"));
+            for (const auto &path: file::files_with_ext(test_vector_dir("stf/safrole/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
-            for (const auto &path: file::files_with_ext(file::install_path("test/jam-test-vectors/stf/safrole/full"), ".bin")) {
+            for (const auto &path: file::files_with_ext(test_vector_dir("stf/safrole/full"), ".bin")) {
                 test_file<config_prod>(path.substr(0, path.size() - 4));
-            }*/
+            }
         };
     };
 };
