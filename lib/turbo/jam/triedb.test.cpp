@@ -15,6 +15,7 @@ namespace {
 
 suite turbo_jam_triedb_suite = [] {
     "turbo::jam::triedb"_test = [] {
+        using key_t = merkle::key_t;
         "set get and erase"_test = [] {
             const file::tmp_directory db_dir { "test-turbo-jam-triedb-1" };
             db_t client { db_dir.path() };
