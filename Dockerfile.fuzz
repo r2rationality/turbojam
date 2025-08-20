@@ -26,7 +26,6 @@ RUN curl  --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 COPY 3rdparty /home/dev/turbojam/3rdparty
 COPY data /home/dev/turbojam/data
 COPY etc /home/dev/turbojam/etc
-COPY test /home/dev/turbojam/test
 COPY lib /home/dev/turbojam/lib
 COPY src /home/dev/turbojam/src
 COPY CMakeLists.txt /home/dev/turbojam/
@@ -39,5 +38,6 @@ ENV PATH=/home/dev/.cargo/bin:$PATH
 RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++-19
 RUN cmake --build build -t tjam
 WORKDIR /home/dev/turbojam
+RUN sudo mkdir /fuzzer && sudo chown dev:dev /fuzzer
 COPY script/start-fuzzer.sh .
 CMD [ "/bin/bash", "/home/dev/turbojam/start-fuzzer.sh" ]
