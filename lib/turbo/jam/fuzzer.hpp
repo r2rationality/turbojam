@@ -26,8 +26,8 @@ namespace turbo::jam::fuzzer {
 
     struct peer_info_t {
         std::string name;
-        version_t app_version;
-        version_t jam_version;
+        version_t app_version{0, 1, 0};
+        version_t jam_version{0, 6, 7};
 
         void serialize(auto &archive)
         {

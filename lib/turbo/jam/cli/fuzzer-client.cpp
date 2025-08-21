@@ -89,11 +89,7 @@ namespace {
 
         boost::asio::awaitable<void> _send_peer_info()
         {
-            static const peer_info_t my_peer_info {
-                "turbojam-fuzzer-client",
-                { 0, 1, 0 },
-                { 0, 6, 6 }
-            };
+            static const peer_info_t my_peer_info{"turbojam-fuzzer-client"};
             co_await write_message(_conn, message_t<CFG>{my_peer_info});
             const auto server_info = co_await read_message<CFG>(_conn);
             my_peer_info.compatible_with(variant::get_nice<peer_info_t>(server_info));

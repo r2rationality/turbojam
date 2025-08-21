@@ -49,19 +49,15 @@ namespace {
     private:
         std::string _chain_id;
         std::string _sock_path;
-        file::tmp_directory _tmp_dir { "turbo-jam-fuzzer" };
-        boost::asio::io_context _ioc {};
+        file::tmp_directory _tmp_dir{"turbo-jam-fuzzer"};
+        boost::asio::io_context _ioc{};
         decltype(boost::asio::make_work_guard(_ioc)) _guard = boost::asio::make_work_guard(_ioc);
         std::mutex _futures_mutex alignas(mutex::alignment) {};
         std::vector<std::future<void>> _futures {};
 
         boost::asio::awaitable<void> _handle_client(stream_protocol::socket conn)
         {
-            static const peer_info_t my_peer_info {
-                "turbojam",
-                { 0, 1, 0 },
-                { 0, 6, 6 }
-            };
+            static const peer_info_t my_peer_info{"turbojam"};
             {
                 const auto handshake = co_await read_message<CFG>(conn);
                 const peer_info_t &peer_info = variant::get_nice<peer_info_t>(handshake);
