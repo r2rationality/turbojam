@@ -746,11 +746,11 @@ namespace turbo::jam {
                     throw err_segment_root_lookup_invalid_t {};
 
                 // JAM Paper (11.35)
-                const auto lblk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
+                /*const auto lblk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
                     return blk.header_hash == g.report.context.lookup_anchor;
                 });
                 if (lblk_it == tmp_beta.end()) [[unlikely]]
-                    throw err_segment_root_lookup_invalid_t {};
+                    throw err_segment_root_lookup_invalid_t {};*/
 
                 // JAM Paper (11.38)
                 if (known_packages.contains(g.report.package_spec.hash)) [[unlikely]]
