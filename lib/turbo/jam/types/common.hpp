@@ -545,11 +545,24 @@ namespace turbo::jam {
         }
     };
 
+    struct work_result_bad_digest_t {
+        void serialize(auto &)
+        {
+            // do nothing
+        }
+
+        bool operator==(const work_result_bad_digest_t &) const
+        {
+            return true;
+        }
+    };
+
     using work_exec_result_base_t = std::variant<
         work_result_ok_t,
         work_result_out_of_gas_t,
         work_result_panic_t,
         work_result_bad_exports_t,
+        work_result_bad_digest_t,
         work_result_bad_code_t,
         work_result_code_oversize_t
     >;
@@ -566,6 +579,7 @@ namespace turbo::jam {
                 "out_of_gas"sv,
                 "panic"sv,
                 "bad_exports"sv,
+                "bad_digest"sv,
                 "bad_code"sv,
                 "code_oversize"sv
             };
