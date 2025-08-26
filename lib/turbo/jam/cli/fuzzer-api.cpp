@@ -61,8 +61,8 @@ namespace {
             {
                 const auto handshake = co_await read_message<CFG>(conn);
                 const peer_info_t &peer_info = variant::get_nice<peer_info_t>(handshake);
-                my_peer_info.compatible_with(peer_info);
                 co_await write_message<CFG>(conn, message_t<CFG>{my_peer_info});
+                my_peer_info.compatible_with(peer_info);
             }
             processor_t<CFG> processor{_chain_id, _tmp_dir};
             for (;;) {
