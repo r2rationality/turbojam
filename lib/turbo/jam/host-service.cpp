@@ -177,10 +177,10 @@ namespace turbo::jam {
             enc.uint_fixed(2, w.extrinsic.size());
             enc.uint_fixed(4, w.payload.size());
         };
-        const auto &omega = _p.m.regs();
-        logger::trace("host_service::fetch {}", omega[10]);
+        const auto &phi = _p.m.regs();
+        logger::trace("host_service::fetch {}", phi[10]);
         std::optional<uint8_vector> v {};
-        switch (omega[10]) {
+        switch (phi[10]) {
             case 0: {
                 encoder enc {};
                 enc.uint_fixed(8, CFG::BI_min_balance_per_item);
@@ -228,26 +228,26 @@ namespace turbo::jam {
                     v.emplace(*_p.fetch.auth_output);
                 break;
             case 3:
-                if (_p.fetch.exports && omega[11] < _p.fetch.exports->size()
-                        && omega[12] < (*_p.fetch.exports)[omega[11]].size())
-                    v.emplace((*_p.fetch.exports)[omega[11]][omega[12]]);
+                if (_p.fetch.exports && phi[11] < _p.fetch.exports->size()
+                        && phi[12] < (*_p.fetch.exports)[phi[11]].size())
+                    v.emplace((*_p.fetch.exports)[phi[11]][phi[12]]);
                 break;
             case 4:
                 if (_p.fetch.exports && _p.fetch.refined_item_index
                         && *_p.fetch.refined_item_index < _p.fetch.exports->size()
-                        && omega[11] < (*_p.fetch.exports)[*_p.fetch.refined_item_index].size())
-                    v.emplace((*_p.fetch.exports)[*_p.fetch.refined_item_index][omega[11]]);
+                        && phi[11] < (*_p.fetch.exports)[*_p.fetch.refined_item_index].size())
+                    v.emplace((*_p.fetch.exports)[*_p.fetch.refined_item_index][phi[11]]);
                 break;
             case 5:
-                if (_p.fetch.imports && omega[11] < _p.fetch.imports->size()
-                        && omega[12] < (*_p.fetch.imports)[omega[11]].size())
-                    v.emplace((*_p.fetch.imports)[omega[11]][omega[12]]);
+                if (_p.fetch.imports && phi[11] < _p.fetch.imports->size()
+                        && phi[12] < (*_p.fetch.imports)[phi[11]].size())
+                    v.emplace((*_p.fetch.imports)[phi[11]][phi[12]]);
                 break;
             case 6:
                 if (_p.fetch.exports && _p.fetch.refined_item_index
                         && *_p.fetch.refined_item_index < _p.fetch.imports->size()
-                        && omega[11] < (*_p.fetch.imports)[*_p.fetch.refined_item_index].size())
-                    v.emplace((*_p.fetch.imports)[*_p.fetch.refined_item_index][omega[11]]);
+                        && phi[11] < (*_p.fetch.imports)[*_p.fetch.refined_item_index].size())
+                    v.emplace((*_p.fetch.imports)[*_p.fetch.refined_item_index][phi[11]]);
                 break;
             case 7:
                 if (_p.fetch.package) {
@@ -283,15 +283,15 @@ namespace turbo::jam {
                 }
                 break;
             case 12:
-                if (_p.fetch.package && omega[11] < _p.fetch.package->items.size()) {
+                if (_p.fetch.package && phi[11] < _p.fetch.package->items.size()) {
                     encoder enc {};
-                    s_func(enc, _p.fetch.package->items[omega[11]]);
+                    s_func(enc, _p.fetch.package->items[phi[11]]);
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
             case 13:
-                if (_p.fetch.package && _p.fetch.package->items.size() > omega[11]) {
-                    encoder enc { _p.fetch.package->items[omega[11]].payload };
+                if (_p.fetch.package && _p.fetch.package->items.size() > phi[11]) {
+                    encoder enc { _p.fetch.package->items[phi[11]].payload };
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
@@ -302,8 +302,8 @@ namespace turbo::jam {
                 }
                 break;
             case 15:
-                if (_p.fetch.operands && omega[11] < _p.fetch.operands->size()) {
-                    encoder enc { _p.fetch.operands[omega[11]] };
+                if (_p.fetch.operands && phi[11] < _p.fetch.operands->size()) {
+                    encoder enc { _p.fetch.operands[phi[11]] };
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
@@ -314,8 +314,8 @@ namespace turbo::jam {
                 }
                 break;
             case 17:
-                if (_p.fetch.transfers && omega[11] < _p.fetch.transfers->size()) {
-                    encoder enc { _p.fetch.transfers[omega[11]] };
+                if (_p.fetch.transfers && phi[11] < _p.fetch.transfers->size()) {
+                    encoder enc { _p.fetch.transfers[phi[11]] };
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
@@ -323,9 +323,9 @@ namespace turbo::jam {
                 break;
         }
         if (v) {
-            const auto o = omega[7];
-            const auto f = std::min(omega[8], v->size());
-            const auto l = std::min(omega[9], v->size() - f);
+            const auto o = phi[7];
+            const auto f = std::min(phi[8], v->size());
+            const auto l = std::min(phi[9], v->size() - f);
             _p.m.mem_write(o, static_cast<buffer>(*v).subbuf(f, l));
             _p.m.set_reg(7, v->size());
         } else {
@@ -337,19 +337,19 @@ namespace turbo::jam {
     void host_service_base_t<CFG>::lookup()
     {
         logger::trace("host_service::lookup");
-        const auto &omega = _p.m.regs();
-        const auto [s_id, a] = _get_service(omega[7]);
-        const auto h = omega[8];
-        const auto o = omega[9];
+        const auto &phi = _p.m.regs();
+        const auto [s_id, a] = _get_service(phi[7]);
+        const auto h = phi[8];
+        const auto o = phi[9];
         const opaque_hash_t key{_p.m.mem_read(h, 32)};
         std::optional<uint8_vector> val{};
         if (a) {
             val = a->preimages.get(key);
         }
         if (val) {
-            const auto f = std::min(omega[10], val->size());
-            const auto l = std::min(omega[11], val->size() - f);
-            _p.m.mem_write(o, static_cast<buffer>(*val).subbuf(0, l));
+            const auto f = std::min(phi[10], val->size());
+            const auto l = std::min(phi[11], val->size() - f);
+            _p.m.mem_write(o, static_cast<buffer>(*val).subbuf(f, l));
             _p.m.set_reg(7, val->size());
         } else {
             _p.m.set_reg(7, machine::host_call_res_t::none);
@@ -359,11 +359,11 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::read() {
         logger::trace("host_service::read");
-        const auto &omega = _p.m.regs();
-        const auto [s_id, a] = _get_service(omega[7]);
-        const auto ko = omega[8];
-        const auto kz = omega[9];
-        const auto o = omega[10];
+        const auto &phi = _p.m.regs();
+        const auto [s_id, a] = _get_service(phi[7]);
+        const auto ko = phi[8];
+        const auto kz = phi[9];
+        const auto o = phi[10];
         std::optional<uint8_vector> val {};
         if (a) {
             const auto key = _p.m.mem_read(ko, kz);
@@ -371,9 +371,9 @@ namespace turbo::jam {
             val = a->storage.get(key);
         }
         if (val) {
-            const auto f = std::min(omega[11], val->size());
-            const auto l = std::min(omega[12], val->size() - f);
-            _p.m.mem_write(o, static_cast<buffer>(*val).subbuf(0, l));
+            const auto f = std::min(phi[11], val->size());
+            const auto l = std::min(phi[12], val->size() - f);
+            _p.m.mem_write(o, static_cast<buffer>(*val).subbuf(f, l));
             _p.m.set_reg(7, val->size());
         } else {
             _p.m.set_reg(7, machine::host_call_res_t::none);
@@ -422,8 +422,8 @@ namespace turbo::jam {
     void host_service_base_t<CFG>::info()
     {
         logger::trace("host_service::info");
-        const auto &omega = _p.m.regs();
-        const auto [t_id, t] = _get_service(omega[7]);
+        const auto &phi = _p.m.regs();
+        const auto [t_id, t] = _get_service(phi[7]);
         std::optional<uint8_vector> m {};
         if (t) {
             encoder enc{t->info.code_hash};
@@ -440,10 +440,10 @@ namespace turbo::jam {
             m.emplace(std::move(enc.bytes()));
         }
         if (m) {
-            const auto o = omega[8];
-            const auto f = std::min(omega[9], m->size());
-            const auto l = std::min(omega[10], m->size() - f);
-            _p.m.mem_write(o, static_cast<buffer>(*m).subbuf(0, l));
+            const auto o = phi[8];
+            const auto f = std::min(phi[9], m->size());
+            const auto l = std::min(phi[10], m->size() - f);
+            _p.m.mem_write(o, static_cast<buffer>(*m).subbuf(f, l));
             _p.m.set_reg(7, m->size());
         } else {
             _p.m.set_reg(7, machine::host_call_res_t::none);
@@ -453,12 +453,12 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::log()
     {
-        const auto &omega = _p.m.regs();
-        const auto level = omega[7];
+        const auto &phi = _p.m.regs();
+        const auto level = phi[7];
         std::optional<std::string> target {};
-        if (omega[8] != 0 || omega[9] != 0)
-            target.emplace(_p.m.mem_read(omega[8], omega[9]).str());
-        const auto msg = _p.m.mem_read(omega[10], omega[11]);
+        if (phi[8] != 0 || phi[9] != 0)
+            target.emplace(_p.m.mem_read(phi[8], phi[9]).str());
+        const auto msg = _p.m.mem_read(phi[10], phi[11]);
         logger::trace("[PVM-log/{}] [level={}]: {}", target.value_or("default"), level, msg.str());
     }
 
@@ -520,12 +520,12 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::bless()
     {
         logger::trace("host_service::bless");
-        const auto &omega = this->_p.m.regs();
-        const auto m = omega[7];
-        const auto a = omega[8];
-        const auto v = omega[9];
-        const auto o = omega[10];
-        const auto n = omega[11];
+        const auto &phi = this->_p.m.regs();
+        const auto m = phi[7];
+        const auto a = phi[8];
+        const auto v = phi[9];
+        const auto o = phi[10];
+        const auto n = phi[11];
 
         const auto a_bytes = this->_p.m.mem_read(a, 4 * CFG::C_core_count);
         const auto assigners = jam::from_bytes<assigners_t<CFG>>(a_bytes);
@@ -560,10 +560,10 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::assign()
     {
         logger::trace("host_service::assign");
-        const auto &omega = this->_p.m.regs();
-        const auto c = omega[7];
-        const auto o = omega[8];
-        const auto a = omega[9];
+        const auto &phi = this->_p.m.regs();
+        const auto c = phi[7];
+        const auto o = phi[8];
+        const auto a = phi[9];
         const auto q_bytes = this->_p.m.mem_read(o, 32 * CFG::Q_auth_queue_size);
         const auto q = jam::from_bytes<auth_queue_t<CFG>>(q_bytes);
         if (c >= CFG::C_core_count) [[unlikely]] {
@@ -583,8 +583,8 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::designate()
     {
         logger::trace("host_service::designate");
-        const auto &omega = this->_p.m.regs();
-        const auto o = omega[7];
+        const auto &phi = this->_p.m.regs();
+        const auto o = phi[7];
         auto v = jam::from_bytes<validators_data_t<CFG>>(this->_p.m.mem_read(o, 336 * CFG::V_validator_count));
         if (this->_p.service_id != _ok.state.chi.designate) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
@@ -606,12 +606,12 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::new_()
     {
         logger::trace("host_service::new");
-        const auto &omega = this->_p.m.regs();
-        const auto o = omega[7];
-        const auto l = omega[8];
-        const auto g = omega[9];
-        const auto m = omega[10];
-        const auto f = omega[11];
+        const auto &phi = this->_p.m.regs();
+        const auto o = phi[7];
+        const auto l = phi[8];
+        const auto g = phi[9];
+        const auto m = phi[10];
+        const auto f = phi[11];
         if (l > std::numeric_limits<uint32_t>::max()) [[unlikely]]
             throw machine::exit_panic_t{};
         const auto c = this->_p.m.mem_read(o, 32);
@@ -646,10 +646,10 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::upgrade()
     {
         logger::trace("host_service::upgrade");
-        const auto &omega = this->_p.m.regs();
-        const auto o = omega[7];
-        const auto g = omega[8];
-        const auto m = omega[9];
+        const auto &phi = this->_p.m.regs();
+        const auto o = phi[7];
+        const auto g = phi[8];
+        const auto m = phi[9];
         const auto c = this->_p.m.mem_read(o, 32);
         this->_service.info.code_hash = static_cast<buffer>(c);
         this->_service.info.min_item_gas = g;
@@ -661,11 +661,11 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::transfer()
     {
         logger::trace("host_service::transfer");
-        const auto &omega = this->_p.m.regs();
-        const auto d = numeric_cast<service_id_t>(omega[7]);
-        const auto a = omega[8];
-        const auto l = omega[9];
-        const auto o = omega[10];
+        const auto &phi = this->_p.m.regs();
+        const auto d = numeric_cast<service_id_t>(phi[7]);
+        const auto a = phi[8];
+        const auto l = phi[9];
+        const auto o = phi[10];
         const auto m = this->_p.m.mem_read(o, sizeof(deferred_transfer_metadata_t<CFG>));
         if (!this->_p.services.contains(d)) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
@@ -688,9 +688,9 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::eject()
     {
         logger::trace("host_service::eject");
-        const auto &omega = this->_p.m.regs();
-        const auto d = numeric_cast<service_id_t>(omega[7]);
-        const auto o = omega[8];
+        const auto &phi = this->_p.m.regs();
+        const auto d = numeric_cast<service_id_t>(phi[7]);
+        const auto o = phi[8];
         const auto h = this->_p.m.mem_read(o, 32);
         auto *d_mut = this->_p.services.get_mutable_ptr(d);
         if (!d_mut || d_mut->info.code_hash != h) [[unlikely]] {
@@ -714,9 +714,9 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::query()
     {
-        const auto &omega = this->_p.m.regs();
-        const auto o = omega[7];
-        const auto z = omega[8];
+        const auto &phi = this->_p.m.regs();
+        const auto o = phi[7];
+        const auto z = phi[8];
         const auto h = this->_p.m.mem_read(o, 32);
         // static_cast<uint32_t> instead of numeric_cast to return NONE instead of throwing an exception
         logger::trace("host_service::query service: {} h: {} l: {}", this->_p.service_id, h, z);
@@ -750,9 +750,9 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::solicit()
     {
-        const auto &omega = this->_p.m.regs();
-        const auto o = omega[7];
-        const auto z = omega[8];
+        const auto &phi = this->_p.m.regs();
+        const auto o = phi[7];
+        const auto z = phi[8];
         const auto h = this->_p.m.mem_read(o, 32);
         logger::trace("host_service::solicit service: {} h: {} l: {}", this->_p.service_id, h, z);
         lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
@@ -778,9 +778,9 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::forget()
     {
-        const auto &omega = this->_p.m.regs();
-        const auto o = omega[7];
-        const auto z = omega[8];
+        const auto &phi = this->_p.m.regs();
+        const auto o = phi[7];
+        const auto z = phi[8];
         const auto h = this->_p.m.mem_read(o, 32);
         const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
         logger::trace("host_service::forget service: {} h: {} l: {}", this->_p.service_id, h, z);
@@ -824,8 +824,8 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::yield()
     {
         logger::trace("host_service::yield");
-        const auto &omega = this->_p.m.regs();
-        const auto o = omega[7];
+        const auto &phi = this->_p.m.regs();
+        const auto o = phi[7];
         const auto h = this->_p.m.mem_read(o, 32);
         _ok.result.emplace(static_cast<buffer>(h));
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
@@ -834,10 +834,10 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::provide()
     {
-        const auto &omega = this->_p.m.regs();
-        const auto o = omega[7];
-        const auto z = omega[8];
-        const auto [s_id, a] = this->_get_service(omega[7]);
+        const auto &phi = this->_p.m.regs();
+        const auto o = phi[7];
+        const auto z = phi[8];
+        const auto [s_id, a] = this->_get_service(phi[7]);
         auto i = this->_p.m.mem_read(o, z);
         if (!a) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
