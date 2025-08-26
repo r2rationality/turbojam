@@ -36,7 +36,7 @@ namespace {
             if (!state_matches) {
                 const auto act = chain.state().snapshot();
                 const auto diff = act.diff(tc.post.keyvals);
-                logger::info("diff: {}", diff);
+                logger::info("{} diff:\n{}", path, diff);
                 const auto exp_val = tc.post.keyvals.at(state_dict_t::make_key(0x0DU));
                 const auto act_val = act.at(state_dict_t::make_key(0x0DU));
                 const auto exp_stat = jam::from_bytes<statistics_t<config_tiny>>(exp_val);
