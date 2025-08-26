@@ -823,19 +823,25 @@ namespace turbo::jam::machine {
         op_res_t sbrk(const buffer data)
         {
             const auto [r_d, r_a] = _args_reg2(data);
-            const auto new_heap_end = _heap_end + _regs[r_a];
-            if (new_heap_end < _heap_end) [[unlikely]]
-                throw exit_panic_t {};
-            if (new_heap_end >= _stack_begin)
-                throw exit_panic_t {};
-            const auto cur_page_id = _heap_end / config_prod::ZP_pvm_page_size;
-            const auto new_page_id = new_heap_end / config_prod::ZP_pvm_page_size;
-            for (auto page_id = cur_page_id; page_id <= new_page_id; ++page_id) {
-                if (!_pages.contains(page_id)) {
+            const auto size = _regs[r_a];
+            if (size > 0) {
+                const auto new_heap_end = _heap_end + size;
+                // check for an arithmetic overflow and getting into the stack area
+                if (new_heap_end < _heap_end || new_heap_end >= _stack_begin) [[unlikely]] {
+                    _regs[r_d] = 0;
+                    return {};
+                }
+                auto begin_page_id = _heap_end / config_prod::ZP_pvm_page_size;
+                if (_heap_end % config_prod::ZP_pvm_page_size > 0)
+                    ++begin_page_id;
+                auto end_page_id = new_heap_end / config_prod::ZP_pvm_page_size;
+                if (new_heap_end % config_prod::ZP_pvm_page_size > 0)
+                    ++end_page_id;
+                for (auto page_id = begin_page_id; page_id < end_page_id; ++page_id) {
                     _add_page(page_id, true);
                 }
+                _heap_end = new_heap_end;
             }
-            _heap_end = new_heap_end;
             _regs[r_d] = _heap_end;
             return {};
         }

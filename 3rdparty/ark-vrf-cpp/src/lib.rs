@@ -102,7 +102,7 @@ pub extern "C" fn ring_commitment(out_ptr: *mut u8, out_len: usize, vkeys_ptr: *
     let num_vkeys = vkeys_len / VKEY_SZ;
     let ring: Vec<bandersnatch::Public> = (0 .. num_vkeys)
         .map(|i|
-            bandersnatch::Public::deserialize_compressed(unsafe { std::slice::from_raw_parts(vkeys_ptr.wrapping_add(VKEY_SZ * i), VKEY_SZ) })
+            bandersnatch::Public::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(vkeys_ptr.wrapping_add(VKEY_SZ * i), VKEY_SZ) })
                 .unwrap_or(bandersnatch::Public::from(RingProofParams::padding_point()))
         )
         
@@ -135,7 +135,7 @@ pub extern "C" fn ring_commitment(out_ptr: *mut u8, out_len: usize, vkeys_ptr: *
 
 #[no_mangle]
 pub extern "C" fn ring_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *const u8, sig_len: usize) -> i32 {
-    let sig_res = RingVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
+    let sig_res = RingVrfSignature::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
     if sig_res.is_err() {
         return -1;
     }
@@ -163,13 +163,13 @@ pub extern "C" fn ring_vrf_verify(ring_size: usize, comm_ptr: *const u8, comm_le
     }
     let params = params_res.unwrap();
 
-    let sig_res = RingVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
+    let sig_res = RingVrfSignature::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
     if sig_res.is_err() {
         return -1;
     }
     let sig = sig_res.unwrap();
 
-    let commitment_res = RingCommitment::deserialize_compressed(unsafe { std::slice::from_raw_parts(comm_ptr, comm_len) });
+    let commitment_res = RingCommitment::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(comm_ptr, comm_len) });
     if commitment_res.is_err() {
         return -1;
     }
@@ -198,7 +198,7 @@ pub extern "C" fn ietf_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *co
     if sig_len != IETF_SIG_SZ {
         return -1;
     }
-    let sig_res = IetfVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
+    let sig_res = IetfVrfSignature::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
     if sig_res.is_err() {
         return -1;
     }
@@ -220,14 +220,14 @@ pub extern "C" fn ietf_vrf_verify(vkey_ptr: *const u8, vkey_len: usize,
         println!("ietf_vrf_verify: vkey_len or sig_len mismatch!");
         return -1;
     }
-    let sig_res = IetfVrfSignature::deserialize_compressed(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
+    let sig_res = IetfVrfSignature::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
     if sig_res.is_err() {
         println!("ietf_vrf_verify: failed to deserialize the signature!");
         return -1;
     }
     let sig = sig_res.unwrap();
 
-    let vkey_res = Public::deserialize_compressed(unsafe { std::slice::from_raw_parts(vkey_ptr, vkey_len) });
+    let vkey_res = Public::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(vkey_ptr, vkey_len) });
     if vkey_res.is_err() {
         println!("ietf_vrf_verify: failed to deserialize the vkey!");
         return -1;

@@ -44,9 +44,9 @@ namespace turbo::jam::fuzzer {
                 } else if constexpr (std::is_same_v<T, get_state_t>) {
                     if (!_chain) [[unlikely]]
                         throw error("get_state is not allowed before set_state");
-                    const auto &beta = _chain->state().beta.get();
+                    /*const auto &beta = _chain->state().beta.get();
                     if (beta.history.empty() || beta.history.back().header_hash != m.header_hash) [[unlikely]]
-                        throw error("get_state supports returning the state of only the latest valid block!");
+                        throw error("get_state supports returning the state of only the latest valid block!");*/
                     return _chain->state().snapshot();
                 } else {
                     throw error(fmt::format("unexpected message type: {}", typeid(T).name()));

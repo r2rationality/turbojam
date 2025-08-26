@@ -77,7 +77,8 @@ namespace {
         err_segment_root_lookup_invalid_t,
         err_bad_signature_t,
         err_work_report_too_big_t,
-        err_banned_validator_t
+        err_banned_validator_t,
+        err_lookup_anchor_not_recent_t
     >;
 
     struct err_code_t: err_group_t<err_code_t, err_code_base_t> {
@@ -112,7 +113,8 @@ namespace {
                 "segment_root_lookup_invalid"sv,
                 "bad_signature"sv,
                 "work_report_too_big"sv,
-                "banned_validator"sv
+                "banned_validator"sv,
+                "lookup-anchor-not-recept"sv
             };
             archive.template process_variant<err_code_base_t>(*this, names);
         }
@@ -137,12 +139,12 @@ namespace {
 
     template<typename CFG>
     struct test_case_t {
-        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-reports-{}-pre", static_cast<void *>(this)) };
-        file::tmp_directory tmp_dir_post { fmt::format("test-jam-reports-{}-post", static_cast<void *>(this)) };
+        file::tmp_directory tmp_dir_pre{fmt::format("test-jam-reports-{}-pre", static_cast<void *>(this))};
+        file::tmp_directory tmp_dir_post{fmt::format("test-jam-reports-{}-post", static_cast<void *>(this))};
         test_input_t<CFG> in;
-        state_t<CFG> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
+        state_t<CFG> pre{std::make_shared<triedb::db_t>(tmp_dir_pre.path())};
         output_t out;
-        state_t<CFG> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
+        state_t<CFG> post{std::make_shared<triedb::db_t>(tmp_dir_post.path())};
 
         void serialize_accounts(auto &archive, const std::string_view name, state_t<CFG> &st)
         {
@@ -256,16 +258,22 @@ namespace {
 
 suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
-        //test_file<config_tiny>("test/jam-test-vectors/stf/reports/tiny/different_core_same_guarantors-1");
-        "tiny"_test = [] {
-            for (const auto &path: file::files_with_ext(test_vector_dir("stf/reports/tiny"), ".bin")) {
-                test_file<config_tiny>(path.substr(0, path.size() - 4));
-            }
-        };
-        "full"_test = [] {
-            for (const auto &path: file::files_with_ext(test_vector_dir("stf/reports/full"), ".bin")) {
-                test_file<config_prod>(path.substr(0, path.size() - 4));
-            }
-        };
+        static const std::string test_prefix = "stf/reports/";
+        static std::optional<std::string> override_test{};
+        //override_test.emplace("tiny/big_work_report_output-1");
+        if (!override_test) {
+            "tiny"_test = [] {
+                for (const auto &path: file::files_with_ext(test_vector_dir(test_prefix + "tiny"), ".bin")) {
+                    test_file<config_tiny>(path.substr(0, path.size() - 4));
+                }
+            };
+            "full"_test = [] {
+                for (const auto &path: file::files_with_ext(test_vector_dir(test_prefix + "full"), ".bin")) {
+                    test_file<config_prod>(path.substr(0, path.size() - 4));
+                }
+            };
+        } else {
+            test_file<config_tiny>(test_vector_dir(test_prefix + *override_test));
+        }
     };
 };

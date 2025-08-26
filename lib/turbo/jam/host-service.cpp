@@ -257,13 +257,13 @@ namespace turbo::jam {
                 break;
             case 8:
                 if (_p.fetch.package) {
-                    encoder enc { _p.fetch.package->authorizer };
+                    const encoder enc{_p.fetch.package->auth_code_hash, _p.fetch.package->authorizer_config};
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
             case 9:
                 if (_p.fetch.package) {
-                    encoder enc { _p.fetch.package->authorization };
+                    const encoder enc{_p.fetch.package->authorization};
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
@@ -358,7 +358,7 @@ namespace turbo::jam {
 
     template<typename CFG>
     void host_service_base_t<CFG>::read() {
-        logger::trace("host call: read");
+        logger::trace("host_service::read");
         const auto &omega = _p.m.regs();
         const auto [s_id, a] = _get_service(omega[7]);
         const auto ko = omega[8];
@@ -391,16 +391,16 @@ namespace turbo::jam {
         const auto prev_val = _service.storage.get(key);
         if (v_z == 0) {
             if (prev_val) {
-                logger::trace("service {} write: delete key: {}", _p.service_id, key);
+                logger::trace("host_service::write service {} delete key: {}", _p.service_id, key);
                 // move the stats update into the erase method?
                 _service.info.bytes -= 34 + k_z + prev_val->size();
                 --_service.info.items;
                 _service.storage.erase(key);
             } else {
-                logger::trace("service {} attempt to delete a missing key: {}", _p.service_id, key);
+                logger::trace("host_service::write service {} attempt to delete a missing key: {}", _p.service_id, key);
             }
         } else {
-            logger::trace("service {} write: set key: {} val: {} new: {}", _p.service_id, key, val_data, !static_cast<bool>(prev_val));
+            logger::trace("host_service::write service {} set key: {} val: {} new: {}", _p.service_id, key, val_data, !static_cast<bool>(prev_val));
             if (prev_val) {
                 _service.info.bytes -= prev_val->size();
             } else {
@@ -583,14 +583,12 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::designate()
     {
         logger::trace("host_service::designate");
-        if (this->_p.service_id != _ok.state.chi.designate)
-            throw machine::exit_panic_t {};
         const auto &omega = this->_p.m.regs();
         const auto o = omega[7];
-        validators_data_t<CFG> v;
-        for (size_t i = 0; i < v.size(); ++i) {
-            decoder dec { this->_p.m.mem_read(o + i * 336, 336) };
-            dec.process(v[i]);
+        auto v = jam::from_bytes<validators_data_t<CFG>>(this->_p.m.mem_read(o, 336 * CFG::V_validator_count));
+        if (this->_p.service_id != _ok.state.chi.designate) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
         }
         _ok.state.iota.emplace(std::move(v));
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
@@ -617,28 +615,30 @@ namespace turbo::jam {
         if (l > std::numeric_limits<uint32_t>::max()) [[unlikely]]
             throw machine::exit_panic_t{};
         const auto c = this->_p.m.mem_read(o, 32);
-        const auto a_t = service_info_t<CFG>{}.threshold();
         if  (f != 0 && this->_p.service_id != _ok.state.chi.bless) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        if (this->_service.info.balance < a_t + this->_service.info.threshold()) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::cash);
-            return;
-        }
         service_info_t<CFG> a {
             .code_hash=static_cast<buffer>(c),
-            .balance=a_t,
             .min_item_gas=g,
             .min_memo_gas=m,
+            .bytes=81 + l,
             .deposit_offset=f,
+            .items=2,
             .creation_slot=this->_p.slot,
             .parent_service=this->_p.service_id
         };
-        this->_service.info.balance -= a.threshold();
+        a.balance = a.threshold();
+        if (this->_service.info.balance < a.balance + this->_service.info.threshold()) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::cash);
+            return;
+        }
+        this->_service.info.balance -= a.balance;
         const auto created_id = _ok.new_service_id;
-        _ok.new_service_id = _ok.check(_ok.gen_new_service_id(created_id, 42));
-        _ok.state.services.emplace(created_id, std::move(a));
+        _ok.new_service_id = _ok.check(_ok.gen_new_service_id(created_id - 0x100U + 42U));
+        auto &new_s = _ok.state.services.emplace(created_id, std::move(a));
+        new_s.lookup_metas.set(lookup_meta_map_key_t{static_cast<buffer>(c), static_cast<uint32_t>(l)}, lookup_meta_map_val_t<CFG>{});
         this->_p.m.set_reg(7, created_id);
     }
 
@@ -652,7 +652,6 @@ namespace turbo::jam {
         const auto m = omega[9];
         const auto c = this->_p.m.mem_read(o, 32);
         this->_service.info.code_hash = static_cast<buffer>(c);
-        // The next two items must be converted into deltas!
         this->_service.info.min_item_gas = g;
         this->_service.info.min_memo_gas = m;
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
@@ -668,7 +667,6 @@ namespace turbo::jam {
         const auto l = omega[9];
         const auto o = omega[10];
         const auto m = this->_p.m.mem_read(o, sizeof(deferred_transfer_metadata_t<CFG>));
-        this->_service.info.balance -= a;
         if (!this->_p.services.contains(d)) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
@@ -677,10 +675,11 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::low);
             return;
         }
-        if (this->_service.info.balance < this->_service.info.threshold()) [[unlikely]] {
+        if (this->_service.info.balance < a + this->_service.info.threshold()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::cash);
             return;
         }
+        this->_service.info.balance -= a;
         _ok.transfers.emplace_back(this->_p.service_id, d, a, static_cast<buffer>(m), l);
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
@@ -720,7 +719,7 @@ namespace turbo::jam {
         const auto z = omega[8];
         const auto h = this->_p.m.mem_read(o, 32);
         // static_cast<uint32_t> instead of numeric_cast to return NONE instead of throwing an exception
-        logger::trace("service: {} query: h: {} l: {}", this->_p.service_id, h, z);
+        logger::trace("host_service::query service: {} h: {} l: {}", this->_p.service_id, h, z);
         const auto a = this->_service.lookup_metas.get({ static_cast<buffer>(h), static_cast<uint32_t>(z) });
         if (!a) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::none);
@@ -755,7 +754,7 @@ namespace turbo::jam {
         const auto o = omega[7];
         const auto z = omega[8];
         const auto h = this->_p.m.mem_read(o, 32);
-        logger::trace("service: {} solicit: h: {} l: {}", this->_p.service_id, h, z);
+        logger::trace("host_service::solicit service: {} h: {} l: {}", this->_p.service_id, h, z);
         lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
         auto a_res = this->_service.lookup_metas.get(key);
         if (!a_res) {
@@ -784,7 +783,7 @@ namespace turbo::jam {
         const auto z = omega[8];
         const auto h = this->_p.m.mem_read(o, 32);
         const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
-        logger::trace("service: {} forget: h: {} l: {}", this->_p.service_id, h, z);
+        logger::trace("host_service::forget service: {} h: {} l: {}", this->_p.service_id, h, z);
         auto l_res = this->_service.lookup_metas.get(key);
         if (!l_res) {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
@@ -846,7 +845,7 @@ namespace turbo::jam {
         }
         const auto h = crypto::blake2b::digest<opaque_hash_t>(i);
         const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
-        logger::trace("service {}: provide: h: {} l: {}", s_id, h, z);
+        logger::trace("host_service::provide service {}: h: {} l: {}", s_id, h, z);
         if (const auto l_res = a->lookup_metas.get(key); !l_res || !l_res->empty()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;

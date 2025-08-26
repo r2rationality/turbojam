@@ -179,6 +179,11 @@ namespace turbo::jam {
         bool operator==(const err_banned_validator_t &) const { return true; }
         void serialize(auto &) {}
     };
+    struct err_lookup_anchor_not_recent_t final: error {
+        err_lookup_anchor_not_recent_t(): error { "err_lookup_anchor_not_recent_t" } {}
+        bool operator==(const err_lookup_anchor_not_recent_t &) const { return true; }
+        void serialize(auto &) {}
+    };
     struct err_preimage_unneeded_t final: error{
         err_preimage_unneeded_t(): error { "err_preimage_unneeded_t" } {}
         bool operator==(const err_preimage_unneeded_t &) const { return true; }

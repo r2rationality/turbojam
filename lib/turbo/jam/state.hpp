@@ -115,7 +115,7 @@ namespace turbo::jam {
         gas_t::base_type min_memo_gas = 0; // m
         uint64_t bytes = 0; // b
         uint64_t deposit_offset = 0; // f
-        uint32_t items = 0;
+        uint32_t items = 0; // i
         time_slot_t<CFG> creation_slot = 0; // r
         time_slot_t<CFG> last_accumulation_slot = 0; // a
         service_id_t parent_service = 0; // p
@@ -475,7 +475,7 @@ namespace turbo::jam {
             }
         }
 
-        void emplace(const key_type &k, service_info_t<CFG> info)
+        mutable_service_state_t<CFG> &emplace(const key_type &k, service_info_t<CFG> info)
         {
             const auto [it, created] = _derived.try_emplace(
                 k,
@@ -490,6 +490,7 @@ namespace turbo::jam {
                 throw error(fmt::format("key {} already exists", k));
             if (_base.get().find(k) != _base.get().end())
                 throw error(fmt::format("key {} already exists", k));
+            return it->second.value();
         }
 
         void foreach_key(const observer_key_type &obs)
@@ -644,17 +645,22 @@ namespace turbo::jam {
         //service_code_preimages_t<CFG> code {};
 
         accumulate_context_t(const service_id_t s, const entropy_buffer_t &e, const time_slot_t<CFG> &blk_slot, mutable_state_t<CFG> &&st):
-            service_id { s },
-            state { std::move(st) }
+            service_id{s},
+            state{std::move(st)}
         {
-            const encoder enc { s, e[0], blk_slot };
+            //const encoder{s, e[0], blk_slot};
+            encoder enc{};
+            enc.uint_varlen(s);
+            enc.next_bytes(e[0]);
+            enc.uint_varlen(blk_slot.slot());
             const auto h = crypto::blake2b::digest(enc.bytes());
-            new_service_id = check(decoder::uint_fixed<service_id_t>(h) % ((1ULL << 32ULL) - 0x200ULL) + 0x100ULL);
+            const auto prev_id = decoder::uint_fixed<service_id_t>(h);
+            new_service_id = check(gen_new_service_id(prev_id));
         }
 
-        static service_id_t gen_new_service_id(const service_id_t prev_id, const service_id_t step)
+        static service_id_t gen_new_service_id(const service_id_t prev_id)
         {
-            return 0x100ULL + (prev_id - 0x100ULL + step) % ((1ULL << 32U) - 0x200ULL);
+            return prev_id % ((1ULL << 32U) - (1ULL << 9U)) + (1ULL << 8U);
         }
 
         [[nodiscard]] service_id_t check(service_id_t i) const
@@ -662,7 +668,7 @@ namespace turbo::jam {
             // Due to the limited size of RAM the number of services will always be less than 2^32 - 1
             // Thus, this loop will terminate in all cases.
             while (state.services.contains(i)) {
-                i = gen_new_service_id(i, 1);
+                i = gen_new_service_id(i - (1ULL << 8U) + 1U);
             }
             return i;
         }
@@ -708,7 +714,11 @@ namespace turbo::jam {
     using service_results_t = std::map<service_id_t, accumulate_result_t<CFG>>;
 
     // JAM (12.15): B
-    using service_commitments_t = std::map<service_id_t, opaque_hash_t>;
+    struct service_commitments_config_t {
+        std::string key_name = "service_id";
+        std::string val_name = "hash";
+    };
+    using service_commitments_t = map_t<service_id_t, opaque_hash_t, service_commitments_config_t>;
     // JAM (12.15): U + (12.24) num_items
     struct service_work_item_t {
         gas_t gas_used{};
@@ -754,6 +764,7 @@ namespace turbo::jam {
         std::shared_ptr<validators_data_t<CFG>> new_iota;
         std::shared_ptr<privileges_t<CFG>> new_chi;
         std::optional<mutable_services_state_t<CFG>> service_updates {};
+        service_commitments_t new_theta{};
         accumulate_root_t root {};
     };
 
@@ -783,9 +794,12 @@ namespace turbo::jam {
         persistent_value_t<time_slot_t<CFG>> tau{triedb, 11U};
         persistent_value_t<privileges_t<CFG>> chi{triedb, 12U};
         persistent_value_t<statistics_t<CFG>> pi{triedb, 13U};
-        persistent_value_t<ready_queue_t<CFG>> nu{triedb, 14U}; // JAM (12.3): work reports ready to be accumulated
+        persistent_value_t<ready_queue_t<CFG>> omega{triedb, 14U}; // JAM (12.3): work reports ready to be accumulated
         persistent_value_t<accumulated_queue_t<CFG>> ksi{triedb, 15U}; // JAM (12.1): recently accumulated reports
+        persistent_value_t<service_commitments_t> theta{triedb, 16U}; // JAM (7.4): recent service accumulation commitments
         accounts_t<CFG> delta{triedb}; // services
+
+        static std::string decode_val(buffer key, buffer val);
 
         header_t<CFG> make_genesis_header() const;
 

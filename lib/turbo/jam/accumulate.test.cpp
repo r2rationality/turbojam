@@ -124,7 +124,7 @@ namespace {
                 archive.process("entropy"sv, new_eta[0]);
                 st.eta.set(std::move(new_eta));
             }
-            archive.process("ready_queue"sv, st.nu);
+            archive.process("ready_queue"sv, st.omega);
             archive.process("accumulated"sv, st.ksi);
             archive.process("privileges"sv, st.chi);
             {
@@ -178,14 +178,14 @@ namespace {
                 std::make_shared<typename decltype(tc.pre.phi)::element_type>(),
                 std::make_shared<typename decltype(tc.pre.iota)::element_type>(),
                 tc.pre.chi.storage(),
-                tc.pre.nu.storage(), tc.pre.ksi.storage(),
+                tc.pre.omega.storage(), tc.pre.ksi.storage(),
                 tc.pre.delta,
                 tc.in.slot, tc.in.reports
             );
             // accumulate updates da_load statistics
             new_pi.cores = {};
             out.emplace(res.root);
-            tmp_st.nu.set(std::move(res.new_nu));
+            tmp_st.omega.set(std::move(res.new_nu));
             tmp_st.ksi.set(std::move(res.new_ksi));
             tmp_st.phi.set(std::move(res.new_phi));
             // Do not update iota since the test cases do not provide such values

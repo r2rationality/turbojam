@@ -148,13 +148,24 @@ namespace {
         void test_dir(const std::filesystem::path &data_dir)
         {
             for (const auto &e: std::filesystem::recursive_directory_iterator(data_dir)) {
-                if (e.is_regular_file() && e.path().extension() == ".bin" && e.path().stem() != "genesis")
+                if (e.is_regular_file() && e.path().extension() == ".bin" && _trace_stem_ok(e.path().stem().string()))
                     test_sample(e.path().string());
             }
         }
     private:
         my_processor_ptr_t _proc;
         io_worker_t &_io_worker;
+
+        static bool _trace_stem_ok(const std::string_view stem)
+        {
+            if (stem.size() != 8)
+                return false;
+            for (const auto k: stem) {
+                if (k < '0' || k > '9')
+                    return false;
+            }
+            return true;
+        }
 
         boost::asio::awaitable<state_snapshot_t> _get_state(const header_hash_t &hh)
         {
@@ -198,13 +209,19 @@ namespace turbo::cli::fuzzer_client {
         {
             const auto &data_dir = args.at(0);
             if (const auto it = opts.find("sock-path"); it != opts.end() && it->second) {
-                client_t<config_tiny, local_processor_t> c{std::make_unique<local_processor_t<config_tiny>>(*it->second)};
-                c.test_dir(data_dir);
+                _run_tests(client_t<config_tiny, local_processor_t>{std::make_unique<local_processor_t<config_tiny>>(*it->second)}, data_dir);
             } else {
-                client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", file::tmp_directory{"turbo-jam-fuzzer"})};
-                c.test_dir(data_dir);
+                _run_tests(client_t<config_tiny, processor_t>{std::make_unique<processor_t<config_tiny>>("dev", file::tmp_directory{"turbo-jam-fuzzer"})}, data_dir);
             }
+        }
 
+    private:
+        static void _run_tests(auto client, const std::string &path)
+        {
+            if (std::filesystem::is_directory(path))
+                client.test_dir(path);
+            else
+                client.test_sample(path);
         }
     };
     static auto instance = command::reg(std::make_shared<cmd>());

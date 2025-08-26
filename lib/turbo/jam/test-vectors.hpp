@@ -9,7 +9,7 @@
 namespace turbo::jam {
     inline std::string test_vector_dir(const std::string_view subdir)
     {
-        static const std::filesystem::path test_dir{file::install_path("test/jam-conformance/test-vectors")};
+        static const std::filesystem::path test_dir{file::install_path("test/jam-test-vectors")};
         return (test_dir / subdir).string();
     }
 }

@@ -353,7 +353,7 @@ namespace turbo::jam {
         bool operator==(const refine_context_t &o) const = default;
     };
 
-    struct authorizer_t {
+    /*struct authorizer_t {
         opaque_hash_t code_hash;
         byte_sequence_t params;
 
@@ -365,7 +365,7 @@ namespace turbo::jam {
         }
 
         bool operator==(const authorizer_t &o) const = default;
-    };
+    };*/
 
     using authorizer_hash_t = opaque_hash_t;
 
@@ -426,35 +426,26 @@ namespace turbo::jam {
     };
 
     struct work_item_t {
-        // GP s
         service_id_t service;
-        // GP h
         opaque_hash_t code_hash;
-        // GP y-bold
-        byte_sequence_t payload;
-        // GP g
-        // gas is stored as a fixed uint!
         gas_t::base_type refine_gas_limit;
-        // GP a
         gas_t::base_type accumulate_gas_limit;
-        // GP i-bold
-        sequence_t<import_spec_t> import_segments;
-        // GP x-bold
-        sequence_t<extrinsic_spec_t> extrinsic;
-        // GP e
         uint16_t export_count;
+        byte_sequence_t payload;
+        sequence_t<import_spec_t> import_segments;
+        sequence_t<extrinsic_spec_t> extrinsic;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("service"sv, service);
             archive.process("code_hash"sv, code_hash);
-            archive.process("payload"sv, payload);
             archive.process("refine_gas_limit"sv, refine_gas_limit);
             archive.process("accumulate_gas_limit"sv, accumulate_gas_limit);
+            archive.process("export_count"sv, export_count);
+            archive.process("payload"sv, payload);
             archive.process("import_segments"sv, import_segments);
             archive.process("extrinsic"sv, extrinsic);
-            archive.process("export_count"sv, export_count);
         }
 
         bool operator==(const work_item_t &o) const = default;
@@ -462,24 +453,21 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct work_package_t {
-        // GP j-bold
-        byte_sequence_t authorization;
-        // GP h
         service_id_t auth_code_host;
-        // GP u
-        authorizer_t authorizer;
-        // GP x-bold
+        opaque_hash_t auth_code_hash;
         refine_context_t<CFG> context;
-        // GP w-bold
+        byte_sequence_t authorization;
+        byte_sequence_t authorizer_config;
         sequence_t<work_item_t, 1, CFG::I_max_work_items> items;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("authorization"sv, authorization);
             archive.process("auth_code_host"sv, auth_code_host);
-            archive.process("authorizer"sv, authorizer);
+            archive.process("auth_code_hash"sv, auth_code_hash);
             archive.process("context"sv, context);
+            archive.process("authorization"sv, authorization);
+            archive.process("authorizer_config"sv, authorizer_config);
             archive.process("items"sv, items);
         }
 
@@ -673,10 +661,10 @@ namespace turbo::jam {
         refine_context_t<CFG> context {};
         varlen_uint_t<core_index_t> core_index {};
         opaque_hash_t authorizer_hash {};
+        gas_t auth_gas_used {};
         byte_sequence_t auth_output {};
         segment_root_lookup_t segment_root_lookup {};
         work_results_t results {};
-        gas_t auth_gas_used {};
 
         void serialize(auto &archive)
         {
@@ -685,10 +673,10 @@ namespace turbo::jam {
             archive.process("context"sv, context);
             archive.process("core_index"sv, core_index);
             archive.process("authorizer_hash"sv, authorizer_hash);
+            archive.process("auth_gas_used"sv, auth_gas_used);
             archive.process("auth_output"sv, auth_output);
             archive.process("segment_root_lookup"sv, segment_root_lookup);
             archive.process("results"sv, results);
-            archive.process("auth_gas_used"sv, auth_gas_used);
         }
 
         bool operator==(const work_report_t &o) const = default;
@@ -765,8 +753,6 @@ namespace turbo::jam {
             using namespace std::string_view_literals;
             archive.process("hash"sv, hash);
             archive.process("exports_root"sv, exports_root);
-            //archive.process("work_package_hash"sv, hash);
-            //archive.process("segment_tree_root"sv, exports_root);
         }
 
         std::strong_ordering operator<=>(const reported_work_package_t &o) const
@@ -1291,9 +1277,9 @@ namespace turbo::jam {
         varlen_uint_t<uint32_t> da_load = 0;
         varlen_uint_t<uint16_t> popularity = 0;
         varlen_uint_t<uint16_t> imports = 0;
-        varlen_uint_t<uint16_t> exports = 0;
-        varlen_uint_t<uint32_t> extrinsic_size = 0;
         varlen_uint_t<uint16_t> extrinsic_count = 0;
+        varlen_uint_t<uint32_t> extrinsic_size = 0;
+        varlen_uint_t<uint16_t> exports = 0;
         varlen_uint_t<uint32_t> bundle_size = 0;
         gas_t gas_used = 0;
 
@@ -1303,9 +1289,9 @@ namespace turbo::jam {
             archive.process("da_load"sv, da_load);
             archive.process("popularity"sv, popularity);
             archive.process("imports"sv, imports);
-            archive.process("exports"sv, exports);
-            archive.process("extrinsic_size"sv, extrinsic_size);
             archive.process("extrinsic_count"sv, extrinsic_count);
+            archive.process("extrinsic_size"sv, extrinsic_size);
+            archive.process("exports"sv, exports);
             archive.process("bundle_size"sv, bundle_size);
             archive.process("gas_used"sv, gas_used);
         }
@@ -1322,9 +1308,9 @@ namespace turbo::jam {
         varlen_uint_t<uint32_t> refinement_count {};
         gas_t refinement_gas_used {};
         varlen_uint_t<uint32_t> imports {};
-        varlen_uint_t<uint32_t> exports {};
-        varlen_uint_t<uint32_t> extrinsic_size {};
         varlen_uint_t<uint32_t> extrinsic_count {};
+        varlen_uint_t<uint32_t> extrinsic_size {};
+        varlen_uint_t<uint32_t> exports {};
         varlen_uint_t<uint32_t> accumulate_count {};
         gas_t accumulate_gas_used {};
         varlen_uint_t<uint32_t> on_transfers_count {};
@@ -1338,9 +1324,9 @@ namespace turbo::jam {
             archive.process("refinement_count"sv, refinement_count);
             archive.process("refinement_gas_used"sv, refinement_gas_used);
             archive.process("imports"sv, imports);
-            archive.process("exports"sv, exports);
-            archive.process("extrinsic_size"sv, extrinsic_size);
             archive.process("extrinsic_count"sv, extrinsic_count);
+            archive.process("extrinsic_size"sv, extrinsic_size);
+            archive.process("exports"sv, exports);
             archive.process("accumulate_count"sv, accumulate_count);
             archive.process("accumulate_gas_used"sv, accumulate_gas_used);
             archive.process("on_transfers_count"sv, on_transfers_count);

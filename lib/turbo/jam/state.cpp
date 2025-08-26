@@ -4,7 +4,6 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <algorithm>
-#include <iostream>
 #include <ark-vrf.hpp>
 #include <numeric>
 #include <turbo/crypto/blake2b.hpp>
@@ -351,7 +350,6 @@ namespace turbo::jam {
     {
         accumulate_service_operands_t service_ops {};
         for (const auto &r: reports) {
-            new_pi.cores[r.core_index].da_load += r.package_spec.length;
             for (const auto &r_res: r.results) {
                 service_ops[r_res.service_id].emplace_back(
                     accumulate_operand_t {
@@ -468,10 +466,16 @@ namespace turbo::jam {
         const entropy_buffer_t &new_eta, mutable_services_state_t<CFG> &new_delta,
         time_slot_t<CFG> slot, service_id_t service_id, const deferred_transfers_t<CFG> &transfers)
     {
-        const auto *service_ptr = new_delta.get_mutable_ptr(service_id);
+        auto *service_ptr = new_delta.get_mutable_ptr(service_id);
         if (!service_ptr) [[unlikely]]
             throw error(fmt::format("invoke_on_transfer: unknown service id {}", service_id));
-        const auto &service_info = service_ptr->info;
+        auto &service_info = service_ptr->info;
+        const auto amount = std::ranges::fold_left(
+            transfers | std::views::transform(&deferred_transfer_t<CFG>::amount),
+            balance_t{0},
+            std::plus()
+        );
+        service_info.balance += amount;
         auto code = service_ptr->preimages.get(service_info.code_hash);
         if (!code) [[unlikely]] {
             logger::warn("service {} on_transfer: preimage for code hash {} is not available!", service_id, service_info.code_hash);
@@ -539,6 +543,7 @@ namespace turbo::jam {
             else
                 work_queued.emplace_back(r, std::move(deps));
         }
+        accumulate_update_deps<CFG>(work_queued, known_reports);
 
         set_t<work_package_hash_t> immediate_hashes {};
         for (const auto &r: work_immediate)
@@ -632,7 +637,7 @@ namespace turbo::jam {
             res.new_ksi->back().emplace(wrh);
 
         // The actually accumulated report set can be a subset of the reports ready for accumulation due to the gas limit.
-        // Therefore, the nu must be updated given the list of actually accumulated reports
+        // Therefore, the omega must be updated given the list of actually accumulated reports
 
         // (12.34)
         res.new_nu = std::make_shared<ready_queue_t<CFG>>(*prev_nu);
@@ -660,6 +665,7 @@ namespace turbo::jam {
                 nodes.emplace_back(crypto::keccak::digest(enc.bytes()));
             }
             res.root = merkle::binary::encode_keccak(nodes);
+            res.new_theta = std::move(plus_res.commitments);
         }
         return res;
     }
@@ -1145,7 +1151,9 @@ namespace turbo::jam {
         // - updates pi';
         // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
         auto ready_reports = rho_dagger_2(
-            new_rho, new_pi, new_st.kappa.get(),  blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
+            new_rho, new_pi,
+            tau.get().epoch() == new_st.tau.get().epoch() ? new_st.kappa.get() : new_st.lambda.get(),
+            blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
         // JAM (4.12)
         const auto report_res = new_st.update_reports(
             new_rho, new_pi,
@@ -1163,12 +1171,12 @@ namespace turbo::jam {
             new_st.eta.get(),
             tau.get(),
             phi.storage(), iota.storage(), chi.storage(),
-            nu.storage(), ksi.storage(),
+            omega.storage(), ksi.storage(),
             delta,
             blk.header.slot, ready_reports
         );
         new_st.ksi.set(std::move(accumulate_res.new_ksi));
-        new_st.nu.set(std::move(accumulate_res.new_nu));
+        new_st.omega.set(std::move(accumulate_res.new_nu));
         new_st.phi.set(std::move(accumulate_res.new_phi));
         new_st.iota.set(std::move(accumulate_res.new_iota));
         new_st.chi.set(std::move(accumulate_res.new_chi));
@@ -1181,6 +1189,7 @@ namespace turbo::jam {
                 reported_work.emplace_hint(reported_work.end(), g.report.package_spec.hash, g.report.package_spec.exports_root);
             }
             new_st.beta.set(state_t::beta_prime(std::move(new_beta), blk.header.hash(), accumulate_res.root, reported_work));
+            new_st.theta.set(std::move(accumulate_res.new_theta));
         }
 
         // (4.18)
@@ -1208,7 +1217,7 @@ namespace turbo::jam {
     template<typename CFG>
     work_reports_t<CFG> state_t<CFG>::rho_dagger_2(
         availability_assignments_t<CFG> &new_rho, statistics_t<CFG> &tmp_pi,
-        const validators_data_t<CFG> &new_kappa,
+        const validators_data_t<CFG> &validators,
         const time_slot_t<CFG> &slot, const header_hash_t &parent, const assurances_extrinsic_t<CFG> &assurances)
     {
         std::optional<validator_index_t> prev_validator {};
@@ -1229,7 +1238,7 @@ namespace turbo::jam {
                 enc.process(a.bitfield);
                 msg << crypto::blake2b::digest(enc.bytes());
             }
-            const auto &vk = new_kappa[a.validator_index].ed25519;
+            const auto &vk = validators[a.validator_index].ed25519;
             if (!crypto::ed25519::verify(a.signature, msg, vk)) [[unlikely]]
                 throw err_bad_signature_t {};
             for (size_t ci = 0; ci < CFG::C_core_count; ++ci) {
@@ -1244,6 +1253,7 @@ namespace turbo::jam {
         for (size_t ci = 0; ci < CFG::C_core_count; ++ci) {
             if (new_rho[ci]) {
                 if (tmp_pi.cores[ci].popularity >= CFG::validator_super_majority) {
+                    tmp_pi.cores[ci].da_load += new_rho[ci]->report.package_spec.length;
                     res.emplace_back(std::move(new_rho[ci]->report));
                     new_rho[ci].reset();
                 } else if (slot >= new_rho[ci]->timeout + CFG::U_reported_work_timeout) {
@@ -1304,7 +1314,7 @@ namespace turbo::jam {
         tau.reset();
         chi.reset();
         pi.reset();
-        nu.reset();
+        omega.reset();
         ksi.reset();
         delta = copy.delta;
     }
@@ -1332,7 +1342,7 @@ namespace turbo::jam {
         tau.reset();
         chi.reset();
         pi.reset();
-        nu.reset();
+        omega.reset();
         ksi.reset();
         delta.clear();
         for (const auto &[key, bytes]: st) {
@@ -1346,6 +1356,41 @@ namespace turbo::jam {
             }
         }
         return *this;
+    }
+
+    template<typename CFG>
+    std::string state_t<CFG>::decode_val(const buffer key, const buffer val)
+    {
+        if (key.size() != sizeof(merkle::key_t)) [[unlikely]]
+            throw error(fmt::format("Invalid key size: {} bytes while expecting {}", key.size(), sizeof(merkle::key_t)));
+        if (key[0] == 0xFF) {
+            if (const auto ssum =  + key[2] + key[4] + key[6] + std::accumulate(key.begin() + 8U, key.end(), size_t{0}); ssum == 0) {
+                const auto service_id = decoder::uint_fixed<service_id_t>(byte_array<4>{key[1], key[3], key[5], key[7]});
+                const auto info = jam::from_bytes<service_info_t<CFG>>(val);
+                return fmt::format("service {} info: {}", service_id, info);
+            }
+        } else if (const auto ksum = std::accumulate(key.begin() + 1U, key.end(), size_t{0}); ksum == 0) [[likely]] {
+            switch (key[0]) {
+                case 1: return fmt::format("alpha: {}", jam::from_bytes<typename decltype(alpha)::element_type>(val));
+                case 2: return fmt::format("phi: {}", jam::from_bytes<typename decltype(phi)::element_type>(val));
+                case 3: return fmt::format("beta: {}", jam::from_bytes<typename decltype(beta)::element_type>(val));
+                case 4: return fmt::format("gamma: {}", jam::from_bytes<typename decltype(gamma)::element_type>(val));
+                case 5: return fmt::format("psi: {}", jam::from_bytes<typename decltype(psi)::element_type>(val));
+                case 6: return fmt::format("eta: {}", jam::from_bytes<typename decltype(eta)::element_type>(val));
+                case 7: return fmt::format("iota: {}", jam::from_bytes<typename decltype(iota)::element_type>(val));
+                case 8: return fmt::format("kappa: {}", jam::from_bytes<typename decltype(kappa)::element_type>(val));
+                case 9: return fmt::format("lambda: {}", jam::from_bytes<typename decltype(lambda)::element_type>(val));
+                case 10: return fmt::format("rho: {}", jam::from_bytes<typename decltype(rho)::element_type>(val));
+                case 11: return fmt::format("tau: {}", jam::from_bytes<typename decltype(tau)::element_type>(val));
+                case 12: return fmt::format("chi: {}", jam::from_bytes<typename decltype(chi)::element_type>(val));
+                case 13: return fmt::format("pi: {}", jam::from_bytes<typename decltype(pi)::element_type>(val));
+                case 14: return fmt::format("omega: {}", jam::from_bytes<typename decltype(omega)::element_type>(val));
+                case 15: return fmt::format("ksi: {}", jam::from_bytes<typename decltype(ksi)::element_type>(val));
+                case 16: return fmt::format("theta: {}", jam::from_bytes<typename decltype(theta)::element_type>(val));
+                [[unlikely]] default: break;
+            }
+        }
+        throw error(fmt::format("An unsupported key {}", key));
     }
 
     template struct state_t<config_prod>;

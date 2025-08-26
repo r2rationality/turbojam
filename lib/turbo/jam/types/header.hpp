@@ -50,25 +50,25 @@ namespace turbo::jam {
     template<typename CFG>
     struct header_t {
         // H_p
-        header_hash_t parent {};
+        header_hash_t parent{};
         // H_r - ancestors need to be stored only for previous 24-hours of any block to be validated
-        state_root_t parent_state_root {};
+        state_root_t parent_state_root{};
         // H_x - merkle commitment (H^#) to the block's external data
-        opaque_hash_t extrinsic_hash {};
+        opaque_hash_t extrinsic_hash{};
         // H_t
-        time_slot_t<CFG> slot {};
+        time_slot_t<CFG> slot{};
         // H_e
-        optional_t<epoch_mark_t<CFG>> epoch_mark {};
+        optional_t<epoch_mark_t<CFG>> epoch_mark{};
         // H_w
-        optional_t<tickets_mark_t<CFG>> tickets_mark {};
-        // H_o
-        offenders_mark_t offenders_mark {};
+        optional_t<tickets_mark_t<CFG>> tickets_mark{};
         // H_i
-        validator_index_t author_index {};
+        validator_index_t author_index{};
         // H_v
-        bandersnatch_vrf_signature_t entropy_source {};
+        bandersnatch_vrf_signature_t entropy_source{};
+        // H_o
+        offenders_mark_t offenders_mark{};
         // H_s
-        bandersnatch_vrf_signature_t seal {};
+        bandersnatch_vrf_signature_t seal{};
 
         [[nodiscard]] uint8_vector unsigned_bytes() const
         {
@@ -105,9 +105,9 @@ namespace turbo::jam {
             archive.process("slot"sv, slot);
             archive.process("epoch_mark"sv, epoch_mark);
             archive.process("tickets_mark"sv, tickets_mark);
-            archive.process("offenders_mark"sv, offenders_mark);
             archive.process("author_index"sv, author_index);
             archive.process("entropy_source"sv, entropy_source);
+            archive.process("offenders_mark"sv, offenders_mark);
         }
 
         void serialize(auto &archive)

@@ -45,7 +45,6 @@ namespace turbo::jam {
         static constexpr size_t P_slot_period = 6;
         static constexpr size_t Q_auth_queue_size = 80;
         static constexpr size_t R_core_assignment_rotation_period = 10;
-        static constexpr size_t S_accumulation_queue_size = 1024;
         static constexpr size_t T_max_package_extrinsics = 128;
         static constexpr size_t U_reported_work_timeout = 5;
         static constexpr size_t validator_factor = 3;
@@ -89,9 +88,11 @@ namespace turbo::jam {
     };
 
     struct config_tiny: config_prod {
-        static constexpr size_t E_epoch_length = 12;
         static constexpr size_t C_core_count = 2;
         static constexpr size_t D_preimage_expunge_delay = 32;
+        static constexpr size_t E_epoch_length = 12;
+        static constexpr size_t GT_max_total_accumulation_gas = 20'000'000;
+        static constexpr size_t K_max_tickets_per_block = 3;
         static constexpr size_t L_max_lookup_anchor_age = 14;
         static constexpr size_t N_ticket_attempts = 3;
         static constexpr size_t R_core_assignment_rotation_period = 4;
