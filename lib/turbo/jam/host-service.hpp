@@ -64,7 +64,7 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct host_service_base_t {
-        host_service_base_t(const host_service_params_t<CFG> &params);
+        host_service_base_t(host_service_params_t<CFG> params);
     protected:
         using call_func = std::function<void()>;
         struct service_lookup_res_t {
@@ -72,7 +72,7 @@ namespace turbo::jam {
             mutable_service_state_t<CFG> *account;
         };
 
-        const host_service_params_t<CFG> &_p;
+        const host_service_params_t<CFG> _p;
         mutable_service_state_t<CFG> &_service;
 
         // helper methods
@@ -94,7 +94,7 @@ namespace turbo::jam {
         using base_type = host_service_base_t<CFG>;
         using base_type::base_type;
 
-        host_service_is_authorized_t(const host_service_params_t<CFG> &params);
+        host_service_is_authorized_t(host_service_params_t<CFG> params);
         [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     };
 
@@ -103,7 +103,7 @@ namespace turbo::jam {
         using base_type = host_service_base_t<CFG>;
         using base_type::base_type;
 
-        host_service_refine_t(const host_service_params_t<CFG> &params);
+        host_service_refine_t(host_service_params_t<CFG> params);
         [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     };
 
@@ -111,7 +111,7 @@ namespace turbo::jam {
     struct host_service_accumulate_t: protected host_service_base_t<CFG> {
         using base_type = host_service_base_t<CFG>;
 
-        host_service_accumulate_t(const host_service_params_t<CFG> &params,
+        host_service_accumulate_t(host_service_params_t<CFG> params,
             accumulate_context_t<CFG> &ctx_ok, accumulate_context_t<CFG> &ctx_err);
         [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     private:
@@ -139,7 +139,7 @@ namespace turbo::jam {
         using base_type = host_service_base_t<CFG>;
         using base_type::base_type;
 
-        host_service_on_transfer_t(const host_service_params_t<CFG> &params);
+        host_service_on_transfer_t(host_service_params_t<CFG> params);
         [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
     };
 }

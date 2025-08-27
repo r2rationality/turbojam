@@ -1955,11 +1955,13 @@ namespace turbo::jam::machine {
         return m;
     }
 
-    invocation_t invoke(const buffer blob, const uint32_t pc, const gas_t gas, const buffer args, const host_call_func_t &host_fn)
+    invocation_t invoke(const buffer blob, const uint32_t pc, const gas_t gas, const buffer args,
+        const host_service_init_func_t &host_init, const host_service_call_func_t &host_fn)
     {
         auto m = configure(blob, pc, gas, args);
         if (!m) [[unlikely]]
             return { 0, exit_panic_t {} };
+        host_init(*m);
         const auto halt_status = [&] {
             auto data = m->try_mem_read(m->regs().at(7), m->regs().at(8));
             return data ? std::move(*data) : uint8_vector {};
@@ -1972,7 +1974,7 @@ namespace turbo::jam::machine {
                 std::visit([&](const auto &rv) {
                     using T = std::decay_t<decltype(rv)>;
                     if constexpr (std::is_same_v<T, exit_host_call_t>) {
-                        const auto h_res = host_fn(rv.id, *m);
+                        const auto h_res = host_fn(rv.id);
                         std::visit([&](auto &&hv) {
                             using HT = std::decay_t<decltype(hv)>;
                             if constexpr (std::is_same_v<HT, std::monostate>) {

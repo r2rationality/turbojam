@@ -306,8 +306,10 @@ namespace turbo::jam::machine {
         gas_t gas_used {};
         invocation_result_base_t result;
     };
-    using host_call_func_t = std::function<host_call_res_t(register_val_t, machine_t &)>;
+    using host_service_init_func_t = std::function<void(machine_t &)>;
+    using host_service_call_func_t = std::function<host_call_res_t(register_val_t)>;
 
     extern std::optional<machine_t> configure(buffer blob, uint32_t pc, gas_t gas, buffer args);
-    extern invocation_t invoke(buffer blob, uint32_t pc, gas_t gas, buffer args, const host_call_func_t &host_fn);
+    extern invocation_t invoke(buffer blob, uint32_t pc, gas_t gas, buffer args,
+        const host_service_init_func_t &host_init, const host_service_call_func_t &host_fn);
 }

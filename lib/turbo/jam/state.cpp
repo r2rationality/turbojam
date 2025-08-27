@@ -418,22 +418,30 @@ namespace turbo::jam {
             for (const auto &op: ops)
                 gas_limit += op.accumulate_gas;
 
+            std::optional<host_service_accumulate_t<CFG>> host_service{};
             // JAM (B.9): bold psi_a
             const auto inv_res = machine::invoke(
                 static_cast<buffer>(*code), 5U, gas_limit, arg_enc.bytes(),
-                [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                    const host_service_params_t<CFG> params {
-                        .m=m,
-                        .services=ctx_ok.state.services,
-                        .service_id=service_id,
-                        .slot=slot,
-                        .fetch={
-                            .nonce=&new_eta[0],
-                            .operands=&ops
-                        }
-                    };
-                    host_service_accumulate_t<CFG> host_service { params, ctx_ok, ctx_err };
-                    return host_service.call(id);
+                [&](machine::machine_t &m) {
+                    host_service.emplace(
+                        host_service_params_t<CFG>{
+                            .m=m,
+                            .services=ctx_ok.state.services,
+                            .service_id=service_id,
+                            .slot=slot,
+                            .fetch={
+                                .nonce=&new_eta[0],
+                                .operands=&ops
+                            }
+                        },
+                        ctx_ok,
+                        ctx_err
+                    );
+                },
+                [&](const machine::register_val_t id) -> machine::host_call_res_t {
+                    if (!host_service) [[unlikely]]
+                        return machine::exit_panic_t{};
+                    return host_service->call(id);
                 }
             );
             // (B.13)
@@ -485,21 +493,27 @@ namespace turbo::jam {
             if (const auto code_hash = crypto::blake2b::digest(*code); code_hash != service_info.code_hash) [[unlikely]]
             throw error(fmt::format("the blob registered for code hash {} has hash {}", service_info.code_hash, code_hash));
             gas_t::base_type gas_limit = 0;
+            std::optional<host_service_on_transfer_t<CFG>> host_service{};
             const auto inv_res = machine::invoke(
                 static_cast<buffer>(*code), 10U, gas_limit, buffer{},
-                [&](const machine::register_val_t id, machine::machine_t &m) -> machine::host_call_res_t {
-                    const host_service_params_t<CFG> params{
-                        .m=m,
-                        .services=new_delta,
-                        .service_id=service_id,
-                        .slot=slot,
-                        .fetch={
-                            .nonce=&new_eta[0],
-                            .transfers=&transfers
+                [&](machine::machine_t &m) {
+                    host_service.emplace(
+                        host_service_params_t<CFG>{
+                            .m=m,
+                            .services=new_delta,
+                            .service_id=service_id,
+                            .slot=slot,
+                            .fetch={
+                                .nonce=&new_eta[0],
+                                .transfers=&transfers
+                            }
                         }
-                    };
-                    host_service_on_transfer_t<CFG> host_service{params};
-                    return host_service.call(id);
+                    );
+                },
+                [&](const machine::register_val_t id) -> machine::host_call_res_t {
+                    if (!host_service) [[unlikely]]
+                        return machine::exit_panic_t{};
+                    return host_service->call(id);
                 }
             );
             return inv_res.gas_used;

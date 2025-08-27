@@ -14,15 +14,15 @@ namespace turbo::jam {
     };
 
     template<typename CFG>
-    host_service_base_t<CFG>::host_service_base_t(const host_service_params_t<CFG> &params):
-        _p{params},
+    host_service_base_t<CFG>::host_service_base_t(host_service_params_t<CFG> params):
+        _p{std::move(params)},
         _service{_p.services.get_mutable(_p.service_id)}
     {
     }
 
     template<typename CFG>
-    host_service_on_transfer_t<CFG>::host_service_on_transfer_t(const host_service_params_t<CFG> &params):
-        host_service_base_t<CFG>{params}
+    host_service_on_transfer_t<CFG>::host_service_on_transfer_t(host_service_params_t<CFG> params):
+        host_service_base_t<CFG>{std::move(params)}
     {
         logger::trace("host service on-transfer started");
     }
@@ -44,6 +44,7 @@ namespace turbo::jam {
                     gas_used = 0;
                     break;
                 [[unlikely]] default:
+                    logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
@@ -52,8 +53,8 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    host_service_is_authorized_t<CFG>::host_service_is_authorized_t(const host_service_params_t<CFG> &params):
-        host_service_base_t<CFG>{params}
+    host_service_is_authorized_t<CFG>::host_service_is_authorized_t(host_service_params_t<CFG> params):
+        host_service_base_t<CFG>{std::move(params)}
     {
         logger::trace("host service is_authorized started");
     }
@@ -79,8 +80,8 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    host_service_refine_t<CFG>::host_service_refine_t(const host_service_params_t<CFG> &params):
-        host_service_base_t<CFG>{params}
+    host_service_refine_t<CFG>::host_service_refine_t(host_service_params_t<CFG> params):
+        host_service_base_t<CFG>{std::move(params)}
     {
         logger::trace("host service refine started");
     }
@@ -117,6 +118,7 @@ namespace turbo::jam {
                     gas_used = 0;
                     break;
                 default:
+                    logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
@@ -358,24 +360,24 @@ namespace turbo::jam {
 
     template<typename CFG>
     void host_service_base_t<CFG>::read() {
-        logger::trace("host_service::read");
         const auto &phi = _p.m.regs();
         const auto [s_id, a] = _get_service(phi[7]);
         const auto ko = phi[8];
         const auto kz = phi[9];
         const auto o = phi[10];
+        const auto key = _p.m.mem_read(ko, kz);
         std::optional<uint8_vector> val {};
         if (a) {
-            const auto key = _p.m.mem_read(ko, kz);
-            logger::trace("host call: read: service_id: {} key: {}", s_id, key);
             val = a->storage.get(key);
         }
         if (val) {
+            logger::trace("host call: read: service_id: {} key: {} -> {} bytes", s_id, key, val->size());
             const auto f = std::min(phi[11], val->size());
             const auto l = std::min(phi[12], val->size() - f);
             _p.m.mem_write(o, static_cast<buffer>(*val).subbuf(f, l));
             _p.m.set_reg(7, val->size());
         } else {
+            logger::trace("host call: read: service_id: {} key: {} -> NONE", s_id, key);
             _p.m.set_reg(7, machine::host_call_res_t::none);
         }
     }
@@ -459,15 +461,15 @@ namespace turbo::jam {
         if (phi[8] != 0 || phi[9] != 0)
             target.emplace(_p.m.mem_read(phi[8], phi[9]).str());
         const auto msg = _p.m.mem_read(phi[10], phi[11]);
-        logger::trace("[PVM-log/{}] [level={}]: {}", target.value_or("default"), level, msg.str());
+        logger::trace("host_service::log target={} level={}: {}", target.value_or("default"), level, msg.str());
     }
 
     template<typename CFG>
-    host_service_accumulate_t<CFG>::host_service_accumulate_t(const host_service_params_t<CFG> &params,
+    host_service_accumulate_t<CFG>::host_service_accumulate_t(host_service_params_t<CFG> params,
             accumulate_context_t<CFG> &ctx_ok, accumulate_context_t<CFG> &ctx_err):
-        base_type { params },
-        _ok { ctx_ok },
-        _err { ctx_err }
+        base_type{std::move(params)},
+        _ok{ctx_ok},
+        _err{ctx_err}
     {
         logger::trace("host service accumulate started");
     }
@@ -508,6 +510,7 @@ namespace turbo::jam {
                     call_func = &host_service_accumulate_t::log;
                     break;
                 default:
+                    logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     return;
             }
@@ -837,15 +840,15 @@ namespace turbo::jam {
         const auto &phi = this->_p.m.regs();
         const auto o = phi[7];
         const auto z = phi[8];
-        const auto [s_id, a] = this->_get_service(phi[7]);
         auto i = this->_p.m.mem_read(o, z);
+        const auto h = crypto::blake2b::digest<opaque_hash_t>(i);
+        const auto [s_id, a] = this->_get_service(phi[7]);
+        logger::trace("host_service::provide service {}: h: {} l: {}", s_id, h, z);
         if (!a) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
-        const auto h = crypto::blake2b::digest<opaque_hash_t>(i);
         const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
-        logger::trace("host_service::provide service {}: h: {} l: {}", s_id, h, z);
         if (const auto l_res = a->lookup_metas.get(key); !l_res || !l_res->empty()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
