@@ -1,58 +1,72 @@
+function(add_cargo_staticlib TARGET_NAME CRATE_DIR LIB_BASENAME)
+    set(CARGO_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cargo-${TARGET_NAME}")
+    if (MSVC)
+        set(LIB_PATH "${CARGO_OUT_DIR}/release/${LIB_BASENAME}.lib")
+    else()
+        set(LIB_PATH "${CARGO_OUT_DIR}/release/lib${LIB_BASENAME}.a")
+    endif()
+
+    set(CRATE_TOML "${CRATE_DIR}/Cargo.toml")
+    set(CRATE_LOCK "${CRATE_DIR}/Cargo.lock")
+    file(GLOB_RECURSE CRATE_SRC CONFIGURE_DEPENDS "${CRATE_DIR}/src/*.rs" "${CRATE_DIR}/build.rs")
+
+    add_custom_command(
+        OUTPUT "${LIB_PATH}"
+        COMMAND "${CARGO}" build --release --target-dir ${CARGO_OUT_DIR}
+        WORKING_DIRECTORY "${CRATE_DIR}"
+        DEPENDS "${CRATE_TOML}" "${CRATE_LOCK}" ${CRATE_SRC}
+        VERBATIM
+        USES_TERMINAL
+    )
+
+    add_custom_target(${TARGET_NAME}_build DEPENDS "${LIB_PATH}")
+
+    add_library(${TARGET_NAME} STATIC IMPORTED GLOBAL)
+    set_target_properties(${TARGET_NAME} PROPERTIES
+        IMPORTED_LOCATION "${LIB_PATH}"
+        INTERFACE_INCLUDE_DIRECTORIES "${CRATE_DIR}/include"
+    )
+    add_dependencies(${TARGET_NAME} ${TARGET_NAME}_build)
+endfunction()
+
 find_program(CARGO cargo REQUIRED)
 
-add_library(ark_vrf_cpp STATIC IMPORTED)
-target_include_directories(ark_vrf_cpp INTERFACE ark-vrf-cpp/include)
+add_cargo_staticlib(erasure_coding "${CMAKE_CURRENT_LIST_DIR}/erasure-coding" "erasure_coding")
+add_cargo_staticlib(ark_vrf_cpp  "${CMAKE_CURRENT_LIST_DIR}/ark-vrf-cpp" "ark_vrf_cpp")
 if (MSVC)
-    set(ARK_VRF_CPP_PATH "${CMAKE_CURRENT_LIST_DIR}/ark-vrf-cpp/target/release/ark_vrf_cpp.lib")
-else()
-    set(ARK_VRF_CPP_PATH "${CMAKE_CURRENT_LIST_DIR}/ark-vrf-cpp/target/release/libark_vrf_cpp.a")
+    target_link_libraries(ark_vrf_cpp INTERFACE bcrypt advapi32 kernel32 advapi32 ntdll userenv ws2_32 dbghelp)
 endif()
-add_custom_target(
-    ark_vrf_cpp_lib ${CARGO} build --release
-    BYPRODUCTS ${ARK_VRF_CPP_PATH}
-    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/ark-vrf-cpp"
-)
-add_dependencies(ark_vrf_cpp DEPENDS ark_vrf_cpp_lib)
-set_target_properties(ark_vrf_cpp PROPERTIES IMPORTED_LOCATION ${ARK_VRF_CPP_PATH})
 
-add_library(erasure_coding STATIC IMPORTED)
-target_include_directories(erasure_coding INTERFACE erasure-coding/include)
-if (MSVC)
-    set(ERASURE_CODING_PATH "${CMAKE_CURRENT_LIST_DIR}/erasure-coding/target/release/erasure_coding.lib")
-else()
-    set(ERASURE_CODING_PATH "${CMAKE_CURRENT_LIST_DIR}/erasure-coding/target/release/liberasure_coding.a")
-endif()
-add_custom_target(
-        erasure_coding_lib ${CARGO} build --release
-        BYPRODUCTS ${ERASURE_CODING_PATH}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/erasure-coding"
-)
-add_dependencies(erasure_coding DEPENDS erasure_coding_lib)
-set_target_properties(erasure_coding PROPERTIES IMPORTED_LOCATION ${ERASURE_CODING_PATH})
-
-add_library(3rdparty OBJECT hash-library/keccak.cpp nanobench.cpp)
-target_include_directories(3rdparty PUBLIC .)
-set_target_properties(3rdparty PROPERTIES LINKER_LANGUAGE CXX)
-target_link_libraries(3rdparty PUBLIC ark_vrf_cpp erasure_coding)
+set(MSQUIC_SRC   "${CMAKE_CURRENT_LIST_DIR}/msquic")
+set(MSQUIC_BUILD "${CMAKE_CURRENT_BINARY_DIR}/msquic")
+set(MSQUIC_INST  "${CMAKE_CURRENT_BINARY_DIR}/msquic-install") # you used this path already
+set(MSQUIC_LIB   "${MSQUIC_INST}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}msquic${CMAKE_STATIC_LIBRARY_SUFFIX}")
 
 include(ExternalProject)
 ExternalProject_Add(
     msquic_build
-    SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/msquic"
-    BINARY_DIR "${CMAKE_CURRENT_LIST_DIR}/msquic/bld"
-    INSTALL_DIR "${CMAKE_CURRENT_LIST_DIR}/msquic/build"
+    SOURCE_DIR  "${MSQUIC_SRC}"
+    BINARY_DIR  "${MSQUIC_BUILD}"
+    INSTALL_DIR "${MSQUIC_INST}"
     CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -DQUIC_BUILD_SHARED=OFF
-    BUILD_ALWAYS 1
+    UPDATE_DISCONNECTED
+    STEP_TARGETS build install
+    BUILD_BYPRODUCTS "${MSQUIC_LIB}"
 )
 
-add_dependencies(3rdparty msquic_build)
-target_include_directories(3rdparty PUBLIC msquic/build/include)
-target_link_directories(3rdparty PUBLIC msquic/build/lib)
-target_link_libraries(3rdparty PUBLIC msquic)
+add_library(msquic STATIC IMPORTED GLOBAL)
+file(MAKE_DIRECTORY "${MSQUIC_INST}/include")
+set_target_properties(msquic PROPERTIES
+    IMPORTED_LOCATION "${MSQUIC_LIB}"
+    INTERFACE_INCLUDE_DIRECTORIES "${MSQUIC_INST}/include"
+)
+add_dependencies(msquic msquic_build-install)
+
+add_library(3rdparty OBJECT hash-library/keccak.cpp nanobench.cpp)
+target_include_directories(3rdparty PUBLIC .)
+set_target_properties(3rdparty PROPERTIES LINKER_LANGUAGE CXX)
+target_link_libraries(3rdparty PUBLIC ark_vrf_cpp erasure_coding msquic)
 
 if(UNIX)
     target_link_libraries(3rdparty PUBLIC numa)
-endif()
-if (MSVC)
-    target_link_libraries(ark_vrf_cpp INTERFACE bcrypt.lib advapi32.lib kernel32.lib advapi32.lib ntdll.lib userenv.lib ws2_32.lib dbghelp.lib)
 endif()
