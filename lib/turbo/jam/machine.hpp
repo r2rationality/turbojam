@@ -256,6 +256,7 @@ namespace turbo::jam::machine {
         void consume_gas(gas_t gas);
         void set_reg(size_t id, register_val_t val);
         void mem_write(size_t offset, buffer data);
+        void mem_read(std::span<uint8_t> out, size_t offset) const;
         [[nodiscard]] uint8_vector mem_read(size_t offset, size_t sz) const;
         void skip_op();
         [[nodiscard]] const registers_t &regs() const;

@@ -134,15 +134,11 @@ namespace turbo::jam::machine {
             return _regs;
         }
 
-        uint8_vector mem_read(const size_t offset, const size_t sz) const
+        void mem_read(std::span<uint8_t> res, const size_t offset) const
         {
-            uint8_vector res {};
-            res.reserve(sz);
-            for (size_t p = offset, end = offset + sz; p < end; ++p) {
-                // _load_unsigned throws page_fault on error
-                res.emplace_back(static_cast<uint8_t>(_load_unsigned(p, 1)));
+            for (size_t p = offset, end = offset + res.size(), i = 0; p < end; ++p, ++i) {
+                res[i] = static_cast<uint8_t>(_load_unsigned(p, 1));
             }
-            return res;
         }
 
         void mem_write(const size_t offset, const buffer data)
@@ -1862,9 +1858,16 @@ namespace turbo::jam::machine {
         _impl_ptr()->mem_write(offset, data);
     }
 
+    void machine_t::mem_read(const std::span<uint8_t> out, const size_t offset) const
+    {
+        return const_cast<machine_t *>(this)->_impl_ptr()->mem_read(out, offset);
+    }
+
     uint8_vector machine_t::mem_read(const size_t offset, const size_t sz) const
     {
-        return const_cast<machine_t *>(this)->_impl_ptr()->mem_read(offset, sz);
+        uint8_vector res(sz);
+        mem_read(res, offset);
+        return res;
     }
 
     std::optional<uint8_vector> machine_t::try_mem_read(const size_t offset, const size_t sz) const noexcept

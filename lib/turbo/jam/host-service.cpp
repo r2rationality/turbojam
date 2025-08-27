@@ -533,13 +533,16 @@ namespace turbo::jam {
         const auto a_bytes = this->_p.m.mem_read(a, 4 * CFG::C_core_count);
         auto assigners = jam::from_bytes<assigners_t<CFG>>(a_bytes);
 
-        free_services_t fs {};
-        for (size_t i = 0; i < n; ++i) {
-            const auto bytes = this->_p.m.mem_read(o + i * 12, 12);
-            decoder dec { bytes };
-            const auto s = dec.uint_fixed<service_id_t>(4);
-            const gas_t g { dec.uint_fixed<gas_t::base_type>(8) };
-            fs.emplace_back(s, g);
+        free_services_t fs{};
+        {
+            fs.reserve(n);
+            const auto bytes = this->_p.m.mem_read(o, n * 12U);
+            decoder dec {bytes};
+            for (size_t i = 0; i < n; ++i) {
+                const auto s = dec.uint_fixed<service_id_t>(4);
+                const gas_t g { dec.uint_fixed<gas_t::base_type>(8) };
+                fs.emplace_back(s, g);
+            }
         }
 
         if (_ok.state.chi.bless != this->_p.service_id) [[unlikely]] {
@@ -588,7 +591,8 @@ namespace turbo::jam {
         logger::trace("host_service::designate");
         const auto &phi = this->_p.m.regs();
         const auto o = phi[7];
-        auto v = jam::from_bytes<validators_data_t<CFG>>(this->_p.m.mem_read(o, 336 * CFG::V_validator_count));
+        static_assert(sizeof(validator_data_t) == 336U);
+        auto v = jam::from_bytes<validators_data_t<CFG>>(this->_p.m.mem_read(o, sizeof(validator_data_t) * CFG::V_validator_count));
         if (this->_p.service_id != _ok.state.chi.designate) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
@@ -653,8 +657,7 @@ namespace turbo::jam {
         const auto o = phi[7];
         const auto g = phi[8];
         const auto m = phi[9];
-        const auto c = this->_p.m.mem_read(o, 32);
-        this->_service.info.code_hash = static_cast<buffer>(c);
+        this->_p.m.mem_read(this->_service.info.code_hash, o);
         this->_service.info.min_item_gas = g;
         this->_service.info.min_memo_gas = m;
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
@@ -665,11 +668,16 @@ namespace turbo::jam {
     {
         logger::trace("host_service::transfer");
         const auto &phi = this->_p.m.regs();
-        const auto d = numeric_cast<service_id_t>(phi[7]);
+        const auto d_raw = phi[7];
         const auto a = phi[8];
         const auto l = phi[9];
         const auto o = phi[10];
         const auto m = this->_p.m.mem_read(o, sizeof(deferred_transfer_metadata_t<CFG>));
+        if (d_raw > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
+        const auto d = static_cast<service_id_t>(d_raw);
         if (!this->_p.services.contains(d)) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
@@ -696,7 +704,7 @@ namespace turbo::jam {
         const auto o = phi[8];
         const auto h = this->_p.m.mem_read(o, 32);
         auto *d_mut = this->_p.services.get_mutable_ptr(d);
-        if (!d_mut || d_mut->info.code_hash != h) [[unlikely]] {
+        if (!d_mut || d_mut->info.code_hash != this->_service.info.code_hash) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
@@ -706,7 +714,7 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        if (lookup_res->size() == 2 && (*lookup_res)[1] < this->_p.slot.slot() - CFG::D_preimage_expunge_delay) [[likely]] {
+        if (lookup_res->size() == 2 && (*lookup_res)[1].slot() + CFG::D_preimage_expunge_delay < this->_p.slot.slot()) [[likely]] {
             this->_p.services.erase(d);
             this->_p.m.set_reg(7, machine::host_call_res_t::ok);
             return;
@@ -759,7 +767,7 @@ namespace turbo::jam {
         const auto z = phi[8];
         const auto h = this->_p.m.mem_read(o, 32);
         logger::trace("host_service::solicit service: {} h: {} l: {}", this->_p.service_id, h, z);
-        lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
+        const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
         auto a_res = this->_service.lookup_metas.get(key);
         if (!a_res) {
             this->_service.lookup_metas.set(key, {});
@@ -830,8 +838,8 @@ namespace turbo::jam {
         logger::trace("host_service::yield");
         const auto &phi = this->_p.m.regs();
         const auto o = phi[7];
-        const auto h = this->_p.m.mem_read(o, 32);
-        _ok.result.emplace(static_cast<buffer>(h));
+        _ok.result.emplace();
+        this->_p.m.mem_read(*_ok.result, 32);
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
