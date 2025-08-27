@@ -531,7 +531,7 @@ namespace turbo::jam {
         const auto n = phi[11];
 
         const auto a_bytes = this->_p.m.mem_read(a, 4 * CFG::C_core_count);
-        const auto assigners = jam::from_bytes<assigners_t<CFG>>(a_bytes);
+        auto assigners = jam::from_bytes<assigners_t<CFG>>(a_bytes);
 
         free_services_t fs {};
         for (size_t i = 0; i < n; ++i) {
@@ -726,6 +726,7 @@ namespace turbo::jam {
         const auto a = this->_service.lookup_metas.get({ static_cast<buffer>(h), static_cast<uint32_t>(z) });
         if (!a) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::none);
+            this->_p.m.set_reg(8, 0ULL);
             return;
         }
         switch (a->size()) {
@@ -785,8 +786,8 @@ namespace turbo::jam {
         const auto o = phi[7];
         const auto z = phi[8];
         const auto h = this->_p.m.mem_read(o, 32);
-        const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
         logger::trace("host_service::forget service: {} h: {} l: {}", this->_p.service_id, h, z);
+        const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
         auto l_res = this->_service.lookup_metas.get(key);
         if (!l_res) {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
@@ -803,7 +804,7 @@ namespace turbo::jam {
                 this->_service.info.items -= 2;
                 this->_service.info.bytes -= 81 + z;
                 this->_service.lookup_metas.erase(key);
-                this->_service.preimages.erase(static_cast<buffer>(h));
+                this->_service.preimages.erase(key.hash);
                 break;
             }
             case 1:
@@ -818,7 +819,7 @@ namespace turbo::jam {
                 this->_service.lookup_metas.set(key, { (*l_res)[2], this->_p.slot });
                 break;
             [[unlikely]] default:
-                throw machine::exit_panic_t {};
+                throw machine::exit_panic_t{};
         }
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
