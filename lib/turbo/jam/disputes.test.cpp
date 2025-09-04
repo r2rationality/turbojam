@@ -21,12 +21,7 @@ namespace {
             archive.process("disputes"sv, disputes);
         }
 
-        bool operator==(const test_input_t &o) const
-        {
-            if (disputes != o.disputes)
-                return false;
-            return true;
-        }
+        bool operator==(const test_input_t &o) const = default;
     };
 
     using err_code_base_t = std::variant<
@@ -78,7 +73,7 @@ namespace {
         }
     };
 
-    struct output_data_t {
+    struct test_output_data_t {
         offenders_mark_t offenders_mark;
 
         void serialize(auto &archive)
@@ -87,17 +82,12 @@ namespace {
             archive.process("offenders_mark"sv, offenders_mark);
         }
 
-        bool operator==(const output_data_t &o) const
-        {
-            if (offenders_mark != o.offenders_mark)
-                return false;
-            return true;
-        }
+        bool operator==(const test_output_data_t &o) const = default;
     };
 
-    using output_base_t = std::variant<output_data_t, err_code_t>;
-    struct output_t: output_base_t {
-        using base_type = output_base_t;
+    using test_output_base_t = std::variant<test_output_data_t, err_code_t>;
+    struct test_output_t: test_output_base_t {
+        using base_type = test_output_base_t;
         using base_type::base_type;
 
         void serialize(auto &archive)
@@ -137,7 +127,7 @@ namespace {
     struct test_case_t {
         test_input_t<CFG> in;
         test_state_t<CFG> pre;
-        output_t out;
+        test_output_t out;
         test_state_t<CFG> post;
 
         void serialize(auto &archive)
@@ -160,7 +150,7 @@ namespace {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
-        std::optional<output_t> out {};
+        std::optional<test_output_t> out{};
         auto new_st = tc.pre;
         err_code_t::catch_into(
             [&] {
@@ -170,10 +160,11 @@ namespace {
                     tc.pre.tau, std::make_shared<decltype(tc.pre.psi)>(tc.pre.psi),
                     tc.in.disputes
                 );
-                out.emplace(output_data_t{ .offenders_mark=std::move(new_offenders) });
+                out.emplace(test_output_data_t{ .offenders_mark=std::move(new_offenders) });
             },
             [&](err_code_t err) {
                 out.emplace(std::move(err));
+                new_st = tc.pre;
             }
         );
         if (out.has_value()) {

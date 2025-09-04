@@ -25,6 +25,19 @@ namespace turbo::storage {
         {
             return size() == 0;
         }
+
+        [[nodiscard]] bool operator==(const db_t &o) const
+        {
+            if (size() != o.size())
+                return false;
+            size_t num_mismatches = 0;
+            foreach([&](const auto &k, const auto &v) {
+                const auto ov = o.get(k);
+                if (v != ov)
+                    ++num_mismatches;
+            });
+            return num_mismatches == 0;
+        }
     };
     using db_ptr_t = std::shared_ptr<db_t>;
 }

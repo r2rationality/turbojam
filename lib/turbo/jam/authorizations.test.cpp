@@ -10,9 +10,9 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
-    template<typename CONSTANTS>
-    struct input_t {
-        time_slot_t<CONSTANTS> slot;
+    template<typename CFG>
+    struct test_input_t {
+        time_slot_t<CFG> slot;
         core_authorizers_t auths;
 
         void serialize(auto &archive)
@@ -22,51 +22,39 @@ namespace {
             archive.process("auths"sv, auths);
         }
 
-        bool operator==(const input_t &o) const
-        {
-            if (slot != o.slot)
-                return false;
-            if (auths != o.auths)
-                return false;
-            return true;
-        }
+        bool operator==(const test_input_t &o) const = default;
     };
 
-    template<typename CONSTANTS=config_prod>
-    struct test_case_t {
-        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-authorizations-{}-pre", static_cast<void *>(this)) };
-        file::tmp_directory tmp_dir_post { fmt::format("test-authorizations-safrole-{}-post", static_cast<void *>(this)) };
-        input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
-        state_t<CONSTANTS> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
+    template<typename CFG>
+    struct test_state_t {
+        auth_pools_t<CFG> alpha;
+        auth_queues_t<CFG> phi;
 
-        static void serialize_state(auto &archive, const std::string_view &name, state_t<CONSTANTS> &st)
+        void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.push(name);
-            archive.process("auth_pools"sv, st.alpha);
-            archive.process("auth_queues"sv, st.phi);
-            archive.pop();
+            archive.process("auth_pools"sv, alpha);
+            archive.process("auth_queues"sv, phi);
         }
+
+        bool operator==(const test_state_t &o) const = default;
+    };
+
+    template<typename CFG=config_prod>
+    struct test_case_t {
+        test_input_t<CFG> in;
+        test_state_t<CFG> pre;
+        test_state_t<CFG> post;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("input"sv, in);
-            serialize_state(archive, "pre_state"sv, pre);
-            serialize_state(archive, "post_state"sv, post);
+            archive.process("pre_state"sv, pre);
+            archive.process("post_state"sv, post);
         }
 
-        bool operator==(const test_case_t &o) const
-        {
-            if (in != o.in)
-                return false;
-            if (pre != o.pre)
-                return false;
-            if (post != o.post)
-                return false;
-            return true;
-        }
+        bool operator==(const test_case_t &o) const = default;
     };
 
     template<typename CFG>
@@ -77,9 +65,13 @@ namespace {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
-        state_t<CFG> new_st = tc.pre;
-        new_st.alpha.set(state_t<CFG>::alpha_prime(tc.in.slot, tc.in.auths, tc.pre.phi.get(), tc.pre.alpha.get()));
-        expect(new_st == tc.post) << path;
+        try {
+            auto new_st = tc.pre;
+            new_st.alpha = state_t<CFG>::alpha_prime(tc.in.slot, tc.in.auths, new_st.phi, new_st.alpha);
+            expect(new_st == tc.post) << path;
+        } catch (...) {
+            expect(false) << path;
+        }
     }
 }
 

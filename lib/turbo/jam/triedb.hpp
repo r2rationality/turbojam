@@ -7,8 +7,7 @@
 #include <functional>
 #include <turbo/common/bytes.hpp>
 #include <turbo/jam/types/state-dict.hpp>
-#include <turbo/storage/file.hpp>
-#include <turbo/storage/update.hpp>
+#include <turbo/storage/file-rc.hpp>
 
 #define MY_NDEBUG
 
@@ -21,13 +20,18 @@ namespace turbo::jam::triedb {
     // - each maintains its own copy of the data even when they share the same data directory
     // - a copy creates a physical copy on disk
     struct db_t: storage::db_t {
-        using store_t = storage::db_t;
+        using store_t = storage::file_rc::db_t;
         using store_ptr_t = std::shared_ptr<store_t>;
         using observer_t = storage::observer_t;
 
+        explicit db_t(store_ptr_t store):
+            _store{std::move(store)}
+        {
+        }
+
         explicit db_t(store_ptr_t store, const db_t &o):
             _store{std::move(store)},
-            _trie{std::make_shared<state_dict_t>(*o.trie())}
+            _trie{std::make_shared<state_dict_t>(*o._trie)}
 #if         !defined(NDEBUG)
                 , _snapshot{o._snapshot}
 #endif
@@ -35,7 +39,7 @@ namespace turbo::jam::triedb {
         }
 
         explicit db_t(const std::string_view db_dir):
-            _store{std::make_shared<storage::file::db_t>(db_dir)}
+            _store{std::make_shared<storage::file_rc::db_t>(db_dir)}
         {
         }
 
@@ -122,9 +126,9 @@ namespace turbo::jam::triedb {
         {
             const key_t k{key};
 #           if !defined(NDEBUG)
-                _snapshot[k] = byte_sequence_t { val };
+                _snapshot[k] = byte_sequence_t{val};
 #           endif
-            merkle::trie::value_t v { val, merkle::blake2b_hash_func };
+            merkle::trie::value_t v{val, merkle::blake2b_hash_func};
             _trie->set(k, std::move(v));
             std::visit([&](const auto &vv) {
                 using T = std::decay_t<decltype(vv)>;
@@ -143,7 +147,12 @@ namespace turbo::jam::triedb {
             return _trie->size();
         }
 
-        [[nodiscard]] const store_ptr_t &store() const
+        [[nodiscard]] state_root_t root() const
+        {
+            return _trie->root();
+        }
+
+        /*[[nodiscard]] const store_ptr_t &store() const
         {
             return _store;
         }
@@ -151,7 +160,7 @@ namespace turbo::jam::triedb {
         [[nodiscard]] const state_dict_ptr_t &trie() const
         {
             return _trie;
-        }
+        }*/
     protected:
         store_ptr_t _store;
         state_dict_ptr_t _trie = std::make_shared<state_dict_t>();

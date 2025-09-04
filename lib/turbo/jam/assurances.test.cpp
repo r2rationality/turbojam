@@ -11,10 +11,10 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
-    template<typename CONSTANTS>
-    struct input_t {
-        assurances_extrinsic_t<CONSTANTS> assurances;
-        time_slot_t<CONSTANTS> slot;
+    template<typename CFG>
+    struct test_input_t {
+        assurances_extrinsic_t<CFG> assurances;
+        time_slot_t<CFG> slot;
         header_hash_t parent;
 
         void serialize(auto &archive)
@@ -25,21 +25,12 @@ namespace {
             archive.process("parent"sv, parent);
         }
 
-        bool operator==(const input_t &o) const
-        {
-            if (assurances != o.assurances)
-                return false;
-            if (slot != o.slot)
-                return false;
-            if (parent != o.parent)
-                return false;
-            return true;
-        }
+        bool operator==(const test_input_t &o) const = default;
     };
 
-    template<typename CONSTANTS>
-    struct output_data_t {
-        work_reports_t<CONSTANTS> reported;
+    template<typename CFG>
+    struct test_output_data_t {
+        work_reports_t<CFG> reported;
 
         void serialize(auto &archive)
         {
@@ -47,10 +38,7 @@ namespace {
             archive.process("reported"sv, reported);
         }
 
-        bool operator==(const output_data_t &o) const
-        {
-            return reported == o.reported;
-        }
+        bool operator==(const test_output_data_t &o) const = default;
     };
 
     using err_code_base_t = std::variant<
@@ -80,9 +68,9 @@ namespace {
         }
     };
 
-    template<typename CONSTANTS>
-    struct output_t: std::variant<output_data_t<CONSTANTS>, err_code_t> {
-        using base_type = std::variant<output_data_t<CONSTANTS>, err_code_t>;
+    template<typename CFG>
+    struct test_output_t: std::variant<test_output_data_t<CFG>, err_code_t> {
+        using base_type = std::variant<test_output_data_t<CFG>, err_code_t>;
 
         void serialize(auto &archive)
         {
@@ -96,45 +84,38 @@ namespace {
         }
     };
 
-    template<typename CONSTANTS>
-    struct test_case_t {
-        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-assurances-{}-pre", static_cast<void *>(this)) };
-        file::tmp_directory tmp_dir_post { fmt::format("test-jam-assurances-{}-post", static_cast<void *>(this)) };
-        input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
-        output_t<CONSTANTS> out;
-        state_t<CONSTANTS> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
+    template<typename CFG>
+    struct test_state_t {
+        availability_assignments_t<CFG> rho;
+        validators_data_t<CFG> kappa;
 
-        static void serialize_state(auto &archive, const std::string_view &name, state_t<CONSTANTS> &st)
+        void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.push(name);
-            archive.process("avail_assignments"sv, st.rho);
-            archive.process("curr_validators"sv, st.kappa);
-            archive.pop();
+            archive.process("avail_assignments"sv, rho);
+            archive.process("curr_validators"sv, kappa);
         }
+
+        bool operator==(const test_state_t &o) const = default;
+    };
+
+    template<typename CFG>
+    struct test_case_t {
+        test_input_t<CFG> in;
+        test_state_t<CFG> pre;
+        test_output_t<CFG> out;
+        test_state_t<CFG> post;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("input"sv, in);
-            serialize_state(archive, "pre_state"sv, pre);
+            archive.process("pre_state"sv, pre);
             archive.process("output"sv, out);
-            serialize_state(archive, "post_state"sv, post);
+            archive.process("post_state"sv, post);
         }
 
-        bool operator==(const test_case_t &o) const
-        {
-            if (in != o.in)
-                return false;
-            if (pre != o.pre)
-                return false;
-            if (out != o.out)
-                return false;
-            if (post != o.post)
-                return false;
-            return true;
-        }
+        bool operator==(const test_case_t &o) const = default;
     };
 
     template<typename CFG>
@@ -145,34 +126,24 @@ namespace {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
-        std::optional<output_t<CFG>> out {};
-        state_t<CFG> new_st = tc.pre.working_copy();
+        std::optional<test_output_t<CFG>> out{};
+        auto new_st = tc.pre;
         err_code_t::catch_into(
             [&] {
-                auto tmp_st = new_st.working_copy();
-                output_data_t<CFG> res {};
-                std::decay_t<typename decltype(tmp_st.pi)::element_type> tmp_pi;
-                auto tmp_rho = tmp_st.rho.get();
+                test_output_data_t<CFG> res{};
+                std::decay_t<typename decltype(state_t<CFG>::pi)::element_type> new_pi;
                 // ignore the updated statistics as they are tested in a separate set of tests
-                out.emplace(output_data_t { state_t<CFG>::rho_dagger_2(tmp_rho, tmp_pi, tc.pre.kappa.get(),
+                out.emplace(test_output_data_t{ state_t<CFG>::rho_dagger_2(new_st.rho, new_pi, tc.pre.kappa,
                     tc.in.slot, tc.in.parent, tc.in.assurances) });
-                tmp_st.rho.set(std::move(tmp_rho));
-                new_st.commit(std::move(tmp_st));
             },
             [&](err_code_t err) {
                 out.emplace(std::move(err));
+                new_st = tc.pre;
             }
         );
         if (out.has_value()) {
             expect(out == tc.out) << path;
-            const auto state_matches = new_st == tc.post;
-            expect(state_matches) << path;
-            if (!state_matches) {
-                logger::info("pre_state == post_state: {}", tc.pre == tc.post ? "true" : "false");
-                logger::info("pre_state == new_state: {}", tc.pre == new_st ? "true" : "false");
-                const auto diff = new_st.snapshot().diff(tc.post.snapshot());
-                logger::info("diff: {}", diff);
-            }
+            expect(new_st == tc.post) << path;
         } else {
             expect(false) << path;
         }

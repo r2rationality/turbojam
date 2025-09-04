@@ -353,20 +353,6 @@ namespace turbo::jam {
         bool operator==(const refine_context_t &o) const = default;
     };
 
-    /*struct authorizer_t {
-        opaque_hash_t code_hash;
-        byte_sequence_t params;
-
-        void serialize(auto &archive)
-        {
-            using namespace std::string_view_literals;
-            archive.process("code_hash"sv, code_hash);
-            archive.process("params"sv, params);
-        }
-
-        bool operator==(const authorizer_t &o) const = default;
-    };*/
-
     using authorizer_hash_t = opaque_hash_t;
 
     template<typename CONSTANT_SET=config_prod>
@@ -819,7 +805,7 @@ namespace turbo::jam {
         bool operator==(const recent_blocks_t &o) const noexcept = default;
     };
 
-    struct activity_record_t {
+    struct validator_statistics_t {
         uint32_t blocks;
         uint32_t tickets;
         uint32_t pre_images;
@@ -838,7 +824,7 @@ namespace turbo::jam {
             archive.process("assurances"sv, assurances);
         }
 
-        bool operator==(const activity_record_t &o) const = default;
+        bool operator==(const validator_statistics_t &o) const = default;
     };
 
     using ticket_id_t = opaque_hash_t;
@@ -1285,7 +1271,7 @@ namespace turbo::jam {
     using offenders_mark_t = ed25519_keys_set_t;
 
     template<typename CFG=config_prod>
-    using activity_records_t = fixed_sequence_t<activity_record_t, CFG::V_validator_count>;
+    using validators_statistics_t = fixed_sequence_t<validator_statistics_t, CFG::V_validator_count>;
 
     struct core_activity_record_t {
         varlen_uint_t<uint32_t> da_load = 0;
@@ -1314,7 +1300,7 @@ namespace turbo::jam {
     };
 
     template<typename CFG>
-    using core_statistics_t = fixed_sequence_t<core_activity_record_t, CFG::C_core_count>;
+    using cores_statistics_t = fixed_sequence_t<core_activity_record_t, CFG::C_core_count>;
 
     struct service_activity_record_t {
         varlen_uint_t<uint16_t> provided_count {};
@@ -1358,9 +1344,9 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct statistics_t {
-        activity_records_t<CFG> current {};
-        activity_records_t<CFG> last {};
-        core_statistics_t<CFG> cores {};
+        validators_statistics_t<CFG> current {};
+        validators_statistics_t<CFG> last {};
+        cores_statistics_t<CFG> cores {};
         services_statistics_t services {};
 
         void serialize(auto &archive)

@@ -27,21 +27,6 @@ namespace turbo::jam {
             archive.process("disputes"sv, disputes);
         }
 
-        bool empty() const
-        {
-            if (!tickets.empty())
-                return false;
-            if (!preimages.empty())
-                return false;
-            if (!guarantees.empty())
-                return false;
-            if (!assurances.empty())
-                return false;
-            if (!disputes.empty())
-                return false;
-            return true;
-        }
-
         bool operator==(const extrinsic_t &o) const = default;
     };
 
@@ -139,10 +124,10 @@ namespace turbo::jam {
     // JAM (6.3) - Changed: new order k, y_z, y_s, y_a but not reflected in the tests yet
     template<typename CFG=config_prod>
     struct safrole_state_t {
-        validators_data_t<CFG> k {}; // prior next epoch validator keys and metadata
-        bandersnatch_ring_commitment_t z {}; // prior bandersnatch ring commitment
-        tickets_or_keys_t<CFG> s; // prior sealing key series
-        tickets_accumulator_t<CFG> a {}; // prior sealing key ticket accumulator
+        validators_data_t<CFG> k{}; // p in GP 0.7.0 pending keys
+        bandersnatch_ring_commitment_t z{}; // bandersnatch ring commitment
+        tickets_or_keys_t<CFG> s; // sealing key series
+        tickets_accumulator_t<CFG> a{}; // sealing key ticket accumulator
 
         void serialize(auto &archive)
         {
@@ -158,11 +143,11 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct safrole_output_data_t {
-        std::shared_ptr<safrole_state_t<CFG>> gamma_ptr {};
-        std::shared_ptr<validators_data_t<CFG>> kappa_ptr {};
-        std::shared_ptr<validators_data_t<CFG>> lambda_ptr {};
-        optional_t<epoch_mark_t<CFG>> epoch_mark {};
-        optional_t<tickets_mark_t<CFG>> tickets_mark {};
+        std::shared_ptr<safrole_state_t<CFG>> gamma_ptr{};
+        std::shared_ptr<validators_data_t<CFG>> kappa_ptr{};
+        std::shared_ptr<validators_data_t<CFG>> lambda_ptr{};
+        optional_t<epoch_mark_t<CFG>> epoch_mark{};
+        optional_t<tickets_mark_t<CFG>> tickets_mark{};
     };
 
     // This data structure is need only because the json names in reports_output_items_t

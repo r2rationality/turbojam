@@ -73,8 +73,6 @@ namespace turbo::jam::machine {
                 return false;
             if (memory != o.memory)
                 return false;
-            // JAM Paper 0.6.4 defines the gas consumed by each of code to be 0!
-            // Thus, disabling the gas check until that is changed.
             /*if (gas != o.gas)
                 return false;*/
             return true;

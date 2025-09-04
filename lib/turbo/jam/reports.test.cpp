@@ -3,6 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <turbo/storage/memory.hpp>
 #include "types/errors.hpp"
 #include "state.hpp"
 #include "test-vectors.hpp"
@@ -13,7 +14,7 @@ namespace {
     using namespace turbo::jam;
 
     template<typename CFG>
-    struct tmp_account_t {
+    struct test_account_t {
         service_info_t<CFG> service;
 
         void serialize(auto &archive)
@@ -21,10 +22,33 @@ namespace {
             using namespace std::string_view_literals;
             archive.process("service"sv, service);
         }
+
+        bool operator==(const test_account_t &) const = default;
     };
 
     template<typename CFG>
-    using tmp_accounts_t = map_t<service_id_t, tmp_account_t<CFG>, accounts_config_t>;
+    struct test_accounts_t: map_t<service_id_t, test_account_t<CFG>, accounts_config_t> {
+        using base_type = map_t<service_id_t, test_account_t<CFG>, accounts_config_t>;
+        using base_type::base_type;
+
+        [[nodiscard]] accounts_t<CFG> get(storage::db_ptr_t db) const
+        {
+            accounts_t<CFG> res{std::move(db)};
+            for (auto &&[id, tacc]: *this) {
+                res.info_set(id, tacc.service);
+            }
+            return res;
+        }
+
+        void set(accounts_t<CFG> &&o)
+        {
+            this->clear();
+            o.foreach([&](auto id, auto info) {
+                this->try_emplace(std::move(id), std::move(info));
+            });
+        }
+    };
+
     using known_packages_t = sequence_t<work_package_hash_t>;
 
     template<typename CFG>
@@ -41,16 +65,7 @@ namespace {
             archive.process("known_packages"sv, known_packages);
         }
 
-        bool operator==(const test_input_t &o) const
-        {
-            if (guarantees != o.guarantees)
-                return false;
-            if (slot != o.slot)
-                return false;
-            if (known_packages != o.known_packages)
-                return false;
-            return true;
-        }
+        bool operator==(const test_input_t &o) const = default;
     };
 
     using err_code_base_t = std::variant<
@@ -138,62 +153,49 @@ namespace {
     };
 
     template<typename CFG>
+    struct test_state_t {
+        availability_assignments_t<CFG> rho;
+        validators_data_t<CFG> kappa;
+        validators_data_t<CFG> lambda;
+        entropy_buffer_t eta;
+        ed25519_keys_set_t offenders;
+        recent_blocks_t<CFG> beta;
+        auth_pools_t<CFG> alpha;
+        test_accounts_t<CFG> accounts;
+        cores_statistics_t<CFG> pi_cores;
+        services_statistics_t pi_services;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("avail_assignments", rho);
+            archive.process("curr_validators", kappa);
+            archive.process("prev_validators", lambda);
+            archive.process("entropy", eta);
+            archive.process("offenders", offenders);
+            archive.process("recent_blocks", beta);
+            archive.process("auth_pools", alpha);
+            archive.process("accounts", accounts);
+            archive.process("cores_statistics", pi_cores);
+            archive.process("services_statistics", pi_services);
+        }
+
+        bool operator==(const test_state_t &o) const = default;
+    };
+
+    template<typename CFG>
     struct test_case_t {
-        file::tmp_directory tmp_dir_pre{fmt::format("test-jam-reports-{}-pre", static_cast<void *>(this))};
-        file::tmp_directory tmp_dir_post{fmt::format("test-jam-reports-{}-post", static_cast<void *>(this))};
         test_input_t<CFG> in;
-        state_t<CFG> pre{std::make_shared<triedb::db_t>(tmp_dir_pre.path())};
+        test_state_t<CFG> pre;
         output_t out;
-        state_t<CFG> post{std::make_shared<triedb::db_t>(tmp_dir_post.path())};
-
-        void serialize_accounts(auto &archive, const std::string_view name, state_t<CFG> &st)
-        {
-            tmp_accounts_t<CFG> taccs;
-            archive.process(name, taccs);
-            st.delta.clear();
-            for (auto &&[id, tacc]: taccs) {
-                account_t<CFG> acc {
-                    .preimages=preimages_t{st.triedb, preimages_t::make_trie_key_func(id)},
-                    .lookup_metas=lookup_metas_t<CFG>{st.triedb, lookup_metas_t<CFG>::make_trie_key_func(id)},
-                    .storage=service_storage_t{st.triedb, service_storage_t::make_trie_key_func(id)},
-                    .info={st.triedb, state_dict_t::make_key(255U, id), std::move(tacc.service)}
-                };
-                st.delta.try_emplace(std::move(id), std::move(acc));
-            }
-        }
-
-        void serialize_state(auto &archive, state_t<CFG> &self)
-        {
-            archive.process("avail_assignments"sv, self.rho);
-            archive.process("curr_validators"sv, self.kappa);
-            archive.process("prev_validators"sv, self.lambda);
-            archive.process("entropy"sv, self.eta);
-            {
-                std::decay_t<typename decltype(self.psi)::element_type> new_psi{};
-                archive.process("offenders"sv, new_psi.offenders);
-                self.psi.set(std::move(new_psi));
-            }
-            archive.process("recent_blocks"sv, self.beta);
-            archive.process("auth_pools"sv, self.alpha);
-            serialize_accounts(archive, "accounts"sv, self);
-            {
-                std::decay_t<typename decltype(self.pi)::element_type> new_pi{};
-                archive.process("cores_statistics"sv, new_pi.cores);
-                archive.process("services_statistics"sv, new_pi.services);
-                self.pi.set(std::move(new_pi));
-            }
-        }
+        test_state_t<CFG> post;
 
         void serialize(auto &archive)
         {
             archive.process("input"sv, in);
-            archive.push("pre_state"sv);
-            serialize_state(archive, pre);
-            archive.pop();
+            archive.process("pre_state"sv, pre);
             archive.process("output"sv, out);
-            archive.push("post_state"sv);
-            serialize_state(archive, post);
-            archive.pop();
+            archive.process("post_state"sv, post);
         }
 
         bool operator==(const test_case_t &o) const
@@ -219,29 +221,27 @@ namespace {
                 const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
                 expect(tc == j_tc) << "the json test case does not match the binary one" << path;
             }
-            std::optional<output_t> out {};
-            auto new_st = tc.pre.working_copy();
+            std::optional<output_t> out{};
+            auto new_st = tc.pre;
             err_code_t::catch_into(
                 [&] {
-                    auto tmp_st = new_st.working_copy();
-                    auto tmp_rho = tmp_st.rho.get();
-                    auto tmp_pi = tmp_st.pi.get();
+                    auto delta = tc.pre.accounts.get(std::make_shared<storage::memory::db_t>());
                     out.emplace(
-                        tmp_st.update_reports(
-                            tmp_rho, tmp_pi, tmp_st.beta.get().history,
-                            tmp_st.eta.get(), tmp_st.psi.get(),
-                            tmp_st.kappa.get(), tmp_st.lambda.get(),
-                            tc.pre.alpha.get(),
-                            tc.pre.delta,
+                        state_t<CFG>::update_reports(
+                            new_st.rho, new_st.pi_cores, new_st.pi_services,
+                            new_st.beta.history,
+                            new_st.eta, new_st.offenders,
+                            new_st.kappa, new_st.lambda,
+                            new_st.alpha,
+                            delta,
                             tc.in.slot, tc.in.guarantees
                         )
                     );
-                    tmp_st.rho.set(std::move(tmp_rho));
-                    tmp_st.pi.set(std::move(tmp_pi));
-                    new_st.commit(std::move(tmp_st));
+                    new_st.accounts.set(std::move(delta));
                 },
                 [&](err_code_t err) {
                     out.emplace(std::move(err));
+                    new_st = tc.pre;
                 }
             );
             if (out.has_value()) {
@@ -260,7 +260,7 @@ suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
         static const std::string test_prefix = "stf/reports/";
         static std::optional<std::string> override_test{};
-        //override_test.emplace("tiny/big_work_report_output-1");
+        //override_test.emplace("tiny/anchor_not_recent-1");
         if (!override_test) {
             "tiny"_test = [] {
                 for (const auto &path: file::files_with_ext(test_vector_dir(test_prefix + "tiny"), ".bin")) {

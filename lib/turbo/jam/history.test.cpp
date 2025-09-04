@@ -26,18 +26,7 @@ namespace {
             archive.process("work_packages"sv, work_packages);
         }
 
-        bool operator==(const test_input_t &o) const
-        {
-            if (header_hash != o.header_hash)
-                return false;
-            if (parent_state_root != o.parent_state_root)
-                return false;
-            if (accumulate_root != o.accumulate_root)
-                return false;
-            if (work_packages != o.work_packages)
-                return false;
-            return true;
-        }
+        bool operator==(const test_input_t &o) const = default;
     };
 
     template<typename CFG>
@@ -67,29 +56,18 @@ namespace {
             archive.process("post_state"sv, post);
         }
 
-        bool operator==(const test_case_t &o) const
-        {
-            if (in != o.in)
-                return false;
-            if (pre != o.pre)
-                return false;
-            if (post != o.post)
-                return false;
-            return true;
-        }
+        bool operator==(const test_case_t &o) const = default;
     };
 
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const file::tmp_directory store_dir { "test-jam-history" };
         const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
         {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
-        state_t<CFG> new_st { std::make_shared<triedb::db_t>(store_dir.path()) };
-        auto tmp_beta = new_st.beta_dagger(tc.pre.beta, tc.in.parent_state_root);
+        auto tmp_beta = state_t<CFG>::beta_dagger(tc.pre.beta, tc.in.parent_state_root);
         auto new_beta = state_t<CFG>::beta_prime(std::move(tmp_beta), tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages);
         expect(new_beta == tc.post.beta) << path;
     }

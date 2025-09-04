@@ -3,6 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <turbo/storage/memory.hpp>
 #include "state.hpp"
 #include "test-vectors.hpp"
 
@@ -24,7 +25,7 @@ namespace {
     using preimage_items_t = map_t<opaque_hash_t, byte_sequence_t, preimage_items_config_t>;
 
     template<typename CFG>
-    struct tmp_account_t {
+    struct test_account_t {
         service_info_t<CFG> service;
         stored_items_t storage;
         preimage_items_t preimages;
@@ -35,13 +36,35 @@ namespace {
             archive.process("storage"sv, storage);
             archive.process("preimages"sv, preimages);
         }
+
+        bool operator==(const test_account_t &) const = default;
     };
 
     template<typename CFG>
-    using tmp_accounts_t = map_t<service_id_t, tmp_account_t<CFG>, accounts_config_t>;
+    struct test_accounts_t: accounts_t<CFG> {
+        test_accounts_t(storage::db_ptr_t db=std::make_shared<storage::memory::db_t>()):
+            accounts_t<CFG>::accounts_t{std::move(db)}
+        {
+        }
+
+        void serialize(auto &archive)
+        {
+            map_t<service_id_t, test_account_t<CFG>, accounts_config_t> taccs;
+            archive.process(taccs);
+            for (auto &&[id, tacc]: taccs) {
+                this->info_set(id, std::move(tacc.service));
+                for (auto &&[k, v]: tacc.storage) {
+                    this->storage_set_raw(id, k, static_cast<buffer>(v));
+                }
+                for (auto &&[k, v]: tacc.preimages) {
+                    this->preimage_set(id, k, uint8_vector{v});
+                }
+            }
+        }
+    };
 
     template<typename CFG>
-    struct input_t {
+    struct test_input_t {
         time_slot_t<CFG> slot;
         work_reports_t<CFG> reports;
 
@@ -51,14 +74,7 @@ namespace {
             archive.process("reports"sv, reports);
         }
 
-        bool operator==(const input_t &o) const
-        {
-            if (slot != o.slot)
-                return false;
-            if (reports != o.reports)
-                return false;
-            return true;
-        }
+        bool operator==(const test_input_t &o) const = default;
     };
 
     struct err_code_t {
@@ -72,9 +88,9 @@ namespace {
         }
     };
 
-    using output_base_t = std::variant<accumulate_root_t, err_code_t>;
-    struct output_t: output_base_t {
-        using base_type = output_base_t;
+    using test_output_base_t = std::variant<accumulate_root_t, err_code_t>;
+    struct test_output_t: test_output_base_t {
+        using base_type = test_output_base_t;
         using base_type::base_type;
 
         void serialize(auto &archive)
@@ -88,74 +104,61 @@ namespace {
     };
 
     template<typename CFG>
+    struct test_state_t {
+        time_slot_t<CFG> tau;
+        entropy_t eta0;
+        ready_queue_t<CFG> omega;
+        accumulated_queue_t<CFG> ksi;
+        privileges_t<CFG> chi;
+        services_statistics_t pi_services;
+        test_accounts_t<CFG> accounts;
+
+        void serialize(auto &archive)
+        {
+            archive.process("slot"sv, tau);
+            archive.process("entropy"sv, eta0);
+            archive.process("ready_queue"sv, omega);
+            archive.process("accumulated"sv, ksi);
+            archive.process("privileges"sv, chi);
+            archive.process("statistics"sv, pi_services);
+            archive.process("accounts"sv, accounts);
+        }
+
+        bool operator==(const test_state_t &o) const {
+            if (tau != o.tau)
+                return false;
+            if (eta0 != o.eta0)
+                return false;
+            if (omega != o.omega)
+                return false;
+            if (ksi != o.ksi)
+                return false;
+            if (chi != o.chi)
+                return false;
+            if (pi_services != o.pi_services)
+                return false;
+            if (accounts != o.accounts)
+                return false;
+            return true;
+        }
+    };
+
+    template<typename CFG>
     struct test_case_t {
-        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-accumulate-{}-pre", static_cast<void *>(this)) };
-        file::tmp_directory tmp_dir_post { fmt::format("test-jam-accumulate-{}-post", static_cast<void *>(this)) };
-        input_t<CFG> in;
-        state_t<CFG> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
-        output_t out;
-        state_t<CFG> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
-
-        void serialize_accounts(auto &archive, const std::string_view name, state_t<CFG> &st)
-        {
-            tmp_accounts_t<CFG> taccs;
-            archive.process(name, taccs);
-            st.delta.clear();
-            for (auto &&[id, tacc]: taccs) {
-                auto [it, created] = st.delta.try_create(id);
-                for (auto &&[k, v]: tacc.storage) {
-                    it->second.storage.set(k, static_cast<buffer>(v));
-                }
-                for (auto &&[k, v]: tacc.preimages) {
-                    it->second.preimages.set(k, uint8_vector{v});
-                }
-                it->second.info.set(std::move(tacc.service));
-                if (!created) [[unlikely]]
-                    throw error(fmt::format("a duplicate account in the service map!"));
-            }
-        }
-
-        void serialize_state(const std::string_view name, auto &archive, state_t<CFG> &st)
-        {
-            archive.push(name);
-            archive.process("slot"sv, st.tau);
-            {
-                std::decay_t<decltype(st.eta.get())> new_eta{};
-                archive.process("entropy"sv, new_eta[0]);
-                st.eta.set(std::move(new_eta));
-            }
-            archive.process("ready_queue"sv, st.omega);
-            archive.process("accumulated"sv, st.ksi);
-            archive.process("privileges"sv, st.chi);
-            {
-                std::decay_t<decltype(st.pi.get())> new_pi{};
-                archive.process("statistics"sv, new_pi.services);
-                st.pi.set(std::move(new_pi));
-            }
-            serialize_accounts(archive, "accounts"sv, st);
-            archive.pop();
-        }
+        test_input_t<CFG> in;
+        test_state_t<CFG> pre;
+        test_output_t out;
+        test_state_t<CFG> post;
 
         void serialize(auto &archive)
         {
             archive.process("input"sv, in);
-            serialize_state("pre_state"sv, archive, pre);
+            archive.process("pre_state"sv, pre);
             archive.process("output"sv, out);
-            serialize_state("post_state"sv, archive, post);
+            archive.process("post_state"sv, post);
         }
 
-        bool operator==(const test_case_t &o) const
-        {
-            if (in != o.in)
-                return false;
-            if (pre != o.pre)
-                return false;
-            if (out != o.out)
-                return false;
-            if (post != o.post)
-                return false;
-            return true;
-        }
+        bool operator==(const test_case_t &o) const = default;
     };
 
     template<typename CFG>
@@ -166,38 +169,32 @@ namespace {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "the json test case does not match the binary one" << path;
         }
-        std::optional<output_t> out {};
-        state_t<CFG> new_st = tc.pre.working_copy();
+        std::optional<test_output_t> out{};
+        auto new_st = tc.pre;
         try {
-            auto tmp_st = new_st.working_copy();
-            auto new_pi = tmp_st.pi.get();
-            new_pi.services.clear();
-            auto res = tmp_st.accumulate(
-                new_pi, tc.pre.eta.get(),
-                tc.pre.tau.get(),
-                std::make_shared<typename decltype(tc.pre.phi)::element_type>(),
-                std::make_shared<typename decltype(tc.pre.iota)::element_type>(),
-                tc.pre.chi.storage(),
-                tc.pre.omega.storage(), tc.pre.ksi.storage(),
-                tc.pre.delta,
+            new_st.pi_services.clear();
+            auto res = state_t<CFG>::accumulate(
+                new_st.pi_services, new_st.eta0,
+                new_st.tau,
+                new_st.chi,
+                new_st.omega, new_st.ksi,
+                new_st.accounts,
                 tc.in.slot, tc.in.reports
             );
             // accumulate updates da_load statistics
-            new_pi.cores = {};
             out.emplace(res.root);
-            tmp_st.omega.set(std::move(res.new_nu));
-            tmp_st.ksi.set(std::move(res.new_ksi));
-            tmp_st.phi.set(std::move(res.new_phi));
-            // Do not update iota since the test cases do not provide such values
-            //tmp_st.iota.set(std::move(res.new_iota));
-            tmp_st.chi.set(std::move(res.new_chi));
+            if (res.omega)
+                new_st.omega = *res.omega;
+            if (res.ksi)
+                new_st.ksi = *res.ksi;
+            if (res.chi)
+                new_st.chi = *res.chi;
             if (res.service_updates)
-                res.service_updates->commit(tmp_st.delta);
-            tmp_st.pi.set(std::move(new_pi));
-            tmp_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
-            new_st.commit(std::move(tmp_st));
+                res.service_updates->commit();
+            new_st.tau = state_t<CFG>::tau_prime(new_st.tau, tc.in.slot);
         } catch (const error &) {
             out.emplace(err_code_t {});
+            new_st = tc.pre;
         } catch (const std::exception &ex) {
             expect(false) << ex.what() << path;
         } catch (...) {
@@ -205,6 +202,10 @@ namespace {
         }
         if (out.has_value()) {
             expect(out == tc.out) << path;
+            const auto state_matches = new_st == tc.post;
+            expect(state_matches) << path;
+            if (!state_matches)
+                logger::warn("{} diff: {}", path, tc.post.accounts.diff(new_st.accounts));
         } else {
             expect(false) << path;
         }
@@ -213,16 +214,18 @@ namespace {
 
 suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
-        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/accumulate/tiny/accumulate_ready_queued_reports-1"));
-        "tiny test vectors"_test = [] {
-            for (const auto &path: file::files_with_ext(test_vector_dir("stf/accumulate/tiny"), ".bin")) {
+        static const auto test_prefix = test_vector_dir("stf/accumulate/");
+        static std::optional<std::string> override_test{};
+        //override_test.emplace("tiny/accumulate_ready_queued_reports-1");
+        if (!override_test) {
+            for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
-        };
-        "full test vectors"_test = [] {
-            for (const auto &path: file::files_with_ext(test_vector_dir("stf/accumulate/full"), ".bin")) {
+            for (const auto &path: file::files_with_ext(test_prefix + "full", ".bin")) {
                 test_file<config_prod>(path.substr(0, path.size() - 4));
             }
-        };
+        } else {
+            test_file<config_tiny>(test_prefix + *override_test);
+        }
     };
 };

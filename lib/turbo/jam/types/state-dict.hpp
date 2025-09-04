@@ -4,7 +4,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <turbo/common/logger.hpp>
+#include <numeric>
 #include <turbo/jam/merkle.hpp>
 
 namespace turbo::jam {
@@ -23,34 +23,19 @@ namespace turbo::jam {
             return merkle::trie_t { *this }.root();
         }
 
-        [[nodiscard]] std::string diff(const state_snapshot_t &o) const
-        {
-            std::string diff {};
-            auto diff_it = std::back_inserter(diff);
-            size_t key_matches = 0;
-            for (const auto &[o_k, o_v]: o) {
-                const auto my_it = find(o_k);
-                if (my_it == end()) [[unlikely]] {
-                    diff_it = fmt::format_to(diff_it, "missing key: {}\n", o_k);
-                    continue;
-                }
-                ++key_matches;
-                if (my_it->second != o_v) [[unlikely]] {
-                    diff_it = fmt::format_to(diff_it, "key {}: expected {}, got {}\n", o_k, o_v, my_it->second);
-                } else {
-                    diff_it = fmt::format_to(diff_it, "key {}: ok\n", o_k);
-                }
-            }
-            if (key_matches != size()) [[unlikely]] {
-                for (const auto &[k, v]: *this) {
-                    if (const auto o_it = o.find(k); o_it == o.end()) [[unlikely]] {
-                        diff_it = fmt::format_to(diff_it, "extra key: {}\n", k);
-                    }
-                }
-            }
-            return diff;
-        }
+        [[nodiscard]] std::string diff(const state_snapshot_t &o) const;
     };
+
+    struct key_service_info_t {
+        service_id_t service_id{};
+    };
+    struct key_service_data_t {
+        service_id_t service_id{};
+    };
+    struct key_state_var_t {
+        uint8_t id{};
+    };
+    using key_info_t = std::variant<key_service_info_t, key_service_data_t, key_state_var_t>;
 
     struct state_dict_t: state_dict_base_t {
         using base_type = state_dict_base_t;
@@ -58,8 +43,9 @@ namespace turbo::jam {
 
         static state_key_t make_key(uint8_t id);
         static state_key_t make_key(uint8_t id, uint32_t service_id);
-        static state_key_t make_key(uint32_t service_id, const buffer &k);
+        static state_key_t make_key(uint32_t service_id, buffer k);
         static state_snapshot_t from_genesis_json(const boost::json::value &);
+        static key_info_t key_info(buffer key);
 
         state_dict_t(const state_snapshot_t &o)
         {

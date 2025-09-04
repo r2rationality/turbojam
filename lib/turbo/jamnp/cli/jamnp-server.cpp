@@ -30,7 +30,7 @@ namespace turbo::cli::jamnp_server {
             cmd.opts.try_emplace("data-path", "Base data path; use a temporary path by default");
         }
 
-        void run(const arguments &args, const options &opts) const override
+        void run(const arguments &, const options &opts) const override
         {
             std::optional<file::tmp_directory> tmp_dir {};
             std::optional<std::filesystem::path> data_path {};

@@ -217,27 +217,23 @@ pub extern "C" fn ietf_vrf_verify(vkey_ptr: *const u8, vkey_len: usize,
                                   input_ptr: *const u8, input_len: usize,
                                   aux_ptr: *const u8, aux_len: usize) -> i32 {
     if vkey_len != VKEY_SZ || sig_len != IETF_SIG_SZ {
-        println!("ietf_vrf_verify: vkey_len or sig_len mismatch!");
         return -1;
     }
     let sig_res = IetfVrfSignature::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
     if sig_res.is_err() {
-        println!("ietf_vrf_verify: failed to deserialize the signature!");
-        return -1;
+        return -2;
     }
     let sig = sig_res.unwrap();
 
     let vkey_res = Public::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(vkey_ptr, vkey_len) });
     if vkey_res.is_err() {
-        println!("ietf_vrf_verify: failed to deserialize the vkey!");
-        return -1;
+        return -3;
     }
     let vkey = vkey_res.unwrap();
 
     let input_res = Input::new(unsafe { std::slice::from_raw_parts(input_ptr, input_len) });
     if input_res.is_none() {
-        println!("ietf_vrf_verify: failed to construct the input!");
-        return -1;
+        return -4;
     }
     let input = input_res.unwrap();
 
@@ -247,8 +243,7 @@ pub extern "C" fn ietf_vrf_verify(vkey_ptr: *const u8, vkey_len: usize,
 
     let verify_res = vkey.verify(input, sig.output, aux, &sig.proof);
     if verify_res.is_err() {
-        println!("ietf_vrf_verify: verification failed!");
-        return -1;
+        return -5;
     }
     return 0;
 }

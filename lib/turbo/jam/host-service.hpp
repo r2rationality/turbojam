@@ -56,7 +56,7 @@ namespace turbo::jam {
     template<typename CFG>
     struct host_service_params_t {
         machine::machine_t &m;
-        mutable_services_state_t<CFG> &services;
+        account_updates_t<CFG> &services;
         service_id_t service_id;
         time_slot_t<CFG> slot;
         fetch_params_t<CFG> fetch;
@@ -69,13 +69,13 @@ namespace turbo::jam {
         using call_func = std::function<void()>;
         struct service_lookup_res_t {
             service_id_t id;
-            mutable_service_state_t<CFG> *account;
+            std::optional<service_info_t<CFG>> account;
         };
 
         const host_service_params_t<CFG> _p;
-        mutable_service_state_t<CFG> &_service;
 
         // helper methods
+        service_info_t<CFG> _service_info() const;
         service_lookup_res_t _get_service(machine::register_val_t id);
         [[nodiscard]] machine::host_call_res_t _safe_call(const call_func &f) noexcept;
 

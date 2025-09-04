@@ -26,10 +26,10 @@ namespace turbo::jam::machine {
 
     struct machine_t::impl {
         explicit impl(program_t &&program, const state_t &init, const pages_t &page_map):
-            _program { std::move(program) },
-            _regs { init.regs },
-            _pc { init.pc },
-            _gas { init.gas }
+            _program{std::move(program)},
+            _regs{init.regs},
+            _pc{init.pc},
+            _gas{init.gas}
         {
             static constexpr auto stack_end = (1ULL << 32U) - 2 * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
             _stack_begin = stack_end;
@@ -47,9 +47,7 @@ namespace turbo::jam::machine {
                         _stack_begin = page.address;
                     }
                 }
-                for (size_t i = 0; i < cnt; ++i) {
-                    _add_page(page_id + i, page.is_writable);
-                }
+                _add_pages(page_id, page_id + cnt, page.is_writable);
             }
             for (const auto &mc: init.memory) {
                 size_t addr = mc.address;
@@ -63,13 +61,14 @@ namespace turbo::jam::machine {
         }
 
         explicit impl(impl &&o):
-            _program { std::move(o._program) },
-            _regs { o._regs },
-            _pc { o._pc },
-            _gas { o._gas },
-            _pages { std::move(o._pages) },
-            _heap_end { o._heap_end },
-            _stack_begin { o._stack_begin }
+            _program{std::move(o._program)},
+            _regs{o._regs},
+            _pc{o._pc},
+            _gas{o._gas},
+            _page_storage{std::move(o._page_storage)},
+            _pages{std::move(o._pages)},
+            _heap_end{o._heap_end},
+            _stack_begin{o._stack_begin}
         {
         }
 
@@ -80,7 +79,7 @@ namespace turbo::jam::machine {
                 for (;;) {
                     if (!_current_block_sz) {
                         _current_block_sz = _basic_block_len();
-                        consume_gas(numeric_cast<gas_t::base_type>(_current_block_sz));
+                        //consume_gas(numeric_cast<gas_t::base_type>(_current_block_sz));
                     }
                     _basic_block_run();
                 }
@@ -181,7 +180,7 @@ namespace turbo::jam::machine {
         }
     private:
         struct page_info_t {
-            std::unique_ptr<uint8_t[]> data;
+            uint8_t *data;
             bool is_writable = false;
         };
 
@@ -191,6 +190,7 @@ namespace turbo::jam::machine {
         registers_t _regs {};
         uint32_t _pc {};
         gas_remaining_t _gas = 0;
+        std::vector<std::unique_ptr<uint8_t[]>> _page_storage{};
         page_map_t _pages;
         register_val_t _heap_end = 0;
         register_val_t _stack_begin = 0;
@@ -638,16 +638,7 @@ namespace turbo::jam::machine {
                 const auto len = _skip_len(_pc, _program.bitmasks);
                 const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
                 const auto &op = _opcode_info(opcode);
-                /*std::visit([&](const auto &make_args) {
-                    const auto args = (this->*make_args)(data);
-                    std::string args_str {};
-                    auto args_it = std::back_inserter(args_str);
-                    std::apply([&](const auto &... op_args) {
-                        std::size_t i = 0;
-                        ((args_it = _format_op_arg(args_it, i++, op_args)), ...);
-                    }, args);
-                    logger::debug("PolkaVM: [{}] {} {}", _pc, op.name, args_str);
-                }, op.make_args);*/
+                consume_gas(1U);
                 new_pc = (this->*op.exec)(data);
                 _pc += len + 1;
             }
@@ -685,13 +676,20 @@ namespace turbo::jam::machine {
             return {};
         }
 
-        void _add_page(const size_t page_id, const bool is_writable)
+        void _add_pages(const size_t start_page, const size_t end_page, const bool is_writable)
         {
-            const auto p_it = _pages.emplace_hint(_pages.end(), page_id, page_info_t {
-                std::make_unique<uint8_t[]>(config_prod::ZP_pvm_page_size),
-                is_writable
-            });
-            memset(p_it->second.data.get(), 0, config_prod::ZP_pvm_page_size);
+            const auto num_pages = end_page - start_page;
+            const auto ptr_sz = num_pages * config_prod::ZP_pvm_page_size;
+            auto ptr = std::make_unique<uint8_t[]>(ptr_sz);
+            _pages.reserve(_pages.size() + num_pages);
+            auto hint_it = _pages.end();
+            for (size_t i = 0; i < num_pages; ++i) {
+                hint_it = ++_pages.emplace_hint(hint_it, start_page + i, page_info_t {
+                    ptr.get() + i * config_prod::ZP_pvm_page_size,
+                    is_writable
+                });
+            }
+            _page_storage.emplace_back(std::move(ptr));
         }
 
         std::pair<size_t, page_map_t::const_iterator> _addr_check(const register_val_t addr, const size_t sz) const
@@ -712,9 +710,9 @@ namespace turbo::jam::machine {
             register_val_t res;
             switch (sz) {
                 case 1: res = page_it->second.data[page_off]; break;
-                case 2: res = buffer { page_it->second.data.get() + page_off, sz }.to<uint16_t>(); break;
-                case 4: res = buffer { page_it->second.data.get() + page_off, sz }.to<uint32_t>(); break;
-                case 8: res = buffer { page_it->second.data.get() + page_off, sz }.to<uint64_t>(); break;
+                case 2: res = buffer { page_it->second.data + page_off, sz }.to<uint16_t>(); break;
+                case 4: res = buffer { page_it->second.data + page_off, sz }.to<uint32_t>(); break;
+                case 8: res = buffer { page_it->second.data + page_off, sz }.to<uint64_t>(); break;
                 [[unlikely]] default: throw exit_panic_t {};
             }
             //logger::trace("PolkaVM: load {:08X}:{}: 0x{:X}", addr, sz, res);
@@ -731,7 +729,7 @@ namespace turbo::jam::machine {
         {
             using T = std::decay_t<decltype(val)>;
             const auto [page_off, page_it] = _addr_check(addr, sizeof(val));
-            *reinterpret_cast<T*>(page_it->second.data.get() + page_off) = val;
+            *reinterpret_cast<T*>(page_it->second.data + page_off) = val;
         }
 
         void _store_unsigned(const register_val_t addr, const auto val)
@@ -741,7 +739,7 @@ namespace turbo::jam::machine {
             if (!page_it->second.is_writable) [[unlikely]]
                 throw exit_page_fault_t { addr };
             //logger::trace("PolkaVM: store {:08X}:{}: 0x{:X}", addr, sizeof(val), val);
-            *reinterpret_cast<T*>(page_it->second.data.get() + page_off) = val;
+            *reinterpret_cast<T*>(page_it->second.data + page_off) = val;
         }
 
         // opcode implementations
@@ -833,9 +831,7 @@ namespace turbo::jam::machine {
                 auto end_page_id = new_heap_end / config_prod::ZP_pvm_page_size;
                 if (new_heap_end % config_prod::ZP_pvm_page_size > 0)
                     ++end_page_id;
-                for (auto page_id = begin_page_id; page_id < end_page_id; ++page_id) {
-                    _add_page(page_id, true);
-                }
+                _add_pages(begin_page_id, end_page_id, true);
                 _heap_end = new_heap_end;
             }
             _regs[r_d] = _heap_end;

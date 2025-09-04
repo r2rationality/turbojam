@@ -10,11 +10,11 @@ namespace {
     using namespace turbo;
     using namespace turbo::jam;
 
-    template<typename CONSTANTS>
-    struct input_t {
-        time_slot_t<CONSTANTS> slot;
+    template<typename CFG>
+    struct test_input_t {
+        time_slot_t<CFG> slot;
         validator_index_t author_index;
-        extrinsic_t<CONSTANTS> extrinsic;
+        extrinsic_t<CFG> extrinsic;
 
         void serialize(auto &archive)
         {
@@ -24,59 +24,43 @@ namespace {
             archive.process("extrinsic"sv, extrinsic);
         }
 
-        bool operator==(const input_t &o) const
-        {
-            if (slot != o.slot)
-                return false;
-            if (author_index != o.author_index)
-                return false;
-            if (extrinsic != o.extrinsic)
-                return false;
-            return true;
-        }
+        bool operator==(const test_input_t &o) const = default;
     };
 
-    template<typename CONSTANTS>
-    struct test_case_t {
-        file::tmp_directory tmp_dir_pre { fmt::format("test-jam-preimages-{}-pre", static_cast<void *>(this)) };
-        file::tmp_directory tmp_dir_post { fmt::format("test-jam-preimages-{}-post", static_cast<void *>(this)) };
-        input_t<CONSTANTS> in;
-        state_t<CONSTANTS> pre { std::make_shared<triedb::db_t>(tmp_dir_pre.path()) };
-        state_t<CONSTANTS> post { std::make_shared<triedb::db_t>(tmp_dir_post.path()) };
+    template<typename CFG>
+    struct test_state_t {
+        validators_statistics_t<CFG> pi_vals_curr;
+        validators_statistics_t<CFG> pi_vals_last;
+        time_slot_t<CFG> tau;
+        validators_data_t<CFG> kappa;
 
-        void serialize_state(auto &archive, const std::string_view name, state_t<CONSTANTS> &st)
+        void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.push(name);
-            {
-                std::decay_t<typename decltype(st.pi)::element_type> new_pi{};
-                archive.process("vals_curr_stats"sv, new_pi.current);
-                archive.process("vals_last_stats"sv, new_pi.last);
-                st.pi.set(std::move(new_pi));
-            }
-            archive.process("slot"sv, st.tau);
-            archive.process("curr_validators"sv, st.kappa);
-            archive.pop();
+            archive.process("vals_curr_stats"sv, pi_vals_curr);
+            archive.process("vals_last_stats"sv, pi_vals_last);
+            archive.process("slot"sv, tau);
+            archive.process("curr_validators"sv, kappa);
         }
+
+        bool operator==(const test_state_t &o) const = default;
+    };
+
+    template<typename CFG>
+    struct test_case_t {
+        test_input_t<CFG> in;
+        test_state_t<CFG> pre;
+        test_state_t<CFG> post;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("input"sv, in);
-            serialize_state(archive, "pre_state"sv, pre);
-            serialize_state(archive, "post_state"sv, post);
+            archive.process("pre_state"sv, pre);
+            archive.process("post_state"sv, post);
         }
 
-        bool operator==(const test_case_t &o) const
-        {
-            if (in != o.in)
-                return false;
-            if (pre != o.pre)
-                return false;
-            if (post != o.post)
-                return false;
-            return true;
-        }
+        bool operator==(const test_case_t &o) const = default;
     };
 
     template<typename CFG>
@@ -88,18 +72,15 @@ namespace {
             expect(tc == j_tc) << "the json test case does not match the binary one" << path;
         }
         const file::tmp_directory state_dir { "test-jam-statistics" };
-        state_t<CFG> new_st{tc.pre};
+        auto new_st = tc.pre;
         reports_output_data_t reports_res{};
-        const auto &new_kappa = tc.pre.kappa.get();
         for (const auto &g: tc.in.extrinsic.guarantees) {
             for (const auto &s: g.signatures)
-                reports_res.reporters.emplace(new_kappa[s.validator_index].ed25519);
+                reports_res.reporters.emplace(tc.pre.kappa[s.validator_index].ed25519);
         }
-        new_st.pi.set(state_t<CFG>::pi_prime(statistics_t<CFG>{new_st.pi.get()}, reports_res,
-            new_kappa, tc.pre.tau.get(), tc.in.slot, tc.in.author_index, tc.in.extrinsic));
-        new_st.tau.set(state_t<CFG>::tau_prime(tc.pre.tau.get(), tc.in.slot));
-        expect(new_st.pi.get().current == tc.post.pi.get().current) << path;
-        expect(new_st.pi.get().last == tc.post.pi.get().last) << path;
+        state_t<CFG>::pi_prime(new_st.pi_vals_curr, new_st.pi_vals_last, reports_res,
+            new_st.kappa, tc.pre.tau, tc.in.slot, tc.in.author_index, tc.in.extrinsic);
+        expect(new_st == tc.post) << path;
     }
 }
 

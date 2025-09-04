@@ -18,19 +18,7 @@ namespace {
     using namespace turbo::cli::fuzzer;
     using namespace turbo::jam::traces;
     using namespace std::string_view_literals;
-    
-    [[nodiscard]] inline std::string_view read_line(std::string_view &buf) noexcept
-    {
-        const size_t nl  = buf.find('\n');
-        const bool   has_nl = (nl != std::string_view::npos);
-        const size_t pos = has_nl ? nl : buf.size();
-        const auto *data = buf.data();
-        const bool   has_cr = (pos > 0 && data[pos - 1] == '\r');
-        const size_t line_end = pos - static_cast<size_t>(has_cr);
-        std::string_view line{data, line_end};
-        buf.remove_prefix(pos + static_cast<size_t>(has_nl));
-        return line;
-    }
+
 
     struct io_worker_t {
         static io_worker_t &get()
@@ -135,9 +123,13 @@ namespace {
         {
             try {
                 const auto tc = jam::load_obj<test_case_t>(path);
+                const auto start_time = std::chrono::system_clock::now();
                 auto ok = _io_worker.sync_call(_test_case(set_state_t<CFG>::from_snapshot(tc.pre.keyvals), import_block_t<CFG>{tc.block}, tc.post.state_root));
-                ok &= _check_state_root(tc.block.header.hash(), tc.post.state_root, tc.post.keyvals);
-                logger::info("sample {}: {}", path, ok ? "OK" : "FAILED");
+                if (!ok) {
+                    _print_state_diff(tc.block.header.hash(), tc.post.state_root, tc.post.keyvals);
+                }
+                logger::info("sample {}: {} in {:0.3f} sec", path, ok ? "OK" : "FAILED",
+                    std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count());
             } catch (const std::exception &ex) {
                 logger::error("sample {}: failed due to an uncaught exception: {}", path, ex.what());
             } catch (...) {
@@ -181,16 +173,11 @@ namespace {
             co_return post_root == exp_root;
         }
 
-        bool _check_state_root(const header_hash_t &hh, const state_root_t &exp_root, const state_snapshot_t &exp_state)
+        void _print_state_diff(const header_hash_t &hh, const state_root_t &exp_root, const state_snapshot_t &exp_state)
         {
             const auto snap = _io_worker.sync_call(_get_state(hh));
-            const auto root = snap.root();
-            const auto match = root == exp_root;
-            if (!match) {
-                logger::debug("state for block {} does not match expected root: {} actual: {}", hh, exp_root, root);
-                logger::debug("state diff: {}", snap.diff(exp_state));
-            }
-            return match;
+            logger::debug("state for block {} does not match expected root: {} actual: {}", hh, exp_root, snap.root());
+            logger::debug("state diff: {}", snap.diff(exp_state));
         }
     };
 }
