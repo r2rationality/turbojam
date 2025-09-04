@@ -30,7 +30,8 @@ namespace turbo::jam {
                 if (blk.header.hash() != genesis_header.hash()) [[unlikely]]
                    throw error("the genesis header does not match the genesis state!");
                 logger::run_log_errors_rethrow([&] {
-                    _state->beta.set(state_t<CONFIG>::beta_prime({}, blk.header.hash(), {}, {}));
+                    state_t<CONFIG>::beta_prime(_state->beta.update(), blk.header.hash(), {}, {});
+                    _state->beta.commit();
                 });
             } else {
                 _state->apply(blk);

@@ -104,59 +104,54 @@ namespace turbo::jam {
 
     template<typename CFG>
     safrole_output_data_t<CFG> state_t<CFG>::update_safrole(
+        safrole_state_t<CFG> &new_gamma, validators_data_t<CFG> &new_kappa, validators_data_t<CFG> &new_lambda,
         const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_offenders,
-        const time_slot_t<CFG> &prev_tau, const safrole_state_t<CFG> &prev_gamma,
-        const std::shared_ptr<validators_data_t<CFG>> &prev_kappa_ptr, const std::shared_ptr<validators_data_t<CFG>> &prev_lambda_ptr,
-        const validators_data_t<CFG> &prev_iota,
-        const time_slot_t<CFG> &slot, const tickets_extrinsic_t<CFG> &extrinsic)
+        const time_slot_t<CFG> &prev_tau, const validators_data_t<CFG> &prev_iota,
+        const time_slot_t<CFG> &blk_slot, const tickets_extrinsic_t<CFG> &extrinsic)
     {
-        if (slot.epoch_slot() >= CFG::Y_ticket_submission_end && !extrinsic.empty()) [[unlikely]]
+        if (blk_slot.epoch_slot() >= CFG::Y_ticket_submission_end && !extrinsic.empty()) [[unlikely]]
             throw err_unexpected_ticket_t {};
 
-        safrole_output_data_t<CFG> res {
-            std::make_shared<safrole_state_t<CFG>>(prev_gamma)
-        };
+        safrole_output_data_t<CFG> res{};
 
         // Epoch transition
-        if (slot.epoch() > prev_tau.epoch()) [[unlikely]] {
+        if (blk_slot.epoch() > prev_tau.epoch()) [[unlikely]] {
             // JAM Paper (6.13)
-            res.lambda_ptr = std::make_shared<validators_data_t<CFG>>(*prev_kappa_ptr);
-            res.kappa_ptr = std::make_shared<validators_data_t<CFG>>(res.gamma_ptr->k);
-            res.gamma_ptr->k = _capital_phi(prev_iota, new_offenders);
-            if (!std::holds_alternative<tickets_t<CFG>>(prev_gamma.s) || res.gamma_ptr->k != prev_gamma.k)
-                res.gamma_ptr->z = _ring_commitment(res.gamma_ptr->k);
+            new_lambda = new_kappa;
+            new_kappa = new_gamma.k;
+            new_gamma.k = _capital_phi(prev_iota, new_offenders);
+            if (!std::holds_alternative<tickets_t<CFG>>(new_gamma.s) || new_kappa != new_gamma.k) {
+                new_gamma.z = _ring_commitment(new_gamma.k);
+            }
             // JAM Paper (6.27) - epoch marker
             res.epoch_mark.emplace(new_eta[1], new_eta[2]);
-            for (size_t ki = 0; ki < res.gamma_ptr->k.size(); ++ki) {
-                res.epoch_mark->validators[ki].bandersnatch = res.gamma_ptr->k[ki].bandersnatch;
-                res.epoch_mark->validators[ki].ed25519 = res.gamma_ptr->k[ki].ed25519;
+            for (size_t ki = 0; ki < new_gamma.k.size(); ++ki) {
+                res.epoch_mark->validators[ki].bandersnatch = new_gamma.k[ki].bandersnatch;
+                res.epoch_mark->validators[ki].ed25519 = new_gamma.k[ki].ed25519;
             }
-        } else {
-            res.kappa_ptr = prev_kappa_ptr;
-            res.lambda_ptr = prev_lambda_ptr;
         }
 
         // JAM (6.24)
-        if (slot.epoch() == prev_tau.epoch() + 1
+        if (blk_slot.epoch() == prev_tau.epoch() + 1
                 && prev_tau.epoch_slot() >= CFG::Y_ticket_submission_end
-                && res.gamma_ptr->a.size() == CFG::E_epoch_length) {
-            res.gamma_ptr->s = _permute_tickets(res.gamma_ptr->a);
-        } else if (slot.epoch() != prev_tau.epoch()) {
+                && new_gamma.a.size() == CFG::E_epoch_length) {
+            new_gamma.s = _permute_tickets(new_gamma.a);
+        } else if (blk_slot.epoch() != prev_tau.epoch()) {
             // since the update operates on a copy of the state
             // eta[2] and kappa are the updated "prime" values
-            res.gamma_ptr->s = _fallback_key_sequence(new_eta[2], *res.kappa_ptr);
+            new_gamma.s = _fallback_key_sequence(new_eta[2], new_kappa);
         }
 
-        if (slot.epoch() > prev_tau.epoch()) [[unlikely]] {
+        if (blk_slot.epoch() > prev_tau.epoch()) [[unlikely]] {
             // JAM Paper (6.34)
-            res.gamma_ptr->a.clear();
+            new_gamma.a.clear();
         }
 
         // JAM Paper (6.28) - winning-tickets marker
-        if (slot.epoch() == prev_tau.epoch()
+        if (blk_slot.epoch() == prev_tau.epoch()
                 && prev_tau.epoch_slot() < CFG::Y_ticket_submission_end
-                && slot.epoch_slot() >= CFG::Y_ticket_submission_end && res.gamma_ptr->a.size() == CFG::E_epoch_length) {
-            res.tickets_mark.emplace(_permute_tickets(res.gamma_ptr->a));
+                && blk_slot.epoch_slot() >= CFG::Y_ticket_submission_end && new_gamma.a.size() == CFG::E_epoch_length) {
+            res.tickets_mark.emplace(_permute_tickets(new_gamma.a));
         }
 
         std::optional<ticket_body_t> prev_ticket {};
@@ -185,16 +180,16 @@ namespace turbo::jam {
                 if (prev_ticket && *prev_ticket >= tb) [[unlikely]]
                     throw err_bad_ticket_order_t {};
                 prev_ticket = tb;
-                const auto it = std::lower_bound(res.gamma_ptr->a.begin(), res.gamma_ptr->a.end(), tb);
-                if (it != res.gamma_ptr->a.end() && *it == tb) [[unlikely]]
+                const auto it = std::lower_bound(new_gamma.a.begin(), new_gamma.a.end(), tb);
+                if (it != new_gamma.a.end() && *it == tb) [[unlikely]]
                     throw err_duplicate_ticket_t {};
-                if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, res.gamma_ptr->z, t.signature, input, aux) != 0) [[unlikely]]
+                if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, new_gamma.z, t.signature, input, aux) != 0) [[unlikely]]
                     throw err_bad_ticket_proof_t {};
-                res.gamma_ptr->a.insert(it, std::move(tb));
+                new_gamma.a.insert(it, std::move(tb));
             }
         }
-        if (res.gamma_ptr->a.size() > res.gamma_ptr->a.max_size)
-            res.gamma_ptr->a.resize(res.gamma_ptr->a.max_size);
+        if (new_gamma.a.size() > new_gamma.a.max_size)
+            new_gamma.a.resize(new_gamma.a.max_size);
 
         return res;
     }
@@ -231,21 +226,19 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    entropy_buffer_t state_t<CFG>::eta_prime(const time_slot_t<CFG> &prev_tau, const entropy_buffer_t &prev_eta,
+    void state_t<CFG>::eta_prime(entropy_buffer_t &eta, const time_slot_t<CFG> &prev_tau,
         const time_slot_t<CFG> &blk_slot, const entropy_t &blk_entropy)
     {
-        auto new_eta = prev_eta;
+        byte_array<sizeof(eta[0]) + sizeof(blk_entropy)> eta_preimage;
+        memcpy(eta_preimage.data(), eta[0].data(), eta[0].size());
+        memcpy(eta_preimage.data() + eta[0].size(), blk_entropy.data(), blk_entropy.size());
         if (blk_slot.epoch() > prev_tau.epoch()) [[unlikely]] {
             // JAM Paper (6.23)
-            new_eta[3] = prev_eta[2];
-            new_eta[2] = prev_eta[1];
-            new_eta[1] = prev_eta[0];
+            eta[3] = eta[2];
+            eta[2] = eta[1];
+            eta[1] = eta[0];
         }
-        byte_array<sizeof(prev_eta[0]) + sizeof(blk_entropy)> eta_preimage;
-        memcpy(eta_preimage.data(), prev_eta[0].data(), prev_eta[0].size());
-        memcpy(eta_preimage.data() + prev_eta[0].size(), blk_entropy.data(), blk_entropy.size());
-        crypto::blake2b::digest(new_eta[0], eta_preimage);
-        return new_eta;
+        crypto::blake2b::digest(eta[0], eta_preimage);
     }
 
     template<typename CFG>
@@ -902,17 +895,13 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    std::shared_ptr<disputes_records_t> state_t<CFG>::psi_prime(
-        offenders_mark_t &new_offenders, availability_assignments_t<CFG> &new_rho,
+    offenders_mark_t state_t<CFG>::psi_prime(
+        disputes_records_t &new_psi, availability_assignments_t<CFG> &new_rho,
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
-        const time_slot_t<CFG> &prev_tau, const std::shared_ptr<disputes_records_t> &prev_psi_ptr,
-        const disputes_extrinsic_t<CFG> &disputes)
+        const time_slot_t<CFG> &prev_tau, const disputes_extrinsic_t<CFG> &disputes)
     {
-        auto new_psi_ptr = prev_psi_ptr;
-        new_offenders.clear();
+        offenders_mark_t new_offenders{};
         if (!disputes.empty()) {
-            new_psi_ptr = std::make_shared<disputes_records_t>(*new_psi_ptr);
-            auto &new_psi = *new_psi_ptr;
             set_t<ed25519_public_t> known_vkeys {};
             known_vkeys.reserve(new_kappa.size() + new_lambda.size());
             for (const auto &validator_set: { new_kappa, new_lambda }) {
@@ -1063,7 +1052,8 @@ namespace turbo::jam {
                     throw err_offender_already_reported_t {};
             }
         }
-        return new_psi_ptr;
+
+        return new_offenders;
     }
 
     template<typename CFG>
@@ -1076,21 +1066,18 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    recent_blocks_t<CFG> state_t<CFG>::beta_prime(recent_blocks_t<CFG> tmp_beta, const header_hash_t &hh,
+    void state_t<CFG>::beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh,
         const std::optional<opaque_hash_t> &accumulation_result, const reported_work_seq_t<CFG> &wp)
     {
-        recent_blocks_t<CFG> new_beta = std::move(tmp_beta);
         if (accumulation_result)
             new_beta.mmr = new_beta.mmr.append(*accumulation_result);
-        block_info_t<CFG> bi {
+        if (new_beta.history.size() == new_beta.history.max_size) [[likely]]
+            new_beta.history.erase(new_beta.history.begin());
+        new_beta.history.emplace_back(block_info_t<CFG>{
             .header_hash=hh,
             .beefy_root=new_beta.mmr.root(),
             .reported=wp
-        };
-        if (new_beta.history.size() == new_beta.history.max_size) [[likely]]
-            new_beta.history.erase(new_beta.history.begin());
-        new_beta.history.emplace_back(std::move(bi));
-        return new_beta;
+        });
     }
 
     template<typename CFG>
@@ -1122,135 +1109,127 @@ namespace turbo::jam {
     template<typename CFG>
     void state_t<CFG>::apply(const block_t<CFG> &blk)
     {
-        // Work on a copy so that in case of errors the original state remains intact
-        auto new_st = working_copy();
-        // JAM (4.5) update tau
-        new_st.tau.set(state_t::tau_prime(this->tau.get(), blk.header.slot));
+        try {
+            const auto prev_tau = this->tau.get();
+            this->tau.update() = state_t::tau_prime(this->tau.get(), blk.header.slot);
 
-        // core and service statistics are tracked per-block only! (13.11)
-        statistics_t<CFG> new_pi{this->pi.get().current, this->pi.get().last};
+            auto &new_pi = this->pi.update();
+            new_pi.cores = {};
+            new_pi.services = {};
 
-        // (4.6) beta_dagger - deps match GP
-        auto new_beta = beta_dagger(this->beta.get(), blk.header.parent_state_root);
+            this->beta.update() = beta_dagger(this->beta.get(), blk.header.parent_state_root);
+            eta_prime(this->eta.update(), prev_tau, blk.header.slot, blk.header.entropy());
 
-        // (4.8) eta_prime - deps match GP
-        new_st.eta.set(eta_prime(this->tau.get(), this->eta.get(), blk.header.slot, blk.header.entropy()));
-
-        // (4.11) -> psi_prime - additional deps: relies on kappa', lambda' and updates_rho
-        auto new_rho = this->rho.get();
-        offenders_mark_t new_offenders {};
-        new_st.psi.set(
-            psi_prime(
-                new_offenders, new_rho,
-                new_st.kappa.get(), new_st.lambda.get(),
-                this->tau.get(), this->psi.storage(),
-                blk.extrinsic.disputes
-            )
-        );
-
-        // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime - deps match GP
-        {
-            const auto safrole_res = update_safrole(
-                new_st.eta.get(), new_st.psi.get().offenders,
-                this->tau.get(), this->gamma.get(),
-                this->kappa.storage(), this->lambda.storage(),
-                this->iota.get(),
-                blk.header.slot, blk.extrinsic.tickets
+            // (4.11) -> psi_prime - additional deps: relies on kappa', lambda' and updates_rho
+            auto new_offenders = psi_prime(this->psi.update(),
+                this->rho.update(),
+                this->kappa.get(), this->lambda.get(),
+                prev_tau, blk.extrinsic.disputes
             );
-            if (safrole_res.epoch_mark != blk.header.epoch_mark) [[unlikely]]
-                throw error("supplied epoch_mark does not match the computed one!");
-            if (safrole_res.tickets_mark != blk.header.tickets_mark) [[unlikely]]
-                throw error("supplied tickets_mark does not match the computed one!");
-            new_st.gamma.set(std::move(safrole_res.gamma_ptr));
-            new_st.kappa.set(std::move(safrole_res.kappa_ptr));
-            new_st.lambda.set(std::move(safrole_res.lambda_ptr));
-        }
 
-        // signature verification depends on updated kappa, gamma.s and eta, so happens after update_safrole
-        {
-            blk.header.verify_signatures(
-                new_st.kappa.get().at(blk.header.author_index).bandersnatch,
-                new_st.gamma.get().s,
-                new_st.eta.get()[3]
+            // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime - deps match GP
+            {
+                const auto safrole_res = update_safrole(
+                    this->gamma.update(), this->kappa.update(), this->lambda.update(),
+                    this->eta.get(), this->psi.get().offenders,
+                    prev_tau, this->iota.get(),
+                    blk.header.slot, blk.extrinsic.tickets
+                );
+                if (safrole_res.epoch_mark != blk.header.epoch_mark) [[unlikely]]
+                    throw error("supplied epoch_mark does not match the computed one!");
+                if (safrole_res.tickets_mark != blk.header.tickets_mark) [[unlikely]]
+                    throw error("supplied tickets_mark does not match the computed one!");
+            }
+
+            // signature verification depends on updated kappa, gamma.s and eta, so happens after update_safrole
+            {
+                blk.header.verify_signatures(
+                    this->kappa.get().at(blk.header.author_index).bandersnatch,
+                    this->gamma.get().s,
+                    this->eta.get()[3]
+                );
+            }
+
+            // (4.13) (4.14) (4.15) - extra deps:
+            // - updates pi';
+            // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
+            auto ready_reports = rho_dagger_2(
+                this->rho.update(), new_pi,
+                prev_tau.epoch() == this->tau.get().epoch() ? this->kappa.get() : this->lambda.get(),
+                blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
+
+            account_updates_t<CFG> new_delta{this->delta};
+            // JAM (4.12)
+            const auto report_res = update_reports(
+                this->rho.update(), new_pi.cores, new_pi.services,
+                this->beta.get().history,
+                this->eta.get(), this->psi.get().offenders,
+                this->kappa.get(), this->lambda.get(),
+                this->alpha.get(), new_delta,
+                blk.header.slot, blk.extrinsic.guarantees
             );
-        }
 
-        // (4.13) (4.14) (4.15) - extra deps:
-        // - updates pi';
-        // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
-        auto ready_reports = rho_dagger_2(
-            new_rho, new_pi,
-            this->tau.get().epoch() == new_st.tau.get().epoch() ? new_st.kappa.get() : new_st.lambda.get(),
-            blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
-        // JAM (4.12)
-        const auto report_res = update_reports(
-            new_rho, new_pi.cores, new_pi.services,
-            new_beta.history,
-            new_st.eta.get(), new_st.psi.get().offenders,
-            new_st.kappa.get(), new_st.lambda.get(),
-            this->alpha.get(), this->delta,
-            blk.header.slot, blk.extrinsic.guarantees
-        );
-        new_st.rho.set(std::move(new_rho));
-
-        // (4.16) - extra deps: updates: pi
-        auto accumulate_res = accumulate(
-            new_pi.services,
-            new_st.eta.get()[0],
-            this->tau.get(),
-            this->chi.get(), this->omega.get(), this->ksi.get(),
-            this->delta,
-            blk.header.slot, ready_reports
-        );
-        if (accumulate_res.ksi)
-            new_st.ksi.set(std::move(accumulate_res.ksi));
-        if (accumulate_res.omega)
-            new_st.omega.set(std::move(accumulate_res.omega));
-        if (!accumulate_res.phi.empty()) {
-            auto new_phi = new_st.phi.get();
-            accumulate_res.phi.commit(new_phi);
-            new_st.phi.set(std::move(new_phi));
-        }
-        if (accumulate_res.iota)
-            new_st.iota.set(std::move(accumulate_res.iota));
-        if (accumulate_res.chi)
-            new_st.chi.set(std::move(accumulate_res.chi));
-
-        // (4.17)
-        {
-            reported_work_seq_t<CFG> reported_work {};
-            reported_work.reserve(ready_reports.size());
-            for (const auto &g: blk.extrinsic.guarantees) {
-                reported_work.emplace_hint(reported_work.end(), g.report.package_spec.hash, g.report.package_spec.exports_root);
+            // (4.16) - extra deps: updates: pi
+            auto accumulate_res = accumulate(
+                new_pi.services,
+                this->eta.get()[0],
+                prev_tau,
+                this->chi.get(), this->omega.get(), this->ksi.get(),
+                new_delta,
+                blk.header.slot, ready_reports
+            );
+            if (accumulate_res.ksi)
+                this->ksi.set(std::move(accumulate_res.ksi));
+            if (accumulate_res.omega)
+                this->omega.set(std::move(accumulate_res.omega));
+            if (!accumulate_res.phi.empty()) {
+                accumulate_res.phi.commit(this->phi.update());
             }
-            new_st.beta.set(state_t::beta_prime(std::move(new_beta), blk.header.hash(), accumulate_res.root, reported_work));
-            new_st.theta.set(std::move(accumulate_res.theta));
-        }
+            if (accumulate_res.iota)
+                this->iota.set(std::move(accumulate_res.iota));
+            if (accumulate_res.chi)
+                this->chi.set(std::move(accumulate_res.chi));
 
-        // (4.18)
-        {
-            auto account_updates = provide_preimages(new_pi.services, new_st.delta, blk.header.slot, blk.extrinsic.preimages);
-            account_updates.commit();
-        }
-
-        // (4.19): alpha' <- (H, E_G, psi', and alpha)
-        {
-            core_authorizers_t cas {};
-            for (const auto &g: blk.extrinsic.guarantees) {
-                cas.emplace_back(g.report.core_index, g.report.authorizer_hash);
+            // (4.17)
+            {
+                reported_work_seq_t<CFG> reported_work {};
+                reported_work.reserve(ready_reports.size());
+                for (const auto &g: blk.extrinsic.guarantees) {
+                    reported_work.emplace_hint(reported_work.end(), g.report.package_spec.hash, g.report.package_spec.exports_root);
+                }
+                state_t::beta_prime(this->beta.update(), blk.header.hash(), accumulate_res.root, reported_work);
+                this->theta.update() = std::move(accumulate_res.theta);
             }
-            new_st.alpha.set(state_t::alpha_prime(blk.header.slot, cas, new_st.phi.get(), this->alpha.get()));
+
+            // (4.18)
+            {
+                auto account_updates = provide_preimages(new_pi.services, new_delta, blk.header.slot, blk.extrinsic.preimages);
+                account_updates.commit();
+            }
+
+            // (4.19): alpha' <- (H, E_G, psi', and alpha)
+            {
+                core_authorizers_t cas {};
+                for (const auto &g: blk.extrinsic.guarantees) {
+                    cas.emplace_back(g.report.core_index, g.report.authorizer_hash);
+                }
+                this->alpha.update() = state_t::alpha_prime(blk.header.slot, cas, this->phi.get(), this->alpha.get());
+            }
+
+            // (4.20) but most updates are applied when the respective extrinsics are processed
+            pi_prime(new_pi.current, new_pi.last, report_res,
+                this->kappa.get(),prev_tau, blk.header.slot, blk.header.author_index, blk.extrinsic);
+
+            // commit the service updates to the global key-value store only once everything else has succeeded
+            if (accumulate_res.service_updates)
+                accumulate_res.service_updates->commit();
+
+            new_delta.commit();
+            this->commit();
+        } catch (...) {
+            this->rollback();
+            throw;
         }
-
-        // (4.20) but most updates are applied when the respective extrinsics are processed
-        pi_prime(new_pi.current, new_pi.last, report_res, new_st.kappa.get(),this->tau.get(), blk.header.slot, blk.header.author_index, blk.extrinsic);
-        new_st.pi.set(std::move(new_pi));
-
-        // commit the service updates to the global key-value store only once everything else has succeeded
-        if (accumulate_res.service_updates)
-            accumulate_res.service_updates->commit();
-
-        new_st.commit();
     }
 
     template<typename CFG>
@@ -1322,38 +1301,15 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    state_copy_t<CFG>::state_copy_t(state_base_t<CFG> &base_):
-        state_base_t<CFG>{std::make_shared<storage::update::db_t>(base_.db)},
-        base{base_}
+    void state_t<CFG>::commit()
     {
+        this->visit_simple([](auto &v){ v.commit(); });
     }
 
     template<typename CFG>
-    state_copy_t<CFG> state_t<CFG>::working_copy()
+    void state_t<CFG>::rollback()
     {
-        return {*this};
-    }
-
-    template<typename CFG>
-    void state_copy_t<CFG>::commit()
-    {
-        auto &src_db = dynamic_cast<storage::update::db_t &>(*this->db);
-        src_db.commit();
-        base.alpha.reset();
-        base.phi.reset();
-        base.beta.reset();
-        base.gamma.reset();
-        base.psi.reset();
-        base.eta.reset();
-        base.iota.reset();
-        base.kappa.reset();
-        base.lambda.reset();
-        base.rho.reset();
-        base.tau.reset();
-        base.chi.reset();
-        base.pi.reset();
-        base.omega.reset();
-        base.ksi.reset();
+        this->visit_simple([](auto &v){ v.rollback(); });
     }
 
     template<typename CFG>
@@ -1366,24 +1322,10 @@ namespace turbo::jam {
     state_t<CFG> &state_t<CFG>::operator=(const state_snapshot_t &st)
     {
         this->db->clear();
-        this->alpha.reset();
-        this->phi.reset();
-        this->beta.reset();
-        this->gamma.reset();
-        this->psi.reset();
-        this->eta.reset();
-        this->iota.reset();
-        this->kappa.reset();
-        this->lambda.reset();
-        this->rho.reset();
-        this->tau.reset();
-        this->chi.reset();
-        this->pi.reset();
-        this->omega.reset();
-        this->ksi.reset();
         for (const auto &[key, bytes]: st) {
             this->db->set(key, bytes);
         }
+        this->visit_simple([](auto &v){ v.reset(); });
         return *this;
     }
 
@@ -1428,7 +1370,4 @@ namespace turbo::jam {
 
     template struct state_t<config_prod>;
     template struct state_t<config_tiny>;
-
-    template struct state_copy_t<config_prod>;
-    template struct state_copy_t<config_tiny>;
 }

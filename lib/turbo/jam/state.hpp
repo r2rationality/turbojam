@@ -15,13 +15,6 @@
 
 namespace turbo::jam {
     template<typename T>
-    byte_sequence_t encode(const T &v)
-    {
-        encoder enc { v };
-        return { std::move(enc.bytes()) };
-    }
-
-    template<typename T>
     struct persistent_value_t {
         using element_type = T;
         using ptr_type = std::shared_ptr<element_type>;
@@ -46,8 +39,7 @@ namespace turbo::jam {
             set(std::move(val));
         }
 
-        void serialize(auto &archive)
-        {
+        void serialize(auto &archive) {
             using namespace std::string_view_literals;
             // TODO: can be optimized for the decoding case. That happens only in unit tests though.
             T tmp;
@@ -55,50 +47,58 @@ namespace turbo::jam {
             set(std::move(tmp));
         }
 
-        const element_type &get() const
-        {
-            return *storage();
-        }
-
-        const ptr_type &storage() const
-        {
+        const element_type &get() const {
             if (!_ptr) {
                 const auto bytes = _db->get(_key);
                 if (!bytes) [[unlikely]]
                     throw error(fmt::format("a required state element is missing: {}", _key));
                 _ptr = std::make_shared<element_type>(jam::from_bytes<element_type>(*bytes));
             }
-            return _ptr;
+            return *_ptr;
         }
 
-        void set(element_type new_val)
-        {
-            // allocation of a new shared pointer ensures that other copies are not affected
-            _ptr = std::make_shared<element_type>(std::move(new_val));
-            _db->set(_key, encode(*_ptr));
+        void set(ptr_type new_ptr) {
+            _updated = true;
+            _ptr = std::move(new_ptr);
         }
 
-        void set(ptr_type new_ptr)
-        {
-            if (_ptr.get() != new_ptr.get()) {
-                _ptr = std::move(new_ptr);
-                _db->set(_key, encode(*_ptr));
+        element_type &update() {
+            _updated = true;
+            return const_cast<element_type &>(get());
+        }
+
+        void reset() {
+            _ptr.reset();
+            _updated = false;
+        }
+
+        void commit() {
+            if (_updated) {
+                _db->set(_key, _encode(*_ptr));
+                _updated = false;
             }
         }
 
-        void reset()
-        {
-            _ptr.reset();
+        void rollback() {
+            if (_updated)
+                reset();
         }
 
-        bool operator==(const persistent_value_t &o) const
-        {
+        bool operator==(const persistent_value_t &o) const {
             return *_ptr == *o._ptr;
         }
     private:
         storage::db_ptr_t _db;
         state_key_t _key;
         mutable ptr_type _ptr{};
+        bool _updated = false;
+
+        template<typename T>
+        static uint8_vector _encode(const T &v)
+        {
+            encoder enc {v};
+            return {std::move(enc.bytes())};
+        }
     };
 
     template<typename CFG>
@@ -136,16 +136,6 @@ namespace turbo::jam {
                 + config_base::BI_min_balance_per_item * items
                 + config_base::BL_min_balance_per_octet * bytes;
             return t >= deposit_offset ? t - deposit_offset : 0;
-        }
-
-        void consume_from(const service_info_t<CFG> &o)
-        {
-            *this = o;
-        }
-
-        void commit(persistent_value_t<service_info_t<CFG>> &target)
-        {
-            target.set(*this);
         }
 
         bool operator==(const service_info_t<CFG> &o) const noexcept = default;
@@ -727,14 +717,26 @@ namespace turbo::jam {
         persistent_value_t<accumulated_queue_t<CFG>> ksi{db, 15U}; // JAM (12.1): recently accumulated reports
         persistent_value_t<service_commitments_t> theta{db, 16U}; // JAM (7.4): recent service accumulation commitments
         accounts_t<CFG> delta{db}; // services
-    };
 
-    template<typename CFG>
-    struct state_copy_t: state_base_t<CFG> {
-        state_base_t<CFG> &base;
-
-        state_copy_t(state_base_t<CFG> &base_);
-        void commit();
+        template<typename F>
+        void visit_simple(F f) {
+            f(alpha);
+            f(phi);
+            f(beta);
+            f(gamma);
+            f(psi);
+            f(eta);
+            f(iota);
+            f(kappa);
+            f(lambda);
+            f(rho);
+            f(tau);
+            f(chi);
+            f(pi);
+            f(omega);
+            f(ksi);
+            f(theta);
+        }
     };
 
     // JAM (4.4) - lowercase sigma
@@ -753,7 +755,9 @@ namespace turbo::jam {
         header_t<CFG> make_genesis_header() const;
         state_t &operator=(const state_snapshot_t &o);
         state_t &operator=(const state_t &o) = delete;
-        state_copy_t<CFG> working_copy();
+
+        void commit();
+        void rollback();
 
         // (4.1): Kapital upsilon
         void apply(const block_t<CFG> &);
@@ -764,23 +768,23 @@ namespace turbo::jam {
         // (4.6)
         static recent_blocks_t<CFG> beta_dagger(const recent_blocks_t<CFG> &prev_beta, const state_root_t &sr);
         // (4.17)
-        static recent_blocks_t<CFG> beta_prime(recent_blocks_t<CFG> tmp_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t<CFG> &wp);
+        static void beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t<CFG> &wp);
         // JAM (4.7)
-        static entropy_buffer_t eta_prime(const time_slot_t<CFG> &prev_tau, const entropy_buffer_t &prev_eta, const time_slot_t<CFG> &blk_slot, const entropy_t &blk_entropy);
+        static void eta_prime(entropy_buffer_t &eta, const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &blk_slot, const entropy_t &blk_entropy);
         // JAM (4.8)
         // JAM (4.9)
         // JAM (4.10)
         static safrole_output_data_t<CFG> update_safrole(
+            safrole_state_t<CFG> &new_gamma,
+            validators_data_t<CFG> &new_kappa,
+            validators_data_t<CFG> &new_lambda,
             const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_offenders,
-            const time_slot_t<CFG> &prev_tau, const safrole_state_t<CFG> &prev_gamma,
-            const std::shared_ptr<validators_data_t<CFG>> &prev_kappa_ptr,
-            const std::shared_ptr<validators_data_t<CFG>> &prev_lambda_ptr, const validators_data_t<CFG> &prev_iota,
+            const time_slot_t<CFG> &prev_tau, const validators_data_t<CFG> &prev_iota,
             const time_slot_t<CFG> &slot, const tickets_extrinsic_t<CFG> &extrinsic);
         // JAM (4.11)
-        static std::shared_ptr<disputes_records_t> psi_prime(offenders_mark_t &new_offenders, availability_assignments_t<CFG> &new_rho,
+        static offenders_mark_t psi_prime(disputes_records_t &new_psi, availability_assignments_t<CFG> &new_rho,
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
-            const time_slot_t<CFG> &prev_tau, const std::shared_ptr<disputes_records_t> &prev_psi_ptr,
-            const disputes_extrinsic_t<CFG> &disputes
+            const time_slot_t<CFG> &prev_tau, const disputes_extrinsic_t<CFG> &disputes
         );
         // JAM (4.19)
         static auth_pools_t<CFG> alpha_prime(const time_slot_t<CFG> &slot, const core_authorizers_t &cas,

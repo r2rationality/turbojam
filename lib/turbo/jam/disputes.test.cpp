@@ -154,11 +154,9 @@ namespace {
         auto new_st = tc.pre;
         err_code_t::catch_into(
             [&] {
-                offenders_mark_t new_offenders {};
-                new_st.psi = *state_t<CFG>::psi_prime(new_offenders, new_st.rho,
-                    tc.pre.kappa, tc.pre.lambda,
-                    tc.pre.tau, std::make_shared<decltype(tc.pre.psi)>(tc.pre.psi),
-                    tc.in.disputes
+                 {};
+                auto new_offenders = state_t<CFG>::psi_prime(new_st.psi, new_st.rho,
+                    tc.pre.kappa, tc.pre.lambda, tc.pre.tau, tc.in.disputes
                 );
                 out.emplace(test_output_data_t{ .offenders_mark=std::move(new_offenders) });
             },

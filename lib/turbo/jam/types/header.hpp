@@ -143,9 +143,6 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct safrole_output_data_t {
-        std::shared_ptr<safrole_state_t<CFG>> gamma_ptr{};
-        std::shared_ptr<validators_data_t<CFG>> kappa_ptr{};
-        std::shared_ptr<validators_data_t<CFG>> lambda_ptr{};
         optional_t<epoch_mark_t<CFG>> epoch_mark{};
         optional_t<tickets_mark_t<CFG>> tickets_mark{};
     };

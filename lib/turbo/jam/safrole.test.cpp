@@ -150,18 +150,13 @@ namespace {
         auto new_st = tc.pre;
         err_code_t::catch_into(
             [&] {
-                new_st.eta = state_t<CFG>::eta_prime(tc.pre.tau, tc.pre.eta, tc.in.slot, tc.in.entropy);
+                state_t<CFG>::eta_prime(new_st.eta, new_st.tau, tc.in.slot, tc.in.entropy);
                 auto res = state_t<CFG>::update_safrole(
+                    new_st.gamma, new_st.kappa, new_st.lambda,
                     new_st.eta, new_st.post_offenders,
-                    tc.pre.tau, tc.pre.gamma,
-                    std::make_shared<decltype(tc.pre.kappa)>(tc.pre.kappa),
-                    std::make_shared<decltype(tc.pre.kappa)>(tc.pre.lambda),
-                    tc.pre.iota,
+                    tc.pre.tau, tc.pre.iota,
                     tc.in.slot, tc.in.extrinsic
                 );
-                new_st.gamma = *res.gamma_ptr;
-                new_st.kappa = *res.kappa_ptr;
-                new_st.lambda = *res.lambda_ptr;
                 new_st.tau = state_t<CFG>::tau_prime(tc.pre.tau, tc.in.slot);
                 out.emplace(test_output_data_t<CFG>{std::move(res.epoch_mark), std::move(res.tickets_mark)});
             },

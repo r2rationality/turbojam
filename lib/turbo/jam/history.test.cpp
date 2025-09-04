@@ -67,19 +67,26 @@ namespace {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
-        auto tmp_beta = state_t<CFG>::beta_dagger(tc.pre.beta, tc.in.parent_state_root);
-        auto new_beta = state_t<CFG>::beta_prime(std::move(tmp_beta), tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages);
+        auto new_beta = state_t<CFG>::beta_dagger(tc.pre.beta, tc.in.parent_state_root);
+        state_t<CFG>::beta_prime(new_beta, tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages);
         expect(new_beta == tc.post.beta) << path;
     }
 }
 
 suite turbo_jam_history_suite = [] {
     "turbo::jam::history"_test = [] {
-        for (const auto &path: file::files_with_ext(test_vector_dir("stf/history/tiny"), ".bin")) {
-            test_file<config_tiny>(path.substr(0, path.size() - 4));
-        }
-        for (const auto &path: file::files_with_ext(test_vector_dir("stf/history/full"), ".bin")) {
-            test_file<config_prod>(path.substr(0, path.size() - 4));
+        static const auto test_prefix = test_vector_dir("stf/history/");
+        static std::optional<std::string> override_test{};
+        //override_test.emplace("tiny/progress_blocks_history-1");
+        if (!override_test) {
+            for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
+                test_file<config_tiny>(path.substr(0, path.size() - 4));
+            }
+            for (const auto &path: file::files_with_ext(test_prefix + "full", ".bin")) {
+                test_file<config_prod>(path.substr(0, path.size() - 4));
+            }
+        } else {
+            test_file<config_tiny>(test_prefix + *override_test);
         }
     };
 };
