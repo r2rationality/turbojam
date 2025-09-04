@@ -67,7 +67,8 @@ namespace {
             const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
             expect(tc == j_tc) << "json test case does not match the binary one" << path;
         }
-        auto new_beta = state_t<CFG>::beta_dagger(tc.pre.beta, tc.in.parent_state_root);
+        auto new_beta = tc.pre.beta;
+        state_t<CFG>::beta_dagger(new_beta, tc.in.parent_state_root);
         state_t<CFG>::beta_prime(new_beta, tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages);
         expect(new_beta == tc.post.beta) << path;
     }

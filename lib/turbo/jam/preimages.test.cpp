@@ -160,8 +160,9 @@ namespace {
         auto new_st = tc.pre;
         err_code_t::catch_into(
             [&] {
-                auto updates = state_t<CFG>::provide_preimages(new_st.pi_services, new_st.delta, tc.in.slot, tc.in.preimages);
-                updates.commit();
+                account_updates_t<CFG> acc_updates{new_st.delta};
+                state_t<CFG>::provide_preimages(acc_updates, new_st.pi_services, tc.in.slot, tc.in.preimages);
+                acc_updates.commit();
                 out.emplace(ok_t{});
             },
             [&](err_code_t err) {

@@ -67,7 +67,7 @@ namespace {
         }
         try {
             auto new_st = tc.pre;
-            new_st.alpha = state_t<CFG>::alpha_prime(tc.in.slot, tc.in.auths, new_st.phi, new_st.alpha);
+            state_t<CFG>::alpha_prime(new_st.alpha, tc.in.slot, tc.in.auths, new_st.phi);
             expect(new_st == tc.post) << path;
         } catch (...) {
             expect(false) << path;
