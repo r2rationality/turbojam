@@ -157,7 +157,7 @@ namespace {
                     tc.pre.tau, tc.pre.iota,
                     tc.in.slot, tc.in.extrinsic
                 );
-                state_t<CFG>::tau_prime(new_st.tau, tc.in.slot);
+                new_st.tau = state_t<CFG>::tau_prime(tc.pre.tau, tc.in.slot);
                 out.emplace(test_output_data_t<CFG>{std::move(res.epoch_mark), std::move(res.tickets_mark)});
             },
             [&](err_code_t err) {

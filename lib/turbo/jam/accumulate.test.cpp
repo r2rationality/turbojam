@@ -173,13 +173,12 @@ namespace {
         auto new_st = tc.pre;
         try {
             new_st.pi_services.clear();
-            account_updates_t<CFG> new_delta{new_st.accounts};
             auto res = state_t<CFG>::accumulate(
-                new_delta,
                 new_st.pi_services, new_st.eta0,
                 new_st.tau,
                 new_st.chi,
                 new_st.omega, new_st.ksi,
+                new_st.accounts,
                 tc.in.slot, tc.in.reports
             );
             // accumulate updates da_load statistics
@@ -190,8 +189,9 @@ namespace {
                 new_st.ksi = *res.ksi;
             if (res.chi)
                 new_st.chi = *res.chi;
-            new_delta.commit();
-            state_t<CFG>::tau_prime(new_st.tau, tc.in.slot);
+            if (res.service_updates)
+                res.service_updates->commit();
+            new_st.tau = state_t<CFG>::tau_prime(new_st.tau, tc.in.slot);
         } catch (const error &) {
             out.emplace(err_code_t {});
             new_st = tc.pre;

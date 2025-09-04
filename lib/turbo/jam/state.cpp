@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <ark-vrf.hpp>
 #include <numeric>
-#include <turbo/common/timer.hpp>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
 #include <turbo/crypto/keccak.hpp>
@@ -44,15 +43,17 @@ namespace turbo::jam {
     };
 
     template<typename CFG>
-    void state_t<CFG>::_ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG> &gamma_k)
+    bandersnatch_ring_commitment_t state_t<CFG>::_ring_commitment(const validators_data_t<CFG> &gamma_k)
     {
         ark_vrf_initialier_t::init();
         std::array<bandersnatch_public_t, CFG::V_validator_count> vkeys;
         for (size_t i = 0; i < vkeys.size(); ++i) {
             vkeys[i] = gamma_k[i].bandersnatch;
         }
-        if (ark_vrf::ring_commitment(res, buffer{reinterpret_cast<const uint8_t *>(vkeys.data()), sizeof(vkeys)}) != 0) [[unlikely]]
+        bandersnatch_ring_commitment_t res;
+        if (ark_vrf::ring_commitment(res, buffer { reinterpret_cast<const uint8_t *>(vkeys.data()), sizeof(vkeys) }) != 0) [[unlikely]]
             throw error("failed to generate a ring commitment!");
+        return res;
     }
 
     // (6.26)
@@ -109,7 +110,7 @@ namespace turbo::jam {
         const time_slot_t<CFG> &blk_slot, const tickets_extrinsic_t<CFG> &extrinsic)
     {
         if (blk_slot.epoch_slot() >= CFG::Y_ticket_submission_end && !extrinsic.empty()) [[unlikely]]
-            throw err_unexpected_ticket_t{};
+            throw err_unexpected_ticket_t {};
 
         safrole_output_data_t<CFG> res{};
 
@@ -119,10 +120,8 @@ namespace turbo::jam {
             new_lambda = new_kappa;
             new_kappa = new_gamma.k;
             new_gamma.k = _capital_phi(prev_iota, new_offenders);
-
             if (!std::holds_alternative<tickets_t<CFG>>(new_gamma.s) || new_kappa != new_gamma.k) {
-                const timer t{"state_t::update_safrole::epoch_transition::ring_commitment", logger::level::debug};
-                 _ring_commitment(new_gamma.z, new_gamma.k);
+                new_gamma.z = _ring_commitment(new_gamma.k);
             }
             // JAM Paper (6.27) - epoch marker
             res.epoch_mark.emplace(new_eta[1], new_eta[2]);
@@ -155,7 +154,7 @@ namespace turbo::jam {
             res.tickets_mark.emplace(_permute_tickets(new_gamma.a));
         }
 
-        std::optional<ticket_body_t> prev_ticket{};
+        std::optional<ticket_body_t> prev_ticket {};
 
         if (!extrinsic.empty()) {
             // (6.34)
@@ -198,9 +197,10 @@ namespace turbo::jam {
     // End of Safrole-related state methods
 
     template<typename CFG>
-    void state_t<CFG>::provide_preimages(account_updates_t<CFG> &accs, services_statistics_t &new_pi_services,
-        const time_slot_t<CFG> &slot, const preimages_extrinsic_t &preimages)
+    account_updates_t<CFG> state_t<CFG>::provide_preimages(services_statistics_t &new_pi_services,
+        const accounts_t<CFG> &new_delta, const time_slot_t<CFG> &slot, const preimages_extrinsic_t &preimages)
     {
+        account_updates_t<CFG> accs{new_delta};
         const preimage_t *prev = nullptr;
         for (const auto &p: preimages) {
             if (prev && *prev >= p) [[unlikely]]
@@ -222,6 +222,7 @@ namespace turbo::jam {
             ++service_stats.provided_count;
             service_stats.provided_size += p.blob.size();
         }
+        return accs;
     }
 
     template<typename CFG>
@@ -529,10 +530,11 @@ namespace turbo::jam {
     // produces: accumulate_root, iota', psi' and chi'
     template<typename CFG>
     accumulate_output_t<CFG> state_t<CFG>::accumulate(
-        account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services, const entropy_t &new_eta0,
+        services_statistics_t &new_pi_services, const entropy_t &new_eta0,
         const time_slot_t<CFG> &prev_tau,
         const privileges_t<CFG> &prev_chi,
         const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
+        const accounts_t<CFG> &prev_delta,
         const time_slot_t<CFG> &slot, const work_reports_t<CFG> &reports)
     {
         accumulate_output_t<CFG> res{};
@@ -602,7 +604,7 @@ namespace turbo::jam {
             gas_limit = CFG::GT_max_total_accumulation_gas;
 
         // (12.22)
-        auto plus_res = accumulate_plus(new_eta0, new_delta, prev_chi, slot, gas_limit, work_immediate);
+        auto plus_res = accumulate_plus(new_eta0, prev_delta, prev_chi, slot, gas_limit, work_immediate);
 
         // (12.28)
         {
@@ -620,7 +622,7 @@ namespace turbo::jam {
         }
 
         // (12.23)
-        plus_res.state.services.commit();
+        res.service_updates.emplace(std::move(plus_res.state.services));
         if (plus_res.state.chi.updated())
             plus_res.state.chi.commit(res.chi);
         if (plus_res.state.iota)
@@ -632,9 +634,9 @@ namespace turbo::jam {
             auto &s_stats = new_pi_services[s_id];
             s_stats.accumulate_count = work_info.num_reports;
             s_stats.accumulate_gas_used = work_info.gas_used;
-            auto info = new_delta.info_get_or_throw(s_id);
+            auto info = res.service_updates->info_get_or_throw(s_id);
             info.last_accumulation_slot = slot;
-            new_delta.info_set(s_id, std::move(info));
+            res.service_updates->info_set(s_id, std::move(info));
         }
 
         // (12.33)
@@ -686,12 +688,12 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    void state_t<CFG>::tau_prime(time_slot_t<CFG> &tau, const time_slot_t<CFG> &blk_slot)
+    time_slot_t<CFG> state_t<CFG>::tau_prime(const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &blk_slot)
     {
-        if (blk_slot <= tau || blk_slot > time_slot_t<CFG>::current()) [[unlikely]]
-            throw err_bad_slot_t{};
+        if (blk_slot <= prev_tau || blk_slot > time_slot_t<CFG>::current()) [[unlikely]]
+            throw err_bad_slot_t {};
         // JAM (6.1)
-        tau = blk_slot;
+        return blk_slot;
     }
 
     template<typename CFG>
@@ -1055,10 +1057,12 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    void state_t<CFG>::beta_dagger(recent_blocks_t<CFG> &beta, const state_root_t &sr)
+    recent_blocks_t<CFG> state_t<CFG>::beta_dagger(const recent_blocks_t<CFG> &prev_beta, const state_root_t &sr)
     {
-        if (!beta.history.empty())
-            beta.history.back().state_root = sr;
+        recent_blocks_t<CFG> new_beta = prev_beta;
+        if (!new_beta.history.empty())
+            new_beta.history.back().state_root = sr;
+        return new_beta;
     }
 
     template<typename CFG>
@@ -1077,9 +1081,10 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    void state_t<CFG>::alpha_prime(auth_pools_t<CFG> &new_alpha, const time_slot_t<CFG> &slot, const core_authorizers_t &cas,
-        const auth_queues_t<CFG> &new_phi)
+    auth_pools_t<CFG> state_t<CFG>::alpha_prime(const time_slot_t<CFG> &slot, const core_authorizers_t &cas,
+        const auth_queues_t<CFG> &new_phi, const auth_pools_t<CFG> &prev_alpha)
     {
+        auth_pools_t<CFG> new_alpha = prev_alpha;
         for (const auto &ca: cas) {
             auto &pool = new_alpha.at(ca.core);
             auto pool_it = std::find(pool.begin(), pool.end(), ca.auth_hash);
@@ -1097,22 +1102,22 @@ namespace turbo::jam {
             const auto &queue = new_phi.at(core);
             pool.emplace_back(queue.at(slot.slot() % queue.size()));
         }
+        return new_alpha;
     }
 
     // JAM (4.1): Kapital upsilon
     template<typename CFG>
     void state_t<CFG>::apply(const block_t<CFG> &blk)
     {
-        const timer t_apply{"state_t::apply", logger::level::debug};
         try {
             const auto prev_tau = this->tau.get();
-            state_t::tau_prime(this->tau.update(), blk.header.slot);
+            this->tau.update() = state_t::tau_prime(this->tau.get(), blk.header.slot);
 
             auto &new_pi = this->pi.update();
             new_pi.cores = {};
             new_pi.services = {};
 
-            beta_dagger(this->beta.update(), blk.header.parent_state_root);
+            this->beta.update() = beta_dagger(this->beta.get(), blk.header.parent_state_root);
             eta_prime(this->eta.update(), prev_tau, blk.header.slot, blk.header.entropy());
 
             // (4.11) -> psi_prime - additional deps: relies on kappa', lambda' and updates_rho
@@ -1165,12 +1170,12 @@ namespace turbo::jam {
             );
 
             // (4.16) - extra deps: updates: pi
-            timer t_accumulate{"state_t::update_reports::accumulate", logger::level::debug};
             auto accumulate_res = accumulate(
-                new_delta, new_pi.services,
+                new_pi.services,
                 this->eta.get()[0],
                 prev_tau,
                 this->chi.get(), this->omega.get(), this->ksi.get(),
+                new_delta,
                 blk.header.slot, ready_reports
             );
             if (accumulate_res.ksi)
@@ -1184,11 +1189,10 @@ namespace turbo::jam {
                 this->iota.set(std::move(accumulate_res.iota));
             if (accumulate_res.chi)
                 this->chi.set(std::move(accumulate_res.chi));
-            t_accumulate.stop_and_print();
 
             // (4.17)
             {
-                reported_work_seq_t<CFG> reported_work{};
+                reported_work_seq_t<CFG> reported_work {};
                 reported_work.reserve(ready_reports.size());
                 for (const auto &g: blk.extrinsic.guarantees) {
                     reported_work.emplace_hint(reported_work.end(), g.report.package_spec.hash, g.report.package_spec.exports_root);
@@ -1199,30 +1203,30 @@ namespace turbo::jam {
 
             // (4.18)
             {
-                provide_preimages(new_delta, new_pi.services, blk.header.slot, blk.extrinsic.preimages);
+                auto account_updates = provide_preimages(new_pi.services, new_delta, blk.header.slot, blk.extrinsic.preimages);
+                account_updates.commit();
             }
 
             // (4.19): alpha' <- (H, E_G, psi', and alpha)
             {
-                core_authorizers_t cas{};
-                cas.reserve(blk.extrinsic.guarantees.size());
+                core_authorizers_t cas {};
                 for (const auto &g: blk.extrinsic.guarantees) {
                     cas.emplace_back(g.report.core_index, g.report.authorizer_hash);
                 }
-                state_t::alpha_prime(this->alpha.update(), blk.header.slot, cas, this->phi.get());
+                this->alpha.update() = state_t::alpha_prime(blk.header.slot, cas, this->phi.get(), this->alpha.get());
             }
 
             // (4.20) but most updates are applied when the respective extrinsics are processed
-            {
-                pi_prime(new_pi.current, new_pi.last, report_res,
-                    this->kappa.get(),prev_tau, blk.header.slot, blk.header.author_index, blk.extrinsic);
-            }
+            pi_prime(new_pi.current, new_pi.last, report_res,
+                this->kappa.get(),prev_tau, blk.header.slot, blk.header.author_index, blk.extrinsic);
 
-            const timer t_commit{"state_t::apply::commit", logger::level::debug};
+            // commit the service updates to the global key-value store only once everything else has succeeded
+            if (accumulate_res.service_updates)
+                accumulate_res.service_updates->commit();
+
             new_delta.commit();
             this->commit();
         } catch (...) {
-            const timer t_rollback{"state_t::apply::rollback", logger::level::debug};
             this->rollback();
             throw;
         }
