@@ -91,45 +91,43 @@ pub extern "C" fn init(path_ptr: *const u8, path_len: usize) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn ring_commitment(out_ptr: *mut u8, out_len: usize, vkeys_ptr: *const u8, vkeys_len: usize) -> i32 {
+pub extern "C" fn ring_commitment(
+    out_ptr: *mut u8,
+    out_len: usize,
+    vkeys_ptr: *const u8,
+    vkeys_len: usize,
+) -> i32 {
     if vkeys_ptr.is_null() || out_ptr.is_null() {
         return -1;
     }
     if vkeys_len % VKEY_SZ != 0 {
         return -2;
     }
+    if out_len != RING_COMMIT_SZ {
+        return -4;
+    }
 
     let num_vkeys = vkeys_len / VKEY_SZ;
-    let ring: Vec<bandersnatch::Public> = (0 .. num_vkeys)
-        .map(|i|
-            bandersnatch::Public::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(vkeys_ptr.wrapping_add(VKEY_SZ * i), VKEY_SZ) })
-                .unwrap_or(bandersnatch::Public::from(RingProofParams::padding_point()))
-        )
-        
-        .collect();
-    let pts: Vec<_> = ring.iter().map(|pk| pk.0).collect();
-    match ring_proof_params(num_vkeys) {
-        Some(ring_params) => {
-            let commitment = ring_params.verifier_key(&pts).commitment();
-            let mut buf: Vec<u8> = vec![];
-            match commitment.serialize_compressed(&mut buf) {
-                Ok(_val) => {
-                    if buf.len() != out_len {
-                        return -4;
-                    }
-                    unsafe {
-                        ptr::copy_nonoverlapping(buf.as_ptr(), out_ptr, buf.len());
-                    }
-                    return 0;
-                }
-                Err(_e) => {
-                    return -3;
-                }
-            }
-        }
-        None => {
-            -1
-        }
+    let vkeys = unsafe { std::slice::from_raw_parts(vkeys_ptr, vkeys_len) };
+
+    let mut pts = Vec::with_capacity(num_vkeys);
+    let pad_public = bandersnatch::Public::from(RingProofParams::padding_point());
+    for chunk in vkeys.chunks_exact(VKEY_SZ) {
+        let pk = bandersnatch::Public::deserialize_compressed_unchecked(chunk)
+            .unwrap_or_else(|_| pad_public.clone());
+        pts.push(pk.0);
+    }
+
+    let ring_params = match ring_proof_params(num_vkeys) {
+        Some(rp) => rp,
+        None => return -1,
+    };
+
+    let commitment = ring_params.verifier_key(&pts).commitment();
+    let out_slice = unsafe { std::slice::from_raw_parts_mut(out_ptr, out_len) };
+    match commitment.serialize_compressed(out_slice.as_mut()) {
+        Ok(()) => 0,
+        Err(_e) => -3,
     }
 }
 
