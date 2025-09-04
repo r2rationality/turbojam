@@ -93,10 +93,10 @@ namespace turbo::jam {
         mutable ptr_type _ptr{};
         bool _updated = false;
 
-        template<typename T>
-        static uint8_vector _encode(const T &v)
+        template<typename V>
+        static uint8_vector _encode(const V &v)
         {
-            encoder enc {v};
+            encoder enc{v};
             return {std::move(enc.bytes())};
         }
     };
