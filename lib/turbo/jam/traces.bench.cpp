@@ -10,14 +10,13 @@ namespace {
     using namespace turbo::jam;
 }
 
-suite turbo_jam_safrole_bench_suite = [] {
-    "turbo::jam::safrole"_test = [] {
+suite turbo_jam_traces_bench_suite = [] {
+    "turbo::jam::traces"_test = [] {
         ankerl::nanobench::Bench b {};
-        b.title("turbo::jam::safrole")
+        b.title("turbo::jam::traces")
             .output(&std::cerr)
             .unit("blocks")
-            .performanceCounters(true)
-            .relative(true);
+            .performanceCounters(true);
         const auto traces_prefix = test_vector_dir("traces/");
         const auto genesis = jam::load_obj<traces::test_genesis_t<config_tiny>>(traces_prefix + "safrole/genesis.bin");
         b.run("fallback/00000072",[&] {

@@ -690,7 +690,6 @@ namespace turbo::jam {
         auth_queue_updates_t<CFG> phi{};
         std::shared_ptr<validators_data_t<CFG>> iota{};
         std::shared_ptr<privileges_t<CFG>> chi{};
-        std::optional<account_updates_t<CFG>> service_updates{};
         service_commitments_t theta{};
         accumulate_root_t root{};
     };
@@ -764,9 +763,9 @@ namespace turbo::jam {
 
         // State transition methods: static to not be explicit about their inputs and outputs
         // (4.5)
-        static time_slot_t<CFG> tau_prime(const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &blk_slot);
+        static void tau_prime(time_slot_t<CFG> &tau, const time_slot_t<CFG> &blk_slot);
         // (4.6)
-        static recent_blocks_t<CFG> beta_dagger(const recent_blocks_t<CFG> &prev_beta, const state_root_t &sr);
+        static void beta_dagger(recent_blocks_t<CFG> &beta, const state_root_t &sr);
         // (4.17)
         static void beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t<CFG> &wp);
         // JAM (4.7)
@@ -787,8 +786,8 @@ namespace turbo::jam {
             const time_slot_t<CFG> &prev_tau, const disputes_extrinsic_t<CFG> &disputes
         );
         // JAM (4.19)
-        static auth_pools_t<CFG> alpha_prime(const time_slot_t<CFG> &slot, const core_authorizers_t &cas,
-            const auth_queues_t<CFG> &new_phi, const auth_pools_t<CFG> &prev_alpha);
+        static void alpha_prime(auth_pools_t<CFG> &new_alpha, const time_slot_t<CFG> &slot, const core_authorizers_t &cas,
+            const auth_queues_t<CFG> &new_phi);
         // JAM (4.20)
         static void pi_prime(validators_statistics_t<CFG> &new_pi_current, validators_statistics_t<CFG> &new_pi_last,
             const reports_output_data_t &report_res, const validators_data_t<CFG> &new_kappa,
@@ -815,14 +814,13 @@ namespace turbo::jam {
             const assurances_extrinsic_t<CFG> &assurances);
 
         // JAM (4.18)
-        static account_updates_t<CFG> provide_preimages(services_statistics_t &new_pi_services, const accounts_t<CFG> &new_delta, const time_slot_t<CFG> &slot, const preimages_extrinsic_t &preimages);
+        static void provide_preimages(account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services, const time_slot_t<CFG> &slot, const preimages_extrinsic_t &preimages);
         // JAM (4.16)
         static accumulate_output_t<CFG> accumulate(
-            services_statistics_t &new_pi_services, const entropy_t &new_eta0,
-            const time_slot_t<CFG> &prev_tau,
+            account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services,
+            const entropy_t &new_eta0, const time_slot_t<CFG> &prev_tau,
             const privileges_t<CFG> &prev_chi,
             const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
-            const accounts_t<CFG> &prev_delta,
             const time_slot_t<CFG> &slot, const work_reports_t<CFG> &reports);
 
         [[nodiscard]] state_root_t root() const
@@ -840,7 +838,7 @@ namespace turbo::jam {
             validators_data_t<CFG> validators;
         };
 
-        static bandersnatch_ring_commitment_t _ring_commitment(const validators_data_t<CFG> &);
+        static void _ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG> &);
         static validators_data_t<CFG> _capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o);
         static keys_t<CFG> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CFG> &kappa);
         static tickets_t<CFG> _permute_tickets(const tickets_accumulator_t<CFG> &gamma_a);
