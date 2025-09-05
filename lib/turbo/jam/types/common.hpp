@@ -6,18 +6,16 @@
 
 #include <array>
 #include <bitset>
-#include <cmath>
-#include <cstdint>
 #include <optional>
 #include <variant>
 #include <vector>
 #include <boost/container/flat_set.hpp>
 #include <turbo/codec/json.hpp>
 #include <turbo/common/bytes.hpp>
+#include <turbo/crypto/blake2b.hpp>
 #include <turbo/jam/encoding.hpp>
 #include "errors.hpp"
 #include "constants.hpp"
-#include "turbo/crypto/blake2b.hpp"
 
 namespace turbo::jam {
     // jam-types.asn

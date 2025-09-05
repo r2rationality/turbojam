@@ -1116,8 +1116,8 @@ namespace turbo::jam {
             eta_prime(this->eta.update(), prev_tau, blk.header.slot, blk.header.entropy());
 
             // (4.11) -> psi_prime - additional deps: relies on kappa', lambda' and updates_rho
-            auto new_offenders = psi_prime(this->psi.update(),
-                this->rho.update(),
+            const auto new_offenders = psi_prime(
+                this->psi.update(), this->rho.update(),
                 this->kappa.get(), this->lambda.get(),
                 prev_tau, blk.extrinsic.disputes
             );
@@ -1137,18 +1137,18 @@ namespace turbo::jam {
             }
 
             // signature verification depends on updated kappa, gamma.s and eta, so happens after update_safrole
+            // can be run in parallel
             {
                 blk.header.verify_signatures(
                     this->kappa.get().at(blk.header.author_index).bandersnatch,
-                    this->gamma.get().s,
-                    this->eta.get()[3]
+                    this->gamma.get().s, this->eta.get()[3]
                 );
             }
 
             // (4.13) (4.14) (4.15) - extra deps:
             // - updates pi';
             // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
-            auto ready_reports = rho_dagger_2(
+            const auto ready_reports = rho_dagger_2(
                 this->rho.update(), new_pi,
                 prev_tau.epoch() == this->tau.get().epoch() ? this->kappa.get() : this->lambda.get(),
                 blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
@@ -1164,12 +1164,11 @@ namespace turbo::jam {
                 blk.header.slot, blk.extrinsic.guarantees
             );
 
-            // (4.16) - extra deps: updates: pi
+            // (4.16) - extra deps: updates: pi.services
             timer t_accumulate{"state_t::update_reports::accumulate", logger::level::debug};
             auto accumulate_res = accumulate(
                 new_delta, new_pi.services,
-                this->eta.get()[0],
-                prev_tau,
+                this->eta.get()[0], prev_tau,
                 this->chi.get(), this->omega.get(), this->ksi.get(),
                 blk.header.slot, ready_reports
             );
@@ -1177,16 +1176,15 @@ namespace turbo::jam {
                 this->ksi.set(std::move(accumulate_res.ksi));
             if (accumulate_res.omega)
                 this->omega.set(std::move(accumulate_res.omega));
-            if (!accumulate_res.phi.empty()) {
+            if (!accumulate_res.phi.empty())
                 accumulate_res.phi.commit(this->phi.update());
-            }
             if (accumulate_res.iota)
                 this->iota.set(std::move(accumulate_res.iota));
             if (accumulate_res.chi)
                 this->chi.set(std::move(accumulate_res.chi));
             t_accumulate.stop_and_print();
 
-            // (4.17)
+            // (4.17) - can be run in parallel
             {
                 reported_work_seq_t<CFG> reported_work{};
                 reported_work.reserve(ready_reports.size());
@@ -1197,12 +1195,12 @@ namespace turbo::jam {
                 this->theta.update() = std::move(accumulate_res.theta);
             }
 
-            // (4.18)
+            // can be run in parallel (if updates are committed explicitly
             {
                 provide_preimages(new_delta, new_pi.services, blk.header.slot, blk.extrinsic.preimages);
             }
 
-            // (4.19): alpha' <- (H, E_G, psi', and alpha)
+            // (4.19) - can be run in parallel
             {
                 core_authorizers_t cas{};
                 cas.reserve(blk.extrinsic.guarantees.size());
@@ -1212,7 +1210,7 @@ namespace turbo::jam {
                 state_t::alpha_prime(this->alpha.update(), blk.header.slot, cas, this->phi.get());
             }
 
-            // (4.20) but most updates are applied when the respective extrinsics are processed
+            // (4.20) can be run in parallel
             {
                 pi_prime(new_pi.current, new_pi.last, report_res,
                     this->kappa.get(),prev_tau, blk.header.slot, blk.header.author_index, blk.extrinsic);
