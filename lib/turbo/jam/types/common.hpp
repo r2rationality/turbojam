@@ -869,7 +869,7 @@ namespace turbo::jam {
 
     // JAM (6.5)
     template<typename CFG=config_prod>
-    using tickets_accumulator_t = sequence_t<ticket_body_t, 0, CFG::E_epoch_length>;
+    using tickets_accumulator_t = set_t<ticket_body_t, 0, CFG::E_epoch_length>;
 
     template<typename CFG=config_prod>
     using tickets_t = fixed_sequence_t<ticket_body_t, CFG::E_epoch_length>;

@@ -30,7 +30,7 @@ namespace {
             archive.process("eta"sv, eta);
             archive.process("lambda"sv, lambda);
             archive.process("kappa"sv, kappa);
-            archive.process("gamma_k"sv, gamma.k);
+            archive.process("gamma_k"sv, gamma.p);
             archive.process("iota"sv, iota);
             archive.process("gamma_a"sv, gamma.a);
             archive.process("gamma_s"sv, gamma.s);

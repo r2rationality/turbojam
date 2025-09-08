@@ -24,7 +24,7 @@ namespace turbo::jam {
         h.epoch_mark.emplace(
             this->eta.get()[1],
             this->eta.get()[2],
-            this->gamma.get().k
+            this->gamma.get().p
         );
         h.author_index = 0xFFFFU;
         return h;
@@ -46,7 +46,6 @@ namespace turbo::jam {
     template<typename CFG>
     void state_t<CFG>::_ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG> &gamma_k)
     {
-        ark_vrf_initialier_t::init();
         std::array<bandersnatch_public_t, CFG::V_validator_count> vkeys;
         for (size_t i = 0; i < vkeys.size(); ++i) {
             vkeys[i] = gamma_k[i].bandersnatch;
@@ -77,8 +76,7 @@ namespace turbo::jam {
     tickets_t<CFG> state_t<CFG>::_permute_tickets(const tickets_accumulator_t<CFG> &gamma_a)
     {
         tickets_t<CFG> tickets;
-        if (gamma_a.empty() || gamma_a.size() % 2) [[unlikely]]
-            throw error(fmt::format("gamma.a size cannot be 0 or odd but got: {}", gamma_a.size()));
+        static_assert(!tickets.empty() && tickets.size() % 2U == 0U);
         if (gamma_a.size() != tickets.size()) [[unlikely]]
             throw error(fmt::format("unexpected size of gamma.a: got: {} expected: {}", gamma_a.size(), tickets.size()));
         auto left = gamma_a.begin();
@@ -91,7 +89,7 @@ namespace turbo::jam {
 
     // (6.14)
     template<typename CFG>
-    validators_data_t<CFG> state_t<CFG>::_capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o)
+    validators_data_t<CFG> state_t<CFG>::capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o)
     {
         validators_data_t<CFG> res;
         for (size_t i = 0; i < iota.size(); ++i) {
@@ -103,7 +101,7 @@ namespace turbo::jam {
 
     template<typename CFG>
     safrole_output_data_t<CFG> state_t<CFG>::update_safrole(
-        safrole_state_t<CFG> &new_gamma, validators_data_t<CFG> &new_kappa, validators_data_t<CFG> &new_lambda,
+        safrole_state_t<CFG> &gamma, validators_data_t<CFG> &kappa, validators_data_t<CFG> &lambda,
         const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_offenders,
         const time_slot_t<CFG> &prev_tau, const validators_data_t<CFG> &prev_iota,
         const time_slot_t<CFG> &blk_slot, const tickets_extrinsic_t<CFG> &extrinsic)
@@ -113,55 +111,62 @@ namespace turbo::jam {
 
         safrole_output_data_t<CFG> res{};
 
+        ark_vrf_initialier_t::init();
+
         // Epoch transition
         if (blk_slot.epoch() > prev_tau.epoch()) [[unlikely]] {
             // JAM Paper (6.13)
-            new_lambda = new_kappa;
-            new_kappa = new_gamma.k;
-            new_gamma.k = _capital_phi(prev_iota, new_offenders);
+            lambda = kappa;
+            kappa = gamma.p;
+            gamma.p = capital_phi(prev_iota, new_offenders);
 
-            if (!std::holds_alternative<tickets_t<CFG>>(new_gamma.s) || new_kappa != new_gamma.k) {
-                const timer t{"state_t::update_safrole::epoch_transition::ring_commitment", logger::level::debug};
-                 _ring_commitment(new_gamma.z, new_gamma.k);
+            {
+                bool new_ring = false;
+                for (size_t i = 0; i < kappa.size(); ++i) {
+                    if (kappa[i].bandersnatch != gamma.p[i].bandersnatch) [[unlikely]] {
+                        new_ring = true;
+                        break;
+                    }
+                }
+                if (new_ring)
+                    _ring_commitment(gamma.z, gamma.p);
             }
+
             // JAM Paper (6.27) - epoch marker
             res.epoch_mark.emplace(new_eta[1], new_eta[2]);
-            for (size_t ki = 0; ki < new_gamma.k.size(); ++ki) {
-                res.epoch_mark->validators[ki].bandersnatch = new_gamma.k[ki].bandersnatch;
-                res.epoch_mark->validators[ki].ed25519 = new_gamma.k[ki].ed25519;
+            for (size_t ki = 0; ki < gamma.p.size(); ++ki) {
+                res.epoch_mark->validators[ki].bandersnatch = gamma.p[ki].bandersnatch;
+                res.epoch_mark->validators[ki].ed25519 = gamma.p[ki].ed25519;
             }
         }
 
         // JAM (6.24)
         if (blk_slot.epoch() == prev_tau.epoch() + 1
                 && prev_tau.epoch_slot() >= CFG::Y_ticket_submission_end
-                && new_gamma.a.size() == CFG::E_epoch_length) {
-            new_gamma.s = _permute_tickets(new_gamma.a);
+                && gamma.a.size() == CFG::E_epoch_length) {
+            gamma.s = _permute_tickets(gamma.a);
         } else if (blk_slot.epoch() != prev_tau.epoch()) {
             // since the update operates on a copy of the state
             // eta[2] and kappa are the updated "prime" values
-            new_gamma.s = _fallback_key_sequence(new_eta[2], new_kappa);
-        }
-
-        if (blk_slot.epoch() > prev_tau.epoch()) [[unlikely]] {
-            // JAM Paper (6.34)
-            new_gamma.a.clear();
+            gamma.s = _fallback_key_sequence(new_eta[2], kappa);
         }
 
         // JAM Paper (6.28) - winning-tickets marker
         if (blk_slot.epoch() == prev_tau.epoch()
                 && prev_tau.epoch_slot() < CFG::Y_ticket_submission_end
-                && blk_slot.epoch_slot() >= CFG::Y_ticket_submission_end && new_gamma.a.size() == CFG::E_epoch_length) {
-            res.tickets_mark.emplace(_permute_tickets(new_gamma.a));
+                && blk_slot.epoch_slot() >= CFG::Y_ticket_submission_end && gamma.a.size() == CFG::E_epoch_length) {
+            res.tickets_mark.emplace(_permute_tickets(gamma.a));
         }
 
-        std::optional<ticket_body_t> prev_ticket{};
+        // JAM Paper (6.34)
+        if (blk_slot.epoch() > prev_tau.epoch()) [[unlikely]]
+            gamma.a.clear();
 
         if (!extrinsic.empty()) {
             // (6.34)
             for (const auto &t: extrinsic) {
                 if (t.attempt >= CFG::N_ticket_attempts) [[unlikely]]
-                    throw err_bad_ticket_attempt_t {};
+                    throw err_bad_ticket_attempt_t{};
             }
 
             static const uint8_vector aux{};
@@ -170,27 +175,31 @@ namespace turbo::jam {
             static_assert(input_size == 48U);
             byte_array<input_size> input;
             memcpy(input.data(), input_prefix.data(), input_prefix.size());
+            memcpy(input.data() + input_prefix.size(), new_eta[2].data(), new_eta[2].size());
+            std::optional<ticket_body_t> prev_ticket{};
             for (const auto &t: extrinsic) {
-                memcpy(input.data() + input_prefix.size(), new_eta[2].data(), new_eta[2].size());
-                input[input_prefix.size() + new_eta[2].size()] = t.attempt;
-
                 ticket_body_t tb;
                 tb.attempt = t.attempt;
+                input[input_prefix.size() + new_eta[2].size()] = t.attempt;
                 if (ark_vrf::ring_vrf_output(tb.id, t.signature) != 0) [[unlikely]]
-                    throw err_bad_ticket_proof_t {};
+                    throw err_bad_ticket_proof_t{};
                 if (prev_ticket && *prev_ticket >= tb) [[unlikely]]
-                    throw err_bad_ticket_order_t {};
+                    throw err_bad_ticket_order_t{};
                 prev_ticket = tb;
-                const auto it = std::lower_bound(new_gamma.a.begin(), new_gamma.a.end(), tb);
-                if (it != new_gamma.a.end() && *it == tb) [[unlikely]]
-                    throw err_duplicate_ticket_t {};
-                if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, new_gamma.z, t.signature, input, aux) != 0) [[unlikely]]
-                    throw err_bad_ticket_proof_t {};
-                new_gamma.a.insert(it, std::move(tb));
+                const auto [it, created] = gamma.a.emplace(std::move(tb));
+                if (!created) [[unlikely]]
+                    throw err_duplicate_ticket_t{};
+                // (6.35)
+                if (numeric_cast<size_t>(it - gamma.a.begin()) >= CFG::E_epoch_length) [[unlikely]]
+                    throw err_unexpected_ticket_t{};
+                if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, gamma.z, t.signature, input, aux) != 0) [[unlikely]]
+                    throw err_bad_ticket_proof_t{};
+
             }
+
+            if (gamma.a.size() > CFG::E_epoch_length) [[unlikely]]
+                gamma.a.erase(gamma.a.begin() + CFG::E_epoch_length, gamma.a.end());
         }
-        if (new_gamma.a.size() > new_gamma.a.max_size)
-            new_gamma.a.resize(new_gamma.a.max_size);
 
         return res;
     }
@@ -289,12 +298,12 @@ namespace turbo::jam {
     {
         const auto same_rotation = g_slot.slot() / CFG::R_core_assignment_rotation_period == blk_slot.slot() / CFG::R_core_assignment_rotation_period;
         if (same_rotation)
-            return {_guarantor_assignments(eta[2], blk_slot), _capital_phi(kappa, psi)};
+            return {_guarantor_assignments(eta[2], blk_slot), capital_phi(kappa, psi)};
         const auto base_slot = blk_slot.slot() - CFG::R_core_assignment_rotation_period;
         const auto same_epoch = base_slot / CFG::E_epoch_length == blk_slot.slot() / CFG::E_epoch_length;
         const auto &e = same_epoch ? eta[2] : eta[3];
         const auto &k = same_epoch ? kappa : lambda;
-        return {_guarantor_assignments(e, base_slot), _capital_phi(k, psi)};
+        return {_guarantor_assignments(e, base_slot), capital_phi(k, psi)};
     }
 
     // JAM (12.7) - E: remove packages and update dependencies

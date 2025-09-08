@@ -57,8 +57,8 @@ suite turbo_jam_traces_suite = [] {
                 logger::trace("{}: {:.3f} {}", r.path, r.duration, r.success ? "SUCCESS" : "FAILURE");
             }
             for (const auto &[group, st]: stats) {
-                logger::info("{}: min {:.3f}s, max {:.3f}s, mean {:.3f}s sd {:.3f}s over {} tests",
-                    group, st.min, st.max, st.mean, std::sqrt(st.variance), st.count);
+                logger::info("{}: mean: {:.3f}s sd: {:.3f}s min: {:.3f}s max: {:.3f}s over {} tests",
+                    group, st.mean, std::sqrt(st.variance), st.min, st.max, st.count);
             }
         } else {
             test_file(override_test->string(), genesis.state.keyvals);

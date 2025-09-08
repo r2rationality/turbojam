@@ -823,6 +823,10 @@ namespace turbo::jam {
             const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
             const time_slot_t<CFG> &slot, const work_reports_t<CFG> &reports);
 
+        // helper fuinctions
+
+        static validators_data_t<CFG> capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o);
+
         [[nodiscard]] state_root_t root() const
         {
             return triedb().root();
@@ -839,7 +843,6 @@ namespace turbo::jam {
         };
 
         static void _ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG> &);
-        static validators_data_t<CFG> _capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o);
         static keys_t<CFG> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CFG> &kappa);
         static tickets_t<CFG> _permute_tickets(const tickets_accumulator_t<CFG> &gamma_a);
         static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CFG> &slot);

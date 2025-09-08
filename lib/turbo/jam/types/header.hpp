@@ -124,7 +124,7 @@ namespace turbo::jam {
     // JAM (6.3) - Changed: new order k, y_z, y_s, y_a but not reflected in the tests yet
     template<typename CFG=config_prod>
     struct safrole_state_t {
-        validators_data_t<CFG> k{}; // p in GP 0.7.0 pending keys
+        validators_data_t<CFG> p{}; // pending keys
         bandersnatch_ring_commitment_t z{}; // bandersnatch ring commitment
         tickets_or_keys_t<CFG> s; // sealing key series
         tickets_accumulator_t<CFG> a{}; // sealing key ticket accumulator
@@ -132,7 +132,7 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("k"sv, k);
+            archive.process("p"sv, p);
             archive.process("z"sv, z);
             archive.process("s"sv, s);
             archive.process("a"sv, a);

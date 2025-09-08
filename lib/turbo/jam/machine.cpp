@@ -77,11 +77,12 @@ namespace turbo::jam::machine {
         {
             try {
                 for (;;) {
-                    if (!_current_block_sz) {
-                        _current_block_sz = _basic_block_len();
-                        //consume_gas(numeric_cast<gas_t::base_type>(_current_block_sz));
-                    }
-                    _basic_block_run();
+                    const uint8_t opcode = _pc < _program.code.size() ? _program.code[_pc] : 0x00U;
+                    const auto len = _skip_len(_pc, _program.bitmasks);
+                    const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
+                    const auto &op = _opcode_info(opcode);
+                    consume_gas(1U);
+                    _pc = (this->*op.exec)(data).value_or(_pc + len + 1);
                 }
             } catch (exit_halt_t &ex) {
                 return { std::move(ex) };
@@ -194,7 +195,6 @@ namespace turbo::jam::machine {
         page_map_t _pages;
         register_val_t _heap_end = 0;
         register_val_t _stack_begin = 0;
-        register_val_t _current_block_sz = 0;
 
         using op_res_t = std::optional<register_val_t>;
         using op_exec_t = op_res_t(impl::*)(buffer);
@@ -600,25 +600,6 @@ namespace turbo::jam::machine {
             return {};
         }
 
-        register_val_t _basic_block_len() const
-        {
-            if (_pc >= _program.code.size()) [[unlikely]]
-                throw exit_panic_t {}; // equivalent to executing the trap instruction
-            register_val_t len = 1;
-            for (register_val_t pos = _pc; ; ++len) {
-                if (!_program.bitmasks.test(pos)) [[unlikely]]
-                    throw exit_panic_t {};
-                const uint8_t opcode = _program.code[pos];
-                pos += _skip_len(pos, _program.bitmasks) + 1;
-                if (pos >= _program.code.size())
-                    break;
-                const auto &op_info = _opcode_info(opcode);
-                if (op_info.block_end)
-                    break;
-            }
-            return len;
-        }
-
         static auto _format_op_arg(auto out_it, const size_t i, const auto &arg)
         {
             using T = std::decay_t<decltype(arg)>;
@@ -627,22 +608,6 @@ namespace turbo::jam::machine {
             } else {
                 return fmt::format_to(out_it, "{}0x{:x}", i ? ", " : "", arg);
             }
-        }
-
-        void _basic_block_run()
-        {
-            op_res_t new_pc {};
-            while (_current_block_sz) {
-                --_current_block_sz;
-                const uint8_t opcode = _program.code[_pc];
-                const auto len = _skip_len(_pc, _program.bitmasks);
-                const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
-                const auto &op = _opcode_info(opcode);
-                consume_gas(1U);
-                new_pc = (this->*op.exec)(data);
-                _pc += len + 1;
-            }
-            _pc = new_pc.value_or(_pc);
         }
 
         op_res_t djump(const register_val_t addr)
