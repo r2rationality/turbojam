@@ -899,9 +899,9 @@ namespace turbo::jam {
     using tickets_extrinsic_t = sequence_t<ticket_envelope_t, 0, CFG::K_max_tickets_per_block>;
 
     struct judgement_t {
-        bool vote;
-        validator_index_t index;
-        ed25519_signature_t signature;
+        bool vote; // v
+        validator_index_t index; // i
+        ed25519_signature_t signature; // s
 
         void serialize(auto &archive)
         {
@@ -931,69 +931,39 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct verdict_t {
-        work_report_hash_t target;
-        uint32_t age;
-        fixed_sequence_t<judgement_t, CFG::validator_super_majority> votes;
+        work_report_hash_t report; // r
+        uint32_t age; // a
+        fixed_sequence_t<judgement_t, CFG::validator_super_majority> judgements; // j
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("target"sv, target);
+            archive.process("target"sv, report);
             archive.process("age"sv, age);
-            archive.process("votes"sv, votes);
+            archive.process("votes"sv, judgements);
         }
 
-        std::strong_ordering operator<=>(const verdict_t &o) const
-        {
-            // (10.7) ordered by report hash
-            if (const auto cmp = target <=> o.target; cmp != std::strong_ordering::equal)
-                return cmp;
-            if (const auto cmp = age <=> o.age; cmp != std::strong_ordering::equal)
-                return cmp;
-            if (const auto cmp = votes <=> o.votes; cmp != std::strong_ordering::equal)
-                return cmp;
-            return std::strong_ordering::equal;
-        }
-
-        bool operator==(const verdict_t &o) const
-        {
-            return (*this <=> o) == std::strong_ordering::equal;
-        }
+        bool operator==(const verdict_t &o) const = default;
     };
 
     struct culprit_t {
-        work_report_hash_t target;
-        ed25519_public_t key;
-        ed25519_signature_t signature;
+        work_report_hash_t report; // r
+        ed25519_public_t key; // k
+        ed25519_signature_t signature; // s
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("target"sv, target);
+            archive.process("target"sv, report);
             archive.process("key"sv, key);
             archive.process("signature"sv, signature);
         }
 
-        std::strong_ordering operator<=>(const culprit_t &o) const
-        {
-            // (10.8) ordered by key
-            if (const auto cmp = key <=> o.key; cmp != std::strong_ordering::equal)
-                return cmp;
-            if (const auto cmp = target <=> o.target; cmp != std::strong_ordering::equal)
-                return cmp;
-            if (const auto cmp = signature <=> o.signature; cmp != std::strong_ordering::equal)
-                return cmp;
-            return std::strong_ordering::equal;
-        }
-
-        bool operator==(const culprit_t &o) const
-        {
-            return (*this <=> o) == std::strong_ordering::equal;
-        }
+        bool operator==(const culprit_t &o) const = default;
     };
 
     struct fault_t {
-        work_report_hash_t target;
+        work_report_hash_t report;
         bool vote;
         ed25519_public_t key;
         ed25519_signature_t signature;
@@ -1001,40 +971,23 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("target"sv, target);
+            archive.process("target"sv, report);
             archive.process("vote"sv, vote);
             archive.process("key"sv, key);
             archive.process("signature"sv, signature);
         }
 
-        std::strong_ordering operator<=>(const fault_t &o) const
-        {
-            // (10.8) ordered by key
-            if (const auto cmp = key <=> o.key; cmp != std::strong_ordering::equal)
-                return cmp;
-            if (const auto cmp = target <=> o.target; cmp != std::strong_ordering::equal)
-                return cmp;
-            if (const auto cmp = vote <=> o.vote; cmp != std::strong_ordering::equal)
-                return cmp;
-            if (const auto cmp = signature <=> o.signature; cmp != std::strong_ordering::equal)
-                return cmp;
-            return std::strong_ordering::equal;
-        }
-
-        bool operator==(const fault_t &o) const
-        {
-            return (*this <=> o) == std::strong_ordering::equal;
-        }
+        bool operator==(const fault_t &o) const = default;
     };
 
     using ed25519_keys_set_t = set_t<ed25519_public_t>;
 
     // JAM (10.1)
     struct disputes_records_t {
-        set_t<work_report_hash_t> good {};
-        set_t<work_report_hash_t> bad {};
-        set_t<work_report_hash_t> wonky {};
-        ed25519_keys_set_t offenders {};
+        set_t<work_report_hash_t> good{};
+        set_t<work_report_hash_t> bad{};
+        set_t<work_report_hash_t> wonky{};
+        ed25519_keys_set_t offenders{};
 
         void serialize(auto &archive)
         {
@@ -1045,14 +998,24 @@ namespace turbo::jam {
             archive.process("offenders"sv, offenders);
         }
 
+        [[nodiscard]] bool known_report(const work_report_hash_t &r) const noexcept {
+            if (good.contains(r))
+                return true;
+            if (bad.contains(r))
+                return true;
+            if (wonky.contains(r))
+                return true;
+            return false;
+        };
+
         bool operator==(const disputes_records_t &o) const = default;
     };
 
     template<typename CFG>
     struct disputes_extrinsic_t {
-        sequence_t<verdict_t<CFG>> verdicts {};
-        sequence_t<culprit_t> culprits {};
-        sequence_t<fault_t> faults {};
+        sequence_t<verdict_t<CFG>> verdicts{};
+        sequence_t<culprit_t> culprits{};
+        sequence_t<fault_t> faults{};
 
         void serialize(auto &archive)
         {

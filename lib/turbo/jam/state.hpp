@@ -782,7 +782,7 @@ namespace turbo::jam {
             const time_slot_t<CFG> &slot, const tickets_extrinsic_t<CFG> &extrinsic);
         // JAM (4.11)
         static offenders_mark_t psi_prime(disputes_records_t &new_psi, availability_assignments_t<CFG> &new_rho,
-            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
+            const validators_data_t<CFG> &prev_kappa, const validators_data_t<CFG> &prev_lambda,
             const time_slot_t<CFG> &prev_tau, const disputes_extrinsic_t<CFG> &disputes
         );
         // JAM (4.19)

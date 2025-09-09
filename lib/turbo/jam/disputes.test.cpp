@@ -176,16 +176,18 @@ namespace {
 
 suite turbo_jam_disputes_suite = [] {
     "turbo::jam::disputes"_test = [] {
-        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/disputes/tiny/progress_invalidates_avail_assignments-1"));
-        "tiny test vectors"_test = [] {
-            for (const auto &path: file::files_with_ext(test_vector_dir("stf/disputes/tiny"), ".bin")) {
+        static const auto test_prefix = test_vector_dir("stf/disputes/");
+        static std::optional<std::string> override_test{};
+        //override_test.emplace("tiny/progress_with_culprits-6");
+        if (!override_test) {
+            for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
             }
-        };
-        "full test vectors"_test = [] {
-            for (const auto &path: file::files_with_ext(test_vector_dir("stf/disputes/full"), ".bin")) {
+            for (const auto &path: file::files_with_ext(test_prefix + "full", ".bin")) {
                 test_file<config_prod>(path.substr(0, path.size() - 4));
             }
-        };
+        } else {
+            test_file<config_tiny>(test_prefix + *override_test);
+        }
     };
 };

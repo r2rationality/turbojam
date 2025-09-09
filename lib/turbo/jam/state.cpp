@@ -903,151 +903,142 @@ namespace turbo::jam {
 
     template<typename CFG>
     offenders_mark_t state_t<CFG>::psi_prime(
-        disputes_records_t &new_psi, availability_assignments_t<CFG> &new_rho,
-        const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
+        disputes_records_t &psi, availability_assignments_t<CFG> &new_rho,
+        const validators_data_t<CFG> &prev_kappa, const validators_data_t<CFG> &prev_lambda,
         const time_slot_t<CFG> &prev_tau, const disputes_extrinsic_t<CFG> &disputes)
     {
         offenders_mark_t new_offenders{};
         if (!disputes.empty()) {
-            set_t<ed25519_public_t> known_vkeys {};
-            known_vkeys.reserve(new_kappa.size() + new_lambda.size());
-            for (const auto &validator_set: { new_kappa, new_lambda }) {
-                for (const auto &v: validator_set)
-                    known_vkeys.emplace_hint_unique(known_vkeys.end(), v.ed25519);
-            }
-
-            set_t<work_report_hash_t> known_reports {};
-            known_reports.reserve(new_psi.bad.size() + new_psi.good.size() + new_psi.wonky.size());
-            for (const auto &report_set: { new_psi.good, new_psi.bad, new_psi.wonky }) {
-                for (const auto &rh: report_set)
-                    known_reports.emplace_hint_unique(known_reports.end(), rh);
-            }
-
-            uint8_vector msg {};
+            uint8_vector msg{};
 
             // JAM (10.3)
             const auto cur_epoch = prev_tau.epoch();
-            const verdict_t<CFG> *prev_verdict = nullptr;
-            std::map<work_report_hash_t, size_t> report_oks {};
+            const work_report_hash_t *prev_report = nullptr;
+            std::map<work_report_hash_t, size_t> report_oks{};
             for (const auto &v: disputes.verdicts) {
-                if (known_reports.contains(v.target)) [[unlikely]]
-                    throw err_already_judged_t {};
-                if (prev_verdict && *prev_verdict >= v) [[unlikely]]
-                    throw err_verdicts_not_sorted_unique_t {};
-                prev_verdict = &v;
-                const judgement_t *prev_judgement = nullptr;
-                auto &ok_cnt = report_oks[v.target];
-                for (const auto &j: v.votes) {
-                    if (prev_judgement && *prev_judgement >= j) [[unlikely]]
-                        throw err_judgements_not_sorted_unique_t {};
-                    prev_judgement = &j;
+                if (psi.known_report(v.report)) [[unlikely]]
+                    throw err_already_judged_t{};
+                if (prev_report && *prev_report >= v.report) [[unlikely]]
+                    throw err_verdicts_not_sorted_unique_t{};
+                prev_report = &v.report;
+                const validator_index_t *prev_index = nullptr;
+                if (v.age > cur_epoch || v.age + 1 < cur_epoch) [[unlikely]]
+                    throw err_bad_judgement_age_t{};
+                auto &oks = report_oks[v.report];
+                for (const auto &j: v.judgements) {
+                    if (prev_index && *prev_index >= j.index) [[unlikely]]
+                        throw err_judgements_not_sorted_unique_t{};
+                    prev_index = &j.index;
                     msg.clear();
-                    msg.reserve(v.target.size() + std::max(CFG::jam_valid.size(), CFG::jam_invalid.size()));
+                    msg.reserve(v.report.size() + std::max(CFG::jam_valid.size(), CFG::jam_invalid.size()));
                     msg << static_cast<buffer>(j.vote ? CFG::jam_valid : CFG::jam_invalid);
-                    msg << v.target;
-                    if (v.age > cur_epoch || v.age + 1 < cur_epoch) [[unlikely]]
-                        throw err_bad_judgement_age_t {};
-                    const auto &validators = v.age == cur_epoch ? new_kappa : new_lambda;
-                    if (j.index >= validators.size()) [[unlikely]]
-                        throw err_bad_validator_index_t {};
+                    msg << v.report;
+                    if (j.index >= CFG::V_validator_count) [[unlikely]]
+                        throw err_bad_validator_index_t{};
+                    const auto &validators = v.age == cur_epoch ? prev_kappa : prev_lambda;
                     const auto &val = validators[j.index];
                     if (!crypto::ed25519::verify(j.signature, msg, val.ed25519)) [[unlikely]]
-                        throw err_bad_signature_t {};
+                        throw err_bad_signature_t{};
                     if (j.vote)
-                        ++ok_cnt;
+                        ++oks;
+                }
+                switch (oks) {
+                    case CFG::validator_super_majority: // JAM (10.16)
+                        psi.good.emplace(v.report);
+                        continue;
+                    case CFG::V_validator_count / 3U: // JAM (10.18)
+                        psi.wonky.emplace(v.report);
+                        break;
+                    case 0U: // JAM (10.17)
+                        psi.bad.emplace(v.report);
+                        break;
+                    [[unlikely]] default:
+                        throw err_bad_vote_split_t{};
+                }
+            }
+
+            // k for (10.5) and (10.6) - check for not in psi.offenders is done in the loop itself
+            ed25519_keys_set_t known_keys{};
+            known_keys.reserve(prev_kappa.size() + prev_lambda.size());
+            for (const auto &src: {prev_kappa, prev_lambda}) {
+                for (const auto &v: src) {
+                    known_keys.insert(v.ed25519);
                 }
             }
 
             // JAM (10.5)
-            std::map<work_report_hash_t, size_t> new_culprits {};
-            const culprit_t *prev_culprit = nullptr;
+            // culprits may contain previously unreported culprits referencing already judged reports
+
+            std::map<work_report_hash_t, size_t> new_culprits{};
+            const ed25519_public_t *prev_culprit_key = nullptr;
             for (const auto &c: disputes.culprits) {
-                if (known_reports.contains(c.target)) [[unlikely]]
-                    throw err_already_judged_t {};
-                if (!known_vkeys.contains(c.key)) [[unlikely]]
-                    throw err_bad_guarantor_key_t {};
-                if (prev_culprit && *prev_culprit >= c) [[unlikely]]
-                    throw err_culprits_not_sorted_unique_t {};
-                prev_culprit = &c;
+                if (!psi.bad.contains(c.report)) [[unlikely]]
+                    throw err_culprits_verdict_not_bad_t{};
+                if (psi.offenders.contains(c.key)) [[unlikely]]
+                    throw err_offender_already_reported_t{};
+                if (!known_keys.contains(c.key)) [[unlikely]]
+                    throw err_bad_guarantor_key_t{};
+                if (prev_culprit_key && *prev_culprit_key >= c.key) [[unlikely]]
+                    throw err_culprits_not_sorted_unique_t{};
+                prev_culprit_key = &c.key;
                 msg.clear();
-                msg.reserve(c.target.size() + CFG::jam_guarantee.size());
+                msg.reserve(c.report.size() + CFG::jam_guarantee.size());
                 msg << static_cast<buffer>(CFG::jam_guarantee);
-                msg << c.target;
+                msg << c.report;
                 if (!crypto::ed25519::verify(c.signature, msg, c.key)) [[unlikely]]
                     throw err_bad_signature_t {};
-                ++new_culprits[c.target];
-                new_offenders.emplace(c.key);
+                ++new_culprits[c.report];
+                if (const auto [it, created] = new_offenders.emplace(c.key); !created)
+                    throw err_offender_already_reported_t{};
             }
 
             // JAM (10.6)
-            std::set<work_report_hash_t> new_fault_reports {};
-            const fault_t *prev_fault = nullptr;
+            // faults may contain previously unreported faults referencing already judged reports
+            std::set<work_report_hash_t> new_fault_reports{};
+            const ed25519_public_t *prev_fault_key = nullptr;
             for (const auto &f: disputes.faults) {
-                if (known_reports.contains(f.target)) [[unlikely]]
-                    throw err_already_judged_t {};
-                if (!known_vkeys.contains(f.key)) [[unlikely]]
-                    throw err_bad_auditor_key_t {};
-                if (prev_fault && *prev_fault >= f) [[unlikely]]
-                    throw err_faults_not_sorted_unique_t {};
-                prev_fault = &f;
+                const auto &matching_set = f.vote ? psi.good : psi.bad;
+                if (matching_set.contains(f.report)) [[unlikely]]
+                    throw err_fault_verdict_wrong_t{};
+                if (psi.offenders.contains(f.key)) [[unlikely]]
+                    throw err_offender_already_reported_t{};
+                if (!known_keys.contains(f.key)) [[unlikely]]
+                    throw err_bad_auditor_key_t{};
+                if (prev_fault_key && *prev_fault_key >= f.key) [[unlikely]]
+                    throw err_faults_not_sorted_unique_t{};
+                prev_fault_key = &f.key;
                 msg.clear();
                 const auto &verdict_prefix = f.vote ? CFG::jam_valid : CFG::jam_invalid;
-                msg.reserve(f.target.size() + verdict_prefix.size());
+                msg.reserve(f.report.size() + verdict_prefix.size());
                 msg << static_cast<buffer>(verdict_prefix);
-                msg << f.target;
+                msg << f.report;
                 if (!crypto::ed25519::verify(f.signature, msg, f.key)) [[unlikely]]
-                    throw err_bad_signature_t {};
-                new_fault_reports.emplace(f.target);
-                new_offenders.emplace(f.key);
+                    throw err_bad_signature_t{};
+                new_fault_reports.emplace(f.report);
+                if (const auto [it, created] = new_offenders.emplace(f.key); !created)
+                    throw err_offender_already_reported_t{};
             }
 
-            for (const auto &[report_hash, ok_cnt]: report_oks) {
-                switch (ok_cnt) {
-                    case CFG::validator_super_majority:
-                        // JAM (10.13)
+            for (const auto &[report_hash, oks]: report_oks) {
+                switch (oks) {
+                    case CFG::validator_super_majority: // JAM (10.13)
                         if (!new_fault_reports.contains(report_hash)) [[unlikely]]
-                            throw err_not_enough_faults_t {};
-                        // JAM (10.16)
-                        new_psi.good.emplace(report_hash);
-                        continue;
-                    case CFG::V_validator_count / 3:
-                        // JAM (10.18)
-                        new_psi.wonky.emplace(report_hash);
+                            throw err_not_enough_faults_t{};
                         break;
-                    case 0:
-                        // JAM (10.14)
+                    case 0: // JAM (10.14)
                         if (const auto c_it = new_culprits.find(report_hash); c_it == new_culprits.end() || c_it->second < 2)
-                            throw err_not_enough_culprits_t {};
-                        // JAM (10.17)
-                        new_psi.bad.emplace(report_hash);
+                            throw err_not_enough_culprits_t{};
                         break;
                     [[unlikely]] default:
-                        throw err_bad_vote_split_t {};
+                        break;
                 }
-            }
-
-            for (const auto &f: disputes.faults) {
-                if (new_psi.bad.contains(f.target)) {
-                    if (!f.vote) [[unlikely]]
-                        throw err_fault_verdict_wrong_t {};
-                }
-                if (new_psi.good.contains(f.target)) {
-                    if (f.vote) [[unlikely]]
-                        throw err_fault_verdict_wrong_t {};
-                }
-            }
-
-            for (const auto &c: disputes.culprits) {
-                if (!new_psi.bad.contains(c.target)) [[unlikely]]
-                    throw err_culprits_verdict_not_bad_t {};
             }
 
             // JAM (10.15)
             for (auto &ra: new_rho) {
                 if (ra) {
-                    encoder enc { ra->report };
-                    work_report_hash_t report_hash;
-                    crypto::blake2b::digest(report_hash, enc.bytes());
+                    const encoder enc{ra->report};
+                    const auto report_hash = crypto::blake2b::digest<work_report_hash_t>(enc.bytes());
                     if (const auto ok_it = report_oks.find(report_hash); ok_it != report_oks.end() && ok_it->second < CFG::validator_super_majority) [[unlikely]]
                         ra.reset();
                 }
@@ -1055,8 +1046,8 @@ namespace turbo::jam {
 
             // JAM (10.19)
             for (const auto &k: new_offenders) {
-                if (const auto [it, created] = new_psi.offenders.emplace_unique(k); !created) [[unlikely]]
-                    throw err_offender_already_reported_t {};
+                if (const auto [it, created] = psi.offenders.emplace_unique(k); !created) [[unlikely]]
+                    throw err_offender_already_reported_t{};
             }
         }
 
