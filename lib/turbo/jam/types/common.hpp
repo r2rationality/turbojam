@@ -283,6 +283,12 @@ namespace turbo::jam {
             return *this;
         }
 
+        varlen_uint_t &operator-=(const varlen_uint_t &o)
+        {
+            _val -= o._val;
+            return *this;
+        }
+
         varlen_uint_t &operator++()
         {
             ++_val;
@@ -330,12 +336,12 @@ namespace turbo::jam {
     // GP 11.1.2: X
     template<typename CFG>
     struct refine_context_t {
-	    header_hash_t anchor;
-	    state_root_t state_root;
-	    beefy_root_t beefy_root;
-	    header_hash_t lookup_anchor;
-	    time_slot_t<CFG> lookup_anchor_slot;
-	    prerequisites_t prerequisites;
+	    header_hash_t anchor; // a
+	    state_root_t state_root; // S
+	    beefy_root_t beefy_root; // b
+	    header_hash_t lookup_anchor; // l
+	    time_slot_t<CFG> lookup_anchor_slot; // t
+	    prerequisites_t prerequisites; // p_bold
 
         void serialize(auto &archive)
         {
@@ -572,11 +578,11 @@ namespace turbo::jam {
     };
 
     struct refine_load_t {
-        gas_t gas_used;
-        varlen_uint_t<uint16_t> imports;
-        varlen_uint_t<uint16_t> extrinsic_count;
-        varlen_uint_t<uint32_t> extrinsic_size;
-        varlen_uint_t<uint16_t> exports;
+        gas_t gas_used; // u
+        varlen_uint_t<uint16_t> imports; // i
+        varlen_uint_t<uint16_t> extrinsic_count; // x
+        varlen_uint_t<uint32_t> extrinsic_size; // z
+        varlen_uint_t<uint16_t> exports; // e
 
         void serialize(auto &archive)
         {
@@ -593,12 +599,12 @@ namespace turbo::jam {
 
     // JAM (11.6)
     struct work_result_t {
-        service_id_t service_id;
-        opaque_hash_t code_hash;
-        opaque_hash_t payload_hash;
+        service_id_t service_id; // s
+        opaque_hash_t code_hash; // c
+        opaque_hash_t payload_hash; // y
         // gas_t accumulate_gas; gas_t is variable_length but currently the value is fixed length
-        gas_t::base_type accumulate_gas;
-        work_exec_result_t result;
+        gas_t::base_type accumulate_gas; // g
+        work_exec_result_t result; // l
         refine_load_t refine_load;
 
         void serialize(auto &archive)
@@ -616,12 +622,13 @@ namespace turbo::jam {
     };
     using work_results_t = sequence_t<work_result_t, 1, 16>;
 
+    // (11.5)
     struct work_package_spec_t {
-        work_package_hash_t hash;
-        uint32_t length;
-        erasure_root_t erasure_root;
-        erasure_root_t exports_root;
-        uint16_t exports_count;
+        work_package_hash_t hash; // p
+        uint32_t length; // l
+        erasure_root_t erasure_root; // u
+        erasure_root_t exports_root; // e
+        uint16_t exports_count; // n
 
         void serialize(auto &archive)
         {
@@ -655,14 +662,14 @@ namespace turbo::jam {
     // JAM (11.2)
     template<typename CFG>
     struct work_report_t {
-        work_package_spec_t package_spec {};
-        refine_context_t<CFG> context {};
-        varlen_uint_t<core_index_t> core_index {};
-        opaque_hash_t authorizer_hash {};
-        gas_t auth_gas_used {};
-        byte_sequence_t auth_output {};
-        segment_root_lookup_t segment_root_lookup {};
-        work_results_t results {};
+        work_package_spec_t package_spec{}; // s_bold
+        refine_context_t<CFG> context{}; // c_bold
+        varlen_uint_t<core_index_t> core_index{}; // c
+        opaque_hash_t authorizer_hash{}; // a
+        gas_t auth_gas_used{}; // g
+        byte_sequence_t auth_output{}; // t
+        segment_root_lookup_t segment_root_lookup{}; // l
+        work_results_t results{}; // d
 
         void serialize(auto &archive)
         {
@@ -733,13 +740,14 @@ namespace turbo::jam {
 
     using mmr_peak_t = optional_t<opaque_hash_t>;
 
-    using mmr_base_t = sequence_t<mmr_peak_t>;
-    struct mmr_t: mmr_base_t {
-        using base_type = mmr_base_t;
+    using mmr_peaks_t = sequence_t<mmr_peak_t>;
+    struct mmr_t: mmr_peaks_t {
+        using base_type = mmr_peaks_t;
         using base_type::base_type;
 
-        mmr_t append(const opaque_hash_t &l) const;
-        opaque_hash_t root() const;
+        void place(size_t idx, const opaque_hash_t &h);
+        void append(const opaque_hash_t &h);
+        [[nodiscard]] opaque_hash_t root() const;
     };
 
     struct reported_work_package_t {

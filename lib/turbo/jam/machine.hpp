@@ -13,7 +13,7 @@
 namespace turbo::jam::machine {
     using register_val_t = uint64_t;
     using register_val_signed_t = int64_t;
-    using address_val_t = register_val_t;
+    using address_val_t = uint32_t;
     using gas_remaining_t = register_val_signed_t;
 
     struct memory_chunk_t {
@@ -264,7 +264,7 @@ namespace turbo::jam::machine {
         [[nodiscard]] state_t state() const;
     private:
         struct impl;
-        byte_array<304> _impl_storage;
+        byte_array<336> _impl_storage;
 
         impl *_impl_ptr();
     };

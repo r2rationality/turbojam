@@ -162,9 +162,15 @@ namespace turbo::jam {
         }
 
         template<typename T>
-        void process_variant(T &val, const codec::variant_names_t<T> &)
+        void process_variant(T &val, const codec::variant_names_t<T> &, const codec::variant_index_overrides_t *overrides=nullptr)
         {
-            uint_fixed(1, numeric_cast<uint8_t>(val.index()));
+            auto ci = val.index();
+            if (overrides) {
+                const auto it = overrides->encode_overrides.find(ci);
+                if (it != overrides->encode_overrides.end())
+                    ci = it->second;
+            }
+            uint_fixed(1, numeric_cast<uint8_t>(ci));
             std::visit([&](const auto &vv) {
                 process(vv);
             }, val);
@@ -325,10 +331,15 @@ namespace turbo::jam {
         }
 
         template<typename T>
-        void process_variant(T &val, const codec::variant_names_t<T> &)
+        void process_variant(T &val, const codec::variant_names_t<T> &, const codec::variant_index_overrides_t *overrides=nullptr)
         {
-            const auto typ = uint_fixed<uint8_t>(1);
-            variant_set_type<T, 0>(val, typ, *this);
+            auto vi = uint_fixed<uint8_t>(1);
+            if (overrides) {
+                const auto it = overrides->decode_overrides.find(vi);
+                if (it != overrides->decode_overrides.end())
+                    vi = it->second;
+            }
+            variant_set_type<T, 0>(val, vi, *this);
         }
 
         void process_optional(auto &val)

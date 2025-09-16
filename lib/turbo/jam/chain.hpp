@@ -8,7 +8,7 @@
 #include "state.hpp"
 
 namespace turbo::jam {
-    template<typename CONFIG>
+    template<typename CFG>
     struct chain_t {
         static chain_t from_json_spec(const std::string_view &data_path, const std::string &spec_path);
 
@@ -17,10 +17,11 @@ namespace turbo::jam {
         [[nodiscard]] const std::string &id() const;
         [[nodiscard]] const std::string &path() const;
         [[nodiscard]] const state_snapshot_t &genesis_state() const;
-        [[nodiscard]] const state_t<CONFIG> &state() const;
+        [[nodiscard]] const state_t<CFG> &state() const;
         [[nodiscard]] state_root_t state_root() const;
         [[nodiscard]] header_hash_t parent() const;
-        void apply(const block_t<CONFIG> &blk);
+        void add_to_ancestry(const ancestry_t<CFG> &ancestry);
+        void apply(const block_t<CFG> &blk);
     private:
         struct impl;
         std::unique_ptr<impl> _impl;

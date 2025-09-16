@@ -377,30 +377,47 @@ namespace turbo::jam::merkle {
     }
 
     namespace binary {
-        static hash_t encode(const value_list items, const hash_func &hash_f)
+        static buffer encode_node(const value_span &items, const hash_func &hash_f)
         {
+            using namespace std::string_view_literals;
+            static hash_t h0{};
             const auto sz = items.size();
-            if (sz == 0)
-                return {};
-            if (sz == 1)
+            if (sz == 0U)
+                return h0;
+            if (sz == 1U)
                 return items.front();
-            const auto mid_i = sz / 2;
-            std::array<hash_t, 2> hashes;
-            hashes[0] = encode(items.subspan(0, mid_i), hash_f);
-            hashes[1] = encode(items.subspan(mid_i), hash_f);
+            // sz + 1U because (E.1) requires the midpoint to be rounded up.
+            const auto mid_i = (sz + 1U) / 2U;
+            uint8_vector preimage{};
+            preimage.reserve(0x80);
+            preimage << "node"sv;
+            preimage << encode_node(items.subspan(0U, mid_i), hash_f);
+            preimage << encode_node(items.subspan(mid_i), hash_f);
             hash_t res;
-            hash_f(res, buffer { reinterpret_cast<const uint8_t *>(hashes.data()), sizeof(hashes) });
+            hash_f(res, preimage);
             return res;
         }
 
-        hash_t encode_blake2b(const value_list items)
+        static hash_t encode_tree(const value_span &items, const hash_func &hash_f)
         {
-            return encode(items, [](const hash_span_t &out, const buffer bytes) { crypto::blake2b::digest(out, bytes); });
+            if (items.size() == 1U) {
+                hash_t res;
+                hash_f(res, items.front());
+                return res;
+            }
+            return encode_node(items, hash_f);
         }
 
-        hash_t encode_keccak(const value_list items)
+        hash_t encode_blake2b(const value_span items)
         {
-            return encode(items, [](const hash_span_t &out,const buffer bytes) { crypto::keccak::digest(out, bytes); });
+            static const auto hash_f = [](const hash_span_t &out, const buffer bytes) { crypto::blake2b::digest(out, bytes); };
+            return encode_tree(items, hash_f);
+        }
+
+        hash_t encode_keccak(const value_span items)
+        {
+            static const auto hash_f = [](const hash_span_t &out, const buffer bytes) { crypto::keccak::digest(out, bytes); };
+            return encode_tree(items, hash_f);
         }
     }
 }

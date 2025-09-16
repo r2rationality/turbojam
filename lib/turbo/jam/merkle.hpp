@@ -200,9 +200,10 @@ namespace turbo::jam::merkle {
     };
 
     namespace binary {
-        using value_list = std::span<const hash_t>;
+        using value_list = std::vector<uint8_vector>;
+        using value_span = std::span<const uint8_vector>;
 
-        extern hash_t encode_blake2b(value_list items);
-        extern hash_t encode_keccak(value_list items);
+        extern hash_t encode_blake2b(value_span items);
+        extern hash_t encode_keccak(value_span items);
     }
 }

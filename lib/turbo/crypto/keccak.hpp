@@ -11,9 +11,10 @@ namespace turbo::crypto::keccak
 
     extern void digest(const hash_span_t &out, const buffer &in);
 
-    inline hash_t digest(const buffer &in)
+    template<typename T=hash_t>
+    T digest(const buffer &in)
     {
-        hash_t out;
+        T out;
         digest(out, in);
         return out;
     }

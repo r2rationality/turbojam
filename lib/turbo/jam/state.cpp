@@ -308,9 +308,9 @@ namespace turbo::jam {
 
     // JAM (12.7) - E: remove packages and update dependencies
     template<typename CFG>
-    static void accumulate_update_deps(ready_queue_item_t<CFG> &queue, const set_t<work_package_hash_t> &known_reports, const std::optional<std::function<void(const work_report_t<CFG> &)>> &on_empty_deps={})
+    static void accumulate_edit_queue(ready_queue_item_t<CFG> &queue, const set_t<work_package_hash_t> &known_reports)
     {
-        set_t<work_package_hash_t> ready {};
+        set_t<work_package_hash_t> ready{};
         for (auto q_it = queue.begin(); q_it != queue.end();) {
             if (!known_reports.contains(q_it->report.package_spec.hash)) {
                 for (auto d_it = q_it->dependencies.begin(); d_it != q_it->dependencies.end();) {
@@ -320,17 +320,38 @@ namespace turbo::jam {
                         ++d_it;
                     }
                 }
-                if (q_it->dependencies.empty() && on_empty_deps) {
+                if (q_it->dependencies.empty()) {
                     ready.emplace(q_it->report.package_spec.hash);
-                    (*on_empty_deps)(q_it->report);
                 }
                 ++q_it;
             } else {
                 q_it = queue.erase(q_it);
             }
         }
-        if (!ready.empty())
-            accumulate_update_deps<CFG>(queue, ready, on_empty_deps);
+    }
+
+    template<typename CFG>
+    static work_reports_t<CFG> accumulate_queue_ready(const ready_queue_item_t<CFG> &queue)
+    {
+        sequence_t<work_report_t<CFG>> ready{};
+        set_t<work_package_hash_t> ready_hashes{};
+        for (auto &[r, deps]: queue) {
+            if (deps.empty()) {
+                ready.emplace_back(r);
+                ready_hashes.emplace(r.package_spec.hash);
+            }
+        }
+        if (!ready.empty()) {
+            ready_queue_item_t<CFG> queue_edited{queue};
+            accumulate_edit_queue(queue_edited, ready_hashes);
+            auto sub_ready = accumulate_queue_ready(queue_edited);
+            if (!sub_ready.empty()) {
+                ready.reserve(ready.size() + sub_ready.size());
+                for (auto &&r: sub_ready)
+                    ready.emplace_back(std::move(r));
+            }
+        }
+        return ready;
     }
 
     // JAM (12.16)
@@ -338,11 +359,10 @@ namespace turbo::jam {
     delta_plus_result_t<CFG> state_t<CFG>::accumulate_plus(
         const entropy_t &new_eta0,
         const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
-        const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports)
+        const time_slot_t<CFG> &slot, gas_t gas_limit, std::span<const work_report_t<CFG>> reports)
     {
         delta_plus_result_t<CFG> res{{prev_delta, prev_chi}};
-
-        if (!reports.empty()) {
+        while (!reports.empty()) {
             size_t num_ok = 0;
             gas_t total_gas = 0;
             for (const auto &r: reports) {
@@ -352,8 +372,14 @@ namespace turbo::jam {
                     break;
                 ++num_ok;
             }
-
-            res.consume_from(accumulate_star(new_eta0, prev_delta, prev_chi, slot, std::span { reports.data(), num_ok }));
+            if (num_ok == 0)
+                break;
+            auto res_star = accumulate_star(new_eta0, prev_delta, prev_chi, slot, reports.subspan(0U, num_ok));
+            for (const auto &[sid, sres]: res_star.results) {
+                gas_limit -= sres.gas;
+            }
+            res.consume_from(std::move(res_star));
+            reports = reports.subspan(num_ok);
         }
         return res;
     }
@@ -365,18 +391,18 @@ namespace turbo::jam {
         const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
         const time_slot_t<CFG> &slot, const std::span<const work_report_t<CFG>> reports)
     {
-        accumulate_service_operands_t service_ops {};
-        for (const auto &r: reports) {
-            for (const auto &r_res: r.results) {
-                service_ops[r_res.service_id].emplace_back(
-                    accumulate_operand_t {
-                        .work_package_hash=r.package_spec.hash,
-                        .exports_root=r.package_spec.exports_root,
-                        .authorizer_hash=r.authorizer_hash,
-                        .payload_hash=r_res.payload_hash,
-                        .accumulate_gas=r_res.accumulate_gas,
-                        .result=r_res.result,
-                        .auth_output=r.auth_output
+        accumulate_service_operands_t service_ops{};
+        for (const auto &w: reports) {
+            for (const auto &r: w.results) {
+                service_ops[r.service_id].emplace_back(
+                    accumulate_operand_t{
+                        .work_package_hash=w.package_spec.hash, // p
+                        .exports_root=w.package_spec.exports_root, // e
+                        .authorizer_hash=w.authorizer_hash, // a
+                        .payload_hash=r.payload_hash, // y
+                        .accumulate_gas=r.accumulate_gas, // g
+                        .result=r.result, // l
+                        .auth_output=w.auth_output
                     }
                 );
             }
@@ -386,7 +412,7 @@ namespace turbo::jam {
         for (const auto &fs: prev_chi.always_acc)
             service_ops.try_emplace(fs.id);
 
-        delta_star_result_t<CFG> res {};
+        delta_star_result_t<CFG> res{};
         for (const auto &[service_id, ops]: service_ops) {
             auto acc_res = invoke_accumulate(new_eta0, prev_delta, prev_chi, slot, service_id, ops);
             if (acc_res.num_reports) {
@@ -405,23 +431,25 @@ namespace turbo::jam {
         const time_slot_t<CFG> &slot,
         const service_id_t service_id, const accumulate_operands_t &ops)
     {
-        encoder arg_enc {};
+        encoder arg_enc{};
         arg_enc.uint_varlen(slot.slot());
         arg_enc.uint_varlen(service_id);
-        arg_enc.process(ops);
+        arg_enc.uint_varlen(ops.size());
+        logger::debug("service {} accumulation argument of {} bytes: {}",
+            service_id, arg_enc.bytes().size(), arg_enc.bytes());
 
-        accumulate_context_t<CFG> ctx_err {
+        accumulate_context_t<CFG> ctx_err{
             service_id, new_eta0, slot,
-            { prev_delta, prev_chi },
+            {prev_delta, prev_chi},
         };
         auto ctx_ok = ctx_err;
 
         const auto prev_service_info = prev_delta.info_get_or_throw(service_id);
         const auto code = prev_delta.preimage_get(service_id, prev_service_info.code_hash);
         if (!code) [[unlikely]] {
-            logger::warn("service {} accumulate: preimage for code hash {} is not available!", service_id, prev_service_info.code_hash);
+            logger::debug("service {} accumulate: preimage for code hash {} is not available!", service_id, prev_service_info.code_hash);
         } else if (code->size() > CFG::WC_max_service_code_size) [[unlikely]] {
-            logger::warn("service {} accumulate: preimage for code hash {} is too large!", service_id, prev_service_info.code_hash);
+            logger::debug("service {} accumulate: preimage for code hash {} is too large!", service_id, prev_service_info.code_hash);
         } else [[likely]] {
             const auto code_hash = crypto::blake2b::digest(*code);
             if (code_hash != prev_service_info.code_hash) [[unlikely]]
@@ -490,25 +518,37 @@ namespace turbo::jam {
         const entropy_t &new_eta0, account_updates_t<CFG> &new_delta,
         time_slot_t<CFG> slot, service_id_t service_id, const deferred_transfers_t<CFG> &transfers)
     {
+        encoder arg_enc{};
+        arg_enc.uint_varlen(slot.slot());
+        arg_enc.uint_varlen(service_id);
+        arg_enc.uint_varlen(transfers.size());
+        logger::debug("service {} on_transfer argument of {} bytes: {}",
+            service_id, arg_enc.bytes().size(), arg_enc.bytes());
         auto service_info = new_delta.info_get_or_throw(service_id);
         const auto amount = std::ranges::fold_left(
             transfers | std::views::transform(&deferred_transfer_t<CFG>::amount),
             balance_t{0},
             std::plus()
         );
+        const auto gas_limit = std::ranges::fold_left(
+            transfers | std::views::transform(&deferred_transfer_t<CFG>::gas_limit),
+            gas_t{0},
+            std::plus()
+        );
         service_info.balance += amount;
+        new_delta.info_set(service_id, std::move(service_info));
         auto code = new_delta.preimage_get(service_id, service_info.code_hash);
+        gas_t gas_used = 0;
         if (!code) [[unlikely]] {
-            logger::warn("service {} on_transfer: preimage for code hash {} is not available!", service_id, service_info.code_hash);
+            logger::debug("service {} on_transfer: preimage for code hash {} is not available!", service_id, service_info.code_hash);
         } else if (code->size() > CFG::WC_max_service_code_size) [[unlikely]] {
-            logger::warn("service {} on_transfer: preimage for code hash {} is too large!", service_id, service_info.code_hash);
-        } else [[likely]] {
+            logger::debug("service {} on_transfer: preimage for code hash {} is too large!", service_id, service_info.code_hash);
+        } else if (!transfers.empty()) [[likely]] {
             if (const auto code_hash = crypto::blake2b::digest(*code); code_hash != service_info.code_hash) [[unlikely]]
             throw error(fmt::format("the blob registered for code hash {} has hash {}", service_info.code_hash, code_hash));
-            gas_t::base_type gas_limit = 0;
             std::optional<host_service_on_transfer_t<CFG>> host_service{};
             const auto inv_res = machine::invoke(
-                static_cast<buffer>(*code), 10U, gas_limit, buffer{},
+                static_cast<buffer>(*code), 10U, gas_limit, arg_enc.bytes(),
                 [&](machine::machine_t &m) {
                     host_service.emplace(
                         host_service_params_t<CFG>{
@@ -529,81 +569,82 @@ namespace turbo::jam {
                     return host_service->call(id);
                 }
             );
-            return inv_res.gas_used;
+            gas_used = inv_res.gas_used;
         }
-        new_delta.info_set(service_id, std::move(service_info));
-        return {};
+        return gas_used;
     }
 
     // produces: accumulate_root, iota', psi' and chi'
     template<typename CFG>
     accumulate_output_t<CFG> state_t<CFG>::accumulate(
-        account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services, const entropy_t &new_eta0,
-        const time_slot_t<CFG> &prev_tau,
-        const privileges_t<CFG> &prev_chi,
-        const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
+        account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services,
+        ready_queue_t<CFG> &omega, accumulated_queue_t<CFG> &ksi,
+        const entropy_t &new_eta0,
+        const time_slot_t<CFG> &prev_tau, const privileges_t<CFG> &prev_chi,
         const time_slot_t<CFG> &slot, const work_reports_t<CFG> &reports)
     {
         accumulate_output_t<CFG> res{};
 
-        // JAM Paper (12.2)
-        set_t<work_package_hash_t> known_reports {};
-        for (const auto &er: prev_ksi) {
-            known_reports.reserve(known_reports.size() + er.size());
+        // (12.2)
+        set_t<work_package_hash_t> known_reports{};
+        const auto ksi_sz = std::accumulate(ksi.begin(), ksi.end(), size_t{0},
+            [](const auto sum, const auto &v) { return sum + v.size(); });
+        known_reports.reserve(ksi_sz);
+        for (const auto &er: ksi) {
             known_reports.insert_unique(er.begin(), er.end());
         }
 
-        work_reports_t<CFG> work_immediate {}; // JAM (12.4) W^!
-        ready_queue_item_t<CFG> work_queued {}; // JAM (12.5) W^Q
-        work_queued.reserve(reports.size());
+        work_reports_t<CFG> accumulatable{}; // (12.4) R!, later becomes (12.11) R*
+        ready_queue_item_t<CFG> queued{}; // (12.5) RQ
+        queued.reserve(reports.size());
 
         for (const auto &r: reports) {
-            report_deps_t deps {};
-            for (const auto &h: r.context.prerequisites)
-                deps.emplace_hint(deps.end(), h);
-            for (const auto &l: r.segment_root_lookup)
-                deps.emplace_hint(deps.end(), l.work_package_hash);
-            if (deps.empty())
-                work_immediate.emplace_back(r);
-            else
-                work_queued.emplace_back(r, std::move(deps));
+            if (r.context.prerequisites.empty() && r.segment_root_lookup.empty()) {
+                accumulatable.emplace_back(r);
+            } else {
+                report_deps_t deps{};
+                for (const auto &h: r.context.prerequisites)
+                    deps.emplace_hint(deps.end(), h);
+                for (const auto &l: r.segment_root_lookup)
+                    deps.emplace_hint(deps.end(), l.work_package_hash);
+                queued.emplace_back(r, std::move(deps));
+            }
         }
-        accumulate_update_deps<CFG>(work_queued, known_reports);
+        accumulate_edit_queue(queued, known_reports);
 
-        set_t<work_package_hash_t> immediate_hashes {};
-        for (const auto &r: work_immediate)
-            immediate_hashes.emplace(r.package_spec.hash);
-
-        // JAM (12.10)
+        // (12.10)
         const auto m = slot.epoch_slot();
+        {
+            set_t<work_package_hash_t> immediate_hashes{};
+            for (const auto &r: accumulatable)
+                immediate_hashes.emplace(r.package_spec.hash);
 
-        // (12.11) - work immediate is w_star after this point
-
-        ready_queue_item_t<CFG> all_queued {};
-        for (size_t i = 0; i < prev_omega.size(); ++i) {
-            const auto nu_i = (m + i) % prev_omega.size();
-            for (const auto &rr: prev_omega[nu_i])
-                all_queued.emplace_back(rr);
+            ready_queue_item_t<CFG> all_queued{};
+            for (size_t i = 0; i < omega.size(); ++i) {
+                const auto wi = (m + i) % omega.size();
+                all_queued.insert(all_queued.end(), omega[wi].begin(), omega[wi].end());
+            }
+            all_queued.insert(all_queued.end(), queued.begin(), queued.end());
+            accumulate_edit_queue(all_queued, immediate_hashes);
+            for (auto &&r: accumulate_queue_ready(all_queued))
+                accumulatable.emplace_back(std::move(r));
         }
-        for (const auto &rr: work_queued)
-            all_queued.emplace_back(rr);
-        accumulate_update_deps<CFG>(all_queued, immediate_hashes, [&](const auto &wr) {
-            work_immediate.emplace_back(wr);
-        });
 
         // (12.21)
-        boost::container::flat_set<service_id_t> free_services {};
+        boost::container::flat_set<service_id_t> free_services{};
         gas_t::base_type gas_limit = CFG::GA_max_accumulate_gas * CFG::C_core_count;
 
         free_services.reserve(prev_chi.always_acc.size());
         for (auto &fs: prev_chi.always_acc)
             free_services.emplace_hint(free_services.end(), fs.id);
 
-        for (const auto &re: prev_omega) {
-            for (const auto &ri: re) {
-                for (const auto &rr: ri.report.results) {
-                    if (free_services.contains(rr.service_id))
-                        gas_limit += rr.accumulate_gas;
+        if (!free_services.empty()) {
+            for (const auto &re: omega) {
+                for (const auto &ri: re) {
+                    for (const auto &rr: ri.report.results) {
+                        if (free_services.contains(rr.service_id))
+                            gas_limit += rr.accumulate_gas;
+                    }
                 }
             }
         }
@@ -611,7 +652,7 @@ namespace turbo::jam {
             gas_limit = CFG::GT_max_total_accumulation_gas;
 
         // (12.22)
-        auto plus_res = accumulate_plus(new_eta0, new_delta, prev_chi, slot, gas_limit, work_immediate);
+        auto plus_res = accumulate_plus(new_eta0, new_delta, prev_chi, slot, gas_limit, accumulatable);
 
         // (12.28)
         {
@@ -647,50 +688,37 @@ namespace turbo::jam {
         }
 
         // (12.33)
-        res.ksi = std::make_shared<accumulated_queue_t<CFG>>(prev_ksi);
-        for (size_t i = 0; i < res.ksi->size() - 1; ++i)
-            (*res.ksi)[i] = std::move((*res.ksi)[i + 1]);
+        for (size_t i = 0; i < ksi.size() - 1; ++i)
+            ksi[i] = std::move(ksi[i + 1]);
         // (12.32)
-        const auto work_immediate_hashes = work_immediate
+        const auto accumulated_v = accumulatable
             | std::views::take(plus_res.num_accumulated)
             | std::views::transform([](const auto &wr) { return wr.package_spec.hash; });
-        const std::vector<work_package_hash_t> accumulated_report_hashes { work_immediate_hashes.begin(), work_immediate_hashes.end() };
-        res.ksi->back().clear();
-        res.ksi->back().reserve(accumulated_report_hashes.size());
-        for (const auto &wrh: accumulated_report_hashes)
-            res.ksi->back().emplace(wrh);
+        ksi.back().clear();
+        for (const auto &h: accumulated_v) {
+            ksi.back().emplace(h);
+        }
 
         // The actually accumulated report set can be a subset of the reports ready for accumulation due to the gas limit.
         // Therefore, the omega must be updated given the list of actually accumulated reports
 
         // (12.34)
-        res.omega = std::make_shared<ready_queue_t<CFG>>(prev_omega);
-        accumulate_update_deps((*res.omega)[m], res.ksi->back());
+        accumulate_edit_queue(omega[m], ksi.back());
         const auto time_step = slot.slot() - prev_tau.slot();
-        for (size_t i = 0; i < res.omega->size(); ++i) {
-            const auto nu_i = (m + res.omega->size() - i) % res.omega->size();
+        for (size_t i = 0; i < omega.size(); ++i) {
+            const auto nu_i = (m + omega.size() - i) % omega.size();
             if (i == 0) {
-                (*res.omega)[nu_i] = std::move(work_queued);
+                omega[nu_i] = std::move(queued);
             } else if (i >= 1 && i < time_step) {
-                (*res.omega)[nu_i].clear();
+                omega[nu_i].clear();
             }
-            accumulate_update_deps((*res.omega)[nu_i], res.ksi->back());
+            accumulate_edit_queue(omega[nu_i], ksi.back());
         }
 
         // (7.3)
-        logger::trace("accumulate commitments: {}", plus_res.commitments);
-        if (!plus_res.commitments.empty()) {
-            std::vector<merkle::hash_t> nodes {};
-            nodes.reserve(plus_res.commitments.size());
-            for (const auto &[s_id, s_hash]: plus_res.commitments) {
-                encoder enc {};
-                enc.uint_fixed(4, s_id);
-                enc.next_bytes(s_hash);
-                nodes.emplace_back(crypto::keccak::digest(enc.bytes()));
-            }
-            res.root = merkle::binary::encode_keccak(nodes);
-            res.theta = std::move(plus_res.commitments);
-        }
+        res.theta = std::move(plus_res.commitments);
+        logger::trace("accumulate commitments: {}", res.theta);
+        res.root = res.theta.root();
         return res;
     }
 
@@ -713,6 +741,7 @@ namespace turbo::jam {
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
         const auth_pools_t<CFG> &prev_alpha,
         const accounts_t<CFG> &prev_delta,
+        const ancestry_t<CFG> &ancestry,
         const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees)
     {
         reports_output_data_t res {};
@@ -769,14 +798,21 @@ namespace turbo::jam {
 
                 // JAM Paper (11.34)
                 if (g.report.context.lookup_anchor_slot.slot() + CFG::L_max_lookup_anchor_age < slot) [[unlikely]]
-                    throw err_segment_root_lookup_invalid_t {};
+                    throw err_segment_root_lookup_invalid_t{};
 
-                // JAM Paper (11.35)
-                /*const auto lblk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
-                    return blk.header_hash == g.report.context.lookup_anchor;
-                });
-                if (lblk_it == tmp_beta.end()) [[unlikely]]
-                    throw err_segment_root_lookup_invalid_t {};*/
+                // JAM Paper (11.35) - temporarily disabled
+                /*if (!ancestry.empty()) {
+                    const auto a_it = std::lower_bound(ancestry.begin(), ancestry.end(), g.report.context.lookup_anchor_slot,
+                        [](const auto &a, const auto &v) { return a.slot < v; });
+                    if (a_it == ancestry.end() || a_it->slot != g.report.context.lookup_anchor_slot || a_it->header_hash != g.report.context.lookup_anchor) [[unlikely]]
+                        throw err_segment_root_lookup_invalid_t{};
+                } else { // fallback to support the current format of jam-test-vectors
+                    const auto lblk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
+                        return blk.header_hash == g.report.context.lookup_anchor;
+                    });
+                    if (lblk_it == tmp_beta.end()) [[unlikely]]
+                        throw err_segment_root_lookup_invalid_t {};
+                }*/
 
                 // JAM Paper (11.38)
                 if (known_packages.contains(g.report.package_spec.hash)) [[unlikely]]
@@ -1063,10 +1099,9 @@ namespace turbo::jam {
 
     template<typename CFG>
     void state_t<CFG>::beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh,
-        const std::optional<opaque_hash_t> &accumulation_result, const reported_work_seq_t<CFG> &wp)
+        const opaque_hash_t &accumulation_result, const reported_work_seq_t<CFG> &wp)
     {
-        if (accumulation_result)
-            new_beta.mmr = new_beta.mmr.append(*accumulation_result);
+        new_beta.mmr.append(accumulation_result);
         if (new_beta.history.size() == new_beta.history.max_size) [[likely]]
             new_beta.history.erase(new_beta.history.begin());
         new_beta.history.emplace_back(block_info_t<CFG>{
@@ -1101,7 +1136,7 @@ namespace turbo::jam {
 
     // JAM (4.1): Kapital upsilon
     template<typename CFG>
-    void state_t<CFG>::apply(const block_t<CFG> &blk)
+    void state_t<CFG>::apply(const block_t<CFG> &blk, const ancestry_t<CFG> &ancestry)
     {
         const timer t_apply{"state_t::apply", logger::level::debug};
         try {
@@ -1123,6 +1158,7 @@ namespace turbo::jam {
             );
 
             // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime - deps match GP
+            const auto prev_kappa_ptr = this->kappa.storage();
             {
                 const auto safrole_res = update_safrole(
                     this->gamma.update(), this->kappa.update(), this->lambda.update(),
@@ -1149,8 +1185,7 @@ namespace turbo::jam {
             // - updates pi';
             // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
             const auto ready_reports = rho_dagger_2(
-                this->rho.update(), new_pi,
-                prev_tau.epoch() == this->tau.get().epoch() ? this->kappa.get() : this->lambda.get(),
+                this->rho.update(), new_pi, *prev_kappa_ptr,
                 blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
 
             account_updates_t<CFG> new_delta{this->delta};
@@ -1161,6 +1196,7 @@ namespace turbo::jam {
                 this->eta.get(), this->psi.get().offenders,
                 this->kappa.get(), this->lambda.get(),
                 this->alpha.get(), new_delta,
+                ancestry,
                 blk.header.slot, blk.extrinsic.guarantees
             );
 
@@ -1168,14 +1204,11 @@ namespace turbo::jam {
             timer t_accumulate{"state_t::update_reports::accumulate", logger::level::debug};
             auto accumulate_res = accumulate(
                 new_delta, new_pi.services,
-                this->eta.get()[0], prev_tau,
-                this->chi.get(), this->omega.get(), this->ksi.get(),
+                this->omega.update(), this->ksi.update(),
+                this->eta.get()[0],
+                prev_tau, this->chi.get(),
                 blk.header.slot, ready_reports
             );
-            if (accumulate_res.ksi)
-                this->ksi.set(std::move(accumulate_res.ksi));
-            if (accumulate_res.omega)
-                this->omega.set(std::move(accumulate_res.omega));
             if (!accumulate_res.phi.empty())
                 accumulate_res.phi.commit(this->phi.update());
             if (accumulate_res.iota)
@@ -1213,7 +1246,7 @@ namespace turbo::jam {
             // (4.20) can be run in parallel
             {
                 pi_prime(new_pi.current, new_pi.last, report_res,
-                    this->kappa.get(),prev_tau, blk.header.slot, blk.header.author_index, blk.extrinsic);
+                    this->kappa.get(), prev_tau, blk.header.slot, blk.header.author_index, blk.extrinsic);
             }
 
             const timer t_commit{"state_t::apply::commit", logger::level::debug};
@@ -1232,20 +1265,21 @@ namespace turbo::jam {
         const validators_data_t<CFG> &validators,
         const time_slot_t<CFG> &slot, const header_hash_t &parent, const assurances_extrinsic_t<CFG> &assurances)
     {
-        std::optional<validator_index_t> prev_validator {};
+        std::optional<validator_index_t> prev_validator{};
         for (const auto &a: assurances) {
             if (a.validator_index >= CFG::V_validator_count) [[unlikely]]
-                throw err_bad_validator_index_t {};
+                throw err_bad_validator_index_t{};
+            // (11.11)
             if (a.anchor != parent) [[unlikely]]
                 throw err_bad_attestation_parent_t {};
+            // (11.12)
             if (prev_validator && a.validator_index <= *prev_validator) [[unlikely]]
-                throw err_not_sorted_or_unique_assurers {};
+                throw err_not_sorted_or_unique_assurers{};
             prev_validator = a.validator_index;
-            uint8_vector msg {};
-            msg << std::string_view { "jam_available" };
+            uint8_vector msg{};
+            msg << std::string_view{"jam_available"};
             {
-                encoder enc {};
-                enc.bytes();
+                encoder enc{};
                 enc.process(parent);
                 enc.process(a.bitfield);
                 msg << crypto::blake2b::digest(enc.bytes());

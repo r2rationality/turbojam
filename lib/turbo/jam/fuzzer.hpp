@@ -24,17 +24,24 @@ namespace turbo::jam::fuzzer {
         bool operator==(const version_t &) const = default;
     };
 
+    using features_t = uint32_t;
+
     struct peer_info_t {
-        std::string name;
-        version_t app_version{0, 1, 3};
+        // app name is first to simplify initialization
+        std::string app_name{"turbojam"};
+        uint8_t fuzz_version=0x01; // indicate support for v1
+        features_t fuzz_features=0x00000000; // indicate no supported features
         version_t jam_version{0, 7, 0};
+        version_t app_version{0, 1, 4};
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("name"sv, name);
-            archive.process("app_version"sv, app_version);
+            archive.process("fuzz_version"sv, fuzz_version);
+            archive.process("fuzz_features"sv, fuzz_features);
             archive.process("jam_version"sv, jam_version);
+            archive.process("app_version"sv, app_version);
+            archive.process("app_name"sv, app_name);
         }
 
         void compatible_with(const peer_info_t &o) const
@@ -42,44 +49,52 @@ namespace turbo::jam::fuzzer {
             if (jam_version != o.jam_version) [[unlikely]]
                 throw error(fmt::format("jam version mismatch: {} != {}", jam_version, o.jam_version));
         }
+
+        bool operator==(const peer_info_t &) const =default;
     };
 
     template<typename CFG>
     using import_block_t = block_t<CFG>;
 
     template<typename CFG>
-    struct set_state_t {
+    struct initialize_t {
         header_t<CFG> header;
         state_snapshot_t state;
+        ancestry_t<CFG> ancestry;
 
-        static set_state_t from_snapshot(const state_snapshot_t &state);
+        static initialize_t from_snapshot(const state_snapshot_t &state);
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("header"sv, header);
             archive.process("state"sv, state);
+            archive.process("ancestry"sv, ancestry);
         }
+
+        bool operator==(const initialize_t &) const =default;
     };
 
-    struct get_state_t {
-        header_hash_t header_hash;
+    struct get_state_t: header_hash_t {
+        using header_hash_t::header_hash_t;
+    };
 
+    struct error_t: std::string {
         void serialize(auto &archive)
         {
-            using namespace std::string_view_literals;
-            archive.process("header_hash"sv, header_hash);
+            archive.process_string(*this);
         }
     };
 
     template<typename CFG>
     using message_base_t = std::variant<
         peer_info_t,
+        initialize_t<CFG>,
+        state_root_t,
         import_block_t<CFG>,
-        set_state_t<CFG>,
         get_state_t,
         state_snapshot_t,
-        state_root_t
+        error_t
     >;
     template<typename CFG>
     struct message_t: message_base_t<CFG> {
@@ -90,16 +105,20 @@ namespace turbo::jam::fuzzer {
         {
             using namespace std::string_view_literals;
             static_assert(std::variant_size_v<base_type> > 0);
-            static codec::variant_names_t<base_type> names {
+            static const codec::variant_names_t<base_type> names {
                 "peer_info"sv,
+                "initialize"sv,
+                "state_root"sv,
                 "import_block"sv,
-                "set_state"sv,
                 "get_state"sv,
                 "state"sv,
-                "state_root"sv
+                "error"sv
             };
-            archive.template process_variant<base_type>(*this, names);
+            static const codec::variant_index_overrides_t overrides{{{255U, 6U}}};
+            archive.template process_variant<base_type>(*this, names, &overrides);
         }
+
+        bool operator==(const message_t &) const =default;
     };
 
     template<typename CFG>

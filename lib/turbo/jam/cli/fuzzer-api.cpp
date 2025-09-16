@@ -57,7 +57,7 @@ namespace {
 
         boost::asio::awaitable<void> _handle_client(stream_protocol::socket conn)
         {
-            static const peer_info_t my_peer_info{"turbojam"};
+            static const peer_info_t my_peer_info{};
             {
                 const auto handshake = co_await read_message<CFG>(conn);
                 const peer_info_t &peer_info = variant::get_nice<peer_info_t>(handshake);

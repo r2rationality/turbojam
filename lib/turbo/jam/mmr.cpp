@@ -9,67 +9,58 @@
 namespace turbo::jam {
     using hash_t = crypto::keccak::hash_t;
 
-    static mmr_t replace(const mmr_t &r, size_t i, const mmr_peak_t &v)
+    // As defined in the JAM paper appendix E.2 but the hash function is hardcoded to be Keccak.
+    void mmr_t::place(const size_t idx, const opaque_hash_t &h)
     {
-        if (i >= r.size()) [[unlikely]]
-            throw error(fmt::format("mmr_r: index {} is out of range [0;{})", i, r.size()));
-        auto new_r = r;
-        new_r[i] = v;
-        return new_r;
-    }
-
-    // As defined in the JAM paper appendix E.2 but the ash function is hardcoded to be Blake2b.
-    static mmr_t place(const mmr_t &r, const hash_t &l, const size_t n)
-    {
-        if (n > r.size()) [[unlikely]]
-            throw error(fmt::format("unexpected index {} for the size of {}", n, r.size()));
-        if (n == r.size()) {
-            auto new_r = r;
-            new_r.emplace_back(l);
-            return new_r;
+        if (idx >= size()) {
+            emplace_back(h);
+        } else{
+            auto &p = (*this)[idx];
+            if (!p) {
+                p.emplace(h);
+            } else {
+                const std::array<hash_t, 2U> hashes{*p, h};
+                p.reset();
+                place(idx + 1U, crypto::keccak::digest<opaque_hash_t>(buffer{reinterpret_cast<const uint8_t*>(&hashes), sizeof(hashes)}));
+            }
         }
-        if (n < r.size() && !r[n]) {
-            return replace(r, n, mmr_peak_t { l });
-        }
-        std::array<hash_t, 2> hashes {};
-        hashes[0] = *r[n];
-        hashes[1] = l;
-        return place(replace(r, n, {}), crypto::keccak::digest(buffer { reinterpret_cast<const uint8_t*>(hashes.data()), sizeof(opaque_hash_t) * hashes.size() }), n + 1);
     }
 
-    mmr_t mmr_t::append(const opaque_hash_t &l) const
+    void mmr_t::append(const opaque_hash_t &h)
     {
-        return place(*this, l, 0);
+        return place(0U, h);
     }
 
-    static opaque_hash_t _subroot(const std::vector<opaque_hash_t> &peaks, const size_t sz)
+    static opaque_hash_t _superpeak(const std::span<const opaque_hash_t> peaks)
     {
-        if (sz == 0)
+        if (peaks.empty())
             return {};
-        if (sz == 1)
-            return peaks[0];
-        byte_array<4 + 2 * sizeof(opaque_hash_t)> msg;
-        memcpy(msg.data(), "peak", 4);
-        const auto sh = _subroot(peaks, sz - 1);
-        static_assert(sizeof(sh) == sizeof(opaque_hash_t));
-        memcpy(msg.data() + 4, sh.data(), sh.size());
-        const auto &lh = peaks[sz - 1];
-        static_assert(sizeof(lh) == sizeof(opaque_hash_t));
-        memcpy(msg.data() + 4 + sh.size(), lh.data(), lh.size());
+        if (peaks.size() == 1U)
+            return peaks.front();
+        struct{
+            char prefix[4];
+            opaque_hash_t left;
+            opaque_hash_t right;
+        } const preimage{
+            {'p', 'e', 'a', 'k'},
+            _superpeak(peaks.subspan(0, peaks.size() - 1U)),
+            peaks.back()
+        };
+        static_assert(sizeof(preimage) == 4U + 2U * sizeof(opaque_hash_t));
         opaque_hash_t res;
-        crypto::keccak::digest(res, msg);
+        crypto::keccak::digest(res, buffer{reinterpret_cast<const uint8_t*>(&preimage), sizeof(preimage)});
         return res;
     }
 
     // JAM Paper (E.10)
     opaque_hash_t mmr_t::root() const
     {
-        std::vector<opaque_hash_t> peaks {};
-        peaks.reserve(size());
+        std::vector<opaque_hash_t> h{};
+        h.reserve(size());
         for (const auto &p: *this) {
             if (p)
-                peaks.emplace_back(*p);
+                h.emplace_back(*p);
         }
-        return _subroot(peaks, peaks.size());
+        return _superpeak(h);
     }
 }

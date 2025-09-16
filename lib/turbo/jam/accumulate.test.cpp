@@ -175,19 +175,14 @@ namespace {
             new_st.pi_services.clear();
             account_updates_t<CFG> new_delta{new_st.accounts};
             auto res = state_t<CFG>::accumulate(
-                new_delta,
-                new_st.pi_services, new_st.eta0,
-                new_st.tau,
-                new_st.chi,
+                new_delta, new_st.pi_services,
                 new_st.omega, new_st.ksi,
+                new_st.eta0,
+                new_st.tau, new_st.chi,
                 tc.in.slot, tc.in.reports
             );
             // accumulate updates da_load statistics
             out.emplace(res.root);
-            if (res.omega)
-                new_st.omega = *res.omega;
-            if (res.ksi)
-                new_st.ksi = *res.ksi;
             if (res.chi)
                 new_st.chi = *res.chi;
             new_delta.commit();

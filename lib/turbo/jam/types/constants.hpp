@@ -93,6 +93,7 @@ namespace turbo::jam {
         static constexpr size_t GR_max_refine_gas = 1'000'000'000;
         static constexpr size_t GT_max_total_accumulation_gas = 20'000'000;
         static constexpr size_t K_max_tickets_per_block = 3;
+        static constexpr size_t L_max_lookup_anchor_age = 24;
         static constexpr size_t N_ticket_attempts = 3;
         static constexpr size_t R_core_assignment_rotation_period = 4;
         static constexpr size_t V_validator_count = C_core_count * validator_factor;

@@ -124,7 +124,7 @@ namespace {
             try {
                 const auto tc = jam::load_obj<test_case_t>(path);
                 const auto start_time = std::chrono::system_clock::now();
-                auto ok = _io_worker.sync_call(_test_case(set_state_t<CFG>::from_snapshot(tc.pre.keyvals), import_block_t<CFG>{tc.block}, tc.post.state_root));
+                auto ok = _io_worker.sync_call(_test_case(initialize_t<CFG>::from_snapshot(tc.pre.keyvals), import_block_t<CFG>{tc.block}, tc.post.state_root));
                 if (!ok) {
                     _print_state_diff(tc.block.header.hash(), tc.post.state_root, tc.post.keyvals);
                 }
@@ -164,13 +164,23 @@ namespace {
             co_return variant::get_nice<state_snapshot_t>(_proc->process(message_t<CFG>{get_state_t{hh}}));
         }
 
-        boost::asio::awaitable<bool> _test_case(set_state_t<CFG> set_state, import_block_t<CFG> block, const state_root_t &exp_root)
+        boost::asio::awaitable<bool> _test_case(initialize_t<CFG> init, import_block_t<CFG> block, const state_root_t &exp_root)
         {
-            const auto pre_root = variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{std::move(set_state)}));
+            const auto pre_root = variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{std::move(init)}));
             logger::trace("pre_root: {}", pre_root);
-            const auto post_root = variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{std::move(block)}));
-            logger::trace("post_root: {}", post_root);
-            co_return post_root == exp_root;
+            const auto resp = _proc->process(message_t<CFG>{std::move(block)});
+            co_return std::visit([&](const auto &rv) -> bool {
+                using T = std::decay_t<decltype(rv)>;
+                if constexpr (std::is_same_v<T, fuzzer::error_t>) {
+                    logger::trace("error: {}", rv);
+                    return pre_root == exp_root;
+                } else if constexpr (std::is_same_v<T, state_root_t>) {
+                    logger::trace("post_root: {}", rv);
+                    return rv == exp_root;
+                } else {
+                    throw error(fmt::format("unexpected message type: {}", typeid(rv).name()));
+                }
+            }, resp);
         }
 
         void _print_state_diff(const header_hash_t &hh, const state_root_t &exp_root, const state_snapshot_t &exp_state)

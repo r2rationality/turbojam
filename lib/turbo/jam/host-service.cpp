@@ -409,30 +409,30 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::info()
     {
-        logger::trace("host_service::info");
         const auto &phi = _p.m.regs();
-        const auto [t_id, t] = _get_service(phi[7]);
-        std::optional<uint8_vector> m {};
-        if (t) {
-            encoder enc{t->code_hash};
-            enc.uint_fixed(8, t->balance);
-            enc.uint_fixed(8, t->threshold());
-            enc.uint_fixed(8, t->min_item_gas);
-            enc.uint_fixed(8, t->min_memo_gas);
-            enc.uint_fixed(8, t->bytes);
-            enc.uint_fixed(4, t->items);
-            enc.uint_fixed(8, t->deposit_offset);
-            enc.uint_fixed(4, t->creation_slot.slot());
-            enc.uint_fixed(4, t->last_accumulation_slot.slot());
-            enc.uint_fixed(4, t->parent_service);
-            m.emplace(std::move(enc.bytes()));
+        logger::trace("host_service::info {}", phi[7]);
+        const auto [a_id, a] = _get_service(phi[7]);
+        std::optional<uint8_vector> v{};
+        if (a) {
+            encoder enc{a->code_hash};
+            enc.uint_fixed(8, a->balance);
+            enc.uint_fixed(8, a->threshold());
+            enc.uint_fixed(8, a->min_item_gas);
+            enc.uint_fixed(8, a->min_memo_gas);
+            enc.uint_fixed(8, a->bytes);
+            enc.uint_fixed(4, a->items);
+            enc.uint_fixed(8, a->deposit_offset);
+            enc.uint_fixed(4, a->creation_slot.slot());
+            enc.uint_fixed(4, a->last_accumulation_slot.slot());
+            enc.uint_fixed(4, a->parent_service);
+            v.emplace(std::move(enc.bytes()));
         }
-        if (m) {
+        if (v) {
             const auto o = phi[8];
-            const auto f = std::min(phi[9], m->size());
-            const auto l = std::min(phi[10], m->size() - f);
-            _p.m.mem_write(o, static_cast<buffer>(*m).subbuf(f, l));
-            _p.m.set_reg(7, m->size());
+            const auto f = std::min(phi[9], v->size());
+            const auto l = std::min(phi[10], v->size() - f);
+            _p.m.mem_write(o, static_cast<buffer>(*v).subbuf(f, l));
+            _p.m.set_reg(7, v->size());
         } else {
             _p.m.set_reg(7, machine::host_call_res_t::none);
         }
@@ -731,12 +731,11 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::query()
     {
         const auto &phi = this->_p.m.regs();
-        const auto o = phi[7];
-        const auto z = phi[8];
-        const auto h = this->_p.m.mem_read(o, 32);
-        // static_cast<uint32_t> instead of numeric_cast to return NONE instead of throwing an exception
-        logger::trace("host_service::query service: {} h: {} l: {}", this->_p.service_id, h, z);
-        const auto a = this->_p.services.lookup_get(this->_p.service_id, {static_cast<buffer>(h), static_cast<uint32_t>(z)});
+        lookup_meta_map_key_t key;
+        this->_p.m.mem_read(key.hash, phi[7]);
+        key.length = static_cast<uint32_t>(phi[8]);
+        logger::trace("host_service::query service: {} h: {} l: {}", this->_p.service_id, key.hash, key.length);
+        const auto a = this->_p.services.lookup_get(this->_p.service_id, key);
         if (!a) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::none);
             this->_p.m.set_reg(8, 0ULL);
@@ -748,19 +747,19 @@ namespace turbo::jam {
                 this->_p.m.set_reg(8, 0ULL);
                 break;
             case 1:
-                this->_p.m.set_reg(7, 1 + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
+                this->_p.m.set_reg(7, 1ULL + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
                 this->_p.m.set_reg(8, 0ULL);
                 break;
             case 2:
-                this->_p.m.set_reg(7, 2 + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
+                this->_p.m.set_reg(7, 2ULL + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
                 this->_p.m.set_reg(8, numeric_cast<machine::register_val_t>((*a)[1].slot()));
                 break;
             case 3:
-                this->_p.m.set_reg(7, 3 + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
+                this->_p.m.set_reg(7, 3ULL + (numeric_cast<machine::register_val_t>((*a)[0].slot()) << 32U));
                 this->_p.m.set_reg(8, numeric_cast<machine::register_val_t>((*a)[1].slot()) + (numeric_cast<machine::register_val_t>((*a)[2].slot()) << 32U));
                 break;
             [[unlikely]] default:
-                throw machine::exit_panic_t {};
+                throw machine::exit_panic_t{};
         }
     }
 
@@ -768,17 +767,17 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::solicit()
     {
         const auto &phi = this->_p.m.regs();
-        const auto o = phi[7];
-        const auto z = phi[8];
-        const auto h = this->_p.m.mem_read(o, 32);
-        logger::trace("host_service::solicit service: {} h: {} l: {}", this->_p.service_id, h, z);
-        const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
+        lookup_meta_map_key_t key;
+        this->_p.m.mem_read(key.hash, phi[7]);
+        key.length = static_cast<uint32_t>(phi[8]);
+        logger::trace("host_service::solicit service: {} h: {} l: {}", this->_p.service_id, key.hash, key.length);
         auto info = this->_service_info();
         auto a_res = this->_p.services.lookup_get(this->_p.service_id, key);
         if (!a_res) {
             this->_p.services.lookup_set(this->_p.service_id, key, {});
             info.items += 2;
-            info.bytes += 81 + z;
+            info.bytes += 81 + key.length;
+            this->_p.services.info_set(this->_p.service_id, std::move(info));
         } else if (a_res->size() == 2) {
             a_res->emplace_back(this->_p.slot);
             this->_p.services.lookup_set(this->_p.service_id, key, std::move(*a_res));
@@ -786,7 +785,6 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        this->_p.services.info_set(this->_p.service_id, std::move(info));
         if (info.balance < info.threshold()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::full);
             return;
@@ -798,45 +796,26 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::forget()
     {
         const auto &phi = this->_p.m.regs();
-        const auto o = phi[7];
-        const auto z = phi[8];
-        const auto h = this->_p.m.mem_read(o, 32);
-        logger::trace("host_service::forget service: {} h: {} l: {}", this->_p.service_id, h, z);
-        const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
+        lookup_meta_map_key_t key;
+        this->_p.m.mem_read(key.hash, phi[7]);
+        key.length = static_cast<uint32_t>(phi[8]);
+        logger::trace("host_service::forget service: {} h: {} l: {}", this->_p.service_id, key.hash, key.length);
         auto l_res = this->_p.services.lookup_get(this->_p.service_id, key);
-        if (!l_res) {
+        if (l_res && (l_res->size() == 0 || (l_res->size() == 2 && (*l_res)[1].slot() + CFG::D_preimage_expunge_delay < this->_p.slot.slot()))) {
+            auto info = this->_service_info();
+            info.items -= 2;
+            info.bytes -= 81 + key.length;
+            this->_p.services.info_set(this->_p.service_id, std::move(info));
+            this->_p.services.lookup_erase(this->_p.service_id, key);
+            this->_p.services.preimage_erase(this->_p.service_id, key.hash);
+        } else if (l_res && l_res->size() == 1) {
+            l_res->emplace_back(this->_p.slot);
+            this->_p.services.lookup_set(this->_p.service_id, key, std::move(*l_res));
+        } else if (l_res && l_res->size() == 3 && (*l_res)[1].slot() + CFG::D_preimage_expunge_delay < this->_p.slot.slot()) {
+            this->_p.services.lookup_set(this->_p.service_id, key, {(*l_res)[2], this->_p.slot});
+        } else {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
-        }
-        switch (l_res->size()) {
-            case 2:
-                if ((*l_res)[1].slot() + CFG::D_preimage_expunge_delay >= this->_p.slot.slot()) {
-                    this->_p.m.set_reg(7, machine::host_call_res_t::huh);
-                    return;
-                }
-                [[fallthrough]]; // Yes, fallthrough into case 0!
-            case 0: {
-                auto info = this->_service_info();
-                info.items -= 2;
-                info.bytes -= 81 + z;
-                this->_p.services.info_set(this->_p.service_id, std::move(info));
-                this->_p.services.lookup_erase(this->_p.service_id, key);
-                this->_p.services.preimage_erase(this->_p.service_id, key.hash);
-                break;
-            }
-            case 1:
-                l_res->emplace_back(this->_p.slot);
-                this->_p.services.lookup_set(this->_p.service_id, key, std::move(*l_res));
-                break;
-            case 3:
-                if ((*l_res)[1].slot() + CFG::D_preimage_expunge_delay >= this->_p.slot.slot()) {
-                    this->_p.m.set_reg(7, machine::host_call_res_t::huh);
-                    return;
-                }
-                this->_p.services.lookup_set(this->_p.service_id, key, { (*l_res)[2], this->_p.slot });
-                break;
-            [[unlikely]] default:
-                throw machine::exit_panic_t{};
         }
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }

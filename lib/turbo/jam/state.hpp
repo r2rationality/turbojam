@@ -48,18 +48,22 @@ namespace turbo::jam {
         }
 
         const element_type &get() const {
+            return *storage();
+        }
+
+        void set(ptr_type new_ptr) {
+            _updated = true;
+            _ptr = std::move(new_ptr);
+        }
+
+        const ptr_type &storage() const {
             if (!_ptr) {
                 const auto bytes = _db->get(_key);
                 if (!bytes) [[unlikely]]
                     throw error(fmt::format("a required state element is missing: {}", _key));
                 _ptr = std::make_shared<element_type>(jam::from_bytes<element_type>(*bytes));
             }
-            return *_ptr;
-        }
-
-        void set(ptr_type new_ptr) {
-            _updated = true;
-            _ptr = std::move(new_ptr);
+            return _ptr;
         }
 
         element_type &update() {
@@ -603,16 +607,17 @@ namespace turbo::jam {
 
     // JAM (12.19)
     struct accumulate_operand_t {
-        opaque_hash_t work_package_hash;
-        opaque_hash_t exports_root;
-        opaque_hash_t authorizer_hash;
-        opaque_hash_t payload_hash;
-        gas_t accumulate_gas;
-        work_exec_result_t result;
-        byte_sequence_t auth_output;
+        opaque_hash_t work_package_hash; // p
+        opaque_hash_t exports_root; // e
+        opaque_hash_t authorizer_hash; // a
+        opaque_hash_t payload_hash; // y
+        gas_t accumulate_gas; // g
+        work_exec_result_t result; // l
+        byte_sequence_t auth_output; // t
 
         void serialize(auto &archive)
         {
+            // (C.32)
             using namespace std::string_view_literals;
             archive.process("work_package_hash"sv, work_package_hash);
             archive.process("exports_root"sv, exports_root);
@@ -645,7 +650,26 @@ namespace turbo::jam {
         std::string key_name = "service_id";
         std::string val_name = "hash";
     };
-    using service_commitments_t = map_t<service_id_t, opaque_hash_t, service_commitments_config_t>;
+    struct service_commitments_t: map_t<service_id_t, opaque_hash_t, service_commitments_config_t> {
+        using base_type = map_t<service_id_t, opaque_hash_t, service_commitments_config_t>;
+        using base_type::base_type;
+
+        [[nodiscard]] accumulate_root_t root() const {
+            merkle::binary::value_list values{};
+            if (!empty()) {
+                values.reserve(size());
+                for (const auto &[s_id, s_hash]: *this) {
+                    encoder enc{};
+                    enc.bytes().reserve(s_hash.size() + 4U);
+                    enc.uint_fixed(4U, s_id);
+                    enc << s_hash;
+                    values.emplace_back(std::move(enc.bytes()));
+                }
+            }
+            return merkle::binary::encode_keccak(values);
+        }
+    };
+
     // JAM (12.15): U + (12.24) num_items
     struct service_work_item_t {
         gas_t gas_used{};
@@ -676,17 +700,24 @@ namespace turbo::jam {
                 state.consume_from(std::move(s_res.state));
                 transfers.insert(transfers.end(), s_res.transfers.begin(), s_res.transfers.end());
                 // o.results is a map, so all s_id are unique. no need to check if try_emplace succeeds
-                if (s_res.commitment)
-                    commitments.try_emplace(s_id, *s_res.commitment);
-                work_items.try_emplace(s_id, s_res.gas, s_res.num_reports);
+                if (s_res.commitment) {
+                    const auto [it, created] = commitments.try_emplace(s_id, *s_res.commitment);
+                    if (!created) [[unlikely]]
+                        throw error(fmt::format("multiple accumulate commitments for service {}", s_id));
+                }
+                {
+                    const auto [it, created] = work_items.try_emplace(s_id, s_res.gas, s_res.num_reports);
+                    if (!created) [[unlikely]] {
+                        it->second.gas_used += s_res.gas;
+                        it->second.num_reports += s_res.num_reports;
+                    }
+                }
             }
         }
     };
 
     template<typename CFG>
     struct accumulate_output_t {
-        std::shared_ptr<accumulated_queue_t<CFG>> ksi{};
-        std::shared_ptr<ready_queue_t<CFG>> omega{};
         auth_queue_updates_t<CFG> phi{};
         std::shared_ptr<validators_data_t<CFG>> iota{};
         std::shared_ptr<privileges_t<CFG>> chi{};
@@ -759,7 +790,7 @@ namespace turbo::jam {
         void rollback();
 
         // (4.1): Kapital upsilon
-        void apply(const block_t<CFG> &);
+        void apply(const block_t<CFG> &, const ancestry_t<CFG> &);
 
         // State transition methods: static to not be explicit about their inputs and outputs
         // (4.5)
@@ -767,7 +798,7 @@ namespace turbo::jam {
         // (4.6)
         static void beta_dagger(recent_blocks_t<CFG> &beta, const state_root_t &sr);
         // (4.17)
-        static void beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh, const std::optional<opaque_hash_t> &ar, const reported_work_seq_t<CFG> &wp);
+        static void beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh, const opaque_hash_t &ar, const reported_work_seq_t<CFG> &wp);
         // JAM (4.7)
         static void eta_prime(entropy_buffer_t &eta, const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &blk_slot, const entropy_t &blk_entropy);
         // JAM (4.8)
@@ -805,6 +836,7 @@ namespace turbo::jam {
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
             const auth_pools_t<CFG> &prev_alpha,
             const accounts_t<CFG> &prev_delta,
+            const ancestry_t<CFG> &ancestry,
             const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees);
 
         static work_reports_t<CFG> rho_dagger_2(
@@ -818,10 +850,10 @@ namespace turbo::jam {
         // JAM (4.16)
         static accumulate_output_t<CFG> accumulate(
             account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services,
-            const entropy_t &new_eta0, const time_slot_t<CFG> &prev_tau,
-            const privileges_t<CFG> &prev_chi,
-            const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
-            const time_slot_t<CFG> &slot, const work_reports_t<CFG> &reports);
+            ready_queue_t<CFG> &omega, accumulated_queue_t<CFG> &ksi,
+            const entropy_t &new_eta0,
+            const time_slot_t<CFG> &prev_tau, const privileges_t<CFG> &prev_chi,
+            const time_slot_t<CFG> &blk_slot, const work_reports_t<CFG> &reports);
 
         // helper fuinctions
 
@@ -834,7 +866,7 @@ namespace turbo::jam {
 
         void foreach(const observer_t &) const;
         bool operator==(const state_t &o) const noexcept;
-        state_snapshot_t snapshot() const;
+        [[nodiscard]] state_snapshot_t snapshot() const;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
         struct guarantors_t {
@@ -852,12 +884,12 @@ namespace turbo::jam {
         static delta_plus_result_t<CFG> accumulate_plus(
             const entropy_t &new_eta0,
             const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
-            const time_slot_t<CFG> &slot, const gas_t gas_limit, const work_reports_t<CFG> &reports
+            const time_slot_t<CFG> &slot, gas_t gas_limit, std::span<const work_report_t<CFG>> reports
         );
         static delta_star_result_t<CFG> accumulate_star(
             const entropy_t &new_eta0,
             const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
-            const time_slot_t<CFG> &slot, const std::span<const work_report_t<CFG>> reports);
+            const time_slot_t<CFG> &slot, std::span<const work_report_t<CFG>> reports);
         static accumulate_result_t<CFG> invoke_accumulate(
             const entropy_t &new_eta0,
             const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,

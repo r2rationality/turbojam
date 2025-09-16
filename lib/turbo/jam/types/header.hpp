@@ -8,6 +8,23 @@
 #include "common.hpp"
 
 namespace turbo::jam {
+    template<typename CFG>
+    struct ancestry_item_t {
+        time_slot_t<CFG> slot;
+        header_hash_t header_hash;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("slot"sv, slot);
+            archive.process("header_hash"sv, header_hash);
+        }
+
+        bool operator==(const ancestry_item_t &) const =default;
+    };
+    template<typename CFG>
+    using ancestry_t = sequence_t<ancestry_item_t<CFG>>;
+
     // JAM (4.3)
     template<typename CFG>
     struct extrinsic_t {

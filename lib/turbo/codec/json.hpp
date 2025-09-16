@@ -76,6 +76,11 @@ namespace turbo::codec::json {
             val = boost::json::value_to<T>(_top());
         }
 
+        void process_string(std::string &val)
+        {
+            val = boost::json::value_to<std::string_view>(_top());
+        }
+
         template<typename T>
         void process_uint(T &val)
         {
@@ -160,7 +165,7 @@ namespace turbo::codec::json {
         }
 
         template<typename T>
-        void process_variant(T &val, const codec::variant_names_t<T> &names)
+        void process_variant(T &val, const codec::variant_names_t<T> &names, const variant_index_overrides_t *overrides=nullptr)
         {
             if (_top().is_object()) {
                 const auto &jo = _top().as_object();

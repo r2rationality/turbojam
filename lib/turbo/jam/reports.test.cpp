@@ -225,6 +225,7 @@ namespace {
             auto new_st = tc.pre;
             err_code_t::catch_into(
                 [&] {
+                    ancestry_t<CFG> ancestry{};
                     auto delta = tc.pre.accounts.get(std::make_shared<storage::memory::db_t>());
                     out.emplace(
                         state_t<CFG>::update_reports(
@@ -233,7 +234,7 @@ namespace {
                             new_st.eta, new_st.offenders,
                             new_st.kappa, new_st.lambda,
                             new_st.alpha,
-                            delta,
+                            delta, ancestry,
                             tc.in.slot, tc.in.guarantees
                         )
                     );
@@ -260,7 +261,7 @@ suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
         static const std::string test_prefix = "stf/reports/";
         static std::optional<std::string> override_test{};
-        //override_test.emplace("tiny/anchor_not_recent-1");
+        //override_test.emplace("tiny/bad_code_hash-1");
         if (!override_test) {
             "tiny"_test = [] {
                 for (const auto &path: file::files_with_ext(test_vector_dir(test_prefix + "tiny"), ".bin")) {
