@@ -488,7 +488,7 @@ namespace turbo::jam::machine {
 
         // opcode helper functions
 
-        static [[nodiscard]] std::string_view _reg_name(const size_t reg_idx)
+        [[nodiscard]] static std::string_view _reg_name(const size_t reg_idx)
         {
             static const std::array<std::string_view, 13> reg_names = {
                 "ra"sv, "sp"sv, "t0"sv, "t1"sv,

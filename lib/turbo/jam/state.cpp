@@ -741,7 +741,7 @@ namespace turbo::jam {
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
         const auth_pools_t<CFG> &prev_alpha,
         const accounts_t<CFG> &prev_delta,
-        const ancestry_t<CFG> &ancestry,
+        const ancestry_t<CFG> &/*ancestry*/,
         const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees)
     {
         reports_output_data_t res {};

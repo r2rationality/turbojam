@@ -167,6 +167,7 @@ namespace turbo::codec::json {
         template<typename T>
         void process_variant(T &val, const codec::variant_names_t<T> &names, const variant_index_overrides_t *overrides=nullptr)
         {
+            (void)overrides;
             if (_top().is_object()) {
                 const auto &jo = _top().as_object();
                 size_t idx = 0;
