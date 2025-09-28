@@ -80,18 +80,26 @@ namespace turbo::jam::machine {
                     const auto len = _skip_len(_pc, _program.bitmasks);
                     const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
                     const auto &op = _opcode_info(opcode);
-                    consume_gas(1U);
+                    if (!consume_gas(1U)) [[unlikely]]
+                        return exit_out_of_gas_t{};
                     const auto prev_pc = _pc;
                     if constexpr (tracing) {
                         logger::debug("PVM exec log: 0x{:08X}/{}: {} {}", prev_pc, len + 1, op.name, _args_str(op.make_args, data));
                     }
-                    // a special case to simplify debugging
-                    if (op.exec == &impl::ecalli) [[unlikely]] {
-                        const auto [nu_x] = _args_imm1(data);
-                        return exit_host_call_t{nu_x};
-                    }
                     const auto next_pc = _pc + len + 1;
-                    _pc = (this->*op.exec)(data).value_or(next_pc);
+                    auto res = (this->*op.exec)(data);
+                    switch (res.index()) {
+                        [[likely]] case 0:
+                            _pc = next_pc;
+                            break;
+                        case 1:
+                            _pc = std::get<1>(res);
+                            break;
+                        case 2:
+                            return std::get<2>(std::move(res));
+                        [[unlikely]] default:
+                            throw error(fmt::format("unsupported op_res_t index: {}", res.index()));
+                    }
                     if constexpr (tracing) {
                         std::string update{};
                         if (_last_set_reg) {
@@ -129,14 +137,15 @@ namespace turbo::jam::machine {
             _pc += _skip_len(_pc, _program.bitmasks) + 1;
         }
 
-        void consume_gas(const gas_t gas)
+        bool consume_gas(const gas_t gas)
         {
             if (gas > static_cast<gas_t::base_type>(_gas)) [[unlikely]] {
                 _gas = 0;
-                throw exit_out_of_gas_t{};
+                return false;
             }
             //logger::debug("PolkaVM: charge_gas: {} ({} -> {})", gas, _gas, _gas - numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas)));
             _gas -= static_cast<gas_t::base_type>(gas);
+            return true;
         }
 
         void set_reg(const size_t id, const register_val_t val)
@@ -232,7 +241,7 @@ namespace turbo::jam::machine {
         std::optional<register_idx_t> _last_set_reg{};
         std::optional<mem_update_t> _last_store{};
 
-        using op_res_t = std::optional<register_val_t>;
+        using op_res_t = std::variant<std::monostate, register_val_t, result_t>;
         using op_exec_t = op_res_t(impl::*)(buffer);
 
         using no_args_func_t = std::tuple<>(impl::*)(buffer) const;
@@ -701,17 +710,17 @@ namespace turbo::jam::machine {
         op_res_t djump(const register_val_t addr)
         {
             if (addr == (1ULL << 32ULL) - (1ULL << 16ULL)) [[unlikely]]
-                throw exit_halt_t{};
+                return exit_halt_t{};
             if (addr == 0) [[unlikely]]
-                throw exit_panic_t{};
+                return exit_panic_t{};
             if (addr > _program.jump_table.size() * config_prod::ZA_pvm_address_alignment_factor) [[unlikely]]
-                throw exit_panic_t{};
+                return exit_panic_t{};
             if (addr % config_prod::ZA_pvm_address_alignment_factor != 0) [[unlikely]]
-                throw exit_panic_t{};
+                return exit_panic_t{};
             const auto ji = addr / config_prod::ZA_pvm_address_alignment_factor;
             const auto new_pc = _program.jump_table.at(ji - 1);
             if (!_program.bitmasks.test(new_pc)) [[unlikely]]
-                throw exit_panic_t{};
+                return exit_panic_t{};
             return { new_pc };
         }
 
@@ -719,9 +728,9 @@ namespace turbo::jam::machine {
         {
             if (cond) {
                 if (new_pc >= _program.code.size()) [[unlikely]]
-                    throw exit_panic_t{};
+                    return exit_panic_t{};
                 if (!_program.bitmasks.test(new_pc)) [[unlikely]]
-                    throw exit_panic_t{};
+                    return exit_panic_t{};
                 return {new_pc};
             }
             return {};
@@ -801,7 +810,7 @@ namespace turbo::jam::machine {
 
         op_res_t trap(const buffer)
         {
-            throw exit_panic_t{};
+            return exit_panic_t{};
         }
 
         op_res_t fallthrough(const buffer)
@@ -813,7 +822,7 @@ namespace turbo::jam::machine {
         op_res_t ecalli(const buffer data)
         {
             const auto [nu_x] = _args_imm1(data);
-            throw exit_host_call_t{nu_x};
+            return exit_host_call_t{nu_x};
         }
 
         op_res_t store_imm_u8(const buffer data)
@@ -1876,7 +1885,8 @@ namespace turbo::jam::machine {
 
     void machine_t::consume_gas(const gas_t gas)
     {
-        return _impl_ptr()->consume_gas(gas);
+        if (!_impl_ptr()->consume_gas(gas)) [[unlikely]]
+            throw exit_out_of_gas_t{};
     }
 
     void machine_t::set_reg(const size_t id, const register_val_t val)
