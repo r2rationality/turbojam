@@ -85,6 +85,11 @@ namespace turbo::jam::machine {
                     if constexpr (tracing) {
                         logger::debug("PVM exec log: 0x{:08X}/{}: {} {}", prev_pc, len + 1, op.name, _args_str(op.make_args, data));
                     }
+                    // a special case to simplify debugging
+                    if (op.exec == &impl::ecalli) [[unlikely]] {
+                        const auto [nu_x] = _args_imm1(data);
+                        return exit_host_call_t{nu_x};
+                    }
                     const auto next_pc = _pc + len + 1;
                     _pc = (this->*op.exec)(data).value_or(next_pc);
                     if constexpr (tracing) {
@@ -126,10 +131,12 @@ namespace turbo::jam::machine {
 
         void consume_gas(const gas_t gas)
         {
-            //logger::debug("PolkaVM: charge_gas: {} ({} -> {})", gas, _gas, _gas - numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas)));
-            _gas -= numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas));
-            if (_gas < 0) [[unlikely]]
+            if (gas > static_cast<gas_t::base_type>(_gas)) [[unlikely]] {
+                _gas = 0;
                 throw exit_out_of_gas_t{};
+            }
+            //logger::debug("PolkaVM: charge_gas: {} ({} -> {})", gas, _gas, _gas - numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas)));
+            _gas -= static_cast<gas_t::base_type>(gas);
         }
 
         void set_reg(const size_t id, const register_val_t val)
@@ -2046,6 +2053,6 @@ namespace turbo::jam::machine {
         } catch (const std::exception &) {
             status = exit_panic_t {};
         }
-        return { numeric_cast<gas_t::base_type>(gas_begin - std::max(m->gas(), gas_remaining_t{0})), std::get<invocation_result_base_t>(status) };
+        return {numeric_cast<gas_t::base_type>(gas_begin - m->gas()), std::get<invocation_result_base_t>(status)};
     }
 }

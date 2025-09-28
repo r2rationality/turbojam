@@ -14,7 +14,8 @@ namespace turbo::jam::machine {
     using register_val_t = uint64_t;
     using register_val_signed_t = int64_t;
     using address_val_t = uint32_t;
-    using gas_remaining_t = register_val_signed_t;
+    // in contrast to GP gas_remaining is unsigned, with gas_consume implementing the set to 0 on overuse
+    using gas_remaining_t = gas_t::base_type;
 
     struct memory_chunk_t {
         uint32_t address = 0;
