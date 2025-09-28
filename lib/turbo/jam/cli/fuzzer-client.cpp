@@ -119,7 +119,7 @@ namespace {
         {
         }
 
-        void test_sample(const std::string &path)
+        bool test_sample(const std::string &path)
         {
             try {
                 const auto tc = jam::load_obj<test_case_t>(path);
@@ -130,19 +130,26 @@ namespace {
                 }
                 logger::info("sample {}: {} in {:0.3f} sec", path, ok ? "OK" : "FAILED",
                     std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count());
+                return ok;
             } catch (const std::exception &ex) {
                 logger::error("sample {}: failed due to an uncaught exception: {}", path, ex.what());
             } catch (...) {
                 logger::error("sample {}: failed due to an uncaught unknown exception", path);
             }
+            return false;
         }
 
         void test_dir(const std::filesystem::path &data_dir)
         {
+            size_t ok = 0, err = 0;
             for (const auto &e: std::filesystem::recursive_directory_iterator(data_dir)) {
-                if (e.is_regular_file() && e.path().extension() == ".bin" && _trace_stem_ok(e.path().stem().string()))
-                    test_sample(e.path().string());
+                if (e.is_regular_file() && e.path().extension() == ".bin" && _trace_stem_ok(e.path().stem().string())) {
+                    auto &cnt = test_sample(e.path().string()) ? ok : err;
+                    ++cnt;
+                }
             }
+            logger::info("{}: success rate: {:.3f}% ({} out of {})",
+                data_dir, static_cast<double>(ok) * 100 / static_cast<double>(ok + err), ok, ok + err);
         }
     private:
         my_processor_ptr_t _proc;
