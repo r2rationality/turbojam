@@ -30,13 +30,15 @@ namespace turbo::jam {
 
         void add(const header_hash_t &blk_hash)
         {
-            add(this->size(), blk_hash);
+            add(0U, blk_hash);
         }
 
         void add(const time_slot_t<CFG> &blk_slot, const header_hash_t &blk_hash)
         {
             // a duplicate check for monotonicity to ensure even initialized data comes in sorted to make binary search work
-            if (!this->empty() && this->back().slot >= blk_slot) [[unlikely]]
+            // 0 is a special case that is used in testing only
+            // to add blocks to the ancestry from beta state element when doing direct state initialization
+            if (!this->empty() && this->back().slot >= blk_slot && (this->back().slot == 0U && blk_slot != 0U)) [[unlikely]]
                 throw error(fmt::format("out of order ancestry block: {} comes after {}", blk_slot, this->back().slot));
             this->emplace_back(blk_slot, blk_hash);
         }
