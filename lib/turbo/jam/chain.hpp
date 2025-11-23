@@ -12,7 +12,8 @@ namespace turbo::jam {
     struct chain_t {
         static chain_t from_json_spec(const std::string_view &data_path, const std::string &spec_path);
 
-        chain_t(const std::string_view &id, const std::string_view &data_path, const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state={});
+        explicit chain_t(const std::string_view &id, const std::string_view &data_path, const state_snapshot_t &genesis_state,
+            const state_snapshot_t &prev_state={}, std::optional<ancestry_t<CFG>> ancestry={});
         ~chain_t();
         [[nodiscard]] const std::string &id() const;
         [[nodiscard]] const std::string &path() const;
@@ -20,7 +21,6 @@ namespace turbo::jam {
         [[nodiscard]] const state_t<CFG> &state() const;
         [[nodiscard]] state_root_t state_root() const;
         [[nodiscard]] header_hash_t parent() const;
-        void add_to_ancestry(const ancestry_t<CFG> &ancestry);
         void apply(const block_t<CFG> &blk);
     private:
         struct impl;

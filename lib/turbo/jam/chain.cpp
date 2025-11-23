@@ -7,40 +7,35 @@
 #include <turbo/storage/file.hpp>
 #include "chain.hpp"
 
+#include "cli/fuzzer.hpp"
+
 namespace turbo::jam {
     template<typename CFG>
     struct chain_t<CFG>::impl {
-        explicit impl(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state):
+        explicit impl(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state,
+            const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry):
             _id{id},
             _path{path},
             _genesis_state{genesis_state}
         {
+            if (ancestry)
+                _ancestry = std::move(*ancestry);
             if (!prev_state.empty()) {
-                _state.emplace(_triedb);
+                _state.emplace(_updatedb);
                 *_state = prev_state;
+                _updatedb->commit();
+                const auto &beta = _state->beta.get();
+                for (const auto &h: beta.history) {
+                    _ancestry.add(h.header_hash);
+                }
             }
-        }
-
-        void add_to_ancestry(const time_slot_t<CFG> &blk_slot, const header_hash_t &blk_hash)
-        {
-            // a duplicate check for monotonicity to ensure even initialized data comes in sorted to make binary search work
-            if (!_ancestry.empty() && _ancestry.back().slot >= blk_slot) [[unlikely]]
-                throw error(fmt::format("out of order ancestry block: {} comes after {}", blk_slot, _ancestry.back().slot));
-            _ancestry.emplace_back(blk_slot, blk_hash);
-        }
-
-        void add_to_ancestry(const ancestry_t<CFG> &ancestry)
-        {
-            _ancestry.reserve(_ancestry.size() + ancestry.size());
-            for (const auto &[slot, hash]: ancestry)
-                add_to_ancestry(slot, hash);
         }
 
         void apply(const block_t<CFG> &blk)
         {
             const auto blk_hash = blk.header.hash();
             if (!_state) [[unlikely]] {
-                _state.emplace(_triedb);
+                _state.emplace(_updatedb);
                 *_state = _genesis_state;
                 const auto genesis_header = _state->make_genesis_header();
                 if (blk_hash != genesis_header.hash()) [[unlikely]]
@@ -49,10 +44,17 @@ namespace turbo::jam {
                     state_t<CFG>::beta_prime(_state->beta.update(), blk.header.hash(), {}, {});
                     _state->beta.commit();
                 });
+                _updatedb->commit();
             } else {
-                _state->apply(blk, _ancestry);
+                _updatedb->reset();
+                const auto new_ancestry_end = _ancestry.known(blk.header.parent);
+                if (new_ancestry_end != _ancestry.end()) [[unlikely]]
+                    throw error("state rollback not supported!");
+                _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
+                _updatedb->commit();
+                _ancestry.erase(new_ancestry_end, _ancestry.end());
             }
-            add_to_ancestry(blk.header.slot, blk_hash);
+            _ancestry.add(blk.header.slot, blk_hash);
         }
 
         [[nodiscard]] const std::string &id() const
@@ -93,17 +95,17 @@ namespace turbo::jam {
 
         [[nodiscard]] state_root_t state_root() const
         {
-            if (_state) [[likely]]
-                return _state->root();
-            return {};
+            return _triedb->root();
         }
     private:
         std::string _id;
         std::string _path;
-        triedb::db_ptr_t _triedb = std::make_shared<triedb::db_t>((std::filesystem::path { _path } / "kv").string());
+        triedb::db_ptr_t _triedb = std::make_shared<triedb::db_t>((std::filesystem::path{_path} / "kv").string());
+        storage::update::db_ptr_t _updatedb = std::make_shared<storage::update::db_t>(_triedb);
         state_snapshot_t _genesis_state;
         header_t<CFG> _genesis_header;
         std::optional<state_t<CFG>> _state{};
+        std::map<header_hash_t, storage::update::db_t::update_map_t> _rollback_state{};
         ancestry_t<CFG> _ancestry{};
     };
 
@@ -112,7 +114,7 @@ namespace turbo::jam {
     {
         const auto j_cfg = codec::json::load(spec_path);
         auto genesis_state = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
-        return {
+        return chain_t{
             boost::json::value_to<std::string_view>(j_cfg.at("id")),
             path,
             std::move(genesis_state)
@@ -120,19 +122,14 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    chain_t<CFG>::chain_t(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state):
-        _impl { std::make_unique<impl>(id, path, genesis_state, prev_state) }
+    chain_t<CFG>::chain_t(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state,
+        const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry):
+        _impl{std::make_unique<impl>(id, path, genesis_state, prev_state, std::move(ancestry))}
     {
     }
 
     template<typename CFG>
     chain_t<CFG>::~chain_t() = default;
-
-    template<typename CFG>
-    void chain_t<CFG>::add_to_ancestry(const ancestry_t<CFG> &ancestry)
-    {
-        _impl->add_to_ancestry(ancestry);
-    }
 
     template<typename CFG>
     const state_snapshot_t &chain_t<CFG>::genesis_state() const

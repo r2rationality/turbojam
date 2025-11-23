@@ -34,9 +34,10 @@ namespace turbo::jam::fuzzer {
             return std::visit([&](auto &&m) -> message_t<CFG> {
                 using T = std::decay_t<decltype(m)>;
                 if constexpr (std::is_same_v<T, initialize_t<CFG>>) {
-                    _chain.emplace(_chain_id, _tmp_dir.path(), m.state, m.state);
+                    std::optional<ancestry_t<CFG>> ancestry{};
                     if (!m.ancestry.empty())
-                        _chain->add_to_ancestry(m.ancestry);
+                        ancestry.emplace(std::move(m.ancestry));
+                    _chain.emplace(_chain_id, _tmp_dir.path(), m.state, m.state, std::move(ancestry));
                     return _chain->state_root();
                 } else if constexpr (std::is_same_v<T, import_block_t<CFG>>) {
                     if (!_chain) [[unlikely]]
