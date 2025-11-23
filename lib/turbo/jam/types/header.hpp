@@ -22,8 +22,37 @@ namespace turbo::jam {
 
         bool operator==(const ancestry_item_t &) const =default;
     };
+
     template<typename CFG>
-    using ancestry_t = sequence_t<ancestry_item_t<CFG>>;
+    struct ancestry_t: sequence_t<ancestry_item_t<CFG>> {
+        using base_type = sequence_t<ancestry_item_t<CFG>>;
+        using base_type::base_type;
+
+        void add(const header_hash_t &blk_hash)
+        {
+            add(this->size(), blk_hash);
+        }
+
+        void add(const time_slot_t<CFG> &blk_slot, const header_hash_t &blk_hash)
+        {
+            // a duplicate check for monotonicity to ensure even initialized data comes in sorted to make binary search work
+            if (!this->empty() && this->back().slot >= blk_slot) [[unlikely]]
+                throw error(fmt::format("out of order ancestry block: {} comes after {}", blk_slot, this->back().slot));
+            this->emplace_back(blk_slot, blk_hash);
+        }
+
+        base_type::const_iterator known(const header_hash_t &parent_hash) const {
+            const auto parent_it = std::find_if(this->begin(), this->end(), [&](const auto &a) {
+                return a.header_hash == parent_hash;
+            });
+            if (parent_it == this->end()) [[unlikely]]
+                throw err_unknown_parent_t{};
+            return std::next(parent_it);
+        }
+    };
+
+    template<typename CFG>
+    using ancestry_span_t = std::span<const ancestry_item_t<CFG>>;
 
     // JAM (4.3)
     template<typename CFG>

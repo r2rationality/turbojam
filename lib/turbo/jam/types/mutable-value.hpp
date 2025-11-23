@@ -39,6 +39,17 @@ namespace turbo::jam {
             return *_ptr;
         }
 
+        const element_type *operator->() const
+        {
+            return &get();
+        }
+
+        void set(ptr_type new_val)
+        {
+            _ptr = std::move(new_val);
+            _updated = true;
+        }
+
         void commit(ptr_type &dst)
         {
             dst = _ptr;
