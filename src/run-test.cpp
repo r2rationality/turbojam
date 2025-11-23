@@ -18,7 +18,8 @@ int main(const int argc, const char **argv)
         std::cerr << fmt::format("using test-filter mask: {}\n", argv[1]);
         boost::ut::cfg<boost::ut::override> = { .filter = argv[1] };
     }
-    // On Windows with Visual C++ compiler option is used to set the stack size
+    // On Windows with Visual C++ compiler, a command line option is used to set the stack size.
+    // Thus, setrlimit is necessary only on UNIX platforms.
 #   ifndef _MSC_VER
     {
 #       ifdef DT_STACK_SIZE
