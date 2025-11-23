@@ -55,5 +55,22 @@ suite turbo_storage_update_suite = [] {
             db.commit();
             expect_equal(size_t{1}, get_contents(*base_db).size());
         };
+        "undo_redo"_test = [&] {
+            expect_equal(size_t{1}, get_contents(*base_db).size());
+            update::db_t db{base_db};
+            db.set("AC"sv, "XY"sv);
+            db.set("AD"sv, "GH"sv);
+            db.erase("AB"sv);
+            const auto trace = db.commit();
+            expect_equal(size_t{2}, get_contents(*base_db).size());
+            expect_equal(update::db_t::undo_list_t{
+                {uint8_vector{"AC"sv}, value_t{"EF"sv}},
+                {uint8_vector{"AD"sv}, value_t{}}
+            }, trace.undo);
+            expect_equal(update::db_t::update_map_t{
+                {uint8_vector{"AC"sv}, value_t{"XY"sv}},
+                {uint8_vector{"AD"sv}, value_t{"GH"sv}}
+            }, trace.redo);
+        };
     };
 };

@@ -10,6 +10,15 @@ namespace turbo::storage::update {
     // Designed to support data loading from a json snapshot using the serialize method.
     // For that reason must be default-constructible.
     struct db_t final: storage::db_t {
+        using update_map_t = std::map<uint8_vector, value_t>;
+        using undo_item_t = typename update_map_t::value_type;
+        using undo_list_t = std::vector<undo_item_t>;
+
+        struct undo_redo_t {
+            undo_list_t undo;
+            update_map_t redo;
+        };
+
         explicit db_t(const db_t &o):
             _base_db{o._base_db},
             _updates{o._updates},
@@ -78,20 +87,36 @@ namespace turbo::storage::update {
             src._num_removed = 0;
         }
 
-        void commit() {
+        undo_redo_t commit() {
+            undo_list_t undo{};
+            undo.reserve(_updates.size());
             for (const auto &[k, v]: _updates) {
-                if (v)
-                    _base_db->set(k, *v);
-                else
-                    _base_db->erase(k);
+                auto prev_v = _base_db->get(k);
+                if (prev_v != v) {
+                    if (v)
+                        _base_db->set(k, *v);
+                    else
+                        _base_db->erase(k);
+                    undo.emplace_back(k, std::move(prev_v));
+                }
             }
+            auto redo = std::move(_updates);
+            reset();
+            return {std::move(undo), std::move(redo)};
+        }
+
+        void reset() {
             _updates.clear();
             _num_added = 0;
             _num_removed = 0;
         }
+
+        [[nodiscard]] const update_map_t &updates() const noexcept {
+            return _updates;
+        }
     private:
         storage::db_ptr_t _base_db;
-        std::map<uint8_vector, value_t> _updates{};
+        update_map_t _updates{};
         size_t _num_added = 0;
         size_t _num_removed = 0;
 
@@ -125,4 +150,5 @@ namespace turbo::storage::update {
             }
         }
     };
+    using db_ptr_t = std::shared_ptr<db_t>;
 }
