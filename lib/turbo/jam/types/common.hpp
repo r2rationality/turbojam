@@ -9,6 +9,7 @@
 #include <optional>
 #include <variant>
 #include <vector>
+#include <boost/container/flat_map.hpp>
 #include <boost/container/flat_set.hpp>
 #include <turbo/codec/json.hpp>
 #include <turbo/common/bytes.hpp>
@@ -78,6 +79,23 @@ namespace turbo::jam {
     template<typename K, typename V, typename CFG>
     struct map_t: std::map<K, V> {
         using base_type = std::map<K, V>;
+        using base_type::base_type;
+
+        static CFG config()
+        {
+            static CFG cfg;
+            return cfg;
+        }
+
+        void serialize(auto &archive)
+        {
+            archive.process_map(*this, config().key_name, config().val_name);
+        }
+    };
+
+    template<typename K, typename V, typename CFG>
+    struct flat_map_t: boost::container::flat_map<K, V> {
+        using base_type = boost::container::flat_map<K, V>;
         using base_type::base_type;
 
         static CFG config()
@@ -1132,7 +1150,12 @@ namespace turbo::jam {
     template<typename CFG>
     using accumulated_queue_t = fixed_sequence_t<accumulated_queue_item_t, CFG::E_epoch_length>;
 
-    struct always_accumulate_map_item_t {
+    struct always_accumulate_map_config_t {
+        std::string key_name = "id";
+        std::string val_name = "gas";
+    };
+
+    /*struct always_accumulate_map_item_t {
         service_id_t id;
         gas_t gas;
 
@@ -1144,19 +1167,18 @@ namespace turbo::jam {
         }
 
         bool operator==(const always_accumulate_map_item_t &o) const = default;
-    };
-
-    using free_services_t = sequence_t<always_accumulate_map_item_t>;
+    };*/
+    using free_services_t = flat_map_t<service_id_t, gas_t, always_accumulate_map_config_t>;
 
     template<typename CFG>
     using assigners_t = fixed_sequence_t<service_id_t, CFG::C_core_count>;
 
     template<typename CFG>
     struct privileges_t {
-        service_id_t bless;
-        assigners_t<CFG> assign;
-        service_id_t designate;
-        free_services_t always_acc;
+        service_id_t bless; // m
+        assigners_t<CFG> assign; // a
+        service_id_t designate; // v
+        free_services_t always_acc; // z
 
         void serialize(auto &archive)
         {
