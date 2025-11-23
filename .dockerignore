@@ -6,6 +6,5 @@
 3rdparty/msquic/bld
 cmake-*
 build-*
-test
 log
 tmp
