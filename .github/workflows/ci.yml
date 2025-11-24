@@ -15,10 +15,13 @@ jobs:
         run: docker build -t turbojam:test -f Dockerfile.test .
       - name: Run unit tests
         id: tests
-        run: |
-          docker run --name test-container turbojam:test sh ./test/gen-coverage.sh
-          docker cp test-container:/home/dev/turbojam/tmp/coverage ./coverage-html
-          docker rm test-container
+        run: docker run --name test-container turbojam:test sh ./test/gen-coverage.sh
+      - name: Copy coverage
+        id: tests-copy-cov
+        run: docker cp test-container:/home/dev/turbojam/tmp/coverage ./coverage-html
+      - name: Delete the test container
+        id: tests-rm
+        run: docker rm test-container
       - name: Upload coverage HTML
         uses: actions/upload-artifact@v4
         with:
