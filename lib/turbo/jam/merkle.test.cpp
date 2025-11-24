@@ -26,6 +26,14 @@ suite turbo_jam_merkle_suite = [] {
             };
             expect_equal(merkle::hash_t::from_hex("3DB8AECACB42DF7136B67EE7CF581EC55E718505F1285474A8B3138059E5B0FE"), theta.root());
         };
+        "merkle_unbalanced"_test = [] {
+            static const service_commitments_t theta{
+                service_commitments_t::value_type{1809557494U, opaque_hash_t::from_hex("38606724600532BF13CAED2D1AA6770225ED38BB213BF1B656689C68A1DF2D29")},
+                service_commitments_t::value_type{2494454716U, opaque_hash_t::from_hex("5BB4353B428C0D4C422F2F7576EA5205091C08926ED7FC6A420CF172F40B1CB5")},
+                service_commitments_t::value_type{3202820706U, opaque_hash_t::from_hex("0F60BAF1C25D5F6C212CDDBD58EF1BAD5FA167C4CC18D7BA1F9FFC89DF36E9DC")}
+            };
+            expect_equal(merkle::hash_t::from_hex("F06948493FA7EF5682770FC50E850F0B22F309E21AE6545EC9A688C32ED5C2C2"), theta.root());
+        };
         "mmr"_test = [] {
             const hash_func hf { static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::blake2b::digest) };
             //const auto test_vectors = json::load(file::install_path("test/jam-test-vectors/trie/trie.json"));

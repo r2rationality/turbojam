@@ -7,6 +7,7 @@
 #include <ranges>
 #include <turbo/common/logger.hpp>
 #include <turbo/common/pool-allocator.hpp>
+#include <turbo/common/variant.hpp>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/keccak.hpp>
 #include "merkle.hpp"
@@ -377,7 +378,24 @@ namespace turbo::jam::merkle {
     }
 
     namespace binary {
-        static buffer encode_node(const value_span &items, const hash_func &hash_f)
+        using hash_or_buffer_base_t = std::variant<hash_t, buffer>;
+        struct hash_or_buffer_t: hash_or_buffer_base_t {
+            using base_type = hash_or_buffer_base_t;
+            using base_type::base_type;
+
+            explicit operator buffer() const {
+                return std::visit([](const auto &buf) -> buffer {
+                    using T = std::decay_t<decltype(buf)>;
+                    if constexpr (std::is_same_v<T, buffer>) {
+                        return buf;
+                    } else {
+                        return static_cast<buffer>(buf);
+                    }
+                }, *this);
+            }
+        };
+
+        static hash_or_buffer_t encode_node(const value_span &items, const hash_func &hash_f)
         {
             using namespace std::string_view_literals;
             static hash_t h0{};
@@ -385,14 +403,14 @@ namespace turbo::jam::merkle {
             if (sz == 0U)
                 return h0;
             if (sz == 1U)
-                return items.front();
+                return static_cast<buffer>(items.front());
             // sz + 1U because (E.1) requires the midpoint to be rounded up.
             const auto mid_i = (sz + 1U) / 2U;
             uint8_vector preimage{};
             preimage.reserve(0x80);
             preimage << "node"sv;
-            preimage << encode_node(items.subspan(0U, mid_i), hash_f);
-            preimage << encode_node(items.subspan(mid_i), hash_f);
+            preimage << static_cast<buffer>(encode_node(items.subspan(0U, mid_i), hash_f));
+            preimage << static_cast<buffer>(encode_node(items.subspan(mid_i), hash_f));
             hash_t res;
             hash_f(res, preimage);
             return res;
@@ -405,7 +423,7 @@ namespace turbo::jam::merkle {
                 hash_f(res, items.front());
                 return res;
             }
-            return encode_node(items, hash_f);
+            return variant::get_nice<hash_t>(encode_node(items, hash_f));
         }
 
         hash_t encode_blake2b(const value_span items)
