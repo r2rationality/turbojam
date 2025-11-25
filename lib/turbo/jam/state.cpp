@@ -1447,6 +1447,8 @@ namespace turbo::jam {
                 const auto info = jam::from_bytes<service_info_t<CFG>>(val);
                 return fmt::format("service {} info: {}", ki.service_id, info);
             } else if constexpr (std::is_same_v<T, key_service_data_t>) {
+                if (val.size() <= 32)
+                    return fmt::format("service {} data: #{}", ki.service_id, val);
                 return fmt::format("service {} data: {} bytes", ki.service_id, val.size());
             } else if constexpr (std::is_same_v<T, key_state_var_t>) {
                 switch (ki.id) {

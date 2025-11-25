@@ -397,8 +397,12 @@ namespace turbo::jam {
         const auto key = _p.m.mem_read(phi[7], phi[8]);
         const auto val_data = _p.m.mem_read(phi[9], phi[10]);
         const auto prev_val = _p.services.storage_set(_p.service_id, key, std::move(val_data));
-        logger::trace("host_service::write service {} set key: {} new_val: {} bytes prev_val: {}",
-            _p.service_id, key, val_data.size(), prev_val ? prev_val->size() : size_t{0});
+        logger::trace("gas: {} host_service::write service {} set key: {} new_val: {} prev_val: {}",
+            _p.m.gas(), _p.service_id, key,
+            val_data.size() <= 32 ? fmt::format("#{}", val_data) : fmt::format("{} bytes", val_data.size()),
+            prev_val
+                ? prev_val->size() <= 32 ? fmt::format("#{}", *prev_val) : fmt::format("{} bytes", prev_val->size())
+                : fmt::format("none"));
         const auto info = _p.services.info_get(_p.service_id);
         if (info->balance >= info->threshold()) {
             const machine::register_val_t l = prev_val ? prev_val->size() : machine::host_call_res_t::none;
