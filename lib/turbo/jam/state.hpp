@@ -107,6 +107,7 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct service_info_t {
+        uint8_t version; // expected to be 0
         opaque_hash_t code_hash {}; // c
         balance_t balance = 0; // b
         // gas saved in the fixed format form
@@ -122,6 +123,7 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
+            archive.process("version"sv, version);
             archive.process("code_hash"sv, code_hash);
             archive.process("balance"sv, balance);
             archive.process("min_item_gas"sv, min_item_gas);
