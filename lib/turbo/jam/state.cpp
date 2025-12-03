@@ -741,7 +741,7 @@ namespace turbo::jam {
         // (12.22)
         auto plus_res = accumulate_delta_plus(new_eta0, new_delta, prev_chi, blk_slot, gas_limit, accumulatable);
 
-        // (12.28)
+        // (12.28) - disabled as transfers have been integrated into accumulation
         {
             std::map<service_id_t, deferred_transfers_t<CFG>> dst_transfers{};
             for (auto &t: plus_res.transfers) {
@@ -751,8 +751,8 @@ namespace turbo::jam {
             for (const auto &[service_id, transfers]: dst_transfers) {
                 const auto gas_used = invoke_on_transfer(new_eta0, plus_res.state.services, blk_slot, service_id, transfers);
                 auto &stats = new_pi_services[service_id];
-                stats.on_transfers_count += transfers.size();
-                stats.on_transfers_gas_used += gas_used;
+                //stats.on_transfers_count += transfers.size();
+                //stats.on_transfers_gas_used += gas_used;
             }
         }
 

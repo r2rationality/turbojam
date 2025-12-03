@@ -1304,8 +1304,6 @@ namespace turbo::jam {
         varlen_uint_t<uint32_t> exports {};
         varlen_uint_t<uint32_t> accumulate_count {};
         gas_t accumulate_gas_used {};
-        varlen_uint_t<uint32_t> on_transfers_count {};
-        gas_t on_transfers_gas_used {};
 
         void serialize(auto &archive)
         {
@@ -1320,8 +1318,6 @@ namespace turbo::jam {
             archive.process("exports"sv, exports);
             archive.process("accumulate_count"sv, accumulate_count);
             archive.process("accumulate_gas_used"sv, accumulate_gas_used);
-            archive.process("on_transfers_count"sv, on_transfers_count);
-            archive.process("on_transfers_gas_used"sv, on_transfers_gas_used);
         }
 
         bool operator==(const service_activity_record_t &o) const = default;
