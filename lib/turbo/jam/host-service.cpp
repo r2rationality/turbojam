@@ -570,6 +570,10 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
+        if (!this->_p.services.info_get(a)) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
         _ok.state.phi[c] = q;
         _ok.state.chi.get_mutable().assign[c] = a;
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
