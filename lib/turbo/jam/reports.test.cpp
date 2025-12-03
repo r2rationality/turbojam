@@ -8,7 +8,7 @@
 #include "state.hpp"
 #include "test-vectors.hpp"
 
-namespace {
+namespace turbo_jam_reports_test {
     using namespace std::string_view_literals;
     using namespace turbo;
     using namespace turbo::jam;
@@ -257,11 +257,15 @@ namespace {
     }
 }
 
+namespace {
+    using namespace turbo_jam_reports_test;
+}
+
 suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
         static const std::string test_prefix = "stf/reports/";
         static std::optional<std::string> override_test{};
-        //override_test.emplace("tiny/bad_code_hash-1");
+        //override_test.emplace("tiny/different_core_same_guarantors-1");
         if (!override_test) {
             "tiny"_test = [] {
                 for (const auto &path: file::files_with_ext(test_vector_dir(test_prefix + "tiny"), ".bin")) {

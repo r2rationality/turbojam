@@ -6,7 +6,7 @@
 #include "state.hpp"
 #include "test-vectors.hpp"
 
-namespace {
+namespace turbo_jam_statistics_test {
     using namespace turbo;
     using namespace turbo::jam;
 
@@ -82,6 +82,10 @@ namespace {
             new_st.kappa, tc.pre.tau, tc.in.slot, tc.in.author_index, tc.in.extrinsic);
         expect(new_st == tc.post) << path;
     }
+}
+
+namespace {
+    using namespace turbo_jam_statistics_test;
 }
 
 suite turbo_jam_statistics_suite = [] {
