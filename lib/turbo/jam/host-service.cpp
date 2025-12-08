@@ -572,7 +572,7 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        if (!this->_p.services.info_get(a)) [[unlikely]] {
+        if (a > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
