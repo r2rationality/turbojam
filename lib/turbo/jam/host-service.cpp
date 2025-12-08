@@ -519,8 +519,9 @@ namespace turbo::jam {
         const auto m = phi[7];
         const auto a = phi[8];
         const auto v = phi[9];
-        const auto o = phi[10];
-        const auto n = phi[11];
+        const auto r = phi[10];
+        const auto o = phi[11];
+        const auto n = phi[12];
 
         auto new_chi = std::make_shared<privileges_t<CFG>>();
 
@@ -542,12 +543,13 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        if (std::max(m, v) > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
+        if (std::max(std::max(m, v), r) > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
         new_chi->bless = static_cast<service_id_t>(m);
         new_chi->designate = static_cast<service_id_t>(v);
+        new_chi->registrar = static_cast<service_id_t>(r);
         _ok.state.chi.set(std::move(new_chi));
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
