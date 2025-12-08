@@ -615,13 +615,12 @@ namespace turbo::jam {
         const auto g = phi[9];
         const auto m = phi[10];
         const auto f = phi[11];
+        const auto i = phi[12];
+
         if (l > std::numeric_limits<uint32_t>::max()) [[unlikely]]
             throw machine::exit_panic_t{};
         const auto c = this->_p.m.mem_read(o, 32);
-        if  (f != 0 && this->_p.service_id != _ok.state.chi->bless) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
-            return;
-        }
+
         service_info_t<CFG> a {
             .code_hash=static_cast<buffer>(c),
             .min_item_gas=g,
@@ -633,15 +632,32 @@ namespace turbo::jam {
             .parent_service=this->_p.service_id
         };
         a.balance = a.threshold();
+
+        if  (f != 0 && this->_p.service_id != _ok.state.chi->bless) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
+
         auto info = this->_service_info();
-        if (info.balance < a.balance + info.threshold()) [[unlikely]] {
+        if (info.balance < info.threshold() + a.balance) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::cash);
             return;
         }
         info.balance -= a.balance;
+
+        auto created_id = _ok.new_service_id;
+        if (this->_p.service_id == _ok.state.chi->registrar && i < CFG::S_min_public_service_index) {
+            if (this->_p.services.info_get(i)) [[unlikely]] {
+                this->_p.m.set_reg(7, machine::host_call_res_t::full);
+                return;
+            }
+            created_id = i;
+        } else {
+            _ok.new_service_id = _ok.check(_ok.gen_new_service_id(_ok.new_service_id - CFG::S_min_public_service_index + 42U));
+        }
+
+        // commit the updated balance of the current service
         this->_p.services.info_set(this->_p.service_id, std::move(info));
-        const auto created_id = _ok.new_service_id;
-        _ok.new_service_id = _ok.check(_ok.gen_new_service_id(created_id - 0x100U + 42U));
         this->_p.services.info_set(created_id, std::move(a));
         this->_p.services.lookup_set(created_id, lookup_meta_map_key_t{static_cast<buffer>(c), static_cast<uint32_t>(l)}, lookup_meta_map_val_t<CFG>{});
         this->_p.m.set_reg(7, created_id);
