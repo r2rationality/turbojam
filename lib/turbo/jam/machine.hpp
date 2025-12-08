@@ -92,7 +92,7 @@ namespace turbo::jam::machine {
                 throw error(fmt::format("to many bits for bit vector of {} bytes: {}", _bytes.size(), _num_bits));
         }
 
-        bit_vector_t(bit_vector_t &&o):
+        bit_vector_t(bit_vector_t &&o) noexcept:
             _num_bits { o._num_bits },
             _bytes { std::move(o._bytes) }
         {

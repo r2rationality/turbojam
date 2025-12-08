@@ -307,14 +307,14 @@ namespace turbo::jam {
                 }
                 break;
             case 14:
-                if (_p.fetch.operands) {
-                    encoder enc { *_p.fetch.operands };
+                if (_p.fetch.inputs) {
+                    encoder enc {*_p.fetch.inputs};
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
             case 15:
-                if (_p.fetch.operands && phi[11] < _p.fetch.operands->size()) {
-                    encoder enc { _p.fetch.operands[phi[11]] };
+                if (_p.fetch.inputs && phi[11] < _p.fetch.inputs->size()) {
+                    encoder enc{(*_p.fetch.inputs)[phi[11]]};
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;

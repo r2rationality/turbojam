@@ -1175,17 +1175,20 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct privileges_t {
-        service_id_t bless; // m
+        service_id_t bless; // m - change privileges and set deposit credits
         assigners_t<CFG> assign; // a
-        service_id_t designate; // v
+        service_id_t designate; // v - set iota
+        service_id_t registrar; // r - create services with protected ids
         free_services_t always_acc; // z
 
+        // (D.2) for C(12)
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("bless"sv, bless);
             archive.process("assign"sv, assign);
             archive.process("designate"sv, designate);
+            archive.process("register"sv, registrar);
             archive.process("always_acc"sv, always_acc);
         }
 

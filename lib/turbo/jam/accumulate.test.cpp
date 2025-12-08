@@ -7,7 +7,7 @@
 #include "state.hpp"
 #include "test-vectors.hpp"
 
-namespace {
+namespace turbo_jam_accumulate_test {
     using namespace turbo;
     using namespace turbo::jam;
     using namespace std::string_view_literals;
@@ -18,23 +18,32 @@ namespace {
     };
     using stored_items_t = map_t<byte_sequence_t, byte_sequence_t, stored_items_config_t>;
 
-    struct preimage_items_config_t {
+    struct preimage_blobs_config_t {
         std::string key_name = "hash";
         std::string val_name = "blob";
     };
-    using preimage_items_t = map_t<opaque_hash_t, byte_sequence_t, preimage_items_config_t>;
+    using preimage_blobs_t = map_t<opaque_hash_t, byte_sequence_t, preimage_blobs_config_t>;
+
+    struct preimage_statuses_config_t {
+        std::string key_name = "hash";
+        std::string val_name = "status";
+    };
+    template<typename CFG>
+    using preimage_statuses_t = map_t<opaque_hash_t, lookup_meta_map_val_t<CFG>, preimage_statuses_config_t>;
 
     template<typename CFG>
     struct test_account_t {
         service_info_t<CFG> service;
         stored_items_t storage;
-        preimage_items_t preimages;
+        preimage_blobs_t preimages_blob;
+        preimage_statuses_t<CFG> preimages_status;
 
         void serialize(auto &archive)
         {
             archive.process("service"sv, service);
             archive.process("storage"sv, storage);
-            archive.process("preimages"sv, preimages);
+            archive.process("preimages_blob"sv, preimages_blob);
+            archive.process("preimages_status"sv, preimages_status);
         }
 
         bool operator==(const test_account_t &) const = default;
@@ -56,8 +65,11 @@ namespace {
                 for (auto &&[k, v]: tacc.storage) {
                     this->storage_set_raw(id, k, static_cast<buffer>(v));
                 }
-                for (auto &&[k, v]: tacc.preimages) {
+                for (auto &&[k, v]: tacc.preimages_blob) {
                     this->preimage_set(id, k, uint8_vector{v});
+                }
+                for (auto &&[k, v]: tacc.preimages_status) {
+                    this->lookup_set(id, lookup_meta_map_key_t{k, sizeof(k)}, std::move(v));
                 }
             }
         }
@@ -205,6 +217,10 @@ namespace {
             expect(false) << path;
         }
     }
+}
+
+namespace {
+    using namespace turbo_jam_accumulate_test;
 }
 
 suite turbo_jam_accumulate_suite = [] {

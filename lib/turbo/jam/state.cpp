@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <ark-vrf.hpp>
 #include <numeric>
+#include <unordered_set>
 #include <turbo/common/timer.hpp>
 #include <turbo/crypto/blake2b.hpp>
 #include <turbo/crypto/ed25519.hpp>
@@ -368,37 +369,50 @@ namespace turbo::jam {
         return ready;
     }
 
-    // (12.13)
+    // (12.20)
+    static service_id_t accumulate_capital_r(service_id_t o, service_id_t a, service_id_t b) {
+        if (a == o)
+            return b;
+        return a;
+    }
+
+    // (12.19) with extra work to not trigger unnecessary state updates
     template<typename CFG>
-    void mutable_state_t<CFG>::consume_from(const mutable_state_t<CFG> &init_state, const service_id_t service_id, mutable_state_t<CFG> &&o) {
-        const auto &init_chi = init_state.chi.get();
+    void mutable_state_t<CFG>::consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, const service_id_t service_id, mutable_state_t<CFG> &&o) {
         const auto &o_chi = o.chi.get();
         services.consume_from(std::move(o.services));
+        // i'
         if (service_id == init_chi.designate && o.iota)
             iota = std::move(o.iota);
         if (o.chi.updated()) {
+            // m' and z' are set if updated by the manager service
             if (service_id == init_chi.bless) {
-                if (const auto &new_val = o_chi.bless; chi.get().bless != new_val)
+                if (const auto &new_val = o.chi.get().bless; chi.get().bless != new_val)
                     chi.get_mutable().bless = new_val;
-                // intermediate state: a*
-                for (size_t ci = 0; ci < o_chi.assign.size(); ++ci) {
-                    if (o_chi.assign[ci] != chi.get().assign[ci])
-                        chi.get_mutable().assign[ci] = o_chi.assign[ci];
-                }
-                // intermediate state: v*
-                if (const auto &new_val = o.chi.get().designate; chi.get().designate != new_val)
-                    chi.get_mutable().designate = new_val;
                 if (const auto &new_val = o.chi.get().always_acc; chi.get().always_acc != new_val)
                     chi.get_mutable().always_acc = new_val;
             }
-            // allow for reassignment of per-core respobsibilitiey
+            // a' - allow for reassignment of per-core responsibilities
             for (size_t ci = 0; ci < o_chi.assign.size(); ++ci) {
-                if (chi.get().assign[ci] == service_id && o_chi.assign[ci] != chi.get().assign[ci])
-                    chi.get_mutable().assign[ci] = o_chi.assign[ci];
+                if (service_id == init_chi.assign[ci]) {
+                    if (const auto &new_val = accumulate_capital_r(init_chi.assign[ci], m_chi.assign[ci], o.chi.get().assign[ci]); chi.get().assign[ci] != new_val)
+                        chi.get_mutable().assign[ci] = new_val;
+                }
+            }
+            // v'
+            if (service_id == m_chi.designate) {
+                if (const auto &new_val = accumulate_capital_r(init_chi.designate, m_chi.designate, o.chi.get().designate); chi.get().designate != new_val)
+                    chi.get_mutable().designate = new_val;
+            }
+            // r'
+            if (service_id == m_chi.registrar) {
+                if (const auto &new_val = accumulate_capital_r(init_chi.registrar, m_chi.registrar, o.chi.get().registrar); chi.get().registrar != new_val)
+                    chi.get_mutable().registrar = new_val;
             }
         }
+        // q'
         for (auto &&[c, q]: o.phi) {
-            if (init_chi.assign[c] == service_id)
+            if (service_id == init_chi.assign[c])
                 phi[c] = std::move(q);
         }
         if (service_id == chi.get().designate && chi.get().designate != o_chi.designate) {
@@ -406,11 +420,26 @@ namespace turbo::jam {
         }
     }
 
+    template<typename CFG>
+    void mutable_state_t<CFG>::consume_preimages(const time_slot_t<CFG> &tau_prime, service_code_preimages_t<CFG> &&code) {
+        for (auto &&[s_id, blob]: code) {
+            if (const auto s_info = services.info_get(s_id); !s_info) [[unlikely]]
+                continue;
+            if (blob.size() > std::numeric_limits<decltype(lookup_meta_map_key_t::length)>::max()) [[unlikely]]
+                throw error{"a code preimage is too big!"};
+            const lookup_meta_map_key_t lk{crypto::blake2b::digest<opaque_hash_t>(blob), static_cast<decltype(lookup_meta_map_key_t::length)>(blob.size())};
+            const auto l_info = services.lookup_get(s_id, lk);
+            if (!l_info || !l_info->empty()) [[unlikely]]
+                continue;
+            services.lookup_set(s_id, lk, {tau_prime});
+            services.preimage_set(s_id, lk.hash, std::move(blob));
+        }
+    }
+
     // (12.16)
     template<typename CFG>
     void delta_plus_result_t<CFG>::consume_from(delta_star_result_t<CFG> &&o) {
         state = std::move(o.state);
-        transfers.insert(transfers.end(), o.transfers.begin(), o.transfers.end());
         {
             auto new_comms = std::move(o.commitments);
             new_comms.merge(std::move(commitments));
@@ -423,27 +452,39 @@ namespace turbo::jam {
     delta_plus_result_t<CFG> state_t<CFG>::accumulate_delta_plus(
         const entropy_t &new_eta0,
         const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
-        const time_slot_t<CFG> &blk_slot, gas_t gas_limit, std::span<const work_report_t<CFG>> reports)
+        const time_slot_t<CFG> &blk_slot, gas_t gas_limit,
+        std::span<const work_report_t<CFG>> reports)
     {
-        delta_plus_result_t<CFG> res{{prev_delta, prev_chi}};
-        const free_services_t *free_services = &prev_chi.always_acc;
-        while (!reports.empty()) {
-            size_t num_reports = 0;
-            gas_t total_gas = 0;
-            for (const auto &r: reports) {
-                for (const auto &rr: r.results)
-                    total_gas += rr.accumulate_gas;
-                if (total_gas > gas_limit)
-                    break;
-                ++num_reports;
+        delta_plus_result_t<CFG> res{{prev_delta, prev_chi}}; // bold e
+        const free_services_t *free_services = &prev_chi.always_acc; // bold f, nullptr implies an empty set
+        deferred_transfers_t<CFG> transfers{};
+        for (;;) {
+            size_t num_reports = 0; // i
+            {
+                gas_t report_gas_limit = 0;
+                for (const auto &r: reports) {
+                    for (const auto &rr: r.results)
+                        report_gas_limit += rr.accumulate_gas;
+                    if (report_gas_limit > gas_limit)
+                        break;
+                    ++num_reports;
+                }
             }
-            if (num_reports == 0)
+            if (num_reports + transfers.size() + (free_services ? free_services->size() : size_t{0}) == size_t{0})
                 break;
-            auto star_res = accumulate_delta_star(std::move(res.state), new_eta0, blk_slot,
-                reports.subspan(0U, num_reports), free_services);
+            auto star_res = accumulate_delta_star(
+                std::move(res.state), new_eta0, blk_slot,
+                reports.subspan(0U, num_reports),
+                transfers, free_services);
+            // increase the gas_limit for the subsequent delta_plus iteration by the gas_limit of transfers in the current iteration
+            for (const auto &t: transfers)
+                gas_limit += t.gas_limit;
             for (const auto &[s_id, gas_used]: star_res.gas_used) {
-                gas_limit -= std::min(gas_limit, gas_used);
+                if (gas_limit < gas_used) [[unlikely]]
+                    throw error("PVM implementation error: consumed gas is above the limit!");
+                gas_limit -= gas_used;
             }
+            transfers = std::move(star_res.transfers);
             res.consume_from(std::move(star_res));
             res.num_accumulated += num_reports;
             reports = reports.subspan(num_reports);
@@ -452,62 +493,62 @@ namespace turbo::jam {
         return res;
     }
 
-    // JAM (12.17)
+    // (12.19) - assumed to be called with service_id order!
     template<typename CFG>
-    void delta_star_result_t<CFG>::consume_from(const mutable_state_t<CFG> &init_state, const service_id_t service_id, accumulate_result_t<CFG> &&o, const time_slot_t<CFG> &tau_prime) {
-        state.consume_from(init_state, service_id, std::move(o.state));
-        transfers.insert(transfers.end(), o.transfers.begin(), o.transfers.end());
-        if (o.commitment)
+    void delta_star_result_t<CFG>::consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, const service_id_t service_id, accumulate_result_t<CFG> &&o, const time_slot_t<CFG> &tau_prime) {
+        // mutable state components: d', i', q', m', a', v', r', z'
+        state.consume_from(init_chi, m_chi, service_id, std::move(o.state));
+
+        transfers.insert(transfers.end(), o.transfers.begin(), o.transfers.end()); // bold t_prime
+        if (o.commitment) // bold b
             commitments.try_emplace(service_id, *o.commitment);
-        gas_used.emplace_back(service_id, std::move(o.gas));
-        for (const auto &[s_id, blob]: o.code) {
-            if (const auto s_info = state.services.info_get(s_id); !s_info) [[unlikely]]
-                continue;
-            if (blob.size() > std::numeric_limits<decltype(lookup_meta_map_key_t::length)>::max()) [[unlikely]]
-                continue;
-            const lookup_meta_map_key_t lk{crypto::blake2b::digest<opaque_hash_t>(blob), static_cast<decltype(lookup_meta_map_key_t::length)>(blob.size())};
-            const auto l_info = state.services.lookup_get(s_id, lk);
-            if (!l_info || !l_info->empty()) [[unlikely]]
-                continue;
-            state.services.lookup_set(s_id, lk, {tau_prime});
-            state.services.preimage_set(s_id, lk.hash, std::move(blob));
-        }
+        gas_used.emplace_back(service_id, std::move(o.gas)); // bold u
     }
 
     template<typename CFG>
     delta_star_result_t<CFG> state_t<CFG>::accumulate_delta_star(
         const mutable_state_t<CFG> init_state,
         const entropy_t &new_eta0,
-        const time_slot_t<CFG> &blk_slot, const std::span<const work_report_t<CFG>> reports,
+        const time_slot_t<CFG> &blk_slot,
+        const std::span<const work_report_t<CFG>> &reports,
+        const deferred_transfers_t<CFG> &transfers,
         const free_services_t *free_services)
     {
-        accumulate_service_operands_t service_ops{};
-        for (const auto &w: reports) {
-            for (const auto &r: w.results) {
-                service_ops[r.service_id].emplace_back(
-                    accumulate_operand_t{
-                        .work_package_hash=w.package_spec.hash, // p
-                        .exports_root=w.package_spec.exports_root, // e
-                        .authorizer_hash=w.authorizer_hash, // a
-                        .payload_hash=r.payload_hash, // y
-                        .accumulate_gas=r.accumulate_gas, // g
-                        .result=r.result, // l
-                        .auth_output=w.auth_output
-                    }
-                );
+        set_t<service_id_t> service_ids{}; // bold s - the set of all to-be-accumulated services
+        {
+            service_ids.reserve(reports.size() * CFG::I_max_work_items + transfers.size()
+                + (free_services ? free_services->size() : size_t{0}));
+            for (const auto &w: reports) {
+                for (const auto &r: w.results) {
+                    service_ids.emplace(r.service_id);
+                }
             }
-        }
-
-        if (free_services) {
-            for (const auto &fs_id: *free_services | std::ranges::views::keys)
-                service_ops.try_emplace(fs_id);
+            if (free_services) {
+                for (const auto &fs_id: *free_services | std::ranges::views::keys)
+                    service_ids.emplace(fs_id);
+            }
+            for (const auto &t: transfers)
+                service_ids.emplace(t.destination);
         }
 
         delta_star_result_t<CFG> res{init_state};
-        for (const auto &[service_id, ops]: service_ops) {
-            // the same copy of state is used as an argument to all invoke accumulate to allow for parallelization of execution
-            auto acc_res = accumulate_delta_one(init_state, new_eta0, blk_slot, free_services, service_id, ops);
-            res.consume_from(init_state, service_id, std::move(acc_res), blk_slot);
+        // results place_holders - to allow for a concurrent execution of accumulation in the future
+        std::map<service_id_t, accumulate_result_t<CFG>> service_res{};
+        for (const auto &service_id: service_ids) {
+            service_res.try_emplace(service_id, accumulate_delta_one(init_state, transfers, reports, free_services, service_id, new_eta0, blk_slot));
+        }
+
+        const privileges_t<CFG> *m_chi = &init_state.chi.get(); // bold e-star
+        if (const auto m_it = service_res.find(init_state.chi.get().bless); m_it != service_res.end()) {
+            m_chi = &m_it->second.state.chi.get();
+        }
+        // combine results in service_id order to ensure expectations of (12.19) are upheld
+        for (auto &&[s_id, s_res]: service_res) {
+            res.consume_from(init_state.chi.get(), *m_chi, s_id, std::move(s_res), blk_slot);
+        }
+        // integrate preimages only after the final service state is ready
+        for (auto &&[s_id, s_res]: service_res) {
+            res.state.consume_preimages(blk_slot, std::move(s_res.code));
         }
         return res;
     }
@@ -534,18 +575,57 @@ namespace turbo::jam {
 
     template<typename CFG>
     accumulate_result_t<CFG> state_t<CFG>::accumulate_delta_one(
-        mutable_state_t<CFG> state,
-        const entropy_t &new_eta0,
-        const time_slot_t<CFG> &slot,
-        const free_services_t *free_services,
-        const service_id_t service_id, const accumulate_operands_t &ops)
+        mutable_state_t<CFG> state, // e
+        const deferred_transfers_t<CFG> &transfers, // t
+        const std::span<const work_report_t<CFG>> &reports, // r
+        const free_services_t *free_services, // f
+        const service_id_t service_id, // s
+        const entropy_t &new_eta0, const time_slot_t<CFG> &slot)
     {
-        encoder arg_enc{};
-        arg_enc.uint_varlen(slot.slot());
-        arg_enc.uint_varlen(service_id);
-        arg_enc.uint_varlen(ops.size());
-        logger::debug("service {} accumulation argument of {} bytes: {}",
-            service_id, arg_enc.bytes().size(), arg_enc.bytes());
+        logger::debug("service {} accumulation_delta_one invocation t-count: {} r-count: {}",
+            service_id, transfers.size(), reports.size());
+
+        accumulate_inputs_t<CFG> inputs{};
+        balance_t transfer_sum = 0;
+        gas_t::base_type gas_limit = 0;
+        {
+            for (const auto &t: transfers) {
+                if (service_id == t.destination) {
+                    inputs.emplace_back(t);
+                    transfer_sum += t.amount;
+                }
+            }
+            for (const auto &r: reports) {
+                for (const auto &r_r: r.results) {
+                    if (service_id == r_r.service_id) {
+                        inputs.emplace_back(
+                            accumulate_operand_t{
+                                .work_package_hash=r.package_spec.hash, // p
+                                .exports_root=r.package_spec.exports_root, // e
+                                .authorizer_hash=r.authorizer_hash, // a
+                                .payload_hash=r_r.payload_hash, // y
+                                .accumulate_gas=r_r.accumulate_gas, // g
+                                .result=r_r.result, // l
+                                .auth_output=r.auth_output
+                            }
+                        );
+                        gas_limit += r_r.accumulate_gas;
+                    }
+                }
+            }
+            if (free_services) {
+                if (const auto fs_it = free_services->find(service_id); fs_it != free_services->end()) {
+                    gas_limit += fs_it->second;
+                }
+            }
+            if (transfer_sum) {
+                auto info = state.services.info_get(service_id);
+                if (!info) [[unlikely]]
+                    throw error(fmt::format("internal error: accumulate_delta_one called on an unknown service: {}", service_id));
+                info->balance += transfer_sum;
+                state.services.info_set(service_id, std::move(*info));
+            }
+        }
 
         accumulate_context_t<CFG> ctx_err{service_id, new_eta0, slot, std::move(state)};
         auto ctx_ok = ctx_err;
@@ -560,14 +640,12 @@ namespace turbo::jam {
             const auto code_hash = crypto::blake2b::digest(*code);
             if (code_hash != prev_service_info.code_hash) [[unlikely]]
                 throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
-            gas_t::base_type gas_limit = 0;
-            if (free_services) {
-                if (const auto fs_it = free_services->find(service_id); fs_it != free_services->end()) {
-                    gas_limit += fs_it->second;
-                }
-            }
-            for (const auto &op: ops)
-                gas_limit += op.accumulate_gas;
+
+            encoder arg_enc{};
+            arg_enc.uint_varlen(slot.slot());
+            arg_enc.uint_varlen(service_id);
+            arg_enc.uint_varlen(inputs.size());
+            logger::debug("service {} accumulation_delta_one invocation input-count: {}", service_id, inputs.size());
             std::optional<host_service_accumulate_t<CFG>> host_service{};
             // JAM (B.9): bold psi_a
             auto inv_res = machine::invoke(
@@ -581,7 +659,7 @@ namespace turbo::jam {
                             .slot=slot,
                             .fetch={
                                 .nonce=&new_eta0,
-                                .operands=&ops
+                                .inputs=&inputs
                             }
                         },
                         ctx_ok,
@@ -598,67 +676,6 @@ namespace turbo::jam {
         }
         // B.9
         return {std::move(ctx_err.state), {}, {}, gas_t{0}, {}};
-    }
-
-    template<typename CFG>
-    gas_t state_t<CFG>::invoke_on_transfer(
-        const entropy_t &new_eta0, account_updates_t<CFG> &new_delta,
-        time_slot_t<CFG> slot, service_id_t service_id, const deferred_transfers_t<CFG> &transfers)
-    {
-        encoder arg_enc{};
-        arg_enc.uint_varlen(slot.slot());
-        arg_enc.uint_varlen(service_id);
-        arg_enc.uint_varlen(transfers.size());
-        logger::debug("service {} on_transfer argument of {} bytes: {}",
-            service_id, arg_enc.bytes().size(), arg_enc.bytes());
-        auto service_info = new_delta.info_get_or_throw(service_id);
-        const auto amount = std::ranges::fold_left(
-            transfers | std::views::transform(&deferred_transfer_t<CFG>::amount),
-            balance_t{0},
-            std::plus()
-        );
-        const auto gas_limit = std::ranges::fold_left(
-            transfers | std::views::transform(&deferred_transfer_t<CFG>::gas_limit),
-            gas_t{0},
-            std::plus()
-        );
-        service_info.balance += amount;
-        new_delta.info_set(service_id, std::move(service_info));
-        auto code = new_delta.preimage_get(service_id, service_info.code_hash);
-        gas_t gas_used = 0;
-        if (!code) [[unlikely]] {
-            logger::debug("service {} on_transfer: preimage for code hash {} is not available!", service_id, service_info.code_hash);
-        } else if (code->size() > CFG::WC_max_service_code_size) [[unlikely]] {
-            logger::debug("service {} on_transfer: preimage for code hash {} is too large!", service_id, service_info.code_hash);
-        } else if (!transfers.empty()) [[likely]] {
-            if (const auto code_hash = crypto::blake2b::digest(*code); code_hash != service_info.code_hash) [[unlikely]]
-            throw error(fmt::format("the blob registered for code hash {} has hash {}", service_info.code_hash, code_hash));
-            std::optional<host_service_on_transfer_t<CFG>> host_service{};
-            const auto inv_res = machine::invoke(
-                static_cast<buffer>(*code), 10U, gas_limit, arg_enc.bytes(),
-                [&](machine::machine_t &m) {
-                    host_service.emplace(
-                        host_service_params_t<CFG>{
-                            .m=m,
-                            .services=new_delta,
-                            .service_id=service_id,
-                            .slot=slot,
-                            .fetch={
-                                .nonce=&new_eta0,
-                                .transfers=&transfers
-                            }
-                        }
-                    );
-                },
-                [&](const machine::register_val_t id) -> machine::host_call_res_t {
-                    if (!host_service) [[unlikely]]
-                        return machine::exit_panic_t{};
-                    return host_service->call(id);
-                }
-            );
-            gas_used = inv_res.gas_used;
-        }
-        return gas_used;
     }
 
     // produces: accumulate_root, iota', psi' and chi'
@@ -741,6 +758,7 @@ namespace turbo::jam {
         // (12.22)
         auto plus_res = accumulate_delta_plus(new_eta0, new_delta, prev_chi, blk_slot, gas_limit, accumulatable);
 
+        /*
         // (12.28) - disabled as transfers have been integrated into accumulation
         {
             std::map<service_id_t, deferred_transfers_t<CFG>> dst_transfers{};
@@ -754,7 +772,7 @@ namespace turbo::jam {
                 //stats.on_transfers_count += transfers.size();
                 //stats.on_transfers_gas_used += gas_used;
             }
-        }
+        }*/
 
         // (12.23)
         plus_res.state.services.commit();

@@ -45,6 +45,7 @@ namespace turbo::jam {
         static constexpr size_t P_slot_period = 6;
         static constexpr size_t Q_auth_queue_size = 80;
         static constexpr size_t R_core_assignment_rotation_period = 10;
+        static constexpr size_t S_min_public_service_index = 1U << 16U;
         static constexpr size_t T_max_package_extrinsics = 128;
         static constexpr size_t U_reported_work_timeout = 5;
         static constexpr size_t validator_factor = 3;
