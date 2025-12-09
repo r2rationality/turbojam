@@ -228,7 +228,7 @@ suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
         static const auto test_prefix = test_vector_dir("stf/accumulate/");
         static std::optional<std::string> override_test{};
-        //override_test.emplace("tiny/transfer_for_ejected_service-1");
+        //override_test.emplace("tiny/work_for_ejected_service-3");
         if (!override_test) {
             for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
