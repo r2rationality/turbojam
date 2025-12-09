@@ -445,7 +445,9 @@ namespace turbo::jam {
             new_comms.merge(std::move(commitments));
             commitments = std::move(new_comms);
         }
-        gas_used.insert(gas_used.end(), o.gas_used.begin(), o.gas_used.end());
+        for (auto &&[s_id, s_gas]: o.gas_used) {
+            gas_used[s_id] += s_gas;
+        }
     }
 
     template<typename CFG>
@@ -502,7 +504,7 @@ namespace turbo::jam {
         transfers.insert(transfers.end(), o.transfers.begin(), o.transfers.end()); // bold t_prime
         if (o.commitment) // bold b
             commitments.try_emplace(service_id, *o.commitment);
-        gas_used.emplace_back(service_id, std::move(o.gas)); // bold u
+        gas_used[service_id] += o.gas; // bold u
     }
 
     template<typename CFG>
@@ -592,6 +594,7 @@ namespace turbo::jam {
             for (const auto &t: transfers) {
                 if (service_id == t.destination) {
                     inputs.emplace_back(t);
+                    gas_limit += t.gas_limit;
                     transfer_sum += t.amount;
                 }
             }
@@ -618,61 +621,62 @@ namespace turbo::jam {
                     gas_limit += fs_it->second;
                 }
             }
-            if (transfer_sum) {
-                auto info = state.services.info_get(service_id);
-                if (!info) [[unlikely]]
-                    throw error(fmt::format("internal error: accumulate_delta_one called on an unknown service: {}", service_id));
-                info->balance += transfer_sum;
-                state.services.info_set(service_id, std::move(*info));
-            }
         }
 
         accumulate_context_t<CFG> ctx_err{service_id, new_eta0, slot, std::move(state)};
-        auto ctx_ok = ctx_err;
+        if (const auto prev_service_info = ctx_err.state.services.info_get(service_id); prev_service_info) {
+            const auto code = ctx_err.state.services.preimage_get(service_id, prev_service_info->code_hash);
+            if (!code) [[unlikely]] {
+                logger::debug("service {} accumulate: preimage for code hash {} is not available!", service_id, prev_service_info->code_hash);
+            } else if (code->size() > CFG::WC_max_service_code_size) [[unlikely]] {
+                logger::debug("service {} accumulate: preimage for code hash {} is too large!", service_id, prev_service_info->code_hash);
+            } else [[likely]] {
+                const auto code_hash = crypto::blake2b::digest(*code);
+                if (code_hash != prev_service_info->code_hash) [[unlikely]]
+                    throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info->code_hash, code_hash));
 
-        const auto prev_service_info = ctx_ok.state.services.info_get_or_throw(service_id);
-        const auto code = ctx_ok.state.services.preimage_get(service_id, prev_service_info.code_hash);
-        if (!code) [[unlikely]] {
-            logger::debug("service {} accumulate: preimage for code hash {} is not available!", service_id, prev_service_info.code_hash);
-        } else if (code->size() > CFG::WC_max_service_code_size) [[unlikely]] {
-            logger::debug("service {} accumulate: preimage for code hash {} is too large!", service_id, prev_service_info.code_hash);
-        } else [[likely]] {
-            const auto code_hash = crypto::blake2b::digest(*code);
-            if (code_hash != prev_service_info.code_hash) [[unlikely]]
-                throw error(fmt::format("the blob registered for code hash {} has hash {}", prev_service_info.code_hash, code_hash));
-
-            encoder arg_enc{};
-            arg_enc.uint_varlen(slot.slot());
-            arg_enc.uint_varlen(service_id);
-            arg_enc.uint_varlen(inputs.size());
-            logger::debug("service {} accumulation_delta_one invocation input-count: {}", service_id, inputs.size());
-            std::optional<host_service_accumulate_t<CFG>> host_service{};
-            // JAM (B.9): bold psi_a
-            auto inv_res = machine::invoke(
-                static_cast<buffer>(*code), 5U, gas_limit, arg_enc.bytes(),
-                [&](machine::machine_t &m) {
-                    host_service.emplace(
-                        host_service_params_t<CFG>{
-                            .m=m,
-                            .services=ctx_ok.state.services,
-                            .service_id=service_id,
-                            .slot=slot,
-                            .fetch={
-                                .nonce=&new_eta0,
-                                .inputs=&inputs
-                            }
-                        },
-                        ctx_ok,
-                        ctx_err
-                    );
-                },
-                [&](const machine::register_val_t id) -> machine::host_call_res_t {
-                    if (!host_service) [[unlikely]]
-                        return machine::exit_panic_t{};
-                    return host_service->call(id);
+                if (transfer_sum) {
+                    auto info = ctx_err.state.services.info_get(service_id);
+                    if (!info) [[unlikely]]
+                        throw error(fmt::format("internal error: accumulate_delta_one called on an unknown service: {}", service_id));
+                    info->balance += transfer_sum;
+                    ctx_err.state.services.info_set(service_id, std::move(*info));
                 }
-            );
-            return accumulate_delta_one_combine(inv_res.gas_used, std::move(inv_res.result), std::move(ctx_ok), std::move(ctx_err));
+                auto ctx_ok = ctx_err;
+
+                encoder arg_enc{};
+                arg_enc.uint_varlen(slot.slot());
+                arg_enc.uint_varlen(service_id);
+                arg_enc.uint_varlen(inputs.size());
+                logger::debug("service {} accumulation_delta_one invocation input-count: {}", service_id, inputs.size());
+                std::optional<host_service_accumulate_t<CFG>> host_service{};
+                // JAM (B.9): bold psi_a
+                auto inv_res = machine::invoke(
+                    static_cast<buffer>(*code), 5U, gas_limit, arg_enc.bytes(),
+                    [&](machine::machine_t &m) {
+                        host_service.emplace(
+                            host_service_params_t<CFG>{
+                                .m=m,
+                                .services=ctx_ok.state.services,
+                                .service_id=service_id,
+                                .slot=slot,
+                                .fetch={
+                                    .nonce=&new_eta0,
+                                    .inputs=&inputs
+                                }
+                            },
+                            ctx_ok,
+                            ctx_err
+                        );
+                    },
+                    [&](const machine::register_val_t id) -> machine::host_call_res_t {
+                        if (!host_service) [[unlikely]]
+                            return machine::exit_panic_t{};
+                        return host_service->call(id);
+                    }
+                );
+                return accumulate_delta_one_combine(inv_res.gas_used, std::move(inv_res.result), std::move(ctx_ok), std::move(ctx_err));
+            }
         }
         // B.9
         return {std::move(ctx_err.state), {}, {}, gas_t{0}, {}};
@@ -758,22 +762,6 @@ namespace turbo::jam {
         // (12.22)
         auto plus_res = accumulate_delta_plus(new_eta0, new_delta, prev_chi, blk_slot, gas_limit, accumulatable);
 
-        /*
-        // (12.28) - disabled as transfers have been integrated into accumulation
-        {
-            std::map<service_id_t, deferred_transfers_t<CFG>> dst_transfers{};
-            for (auto &t: plus_res.transfers) {
-                auto [it, created] = dst_transfers.try_emplace(t.destination);
-                it->second.emplace_back(t);
-            }
-            for (const auto &[service_id, transfers]: dst_transfers) {
-                const auto gas_used = invoke_on_transfer(new_eta0, plus_res.state.services, blk_slot, service_id, transfers);
-                auto &stats = new_pi_services[service_id];
-                //stats.on_transfers_count += transfers.size();
-                //stats.on_transfers_gas_used += gas_used;
-            }
-        }*/
-
         // (12.23)
         plus_res.state.services.commit();
         if (plus_res.state.chi.updated())
@@ -782,21 +770,22 @@ namespace turbo::jam {
             res.iota = std::move(plus_res.state.iota);
         res.phi = std::move(plus_res.state.phi);
 
-        // (12.27)
-        for (const auto &[s_id, s_gas]: plus_res.gas_used) {
-            auto &s_stats = new_pi_services[s_id];
-            s_stats.accumulate_gas_used += s_gas;
-            auto info = new_delta.info_get_or_throw(s_id);
-            info.last_accumulation_slot = blk_slot;
-            new_delta.info_set(s_id, std::move(info));
-        }
-
         // (12.28)
+        std::set<service_id_t> report_service_ids{};
         for (const auto &wr: std::span{accumulatable.begin(), accumulatable.begin() + plus_res.num_accumulated}) {
             for (const auto &r: wr.results) {
+                report_service_ids.emplace(r.service_id);
                 auto &s_stats = new_pi_services[r.service_id];
                 ++s_stats.accumulate_count;
             }
+        }
+
+        for (const auto &s_id: report_service_ids) {
+            auto &s_stats = new_pi_services[s_id];
+            s_stats.accumulate_gas_used += plus_res.gas_used.at(s_id);
+            auto info = new_delta.info_get_or_throw(s_id);
+            info.last_accumulation_slot = blk_slot;
+            new_delta.info_set(s_id, std::move(info));
         }
 
         // (12.33)

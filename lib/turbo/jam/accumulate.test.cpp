@@ -69,7 +69,8 @@ namespace turbo_jam_accumulate_test {
                     this->preimage_set(id, k, uint8_vector{v});
                 }
                 for (auto &&[k, v]: tacc.preimages_status) {
-                    this->lookup_set(id, lookup_meta_map_key_t{k, sizeof(k)}, std::move(v));
+                    const auto blob = tacc.preimages_blob.at(k);
+                    this->lookup_set(id, lookup_meta_map_key_t{k, numeric_cast<uint32_t>(blob.size())}, std::move(v));
                 }
             }
         }
@@ -227,7 +228,7 @@ suite turbo_jam_accumulate_suite = [] {
     "turbo::jam::accumulate"_test = [] {
         static const auto test_prefix = test_vector_dir("stf/accumulate/");
         static std::optional<std::string> override_test{};
-        //override_test.emplace("tiny/accumulate_ready_queued_reports-1");
+        //override_test.emplace("tiny/transfer_for_ejected_service-1");
         if (!override_test) {
             for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

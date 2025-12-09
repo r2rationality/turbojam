@@ -683,11 +683,7 @@ namespace turbo::jam {
     };
 
     // (12.15): U
-    struct service_gas_used_t {
-        service_id_t id;
-        gas_t gas;
-    };
-    using services_gas_used_t = sequence_t<service_gas_used_t>;
+    using services_gas_used_t = std::map<service_id_t, gas_t>;
 
     // JAM (12.17)
     template<typename CFG>
