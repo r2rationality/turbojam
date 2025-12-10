@@ -15,7 +15,9 @@ jobs:
         run: docker build -t turbojam:test -f Dockerfile.test .
       - name: Run unit tests
         id: tests
-        run: docker run --name test-container turbojam:test sh ./test/gen-coverage.sh
+        run: |
+          docker rm -f test-container 2>/dev/null || true
+          docker run --name test-container turbojam:test sh ./test/gen-coverage.sh
       - name: Copy coverage
         id: tests-copy-cov
         run: docker cp test-container:/home/dev/turbojam/tmp/coverage ./coverage-html
