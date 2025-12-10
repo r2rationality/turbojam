@@ -436,126 +436,7 @@ namespace turbo::jam {
         }
     }
 
-    // (12.16)
-    template<typename CFG>
-    void delta_plus_result_t<CFG>::consume_from(delta_star_result_t<CFG> &&o) {
-        state = std::move(o.state);
-        {
-            auto new_comms = std::move(o.commitments);
-            new_comms.merge(std::move(commitments));
-            commitments = std::move(new_comms);
-        }
-        for (auto &&[s_id, s_gas]: o.gas_used) {
-            gas_used[s_id] += s_gas;
-        }
-    }
-
-    template<typename CFG>
-    delta_plus_result_t<CFG> state_t<CFG>::accumulate_delta_plus(
-        const entropy_t &new_eta0,
-        const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
-        const time_slot_t<CFG> &blk_slot, gas_t gas_limit,
-        std::span<const work_report_t<CFG>> reports)
-    {
-        delta_plus_result_t<CFG> res{{prev_delta, prev_chi}}; // bold e
-        const free_services_t *free_services = &prev_chi.always_acc; // bold f, nullptr implies an empty set
-        deferred_transfers_t<CFG> transfers{};
-        for (;;) {
-            size_t num_reports = 0; // i
-            {
-                gas_t report_gas_limit = 0;
-                for (const auto &r: reports) {
-                    for (const auto &rr: r.results)
-                        report_gas_limit += rr.accumulate_gas;
-                    if (report_gas_limit > gas_limit)
-                        break;
-                    ++num_reports;
-                }
-            }
-            if (num_reports + transfers.size() + (free_services ? free_services->size() : size_t{0}) == size_t{0})
-                break;
-            auto star_res = accumulate_delta_star(
-                std::move(res.state), new_eta0, blk_slot,
-                reports.subspan(0U, num_reports),
-                transfers, free_services);
-            // increase the gas_limit for the subsequent delta_plus iteration by the gas_limit of transfers in the current iteration
-            for (const auto &t: transfers)
-                gas_limit += t.gas_limit;
-            for (const auto &[s_id, gas_used]: star_res.gas_used) {
-                if (gas_limit < gas_used) [[unlikely]]
-                    throw error("PVM implementation error: consumed gas is above the limit!");
-                gas_limit -= gas_used;
-            }
-            transfers = std::move(star_res.transfers);
-            res.consume_from(std::move(star_res));
-            res.num_accumulated += num_reports;
-            reports = reports.subspan(num_reports);
-            free_services = nullptr;
-        }
-        return res;
-    }
-
-    // (12.19) - assumed to be called with service_id order!
-    template<typename CFG>
-    void delta_star_result_t<CFG>::consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, const service_id_t service_id, accumulate_result_t<CFG> &&o, const time_slot_t<CFG> &tau_prime) {
-        // mutable state components: d', i', q', m', a', v', r', z'
-        state.consume_from(init_chi, m_chi, service_id, std::move(o.state));
-
-        transfers.insert(transfers.end(), o.transfers.begin(), o.transfers.end()); // bold t_prime
-        if (o.commitment) // bold b
-            commitments.try_emplace(service_id, *o.commitment);
-        gas_used[service_id] += o.gas; // bold u
-    }
-
-    template<typename CFG>
-    delta_star_result_t<CFG> state_t<CFG>::accumulate_delta_star(
-        const mutable_state_t<CFG> init_state,
-        const entropy_t &new_eta0,
-        const time_slot_t<CFG> &blk_slot,
-        const std::span<const work_report_t<CFG>> &reports,
-        const deferred_transfers_t<CFG> &transfers,
-        const free_services_t *free_services)
-    {
-        set_t<service_id_t> service_ids{}; // bold s - the set of all to-be-accumulated services
-        {
-            service_ids.reserve(reports.size() * CFG::I_max_work_items + transfers.size()
-                + (free_services ? free_services->size() : size_t{0}));
-            for (const auto &w: reports) {
-                for (const auto &r: w.results) {
-                    service_ids.emplace(r.service_id);
-                }
-            }
-            if (free_services) {
-                for (const auto &fs_id: *free_services | std::ranges::views::keys)
-                    service_ids.emplace(fs_id);
-            }
-            for (const auto &t: transfers)
-                service_ids.emplace(t.destination);
-        }
-
-        delta_star_result_t<CFG> res{init_state};
-        // results place_holders - to allow for a concurrent execution of accumulation in the future
-        std::map<service_id_t, accumulate_result_t<CFG>> service_res{};
-        for (const auto &service_id: service_ids) {
-            service_res.try_emplace(service_id, accumulate_delta_one(init_state, transfers, reports, free_services, service_id, new_eta0, blk_slot));
-        }
-
-        const privileges_t<CFG> *m_chi = &init_state.chi.get(); // bold e-star
-        if (const auto m_it = service_res.find(init_state.chi.get().bless); m_it != service_res.end()) {
-            m_chi = &m_it->second.state.chi.get();
-        }
-        // combine results in service_id order to ensure expectations of (12.19) are upheld
-        for (auto &&[s_id, s_res]: service_res) {
-            res.consume_from(init_state.chi.get(), *m_chi, s_id, std::move(s_res), blk_slot);
-        }
-        // integrate preimages only after the final service state is ready
-        for (auto &&[s_id, s_res]: service_res) {
-            res.state.consume_preimages(blk_slot, std::move(s_res.code));
-        }
-        return res;
-    }
-
-    // (B.13)
+        // (B.13)
     template<typename CFG>
     static accumulate_result_t<CFG> accumulate_delta_one_combine(const gas_t gas_used, machine::invocation_result_base_t &&res,
         accumulate_context_t<CFG> &&ok_ctx, accumulate_context_t<CFG> &&err_ctx)
@@ -680,6 +561,126 @@ namespace turbo::jam {
         }
         // B.9
         return {std::move(ctx_err.state), {}, {}, gas_t{0}, {}};
+    }
+
+    // (12.19) - assumed to be called with service_id order!
+    template<typename CFG>
+    void delta_star_result_t<CFG>::consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, const service_id_t service_id, accumulate_result_t<CFG> &&o, const time_slot_t<CFG> &tau_prime) {
+        // mutable state components: d', i', q', m', a', v', r', z'
+        state.consume_from(init_chi, m_chi, service_id, std::move(o.state));
+
+        transfers.insert(transfers.end(), o.transfers.begin(), o.transfers.end()); // bold t_prime
+        if (o.commitment) // bold b
+            commitments.try_emplace(service_id, *o.commitment);
+        gas_used[service_id] += o.gas; // bold u
+    }
+
+    template<typename CFG>
+    delta_star_result_t<CFG> state_t<CFG>::accumulate_delta_star(
+        mutable_state_t<CFG> init_state,
+        const entropy_t &new_eta0,
+        const time_slot_t<CFG> &blk_slot,
+        const std::span<const work_report_t<CFG>> &reports,
+        const deferred_transfers_t<CFG> &transfers,
+        const free_services_t *free_services)
+    {
+        set_t<service_id_t> service_ids{}; // bold s - the set of all to-be-accumulated services
+        {
+            service_ids.reserve(reports.size() * CFG::I_max_work_items + transfers.size()
+                + (free_services ? free_services->size() : size_t{0}));
+            for (const auto &w: reports) {
+                for (const auto &r: w.results) {
+                    service_ids.emplace(r.service_id);
+                }
+            }
+            if (free_services) {
+                for (const auto &fs_id: *free_services | std::ranges::views::keys)
+                    service_ids.emplace(fs_id);
+            }
+            for (const auto &t: transfers)
+                service_ids.emplace(t.destination);
+        }
+
+
+        delta_star_result_t<CFG> res{init_state};
+        // results place_holders - to allow for a concurrent execution of accumulation in the future
+        std::map<service_id_t, accumulate_result_t<CFG>> service_res{};
+        for (const auto &service_id: service_ids) {
+            service_res.try_emplace(service_id, accumulate_delta_one(init_state, transfers, reports, free_services, service_id, new_eta0, blk_slot));
+        }
+
+        const privileges_t<CFG> *m_chi = &init_state.chi.get(); // bold e-star
+        if (const auto m_it = service_res.find(init_state.chi.get().bless); m_it != service_res.end()) {
+            m_chi = &m_it->second.state.chi.get();
+        }
+        // combine results in service_id order to ensure expectations of (12.19) are upheld
+        for (auto &&[s_id, s_res]: service_res) {
+            res.consume_from(init_state.chi.get(), *m_chi, s_id, std::move(s_res), blk_slot);
+        }
+        // integrate preimages only after the final service state is ready
+        for (auto &&[s_id, s_res]: service_res) {
+            res.state.consume_preimages(blk_slot, std::move(s_res.code));
+        }
+        return res;
+    }
+
+    // (12.16)
+    template<typename CFG>
+    void delta_plus_result_t<CFG>::consume_from(delta_star_result_t<CFG> &&o) {
+        state = std::move(o.state);
+        {
+            auto new_comms = std::move(o.commitments);
+            new_comms.merge(std::move(commitments));
+            commitments = std::move(new_comms);
+        }
+        for (auto &&[s_id, s_gas]: o.gas_used) {
+            gas_used[s_id] += s_gas;
+        }
+    }
+
+    template<typename CFG>
+    delta_plus_result_t<CFG> state_t<CFG>::accumulate_delta_plus(
+        const entropy_t &new_eta0,
+        const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
+        const time_slot_t<CFG> &blk_slot, gas_t gas_limit,
+        std::span<const work_report_t<CFG>> reports)
+    {
+        delta_plus_result_t<CFG> res{{prev_delta, prev_chi}}; // bold e
+        const free_services_t *free_services = &prev_chi.always_acc; // bold f, nullptr implies an empty set
+        deferred_transfers_t<CFG> transfers{};
+        for (;;) {
+            size_t num_reports = 0; // i
+            {
+                gas_t report_gas_limit = 0;
+                for (const auto &r: reports) {
+                    for (const auto &rr: r.results)
+                        report_gas_limit += rr.accumulate_gas;
+                    if (report_gas_limit > gas_limit)
+                        break;
+                    ++num_reports;
+                }
+            }
+            if (num_reports + transfers.size() + (free_services ? free_services->size() : size_t{0}) == size_t{0})
+                break;
+            auto star_res = accumulate_delta_star(
+                std::move(res.state), new_eta0, blk_slot,
+                reports.subspan(0U, num_reports),
+                transfers, free_services);
+            // increase the gas_limit for the subsequent delta_plus iteration by the gas_limit of transfers in the current iteration
+            for (const auto &t: transfers)
+                gas_limit += t.gas_limit;
+            for (const auto &[s_id, gas_used]: star_res.gas_used) {
+                if (gas_limit < gas_used) [[unlikely]]
+                    throw error("PVM implementation error: consumed gas is above the limit!");
+                gas_limit -= gas_used;
+            }
+            transfers = std::move(star_res.transfers);
+            res.consume_from(std::move(star_res));
+            res.num_accumulated += num_reports;
+            reports = reports.subspan(num_reports);
+            free_services = nullptr;
+        }
+        return res;
     }
 
     // produces: accumulate_root, iota', psi' and chi'
