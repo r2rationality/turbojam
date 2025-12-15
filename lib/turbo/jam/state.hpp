@@ -453,8 +453,9 @@ namespace turbo::jam {
         {
         }
 
+        // base on the previous updates - used in delta_star
         account_updates_t(const account_updates_t &o) noexcept:
-            accounts_t<CFG>{std::make_shared<storage::update::db_t>(o._updatedb())}
+            accounts_t<CFG>{std::make_shared<storage::update::db_t>(o._db)}
         {
         }
 
@@ -469,7 +470,8 @@ namespace turbo::jam {
             return *this;
         }
 
-        account_updates_t &operator=(const account_updates_t &o)
+        // clone updates - used from checkpoint
+        account_updates_t &operator=(const account_updates_t<CFG> &o)
         {
             this->_db = std::make_shared<storage::update::db_t>(o._updatedb());
             return *this;

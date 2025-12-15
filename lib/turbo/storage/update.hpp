@@ -4,11 +4,11 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include "file.hpp"
+#include "common.hpp"
 
 namespace turbo::storage::update {
-    // Designed to support data loading from a json snapshot using the serialize method.
-    // For that reason must be default-constructible.
+    // N.B. this class is not thread safe!
+    // N.B. this class assumes that the base_db is updated only by its commit method
     struct db_t final: storage::db_t {
         using update_map_t = std::map<uint8_vector, value_t>;
         using undo_item_t = typename update_map_t::value_type;
@@ -19,15 +19,16 @@ namespace turbo::storage::update {
             update_map_t redo;
         };
 
-        explicit db_t(const db_t &o):
+        db_t() = delete;
+
+        db_t(const db_t &o):
             _base_db{o._base_db},
             _updates{o._updates},
             _num_added{o._num_added},
             _num_removed{o._num_removed}
-        {
-        }
+        {}
 
-        db_t(storage::db_ptr_t db):
+        explicit db_t(storage::db_ptr_t db):
             _base_db{std::move(db)}
         {}
 
@@ -42,19 +43,27 @@ namespace turbo::storage::update {
         }
 
         void foreach(const observer_t &obs) const override {
-            std::set<uint8_vector> seen{};
+            auto upd_it = _updates.begin();
+            auto upd_end = _updates.end();
+
             _base_db->foreach([&](const auto &k, const auto &v) {
-                if (const auto it = _updates.find(k); it != _updates.end()) {
-                    seen.emplace(k);
-                    if (it->second)
-                        obs(k, *it->second);
+                while (upd_it != upd_end && upd_it->first < k) {
+                    if (upd_it->second)
+                        obs(upd_it->first, *upd_it->second);
+                    ++upd_it;
+                }
+                if (upd_it != upd_end && upd_it->first == k) {
+                    if (upd_it->second)
+                        obs(k, *upd_it->second);
+                    ++upd_it;
                 } else {
                     obs(k, v);
                 }
             });
-            for (const auto &[k, v]: _updates) {
-                if (!seen.contains(k) && v)
-                    obs(k, *v);
+            while (upd_it != upd_end) {
+                if (upd_it->second)
+                    obs(upd_it->first, *upd_it->second);
+                ++upd_it;
             }
         }
 
@@ -73,20 +82,13 @@ namespace turbo::storage::update {
         }
 
         void consume_from(db_t &&src) {
-            if (_base_db.get() != src._base_db.get()) [[unlikely]]
-                throw error("update::db_t can consume only instances referencing the same base db!");
-            for (auto &&[k, v]: src._updates) {
-                auto [it, created] = _updates.try_emplace(std::move(k), std::move(v));
-                if (!created)
-                    it->second = std::move(v);
+            for (auto &&[k, v] : src._updates) {
+                _set(k, std::move(v));
             }
-            _num_added += src._num_added;
-            _num_removed += src._num_removed;
-            src._updates.clear();
-            src._num_added = 0;
-            src._num_removed = 0;
+            src.reset();
         }
 
+        // N.B. an exception in set or erase base_db method would leave the state partially applied
         undo_redo_t commit() {
             undo_list_t undo{};
             undo.reserve(_updates.size());
@@ -120,7 +122,28 @@ namespace turbo::storage::update {
         size_t _num_added = 0;
         size_t _num_removed = 0;
 
-        void _set(const buffer key, value_t val);
+        void _set(const buffer key, value_t val) {
+            //logger::trace("storage::update::db: key #{} set to: {}", key, val);
+            const auto parent_val = _base_db->get(key);
+            auto [it, created] = _updates.try_emplace(key, std::move(val));
+            if (!created) {
+                if (it->second) {
+                    if (!parent_val)
+                        --_num_added;
+                } else {
+                    if (parent_val)
+                        --_num_removed;
+                }
+                it->second = std::move(val);
+            }
+            if (it->second) {
+                if (!parent_val)
+                    ++_num_added;
+            } else {
+                if (parent_val)
+                    ++_num_removed;
+            }
+        }
     };
     using db_ptr_t = std::shared_ptr<db_t>;
 }
