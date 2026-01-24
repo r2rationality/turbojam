@@ -24,26 +24,26 @@ namespace turbo_jam_accumulate_test {
     };
     using preimage_blobs_t = map_t<opaque_hash_t, byte_sequence_t, preimage_blobs_config_t>;
 
-    struct preimage_statuses_config_t {
-        std::string key_name = "hash";
-        std::string val_name = "status";
+    struct preimage_requests_config_t {
+        std::string key_name = "key";
+        std::string val_name = "value";
     };
     template<typename CFG>
-    using preimage_statuses_t = map_t<opaque_hash_t, lookup_meta_map_val_t<CFG>, preimage_statuses_config_t>;
+    using preimage_requests_t = map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CFG>, preimage_requests_config_t>;
 
     template<typename CFG>
     struct test_account_t {
         service_info_t<CFG> service;
         stored_items_t storage;
-        preimage_blobs_t preimages_blob;
-        preimage_statuses_t<CFG> preimages_status;
+        preimage_blobs_t preimage_blobs;
+        preimage_requests_t<CFG> preimage_requests;
 
         void serialize(auto &archive)
         {
             archive.process("service"sv, service);
             archive.process("storage"sv, storage);
-            archive.process("preimages_blob"sv, preimages_blob);
-            archive.process("preimages_status"sv, preimages_status);
+            archive.process("preimage_blobs"sv, preimage_blobs);
+            archive.process("preimage_requests"sv, preimage_requests);
         }
 
         bool operator==(const test_account_t &) const = default;
@@ -65,12 +65,11 @@ namespace turbo_jam_accumulate_test {
                 for (auto &&[k, v]: tacc.storage) {
                     this->storage_set_raw(id, k, static_cast<buffer>(v));
                 }
-                for (auto &&[k, v]: tacc.preimages_blob) {
+                for (auto &&[k, v]: tacc.preimage_blobs) {
                     this->preimage_set(id, k, uint8_vector{v});
                 }
-                for (auto &&[k, v]: tacc.preimages_status) {
-                    const auto blob = tacc.preimages_blob.at(k);
-                    this->lookup_set(id, lookup_meta_map_key_t{k, numeric_cast<uint32_t>(blob.size())}, std::move(v));
+                for (auto &&[k, v]: tacc.preimage_requests) {
+                    this->lookup_set(id, k, std::move(v));
                 }
             }
         }
