@@ -212,7 +212,7 @@ namespace turbo_jam_accumulate_test {
             const auto state_matches = new_st == tc.post;
             expect(state_matches) << path;
             if (!state_matches)
-                logger::warn("{} diff: {}", path, tc.post.accounts.diff(new_st.accounts));
+                logger::warn("{} accounts diff: {}", path, tc.post.accounts.diff(new_st.accounts));
         } else {
             expect(false) << path;
         }
