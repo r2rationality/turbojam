@@ -789,23 +789,14 @@ namespace turbo::jam {
             }
         }
 
-        /*for (const auto &s_id: report_service_ids) {
-            auto &s_stats = new_pi_services[s_id];
-            s_stats.accumulate_gas_used += plus_res.gas_used.at(s_id);
+        for (const auto &[s_id, gas_used]: plus_res.gas_used) {
+            if (gas_used) {
+                auto &s_stats = new_pi_services[s_id];
+                s_stats.accumulate_gas_used += gas_used;
+            }
             if (auto info = new_delta.info_get(s_id); info) {
                 info->last_accumulation_slot = blk_slot;
                 new_delta.info_set(s_id, std::move(*info));
-            }
-        }*/
-
-        for (const auto &[s_id, gas_used]: plus_res.gas_used) {
-            if (gas_used > 0) {
-                auto &s_stats = new_pi_services[s_id];
-                s_stats.accumulate_gas_used += gas_used;
-                if (auto info = new_delta.info_get(s_id); info) {
-                    info->last_accumulation_slot = blk_slot;
-                    new_delta.info_set(s_id, std::move(*info));
-                }
             }
         }
 
