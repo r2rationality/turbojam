@@ -38,10 +38,7 @@ namespace turbo::jam {
                 case host_call_t::write: this->write(); break;
                 case host_call_t::info: this->info(); break;
                 case host_call_t::fetch: this->fetch(); break;
-                case host_call_t::log:
-                    this->log();
-                    gas_used = 0;
-                    break;
+                case host_call_t::log: this->log(); break;
                 [[unlikely]] default:
                     logger::trace("gas: {} host_service::unknown", this->_p.m.gas());
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
@@ -66,10 +63,7 @@ namespace turbo::jam {
             switch (static_cast<host_call_t>(id)) {
                 case host_call_t::gas: this->gas(); break;
                 case host_call_t::fetch: this->fetch(); break;
-                case host_call_t::log:
-                    this->log();
-                    gas_used = 0;
-                    break;
+                case host_call_t::log: this->log(); break;
                 [[unlikely]] default:
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
@@ -112,10 +106,7 @@ namespace turbo::jam {
                 case 15: forget(); break;
                 case 16: yield(); break;*/
                 //case ??: return provide(); break;
-                case host_call_t::log:
-                    this->log();
-                    gas_used = 0;
-                    break;
+                case host_call_t::log: this->log(); break;
                 default:
                     logger::trace("gas: {} host_service::unknown", this->_p.m.gas());
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
@@ -497,10 +488,7 @@ namespace turbo::jam {
                 case host_call_t::forget: call_func = &host_service_accumulate_t::forget; break;
                 case host_call_t::yield: call_func = &host_service_accumulate_t::yield; break;
                 case host_call_t::provide: call_func = &host_service_accumulate_t::provide; break;
-                case host_call_t::log:
-                    gas_used = 0;
-                    call_func = &host_service_accumulate_t::log;
-                    break;
+                case host_call_t::log: call_func = &host_service_accumulate_t::log; break;
                 default:
                     logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
