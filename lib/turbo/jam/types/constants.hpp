@@ -52,13 +52,15 @@ namespace turbo::jam {
         static constexpr size_t V_validator_count = C_core_count * validator_factor;
         static_assert(V_validator_count == 1023U);
         static constexpr size_t WA_max_is_authorized_code_size = 64'000;
-        static constexpr size_t WB_max_work_package_size = 13'794'305;
+        static constexpr size_t WB_max_work_package_size = 13'791'360;
         static constexpr size_t WC_max_service_code_size = 4'000'000;
         static constexpr size_t WP_segment_num_pieces = 6;
         static constexpr size_t WG_segment_size = 4'104U;
         static constexpr size_t WE_segment_piece_size = WG_segment_size / WP_segment_num_pieces;
         static_assert(WE_segment_piece_size == 684U);
         static constexpr size_t WM_max_work_package_imports = 3'072;
+        static constexpr size_t WF_segment_footprint = WG_segment_size + 32U * std::bit_width(WM_max_work_package_imports);
+        static_assert(WF_segment_footprint == 4488U);
         static constexpr size_t WR_max_blobs_size = 48ULL << 10U;
         static constexpr size_t WT_transfer_memo_size = 128;
         static constexpr size_t WX_max_package_exports = 3'072;
