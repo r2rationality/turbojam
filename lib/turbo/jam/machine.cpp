@@ -9,6 +9,7 @@
 #include <boost/container/flat_map.hpp>
 #include "machine.hpp"
 #include "state.hpp"
+#include "turbo/common/scope-exit.hpp"
 
 namespace turbo::jam::machine {
     using namespace std::string_view_literals;
@@ -75,6 +76,17 @@ namespace turbo::jam::machine {
         result_t run()
         {
             try {
+                std::string trace_str{};
+                const auto trace_print_fn = [&] {
+                    if (!trace_str.empty()) {
+                        logger::debug(trace_str);
+                        trace_str.clear();
+                    }
+                };
+                std::optional<scope_exit<decltype(trace_print_fn)>> trace_print{};
+                if constexpr (tracing) {
+                    trace_print.emplace(trace_print_fn);
+                }
                 for (;;) {
                     const uint8_t opcode = _pc < _program.code.size() ? _program.code[_pc] : 0x00U;
                     const auto len = _skip_len(_pc, _program.bitmasks);
@@ -84,7 +96,7 @@ namespace turbo::jam::machine {
                         return exit_out_of_gas_t{};
                     const auto prev_pc = _pc;
                     if constexpr (tracing) {
-                        logger::debug("PVM exec log: 0x{:08X}/{}: {} {}", prev_pc, len + 1, op.name, _args_str(op.make_args, data));
+                        trace_str = fmt::format("PVM exec log: gas: {} pc: {}/{}: {} {}", _gas, prev_pc, len + 1, op.name, _args_str(op.make_args, data));
                     }
                     const auto next_pc = _pc + len + 1;
                     auto res = (this->*op.exec)(data);
@@ -95,26 +107,25 @@ namespace turbo::jam::machine {
                         case 1:
                             _pc = std::get<1>(res);
                             break;
-                        case 2:
+                        case 2: {
                             return std::get<2>(std::move(res));
+                        }
                         [[unlikely]] default:
                             throw error(fmt::format("unsupported op_res_t index: {}", res.index()));
                     }
                     if constexpr (tracing) {
-                        std::string update{};
                         if (_last_set_reg) {
-                            update += fmt::format(" {}=0x{:X}", _reg_name(*_last_set_reg), _regs[static_cast<int>(*_last_set_reg)]);
+                            trace_str += fmt::format(" {}=0x{:X}", _reg_name(*_last_set_reg), _regs[static_cast<int>(*_last_set_reg)]);
                             _last_set_reg.reset();
                         }
                         if (_last_store) {
-                            update += fmt::format(" 0x{:08X}:{}=0x{}",
+                            trace_str += fmt::format(" 0x{:08X}:{}=0x{}",
                                 _last_store->address, _last_store->val.size(), buffer{_last_store->val.data(), _last_store->val.size()});
                             _last_store.reset();
                         }
                         if (_pc != next_pc)
-                            update += fmt::format(" pc=0x{:08X}", _pc);
-                        if (!update.empty())
-                            logger::debug("PVM exec log: 0x{:08X}/{}: set:{}", prev_pc, len + 1, update);
+                            trace_str += fmt::format(" pc=0x{:08X}", _pc);
+                        trace_print_fn();
                     }
                 }
             } catch (exit_halt_t &ex) {
@@ -356,7 +367,7 @@ namespace turbo::jam::machine {
                 //0x58
                 opcode_t { "branch_le_s_imm", &impl::branch_le_s_imm, &impl::_args_reg1_imm1_off1, true },
                 opcode_t { "branch_ge_s_imm", &impl::branch_ge_s_imm, &impl::_args_reg1_imm1_off1, true },
-                opcode_t { "branch_ge_s_imm", &impl::branch_ge_s_imm, &impl::_args_reg1_imm1_off1, true },
+                opcode_t { "branch_gt_s_imm", &impl::branch_gt_s_imm, &impl::_args_reg1_imm1_off1, true },
                 undef,
                 undef, undef, undef, undef,
                 // 0x60
