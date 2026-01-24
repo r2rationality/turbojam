@@ -14,10 +14,16 @@ namespace {
     template<typename T>
     void test_file(const std::string &path)
     {
-        const auto tc = jam::load_obj<T>(path + ".bin");
-        {
-            const auto j_tc = codec::json::load_obj<T>(path + ".json");
-            expect(tc == j_tc) << "json test case does not match the binary one" << path;
+        try {
+            const auto tc = jam::load_obj<T>(path + ".bin");
+            {
+                const auto j_tc = codec::json::load_obj<T>(path + ".json");
+                expect(tc == j_tc) << "json test case does not match the binary one" << path;
+            }
+        } catch (const std::exception &e) {
+            expect(false) << path << e.what();
+        } catch (...) {
+            expect(false) << path;
         }
     }
 
@@ -32,7 +38,7 @@ namespace {
 
 suite turbo_jam_fuzzer_suite = [] {
     "turbo::jam::fuzzer"_test = [] {
-        static const auto test_dir = file::install_path("test/jam-conformance/fuzz-proto/examples/v1/");
+        static const auto test_dir = file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/");
         static std::optional<std::string> override_test{};
         if (!override_test) {
             for (const auto &path: file::files_with_ext_path(test_dir, ".bin")) {
