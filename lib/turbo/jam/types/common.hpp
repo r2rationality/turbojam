@@ -81,7 +81,7 @@ namespace turbo::jam {
         using base_type = std::map<K, V>;
         using base_type::base_type;
 
-        static CFG config()
+        static const CFG &config()
         {
             static CFG cfg;
             return cfg;
