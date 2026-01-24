@@ -21,16 +21,16 @@ suite turbo_jam_merkle_suite = [] {
     "turbo::jam::merkle"_test = [] {
         "merkle_balanced"_test = [] {
             static const service_commitments_t theta{
-                service_commitments_t::value_type{306895876U, opaque_hash_t::from_hex("7079B9F32C7A6AD71072D367277C80D4473E9517D53595BC11B3F989ACC215FD")},
-                service_commitments_t::value_type{3406277994U, opaque_hash_t::from_hex("6790891C04EE66AF8CCC61FE232EB374427810FDEB3A5F974BE76035D9A2F991")}
+                service_commitment_item_t{306895876U, opaque_hash_t::from_hex<opaque_hash_t>("7079B9F32C7A6AD71072D367277C80D4473E9517D53595BC11B3F989ACC215FD")},
+                service_commitment_item_t{3406277994U, opaque_hash_t::from_hex<opaque_hash_t>("6790891C04EE66AF8CCC61FE232EB374427810FDEB3A5F974BE76035D9A2F991")}
             };
             expect_equal(merkle::hash_t::from_hex("3DB8AECACB42DF7136B67EE7CF581EC55E718505F1285474A8B3138059E5B0FE"), theta.root());
         };
         "merkle_unbalanced"_test = [] {
             static const service_commitments_t theta{
-                service_commitments_t::value_type{1809557494U, opaque_hash_t::from_hex("38606724600532BF13CAED2D1AA6770225ED38BB213BF1B656689C68A1DF2D29")},
-                service_commitments_t::value_type{2494454716U, opaque_hash_t::from_hex("5BB4353B428C0D4C422F2F7576EA5205091C08926ED7FC6A420CF172F40B1CB5")},
-                service_commitments_t::value_type{3202820706U, opaque_hash_t::from_hex("0F60BAF1C25D5F6C212CDDBD58EF1BAD5FA167C4CC18D7BA1F9FFC89DF36E9DC")}
+                service_commitment_item_t{1809557494U, opaque_hash_t::from_hex<opaque_hash_t>("38606724600532BF13CAED2D1AA6770225ED38BB213BF1B656689C68A1DF2D29")},
+                service_commitment_item_t{2494454716U, opaque_hash_t::from_hex<opaque_hash_t>("5BB4353B428C0D4C422F2F7576EA5205091C08926ED7FC6A420CF172F40B1CB5")},
+                service_commitment_item_t{3202820706U, opaque_hash_t::from_hex<opaque_hash_t>("0F60BAF1C25D5F6C212CDDBD58EF1BAD5FA167C4CC18D7BA1F9FFC89DF36E9DC")}
             };
             expect_equal(merkle::hash_t::from_hex("F06948493FA7EF5682770FC50E850F0B22F309E21AE6545EC9A688C32ED5C2C2"), theta.root());
         };

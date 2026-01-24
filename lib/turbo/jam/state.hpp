@@ -660,12 +660,25 @@ namespace turbo::jam {
     using service_results_t = std::map<service_id_t, accumulate_result_t<CFG>>;
 
     // JAM (12.15): B
-    struct service_commitments_config_t {
-        std::string key_name = "service_id";
-        std::string val_name = "hash";
+    struct service_commitment_item_t {
+        service_id_t service_id;
+        opaque_hash_t hash;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("service_id"sv, service_id);
+            archive.process("hash"sv, hash);
+        }
+
+        bool operator<(const service_commitment_item_t &o) const noexcept {
+            if (service_id != o.service_id)
+                return service_id < o.service_id;
+            return hash < o.hash;
+        }
     };
-    struct service_commitments_t: map_t<service_id_t, opaque_hash_t, service_commitments_config_t> {
-        using base_type = map_t<service_id_t, opaque_hash_t, service_commitments_config_t>;
+    struct service_commitments_t: sequence_t<service_commitment_item_t> {
+        using base_type = sequence_t<service_commitment_item_t>;
         using base_type::base_type;
 
         [[nodiscard]] accumulate_root_t root() const {

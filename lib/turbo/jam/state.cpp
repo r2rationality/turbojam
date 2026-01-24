@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <ark-vrf.hpp>
 #include <numeric>
+#include <ranges>
 #include <unordered_set>
 #include <turbo/common/timer.hpp>
 #include <turbo/crypto/blake2b.hpp>
@@ -438,19 +439,22 @@ namespace turbo::jam {
 
         // (B.13)
     template<typename CFG>
-    static accumulate_result_t<CFG> accumulate_delta_one_combine(const gas_t gas_used, machine::invocation_result_base_t &&res,
+    static accumulate_result_t<CFG> accumulate_delta_one_combine(const service_id_t service_id, const gas_t gas_used, machine::invocation_result_base_t &&res,
         accumulate_context_t<CFG> &&ok_ctx, accumulate_context_t<CFG> &&err_ctx)
     {
         return std::visit([&](auto &&rv) -> accumulate_result_t<CFG> {
             using T = std::decay_t<decltype(rv)>;
             if constexpr (std::is_same_v<T, machine::exit_panic_t> || std::is_same_v<T, machine::exit_out_of_gas_t>) {
+                logger::trace("accumulate_delta_one {} failed with an error", service_id);
                 return {std::move(err_ctx.state), std::move(err_ctx.transfers), std::move(err_ctx.result), gas_used, std::move(err_ctx.code)};
             } else if (rv.size() == sizeof(opaque_hash_t)) {
-                // elements from err_ctx must take precedence to start with it to accomodate for std::map::merge semantics!
+                logger::trace("accumulate_delta_one {} returned a hash: {}", service_id, rv);
+                // elements from err_ctx must take precedence, so start with it given the opposite std::map::merge semantics!
                 service_code_preimages_t<CFG> combined_code = std::move(err_ctx.code);
                 combined_code.merge(std::move(ok_ctx.code));
                 return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), static_cast<buffer>(rv), gas_used, std::move(combined_code)};
             } else {
+                logger::trace("accumulate_delta_one {} completed with a non-hash of size: {}", service_id, rv.size());
                 return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), std::move(ok_ctx.result), gas_used, std::move(ok_ctx.code)};
             }
         }, std::move(res));
@@ -556,7 +560,7 @@ namespace turbo::jam {
                         return host_service->call(id);
                     }
                 );
-                return accumulate_delta_one_combine(inv_res.gas_used, std::move(inv_res.result), std::move(ctx_ok), std::move(ctx_err));
+                return accumulate_delta_one_combine(service_id, inv_res.gas_used, std::move(inv_res.result), std::move(ctx_ok), std::move(ctx_err));
             }
         }
         // B.9
@@ -570,8 +574,11 @@ namespace turbo::jam {
         state.consume_from(init_chi, m_chi, service_id, std::move(o.state));
 
         transfers.insert(transfers.end(), o.transfers.begin(), o.transfers.end()); // bold t_prime
-        if (o.commitment) // bold b
-            commitments.try_emplace(service_id, *o.commitment);
+        if (o.commitment) { // bold b
+            service_commitment_item_t new_commitment{service_id, *o.commitment};
+            const auto pos = std::lower_bound(commitments.begin(), commitments.end(), new_commitment);
+            commitments.insert(pos, std::move(new_commitment));
+        }
         gas_used[service_id] += o.gas; // bold u
     }
 
@@ -630,9 +637,9 @@ namespace turbo::jam {
     void delta_plus_result_t<CFG>::consume_from(delta_star_result_t<CFG> &&o) {
         state = std::move(o.state);
         {
-            auto new_comms = std::move(o.commitments);
-            new_comms.merge(std::move(commitments));
-            commitments = std::move(new_comms);
+            const auto old_size = commitments.size();
+            commitments.insert(commitments.end(), o.commitments.begin(), o.commitments.end());
+            std::inplace_merge(commitments.begin(), commitments.begin() + old_size, commitments.end());
         }
         for (auto &&[s_id, s_gas]: o.gas_used) {
             gas_used[s_id] += s_gas;
