@@ -386,13 +386,12 @@ namespace turbo::jam {
         if (service_id == init_chi.designate && o.iota)
             iota = std::move(o.iota);
         if (o.chi.updated()) {
-            // m' and z' are set if updated by the manager service
-            if (service_id == init_chi.bless) {
-                if (const auto &new_val = o.chi.get().bless; chi.get().bless != new_val)
-                    chi.get_mutable().bless = new_val;
-                if (const auto &new_val = o.chi.get().always_acc; chi.get().always_acc != new_val)
-                    chi.get_mutable().always_acc = new_val;
-            }
+            chi.get_mutable().bless = o.chi.get().bless;
+            chi.get_mutable().always_acc = o.chi.get_mutable().always_acc;
+            if (const auto &new_val = accumulate_capital_r(init_chi.designate, m_chi.designate, o.chi.get().designate); chi.get().designate != new_val)
+                chi.get_mutable().designate = new_val;
+            if (const auto &new_val = accumulate_capital_r(init_chi.registrar, m_chi.registrar, o.chi.get().registrar); chi.get().registrar != new_val)
+                chi.get_mutable().registrar = new_val;
             // a' - allow for reassignment of per-core responsibilities
             for (size_t ci = 0; ci < o_chi.assign.size(); ++ci) {
                 if (service_id == init_chi.assign[ci]) {
@@ -400,24 +399,11 @@ namespace turbo::jam {
                         chi.get_mutable().assign[ci] = new_val;
                 }
             }
-            // v'
-            if (service_id == m_chi.designate) {
-                if (const auto &new_val = accumulate_capital_r(init_chi.designate, m_chi.designate, o.chi.get().designate); chi.get().designate != new_val)
-                    chi.get_mutable().designate = new_val;
-            }
-            // r'
-            if (service_id == m_chi.registrar) {
-                if (const auto &new_val = accumulate_capital_r(init_chi.registrar, m_chi.registrar, o.chi.get().registrar); chi.get().registrar != new_val)
-                    chi.get_mutable().registrar = new_val;
-            }
         }
         // q'
         for (auto &&[c, q]: o.phi) {
             if (service_id == init_chi.assign[c])
                 phi[c] = std::move(q);
-        }
-        if (service_id == chi.get().designate && chi.get().designate != o_chi.designate) {
-            chi.get_mutable().designate = o_chi.designate;
         }
     }
 

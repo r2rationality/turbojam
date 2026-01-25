@@ -477,7 +477,7 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::bless()
     {
-        logger::trace("gas: {} host_service::bless", this->_p.m.gas());
+        logger::trace("gas: {} host_service::bless by service {}", this->_p.m.gas(), this->_p.service_id);
         const auto &phi = this->_p.m.regs();
         const auto m = phi[7];
         const auto a = phi[8];
@@ -502,10 +502,6 @@ namespace turbo::jam {
             }
         }
 
-        if (_ok.state.chi->bless != this->_p.service_id) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
-            return;
-        }
         if (std::max(std::max(m, v), r) > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
