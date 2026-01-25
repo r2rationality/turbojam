@@ -93,7 +93,8 @@ namespace turbo_jam_reports_test {
         err_bad_signature_t,
         err_work_report_too_big_t,
         err_banned_validator_t,
-        err_lookup_anchor_not_recent_t
+        err_lookup_anchor_not_recent_t,
+        err_missing_work_results_t
     >;
 
     struct err_code_t: err_group_t<err_code_t, err_code_base_t> {
@@ -129,7 +130,8 @@ namespace turbo_jam_reports_test {
                 "bad_signature"sv,
                 "work_report_too_big"sv,
                 "banned_validator"sv,
-                "lookup-anchor-not-recept"sv
+                "lookup-anchor-not-recept"sv,
+                "missing_work_results"sv
             };
             archive.template process_variant<err_code_base_t>(*this, names);
         }

@@ -780,10 +780,10 @@ namespace turbo::jam {
         res.phi = std::move(plus_res.state.phi);
 
         // (12.28)
-        std::set<service_id_t> report_service_ids{};
+        std::map<service_id_t, size_t> service_num_reports{};
         for (const auto &wr: std::span{accumulatable.begin(), accumulatable.begin() + plus_res.num_accumulated}) {
             for (const auto &r: wr.results) {
-                report_service_ids.emplace(r.service_id);
+                ++service_num_reports[r.service_id];
                 auto &s_stats = new_pi_services[r.service_id];
                 ++s_stats.accumulate_count;
             }
@@ -794,9 +794,11 @@ namespace turbo::jam {
                 auto &s_stats = new_pi_services[s_id];
                 s_stats.accumulate_gas_used += gas_used;
             }
-            if (auto info = new_delta.info_get(s_id); info) {
-                info->last_accumulation_slot = blk_slot;
-                new_delta.info_set(s_id, std::move(*info));
+            if (const auto num_reports_it = service_num_reports.find(s_id); num_reports_it != service_num_reports.end()) {
+                if (auto info = new_delta.info_get(s_id); info && num_reports_it->second) {
+                    info->last_accumulation_slot = blk_slot;
+                    new_delta.info_set(s_id, std::move(*info));
+                }
             }
         }
 
@@ -878,6 +880,9 @@ namespace turbo::jam {
             std::optional<core_index_t> prev_core {};
 
             for (const auto &g: guarantees) {
+                if (g.report.results.empty()) [[unlikely]]
+                    throw err_missing_work_results_t{};
+
                 // JAM Paper (11.33)
                 const auto blk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
                     return blk.header_hash == g.report.context.anchor;

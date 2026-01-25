@@ -172,6 +172,9 @@ namespace turbo::jam {
     struct err_bad_auditor_key_t final: error_t {
         explicit err_bad_auditor_key_t(): error_t{*this} {}
     };
+    struct err_missing_work_results_t final: error_t {
+        explicit err_missing_work_results_t(): error_t{*this} {}
+    };
 
     template<typename BASE_T, typename BASE_V>
     struct err_group_t: BASE_V {

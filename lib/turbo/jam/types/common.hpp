@@ -638,7 +638,9 @@ namespace turbo::jam {
 
         bool operator==(const work_result_t &o) const = default;
     };
-    using work_results_t = sequence_t<work_result_t, 1, 16>;
+
+    template<typename CFG>
+    using work_results_t = sequence_t<work_result_t, 0, CFG::I_max_work_items>;
 
     // (11.5)
     struct work_package_spec_t {
@@ -687,7 +689,7 @@ namespace turbo::jam {
         gas_t auth_gas_used{}; // g
         byte_sequence_t auth_output{}; // t
         segment_root_lookup_t segment_root_lookup{}; // l
-        work_results_t results{}; // d
+        work_results_t<CFG> results{}; // d
 
         void serialize(auto &archive)
         {
