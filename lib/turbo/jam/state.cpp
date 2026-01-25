@@ -229,7 +229,7 @@ namespace turbo::jam {
         const preimage_t *prev = nullptr;
         for (const auto &p: preimages) {
             if (prev && *prev >= p) [[unlikely]]
-                throw err_preimages_not_sorted_or_unique_t {};
+                throw err_preimages_not_sorted_or_unique_t{};
             prev = &p;
             const auto info = accs.info_get(p.requester);
             if (!info) [[unlikely]]
@@ -237,12 +237,12 @@ namespace turbo::jam {
             const lookup_meta_map_key_t key{crypto::blake2b::digest<opaque_hash_t>(p.blob), static_cast<uint32_t>(p.blob.size())};
             auto l_val = accs.lookup_get(p.requester, key);
             if (!l_val) [[unlikely]]
-                throw err_preimage_unneeded_t {};
-            if (accs.preimage_get(p.requester, key.hash)) [[unlikely]]
-                throw err_preimage_unneeded_t {};
-            accs.preimage_set(p.requester, key.hash, uint8_vector{p.blob});
+                throw err_preimage_unneeded_t{};
+            if (!l_val->empty()) [[unlikely]]
+                throw err_preimage_unneeded_t{};
             l_val->emplace_back(slot);
             accs.lookup_set(p.requester, key, std::move(*l_val));
+            accs.preimage_set(p.requester, key.hash, uint8_vector{p.blob});
             auto &service_stats = new_pi_services[p.requester];
             ++service_stats.provided_count;
             service_stats.provided_size += p.blob.size();
