@@ -129,8 +129,7 @@ namespace turbo::jam::machine {
                     }
                 }
             } catch (exit_halt_t &ex) {
-                return { std::move(ex) };
-            } catch (exit_panic_t &ex) {
+                //_pc = 0; GP 0.7.2 seem to require that but breaks the existing PVM test cases
                 return { std::move(ex) };
             } catch (exit_page_fault_t &ex) {
                 return { std::move(ex) };
@@ -138,7 +137,8 @@ namespace turbo::jam::machine {
                 return { std::move(ex) };
             } catch (exit_host_call_t &ex) {
                 return { std::move(ex) };
-            } catch (...) {
+            } catch (...) { // exit_panic_t or anything else
+                //_pc = 0; GP 0.7.2 seem to require that but breaks the existing PVM test cases
                 return { exit_panic_t {} };
             }
         }
@@ -154,7 +154,6 @@ namespace turbo::jam::machine {
                 _gas = 0;
                 return false;
             }
-            //logger::debug("PolkaVM: charge_gas: {} ({} -> {})", gas, _gas, _gas - numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas)));
             _gas -= static_cast<gas_t::base_type>(gas);
             return true;
         }
@@ -765,6 +764,10 @@ namespace turbo::jam::machine {
 
         std::pair<size_t, page_map_t::const_iterator> _addr_check(const register_val_t addr, const size_t sz) const
         {
+            /* GP 0.7.2 seems to require that but not yet supported by the current PVM test cases
+            const auto addr = static_cast<address_val_t>(addr_raw);
+            if (addr < config_prod::ZZ_pvm_init_zone_size) [[unlikely]]
+                throw exit_panic_t{};*/
             const auto page_off = addr % config_prod::ZP_pvm_page_size;
             if (page_off + sz > config_prod::ZP_pvm_page_size) [[unlikely]]
                 throw exit_page_fault_t{addr - page_off + config_prod::ZP_pvm_page_size};
