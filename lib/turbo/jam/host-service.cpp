@@ -20,35 +20,6 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    host_service_on_transfer_t<CFG>::host_service_on_transfer_t(host_service_params_t<CFG> params):
-        host_service_base_t<CFG>{std::move(params)}
-    {
-        logger::trace("host service on-transfer started");
-    }
-
-    template<typename CFG>
-    machine::host_call_res_t host_service_on_transfer_t<CFG>::call(const machine::register_val_t id) noexcept
-    {
-        return this->_safe_call([&] {
-            gas_t::base_type gas_used = 10;
-            switch (static_cast<host_call_t>(id)) {
-                case host_call_t::gas: this->gas(); break;
-                case host_call_t::lookup: this->lookup(); break;
-                case host_call_t::read: this->read(); break;
-                case host_call_t::write: this->write(); break;
-                case host_call_t::info: this->info(); break;
-                case host_call_t::fetch: this->fetch(); break;
-                case host_call_t::log: this->log(); break;
-                [[unlikely]] default:
-                    logger::trace("gas: {} host_service::unknown", this->_p.m.gas());
-                    this->_p.m.set_reg(7, machine::host_call_res_t::what);
-                    break;
-            }
-            this->_p.m.consume_gas(gas_used);
-        });
-    }
-
-    template<typename CFG>
     host_service_is_authorized_t<CFG>::host_service_is_authorized_t(host_service_params_t<CFG> params):
         host_service_base_t<CFG>{std::move(params)}
     {
@@ -59,16 +30,20 @@ namespace turbo::jam {
     machine::host_call_res_t host_service_is_authorized_t<CFG>::call(const machine::register_val_t id) noexcept
     {
         return this->_safe_call([&] {
+            void (host_service_is_authorized_t<CFG>::*call_func)() = nullptr;
             gas_t::base_type gas_used = 10;
             switch (static_cast<host_call_t>(id)) {
-                case host_call_t::gas: this->gas(); break;
-                case host_call_t::fetch: this->fetch(); break;
-                case host_call_t::log: this->log(); break;
+                case host_call_t::gas: call_func = &host_service_is_authorized_t::gas; break;
+                case host_call_t::fetch: call_func = &host_service_is_authorized_t::fetch; break;
+                case host_call_t::log: call_func = &host_service_is_authorized_t::log; break;
                 [[unlikely]] default:
+                    logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
             this->_p.m.consume_gas(gas_used);
+            if (call_func) [[likely]]
+                (*this.*call_func)();
         });
     }
 
@@ -83,15 +58,16 @@ namespace turbo::jam {
     [[nodiscard]] machine::host_call_res_t host_service_refine_t<CFG>::call(const machine::register_val_t id) noexcept
     {
         return this->_safe_call([&] {
+            void (host_service_refine_t<CFG>::*call_func)() = nullptr;
             gas_t::base_type gas_used = 10;
             switch (static_cast<host_call_t>(id)) {
                 // generic
-                case host_call_t::gas: this->gas(); break;
-                case host_call_t::lookup: this->lookup(); break;
-                case host_call_t::read: this->read(); break;
-                case host_call_t::write: this->write(); break;
-                case host_call_t::info: this->info(); break;
-                case host_call_t::fetch: this->fetch(); break;
+                case host_call_t::gas: call_func = &host_service_refine_t::gas; break;
+                case host_call_t::lookup: call_func = &host_service_refine_t::lookup; break;
+                case host_call_t::read: call_func = &host_service_refine_t::read; break;
+                case host_call_t::write: call_func = &host_service_refine_t::write; break;
+                case host_call_t::info: call_func = &host_service_refine_t::info; break;
+                case host_call_t::fetch: call_func = &host_service_refine_t::fetch; break;
                 // refine-specific
                 /*case 5: bless(); break;
                 case 6: assign(); break;
@@ -106,13 +82,15 @@ namespace turbo::jam {
                 case 15: forget(); break;
                 case 16: yield(); break;*/
                 //case ??: return provide(); break;
-                case host_call_t::log: this->log(); break;
-                default:
-                    logger::trace("gas: {} host_service::unknown", this->_p.m.gas());
+                case host_call_t::log: call_func = &host_service_refine_t::log; break;
+                [[unlikely]] default:
+                    logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
                     break;
             }
             this->_p.m.consume_gas(gas_used);
+            if (call_func) [[likely]]
+                (*this.*call_func)();
         });
     }
 
@@ -488,13 +466,14 @@ namespace turbo::jam {
                 case host_call_t::yield: call_func = &host_service_accumulate_t::yield; break;
                 case host_call_t::provide: call_func = &host_service_accumulate_t::provide; break;
                 case host_call_t::log: call_func = &host_service_accumulate_t::log; break;
-                default:
+                [[unlikely]] default:
                     logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
-                    return;
+                    break;
             }
             this->_p.m.consume_gas(gas_used);
-            (*this.*call_func)();
+            if (call_func) [[likely]]
+                (*this.*call_func)();
         });
     }
 
@@ -879,7 +858,4 @@ namespace turbo::jam {
 
     template struct host_service_accumulate_t<config_prod>;
     template struct host_service_accumulate_t<config_tiny>;
-
-    template struct host_service_on_transfer_t<config_prod>;
-    template struct host_service_on_transfer_t<config_tiny>;
 }

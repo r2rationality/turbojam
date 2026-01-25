@@ -133,13 +133,4 @@ namespace turbo::jam {
         void yield();
         void provide();
     };
-
-    template<typename CFG>
-    struct host_service_on_transfer_t: host_service_base_t<CFG> {
-        using base_type = host_service_base_t<CFG>;
-        using base_type::base_type;
-
-        host_service_on_transfer_t(host_service_params_t<CFG> params);
-        [[nodiscard]] machine::host_call_res_t call(machine::register_val_t id) noexcept;
-    };
 }
