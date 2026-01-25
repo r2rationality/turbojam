@@ -455,10 +455,7 @@ namespace turbo::jam {
                 case host_call_t::checkpoint: call_func = &host_service_accumulate_t::checkpoint; break;
                 case host_call_t::new_: call_func = &host_service_accumulate_t::new_; break;
                 case host_call_t::upgrade: call_func = &host_service_accumulate_t::upgrade; break;
-                case host_call_t::transfer:
-                    gas_used += this->_p.m.regs()[9];
-                    call_func = &host_service_accumulate_t::transfer;
-                    break;
+                case host_call_t::transfer: call_func = &host_service_accumulate_t::transfer; break;
                 case host_call_t::eject: call_func = &host_service_accumulate_t::eject; break;
                 case host_call_t::query: call_func = &host_service_accumulate_t::query; break;
                 case host_call_t::solicit: call_func = &host_service_accumulate_t::solicit; break;
@@ -677,6 +674,7 @@ namespace turbo::jam {
         this->_p.services.info_set(this->_p.service_id, std::move(info));
         _ok.transfers.emplace_back(this->_p.service_id, d, a, static_cast<buffer>(m), l);
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
+        this->_p.m.consume_gas(l); // consume the variable amount of memo-gas only on success
     }
 
     template<typename CFG>
