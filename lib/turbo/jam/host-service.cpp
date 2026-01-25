@@ -259,8 +259,7 @@ namespace turbo::jam {
                 break;
             case 8:
                 if (_p.fetch.package) {
-                    const encoder enc{_p.fetch.package->auth_code_hash, _p.fetch.package->authorizer_config};
-                    v.emplace(std::move(enc.bytes()));
+                    v.emplace(_p.fetch.package->authorizer_config);
                 }
                 break;
             case 9:
@@ -691,11 +690,11 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::low);
             return;
         }
-        if (info.balance < a + info.threshold()) [[unlikely]] {
+        info.balance -= a;
+        if (info.balance < info.threshold()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::cash);
             return;
         }
-        info.balance -= a;
         this->_p.services.info_set(this->_p.service_id, std::move(info));
         _ok.transfers.emplace_back(this->_p.service_id, d, a, static_cast<buffer>(m), l);
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
