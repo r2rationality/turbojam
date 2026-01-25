@@ -780,10 +780,10 @@ namespace turbo::jam {
         res.phi = std::move(plus_res.state.phi);
 
         // (12.28)
-        std::map<service_id_t, size_t> service_num_reports{};
+        std::set<service_id_t> service_acc_reports{};
         for (const auto &wr: std::span{accumulatable.begin(), accumulatable.begin() + plus_res.num_accumulated}) {
             for (const auto &r: wr.results) {
-                ++service_num_reports[r.service_id];
+                service_acc_reports.emplace(r.service_id);
                 auto &s_stats = new_pi_services[r.service_id];
                 ++s_stats.accumulate_count;
             }
@@ -794,8 +794,8 @@ namespace turbo::jam {
                 auto &s_stats = new_pi_services[s_id];
                 s_stats.accumulate_gas_used += gas_used;
             }
-            if (const auto num_reports_it = service_num_reports.find(s_id); num_reports_it != service_num_reports.end()) {
-                if (auto info = new_delta.info_get(s_id); info && num_reports_it->second) {
+            if (gas_used || service_acc_reports.contains(s_id)) {
+                if (auto info = new_delta.info_get(s_id); info) {
                     info->last_accumulation_slot = blk_slot;
                     new_delta.info_set(s_id, std::move(*info));
                 }
