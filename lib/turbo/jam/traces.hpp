@@ -110,7 +110,11 @@ namespace turbo::jam::traces {
                 genesis_state,
                 tc.pre.keyvals
             };
-            chain.apply(tc.block);
+            try {
+                chain.apply(tc.block);
+            } catch (const std::exception &ex) {
+                logger::debug("apply block failed: {}", ex.what());
+            }
             const auto &post_state = chain.state().snapshot();
             const auto state_matches = post_state.root() == tc.post.state_root;
             expect(state_matches) << path;
