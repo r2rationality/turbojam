@@ -30,6 +30,13 @@ namespace turbo::jam {
             return *_ptr;
         }
 
+        [[nodiscard]] ptr_type copy() const
+        {
+            if (_updated)
+                return std::make_shared<element_type>(*_ptr);
+            return _ptr;
+        }
+
         [[nodiscard]] element_type &get_mutable()
         {
             if (!_updated) {

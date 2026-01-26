@@ -386,16 +386,24 @@ namespace turbo::jam {
         if (service_id == init_chi.designate && o.iota)
             iota = std::move(o.iota);
         if (o.chi.updated()) {
-            chi.get_mutable().bless = o.chi.get().bless;
-            chi.get_mutable().always_acc = o.chi.get_mutable().always_acc;
-            if (const auto &new_val = accumulate_capital_r(init_chi.designate, m_chi.designate, o.chi.get().designate); chi.get().designate != new_val)
-                chi.get_mutable().designate = new_val;
-            if (const auto &new_val = accumulate_capital_r(init_chi.registrar, m_chi.registrar, o.chi.get().registrar); chi.get().registrar != new_val)
-                chi.get_mutable().registrar = new_val;
+            if (service_id == init_chi.bless) {
+                chi.get_mutable().bless = o_chi.bless; // m'
+                chi.get_mutable().always_acc = o_chi.always_acc; // z'
+            }
+            // v'
+            if (service_id == init_chi.designate || service_id == init_chi.bless) {
+                if (const auto &new_val = accumulate_capital_r(init_chi.designate, m_chi.designate, o_chi.designate); chi.get().designate != new_val)
+                    chi.get_mutable().designate = new_val;
+            }
+            // r'
+            if (service_id == init_chi.registrar || service_id == init_chi.bless) {
+                if (const auto &new_val = accumulate_capital_r(init_chi.registrar, m_chi.registrar, o_chi.registrar); chi.get().registrar != new_val)
+                    chi.get_mutable().registrar = new_val;
+            }
             // a' - allow for reassignment of per-core responsibilities
             for (size_t ci = 0; ci < o_chi.assign.size(); ++ci) {
                 if (service_id == init_chi.assign[ci]) {
-                    if (const auto &new_val = accumulate_capital_r(init_chi.assign[ci], m_chi.assign[ci], o.chi.get().assign[ci]); chi.get().assign[ci] != new_val)
+                    if (const auto &new_val = accumulate_capital_r(init_chi.assign[ci], m_chi.assign[ci], o_chi.assign[ci]); chi.get().assign[ci] != new_val)
                         chi.get_mutable().assign[ci] = new_val;
                 }
             }
@@ -602,14 +610,14 @@ namespace turbo::jam {
             service_res.try_emplace(service_id, accumulate_delta_one(res.state, transfers, reports, free_services, service_id, new_eta0, blk_slot));
         }
 
-        const privileges_t<CFG> init_chi = res.state.chi.get();
-        const privileges_t<CFG> *m_chi = &init_chi; // bold e-star
+        const auto init_chi = res.state.chi.copy();
+        auto m_chi = init_chi; // bold e-star
         if (const auto m_it = service_res.find(res.state.chi.get().bless); m_it != service_res.end()) {
-            m_chi = &m_it->second.state.chi.get();
+            m_chi = m_it->second.state.chi.copy();
         }
         // combine results in service_id order to ensure expectations of (12.19) are upheld
         for (auto &&[s_id, s_res]: service_res) {
-            res.consume_from(init_chi, *m_chi, s_id, std::move(s_res), blk_slot);
+            res.consume_from(*init_chi, *m_chi, s_id, std::move(s_res), blk_slot);
         }
         // integrate preimages only after the final service state is ready
         for (auto &&[s_id, s_res]: service_res) {
