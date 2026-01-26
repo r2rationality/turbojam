@@ -653,12 +653,13 @@ namespace turbo::jam {
             return;
         }
         const auto d = static_cast<service_id_t>(d_raw);
-        if (!this->_p.services.info_get(d)) [[unlikely]] {
+        const auto d_info = this->_p.services.info_get(d);
+        if (!d_info) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
         auto info = this->_service_info();
-        if (l < info.min_memo_gas) [[unlikely]] {
+        if (l < d_info->min_memo_gas) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::low);
             return;
         }
