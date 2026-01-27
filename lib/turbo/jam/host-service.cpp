@@ -598,12 +598,12 @@ namespace turbo::jam {
         }
 
         auto info = this->_service_info();
-        if (info.balance < info.threshold() + a.balance) [[unlikely]] {
+        // the two checks are separated to prevent numerical underflow in the substraction
+        if (info.balance < a.balance || info.balance - a.balance < info.threshold()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::cash);
             return;
         }
         info.balance -= a.balance;
-
         auto created_id = _ok.new_service_id;
         if (this->_p.service_id == _ok.state.chi->registrar && i < CFG::S_min_public_service_index) {
             if (this->_p.services.info_get(i)) [[unlikely]] {
@@ -663,11 +663,12 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::low);
             return;
         }
-        info.balance -= a;
-        if (info.balance < info.threshold()) [[unlikely]] {
+        // the two checks are separated to prevent numerical underflow in the substraction
+        if (info.balance < a || info.balance - a < info.threshold()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::cash);
             return;
         }
+        info.balance -= a;
         this->_p.services.info_set(this->_p.service_id, std::move(info));
         _ok.transfers.emplace_back(this->_p.service_id, d, a, static_cast<buffer>(m), l);
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);

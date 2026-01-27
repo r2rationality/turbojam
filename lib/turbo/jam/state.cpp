@@ -439,16 +439,16 @@ namespace turbo::jam {
         return std::visit([&](auto &&rv) -> accumulate_result_t<CFG> {
             using T = std::decay_t<decltype(rv)>;
             if constexpr (std::is_same_v<T, machine::exit_panic_t> || std::is_same_v<T, machine::exit_out_of_gas_t>) {
-                logger::trace("accumulate_delta_one {} failed with an error", service_id);
+                logger::trace("accumulate_delta_one {} failed with an error gas used: {}", service_id, gas_used);
                 return {std::move(err_ctx.state), std::move(err_ctx.transfers), std::move(err_ctx.result), gas_used, std::move(err_ctx.code)};
             } else if (rv.size() == sizeof(opaque_hash_t)) {
-                logger::trace("accumulate_delta_one {} returned a hash: {}", service_id, rv);
+                logger::trace("accumulate_delta_one {} returned a hash: {} gas used: {}", service_id, rv, gas_used);
                 // elements from err_ctx must take precedence, so start with it given the opposite std::map::merge semantics!
                 service_code_preimages_t<CFG> combined_code = std::move(err_ctx.code);
                 combined_code.merge(std::move(ok_ctx.code));
                 return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), static_cast<buffer>(rv), gas_used, std::move(combined_code)};
             } else {
-                logger::trace("accumulate_delta_one {} completed with a non-hash of size: {}", service_id, rv.size());
+                logger::trace("accumulate_delta_one {} completed with a non-hash of size: {} gas used: {}", service_id, rv.size(), gas_used);
                 return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), std::move(ok_ctx.result), gas_used, std::move(ok_ctx.code)};
             }
         }, std::move(res));
@@ -463,7 +463,7 @@ namespace turbo::jam {
         const service_id_t service_id, // s
         const entropy_t &new_eta0, const time_slot_t<CFG> &slot)
     {
-        logger::debug("service {} accumulate_delta_one invocation t-count: {} r-count: {}",
+        logger::debug("accumulate_delta_one {}invocation t-count: {} r-count: {}",
             service_id, transfers.size(), reports.size());
 
         accumulate_inputs_t<CFG> inputs{};
@@ -507,16 +507,16 @@ namespace turbo::jam {
             if (transfer_sum) {
                 auto info = ctx_err.state.services.info_get(service_id);
                 if (!info) [[unlikely]]
-                    throw error(fmt::format("internal error: accumulate_delta_one called on an unknown service: {}", service_id));
+                    throw error(fmt::format("accumulate_delta_one {} called on an unknown service", service_id));
                 info->balance += transfer_sum;
                 ctx_err.state.services.info_set(service_id, std::move(*info));
             }
 
             const auto code = ctx_err.state.services.preimage_get(service_id, prev_service_info->code_hash);
             if (!code) [[unlikely]] {
-                logger::debug("service {} accumulate: preimage for code hash {} is not available!", service_id, prev_service_info->code_hash);
+                logger::debug("accumulate_delta_one {}: preimage for code hash {} is not available!", service_id, prev_service_info->code_hash);
             } else if (code->size() > CFG::WC_max_service_code_size) [[unlikely]] {
-                logger::debug("service {} accumulate: preimage for code hash {} is too large!", service_id, prev_service_info->code_hash);
+                logger::debug("accumulate_delta_one {}: preimage for code hash {} is too large!", service_id, prev_service_info->code_hash);
             } else [[likely]] {
                 const auto code_hash = crypto::blake2b::digest(*code);
                 if (code_hash != prev_service_info->code_hash) [[unlikely]]
@@ -527,7 +527,7 @@ namespace turbo::jam {
                 arg_enc.uint_varlen(slot.slot());
                 arg_enc.uint_varlen(service_id);
                 arg_enc.uint_varlen(inputs.size());
-                logger::debug("service {} accumulate_delta_one invocation input-count: {}", service_id, inputs.size());
+                logger::debug("accumulate_delta_one {} invocation input-count: {}", service_id, inputs.size());
                 std::optional<host_service_accumulate_t<CFG>> host_service{};
                 // JAM (B.9): bold psi_a
                 auto inv_res = machine::invoke(
