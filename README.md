@@ -19,7 +19,7 @@ When reporting a problem, include details about your build setup to help with tr
 1. Install the necessary dependencies:
    ```
    sudo apt update
-   sudo apt install -y git ninja-build cmake build-essential curl libboost-all-dev libfmt-dev libsodium-dev libssl-dev libspdlog-dev pkgconf
+   sudo apt install -y git ninja-build cmake build-essential curl libboost-all-dev libfmt-dev libsodium-dev libssl-dev libspdlog-dev pkgconf libzstd-dev
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
    . $HOME/.cargo/env
    ```
