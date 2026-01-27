@@ -31,8 +31,8 @@ namespace turbo::jam::fuzzer {
         std::string app_name{"turbojam"};
         uint8_t fuzz_version=0x01; // indicate support for v1
         features_t fuzz_features=0x00000000; // indicate no supported features
-        version_t jam_version{0, 7, 0};
-        version_t app_version{0, 1, 4};
+        version_t jam_version{0, 7, 2};
+        version_t app_version{0, 1, 5};
 
         void serialize(auto &archive)
         {
