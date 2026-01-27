@@ -822,8 +822,8 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::provide()
     {
         const auto &phi = this->_p.m.regs();
-        const auto o = phi[7];
-        const auto z = phi[8];
+        const auto o = phi[8];
+        const auto z = phi[9];
         auto i = this->_p.m.mem_read(o, z);
         const auto h = crypto::blake2b::digest<opaque_hash_t>(i);
         auto [s_id, a] = this->_get_service(phi[7]);
