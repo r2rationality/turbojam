@@ -7,18 +7,17 @@
 #include "common.hpp"
 
 namespace turbo::storage::update {
+    using update_map_t = std::map<uint8_vector, value_t>;
+    using undo_item_t = typename update_map_t::value_type;
+    using undo_list_t = std::vector<undo_item_t>;
+
+    struct undo_redo_t {
+        undo_list_t undo;
+        update_map_t redo;
+    };
     // N.B. this class is not thread safe!
     // N.B. this class assumes that the base_db is updated only by its commit method
     struct db_t final: storage::db_t {
-        using update_map_t = std::map<uint8_vector, value_t>;
-        using undo_item_t = typename update_map_t::value_type;
-        using undo_list_t = std::vector<undo_item_t>;
-
-        struct undo_redo_t {
-            undo_list_t undo;
-            update_map_t redo;
-        };
-
         db_t() = delete;
 
         db_t(const db_t &o):
@@ -86,6 +85,10 @@ namespace turbo::storage::update {
                 _set(k, std::move(v));
             }
             src.reset();
+        }
+
+        void apply(const buffer k, value_t v) {
+            _set(k, std::move(v));
         }
 
         // N.B. an exception in set or erase base_db method would leave the state partially applied

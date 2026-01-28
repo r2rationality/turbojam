@@ -99,11 +99,11 @@ suite turbo_storage_update_suite = [] {
             db.erase("AB"sv);
             const auto trace = db.commit();
             expect_equal(size_t{2}, get_contents(*base_db).size());
-            expect_equal(update::db_t::undo_list_t{
+            expect_equal(undo_list_t{
                 {uint8_vector{"AC"sv}, value_t{"EF"sv}},
                 {uint8_vector{"AD"sv}, value_t{}},
             }, trace.undo);
-            expect_equal(update::db_t::update_map_t{
+            expect_equal(update_map_t{
                 {uint8_vector{"AB"sv}, value_t{}},
                 {uint8_vector{"AC"sv}, value_t{"XY"sv}},
                 {uint8_vector{"AD"sv}, value_t{"GH"sv}},

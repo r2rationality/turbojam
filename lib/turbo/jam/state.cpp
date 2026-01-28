@@ -850,7 +850,7 @@ namespace turbo::jam {
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
         const auth_pools_t<CFG> &prev_alpha,
         const accounts_t<CFG> &prev_delta,
-        const ancestry_span_t<CFG> &/*ancestry*/,
+        const ancestry_span_t<CFG> &ancestry,
         const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees)
     {
         reports_output_data_t res {};
@@ -913,18 +913,17 @@ namespace turbo::jam {
                     throw err_segment_root_lookup_invalid_t{};
 
                 // JAM Paper (11.35) - temporarily disabled
-                /*if (!ancestry.empty()) {
+                const auto lblk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
+                    return blk.header_hash == g.report.context.lookup_anchor;
+                });
+                if (lblk_it == tmp_beta.end()) [[unlikely]] {
+                    if (ancestry.empty())
+                        throw err_segment_root_lookup_invalid_t{};
                     const auto a_it = std::lower_bound(ancestry.begin(), ancestry.end(), g.report.context.lookup_anchor_slot,
                         [](const auto &a, const auto &v) { return a.slot < v; });
                     if (a_it == ancestry.end() || a_it->slot != g.report.context.lookup_anchor_slot || a_it->header_hash != g.report.context.lookup_anchor) [[unlikely]]
                         throw err_segment_root_lookup_invalid_t{};
-                } else { // fallback to support the current format of jam-test-vectors
-                    const auto lblk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
-                        return blk.header_hash == g.report.context.lookup_anchor;
-                    });
-                    if (lblk_it == tmp_beta.end()) [[unlikely]]
-                        throw err_segment_root_lookup_invalid_t {};
-                }*/
+                }
 
                 // JAM Paper (11.38)
                 if (known_packages.contains(g.report.package_spec.hash)) [[unlikely]]

@@ -32,7 +32,7 @@ namespace turbo::jam::fuzzer {
         uint8_t fuzz_version=0x01; // indicate support for v1
         features_t fuzz_features=0x00000000; // indicate no supported features
         version_t jam_version{0, 7, 2};
-        version_t app_version{0, 1, 5};
+        version_t app_version{0, 2, 0};
 
         void serialize(auto &archive)
         {

@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <ark-vrf.hpp>
+#include <turbo/storage/update.hpp>
 #include "common.hpp"
 
 namespace turbo::jam {
@@ -12,6 +13,7 @@ namespace turbo::jam {
     struct ancestry_item_t {
         time_slot_t<CFG> slot;
         header_hash_t header_hash;
+        std::optional<storage::update::undo_redo_t> undo_redo{};
 
         void serialize(auto &archive)
         {
@@ -20,7 +22,9 @@ namespace turbo::jam {
             archive.process("header_hash"sv, header_hash);
         }
 
-        bool operator==(const ancestry_item_t &) const =default;
+        bool operator==(const ancestry_item_t &o) const {
+            return slot == o.slot && header_hash == o.header_hash;
+        }
     };
 
     template<typename CFG>
@@ -33,14 +37,14 @@ namespace turbo::jam {
             add(0U, blk_hash);
         }
 
-        void add(const time_slot_t<CFG> &blk_slot, const header_hash_t &blk_hash)
+        void add(const time_slot_t<CFG> &blk_slot, const header_hash_t &blk_hash, std::optional<storage::update::undo_redo_t> undo_redo={})
         {
             // a duplicate check for monotonicity to ensure even initialized data comes in sorted to make binary search work
             // 0 is a special case that is used in testing only
             // to add blocks to the ancestry from beta state element when doing direct state initialization
             if (!this->empty() && this->back().slot >= blk_slot && (this->back().slot == 0U && blk_slot != 0U)) [[unlikely]]
                 throw error(fmt::format("out of order ancestry block: {} comes after {}", blk_slot, this->back().slot));
-            this->emplace_back(blk_slot, blk_hash);
+            this->emplace_back(blk_slot, blk_hash, std::move(undo_redo));
         }
 
         base_type::const_iterator known(const header_hash_t &parent_hash) const {

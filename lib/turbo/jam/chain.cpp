@@ -34,6 +34,7 @@ namespace turbo::jam {
         void apply(const block_t<CFG> &blk)
         {
             const auto blk_hash = blk.header.hash();
+            std::optional<storage::update::undo_redo_t> undo_redo{};
             if (!_state) [[unlikely]] {
                 _state.emplace(_updatedb);
                 *_state = _genesis_state;
@@ -48,13 +49,17 @@ namespace turbo::jam {
             } else {
                 _updatedb->reset();
                 const auto new_ancestry_end = _ancestry.known(blk.header.parent);
-                if (new_ancestry_end != _ancestry.end()) [[unlikely]]
-                    throw error("state rollback not supported!");
+                for (auto &ancestor: std::views::reverse(std::span{new_ancestry_end, _ancestry.end()})) {
+                    if (!ancestor.undo_redo) [[unlikely]]
+                        throw error(fmt::format("can't rollback block {} due to missing undo record", ancestor.header_hash));
+                    for (auto &&[k, v]: ancestor.undo_redo->undo)
+                        _updatedb->apply(k, v);
+                }
                 _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
-                _updatedb->commit();
+                undo_redo = _updatedb->commit();
                 _ancestry.erase(new_ancestry_end, _ancestry.end());
             }
-            _ancestry.add(blk.header.slot, blk_hash);
+            _ancestry.add(blk.header.slot, blk_hash, std::move(undo_redo));
         }
 
         [[nodiscard]] const std::string &id() const
@@ -105,7 +110,7 @@ namespace turbo::jam {
         state_snapshot_t _genesis_state;
         header_t<CFG> _genesis_header;
         std::optional<state_t<CFG>> _state{};
-        std::map<header_hash_t, storage::update::db_t::update_map_t> _rollback_state{};
+        std::map<header_hash_t, storage::update::update_map_t> _rollback_state{};
         ancestry_t<CFG> _ancestry{};
     };
 

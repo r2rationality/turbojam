@@ -882,12 +882,6 @@ namespace turbo::jam {
         // helper fuinctions
 
         static validators_data_t<CFG> capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o);
-
-        /*[[nodiscard]] state_root_t root() const
-        {
-            return triedb().root();
-        }*/
-
         bool operator==(const state_t &o) const noexcept;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
@@ -923,18 +917,5 @@ namespace turbo::jam {
             const free_services_t *free_services, // f
             const service_id_t service_id, // s
             const entropy_t &new_eta0, const time_slot_t<CFG> &slot);
-        /*static gas_t invoke_on_transfer(
-            const entropy_t &new_eta0, account_updates_t<CFG> &new_delta,
-            time_slot_t<CFG> slot, service_id_t service_id, const deferred_transfers_t<CFG> &transfers);*/
-
-        /*const triedb::db_t &triedb() const
-        {
-            return dynamic_cast<const triedb::db_t&>(*this->db);
-        }
-
-        triedb::db_t &triedb()
-        {
-            return const_cast<triedb::db_t&>(const_cast<const state_t *>(this)->triedb());
-        }*/
     };
 }

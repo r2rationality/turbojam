@@ -17,7 +17,7 @@ suite turbo_jam_traces_suite = [] {
         static const auto test_prefix = test_vector_dir("traces/");
         static std::optional<std::filesystem::path> override_test{};
         static const auto genesis = jam::load_obj<test_genesis_t<config_tiny>>(test_prefix + "safrole/genesis.bin");
-        //override_test.emplace(test_prefix + "fuzzy/00000011");
+        //override_test.emplace(test_prefix + "fuzzy_light/00000002");
         if (!override_test) {
             set_t<test_res_t> perf{};
             std::set<std::filesystem::path> test_sets{};

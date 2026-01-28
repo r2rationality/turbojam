@@ -109,6 +109,12 @@ namespace {
         }
     };
 
+    struct override_case_t {
+        size_t case_no;
+        std::string snap_path;
+        std::optional<state_snapshot_t> snap{};
+    };
+
     template<typename CFG, template<typename ...> typename PROC>
     struct client_t {
         using my_processor_ptr_t = std::unique_ptr<PROC<CFG>>;
@@ -136,10 +142,11 @@ namespace {
             return false;
         }
 
-        void test_dir(const std::filesystem::path &data_dir)
+        void test_dir(const std::filesystem::path &data_dir, std::optional<override_case_t> override={})
         {
             std::vector<std::string> fuzzer_files{};
             std::vector<std::string> target_files{};
+            std::optional<initialize_t<CFG>> override_init{};
             for (const auto &path: file::files_with_ext(data_dir.string(), ".bin")) {
                 if (path.contains("00000000_")) [[unlikely]]
                     continue;
@@ -147,16 +154,47 @@ namespace {
                     fuzzer_files.emplace_back(path);
                 if (path.contains("_target_"))
                     target_files.emplace_back(path);
+                if (path.contains("fuzzer_initialize")) {
+                    if (override_init) [[unlikely]]
+                        throw error(fmt::format("an unexpected second initialize: {}", path));
+                    override_init = load_obj<initialize_t<CFG>>(path);
+                }
             }
             if (fuzzer_files.size() != target_files.size())
                 throw error(fmt::format("the number of fuzzer files: {} != the number of target files: {}", fuzzer_files.size(), target_files.size()));
+            //if (override && std::filesystem::exists(override->snap_path))
+            //    override->snap = load_obj<state_snapshot_t>(override->snap_path);
             for (size_t i = 0; i < fuzzer_files.size(); ++i) {
-                test_sample(fuzzer_files[i], target_files[i]);
+                if (!override || (!override->snap && i < override->case_no)) [[unlikely]] {
+                    test_sample(fuzzer_files[i], target_files[i]);
+                }
+                if (override && override->case_no == i) [[unlikely]] {
+                    if (override->snap) {
+                        override_init->state = std::move(*override->snap);
+                        _io_worker.sync_call(_set_state(initialize_t<CFG>(std::move(*override_init))));
+                    } else {
+                        const auto snap = _io_worker.sync_call(_get_state({}));
+                        const encoder enc{snap};
+                        file::write(override->snap_path, enc.bytes());
+                    }
+                    test_sample(fuzzer_files[i], target_files[i]);
+                    break;
+                }
             }
         }
     private:
         my_processor_ptr_t _proc;
         io_worker_t &_io_worker;
+
+        boost::asio::awaitable<state_root_t> _set_state(initialize_t<CFG> init)
+        {
+            co_return variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{std::move(init)}));
+        }
+
+        boost::asio::awaitable<state_snapshot_t> _get_state(const header_hash_t &hh)
+        {
+            co_return variant::get_nice<state_snapshot_t>(_proc->process(message_t<CFG>{get_state_t{hh}}));
+        }
 
         boost::asio::awaitable<bool> _test_case(message_t<CFG> in, message_t<CFG> exp)
         {
@@ -174,13 +212,17 @@ namespace {
 
 suite turbo_jam_fuzzer_suite = [] {
     "turbo::jam::fuzzer"_test = [] {
+        file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
         {
-            client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", file::tmp_directory{"turbo-jam-fuzzer"})};
+            client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir)};
             c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/no_forks"));
         }
         {
-            client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", file::tmp_directory{"turbo-jam-fuzzer"})};
-            c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/forks"));
+            client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir)};
+            c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/forks")/*, override_case_t{
+                45U,
+                file::install_path("test/overrides/minifuzz-snap-45.bin")
+            }*/);
         }
     };
 };
