@@ -36,6 +36,7 @@ add_cargo_staticlib(ark_vrf_cpp  "${CMAKE_CURRENT_LIST_DIR}/ark-vrf-cpp" "ark_vr
 if (MSVC)
     target_link_libraries(ark_vrf_cpp INTERFACE bcrypt advapi32 kernel32 advapi32 ntdll userenv ws2_32 dbghelp)
 endif()
+add_cargo_staticlib(ed25519_consensus_cpp "${CMAKE_CURRENT_LIST_DIR}/ed25519-consensus-cpp" "ed25519_consensus_cpp")
 
 set(MSQUIC_SRC   "${CMAKE_CURRENT_LIST_DIR}/msquic")
 set(MSQUIC_BUILD "${CMAKE_CURRENT_BINARY_DIR}/msquic")
@@ -65,7 +66,7 @@ add_dependencies(msquic msquic_build-install)
 add_library(3rdparty OBJECT hash-library/keccak.cpp nanobench.cpp)
 target_include_directories(3rdparty PUBLIC .)
 set_target_properties(3rdparty PROPERTIES LINKER_LANGUAGE CXX)
-target_link_libraries(3rdparty PUBLIC ark_vrf_cpp erasure_coding msquic)
+target_link_libraries(3rdparty PUBLIC ark_vrf_cpp erasure_coding ed25519_consensus_cpp msquic)
 
 if(UNIX)
     target_link_libraries(3rdparty PUBLIC numa)

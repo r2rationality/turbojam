@@ -8,9 +8,9 @@
 #include <numeric>
 #include <ranges>
 #include <unordered_set>
+#include <ed25519-consensus.hpp>
 #include <turbo/common/timer.hpp>
 #include <turbo/crypto/blake2b.hpp>
-#include <turbo/crypto/ed25519.hpp>
 #include <turbo/crypto/keccak.hpp>
 #include <turbo/jam/shuffle.hpp>
 #include <turbo/jam/host-service.hpp>
@@ -989,7 +989,7 @@ namespace turbo::jam {
                     if (vk == offender_vk) [[unlikely]]
                         throw err_banned_validator_t{};
 
-                    if (!crypto::ed25519::verify(s.signature, msg, vk)) [[unlikely]]
+                    if (!ed25519_consensus::zip215_verify(s.signature, msg, vk)) [[unlikely]]
                         throw err_bad_signature_t {};
                     res.reporters.emplace(vk);
                 }
@@ -1087,7 +1087,7 @@ namespace turbo::jam {
                         throw err_bad_validator_index_t{};
                     const auto &validators = v.age == cur_epoch ? prev_kappa : prev_lambda;
                     const auto &val = validators[j.index];
-                    if (!crypto::ed25519::verify(j.signature, msg, val.ed25519)) [[unlikely]]
+                    if (!ed25519_consensus::zip215_verify(j.signature, msg, val.ed25519)) [[unlikely]]
                         throw err_bad_signature_t{};
                     if (j.vote)
                         ++oks;
@@ -1135,7 +1135,7 @@ namespace turbo::jam {
                 msg.reserve(c.report.size() + CFG::jam_guarantee.size());
                 msg << static_cast<buffer>(CFG::jam_guarantee);
                 msg << c.report;
-                if (!crypto::ed25519::verify(c.signature, msg, c.key)) [[unlikely]]
+                if (!ed25519_consensus::zip215_verify(c.signature, msg, c.key)) [[unlikely]]
                     throw err_bad_signature_t {};
                 ++new_culprits[c.report];
                 if (const auto [it, created] = new_offenders.emplace(c.key); !created)
@@ -1162,7 +1162,7 @@ namespace turbo::jam {
                 msg.reserve(f.report.size() + verdict_prefix.size());
                 msg << static_cast<buffer>(verdict_prefix);
                 msg << f.report;
-                if (!crypto::ed25519::verify(f.signature, msg, f.key)) [[unlikely]]
+                if (!ed25519_consensus::zip215_verify(f.signature, msg, f.key)) [[unlikely]]
                     throw err_bad_signature_t{};
                 new_fault_reports.emplace(f.report);
                 if (const auto [it, created] = new_offenders.emplace(f.key); !created)
@@ -1400,7 +1400,7 @@ namespace turbo::jam {
                 msg << crypto::blake2b::digest(enc.bytes());
             }
             const auto &vk = validators[a.validator_index].ed25519;
-            if (!crypto::ed25519::verify(a.signature, msg, vk)) [[unlikely]]
+            if (!ed25519_consensus::zip215_verify(a.signature, msg, vk)) [[unlikely]]
                 throw err_bad_signature_t {};
             for (size_t ci = 0; ci < CFG::C_core_count; ++ci) {
                 if (a.bitfield.test(ci)) {
