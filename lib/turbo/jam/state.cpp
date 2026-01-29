@@ -900,7 +900,7 @@ namespace turbo::jam {
                     throw err_too_many_dependencies_t {};
                 prev_core = g.report.core_index;
                 if (g.slot > slot) [[unlikely]]
-                    throw err_future_report_slot_t {};
+                    throw err_future_report_slot_t{};
                 {
                     static_assert(CFG::E_epoch_length % CFG::R_core_assignment_rotation_period == 0);
                     const auto current_rotation = slot.slot() / CFG::R_core_assignment_rotation_period;
@@ -1271,6 +1271,8 @@ namespace turbo::jam {
                 this->kappa.get(), this->lambda.get(),
                 prev_tau, blk.extrinsic.disputes
             );
+            if (new_offenders != blk.header.offenders_mark) [[unlikely]]
+                throw err_bad_offenders_mark_t{};
 
             // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime - deps match GP
             const auto prev_kappa_ptr = this->kappa.storage();
@@ -1294,6 +1296,45 @@ namespace turbo::jam {
                     this->kappa.get().at(blk.header.author_index).bandersnatch,
                     this->gamma.get().s, this->eta.get()[3]
                 );
+            }
+
+            // (5.4), (5.5), (5.6)
+            // can be run in parallel
+            {
+                uint8_vector leafs{};
+                {
+                    encoder enc{blk.extrinsic.tickets};
+                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+                }
+                {
+                    encoder enc{blk.extrinsic.preimages};
+                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+                }
+                {
+                    report_guarantee_infos_t<CFG> g_infos{};
+                    g_infos.reserve(blk.extrinsic.guarantees.size());
+                    for (const auto &g: blk.extrinsic.guarantees) {
+                        const encoder r_enc{g.report};
+                        g_infos.emplace_back(
+                            crypto::blake2b::digest<opaque_hash_t>(r_enc.bytes()),
+                            g.slot,
+                            g.signatures
+                        );
+                    }
+                    encoder enc{g_infos};
+                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+                }
+                {
+                    encoder enc{blk.extrinsic.assurances};
+                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+                }
+                {
+                    encoder enc{blk.extrinsic.disputes};
+                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+                }
+                const auto ex_hash = crypto::blake2b::digest<opaque_hash_t>(leafs);
+                if (ex_hash != blk.header.extrinsic_hash) [[unlikely]]
+                    throw err_bad_extrinsic_hash_t{};
             }
 
             // (4.13) (4.14) (4.15) - extra deps:

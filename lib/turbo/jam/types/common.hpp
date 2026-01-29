@@ -1121,6 +1121,23 @@ namespace turbo::jam {
         bool operator==(const report_guarantee_t &o) const = default;
     };
 
+    template<typename CFG>
+    struct report_guarantee_info_t {
+        opaque_hash_t report_hash;
+        time_slot_t<CFG> slot;
+        sequence_t<validator_signature_t> signatures;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("report_hash"sv, report_hash);
+            archive.process("slot"sv, slot);
+            archive.process("signatures"sv, signatures);
+        }
+    };
+    template<typename CFG>
+    using report_guarantee_infos_t = sequence_t<report_guarantee_info_t<CFG>>;
+
     template<typename CFG=config_prod>
     using guarantees_extrinsic_t = sequence_t<report_guarantee_t<CFG>, 0, CFG::C_core_count>;
 

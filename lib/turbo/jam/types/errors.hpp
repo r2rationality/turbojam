@@ -37,6 +37,9 @@ namespace turbo::jam {
     struct err_future_slot_t final: error_t {
         explicit err_future_slot_t(): error_t{*this} {}
     };
+    struct err_bad_extrinsic_hash_t final: error_t {
+        explicit err_bad_extrinsic_hash_t(): error_t{*this} {}
+    };
     struct err_unexpected_ticket_t final: error_t {
         explicit err_unexpected_ticket_t(): error_t{*this} {}
     };
@@ -51,6 +54,9 @@ namespace turbo::jam {
     };
     struct err_bad_ticket_attempt_t final: error_t {
         explicit err_bad_ticket_attempt_t(): error_t{*this} {}
+    };
+    struct err_bad_offenders_mark_t final: error_t {
+        explicit err_bad_offenders_mark_t(): error_t{*this} {}
     };
     struct err_reserved_t final: error_t {
         explicit err_reserved_t(): error_t{*this} {}
