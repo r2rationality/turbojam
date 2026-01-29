@@ -834,8 +834,11 @@ namespace turbo::jam {
     template<typename CFG>
     void state_t<CFG>::tau_prime(time_slot_t<CFG> &tau, const time_slot_t<CFG> &blk_slot)
     {
-        if (blk_slot <= tau || blk_slot > time_slot_t<CFG>::current()) [[unlikely]]
+        if (blk_slot <= tau) [[unlikely]]
             throw err_bad_slot_t{};
+        // Comparison against wall clock time is disabled during fuzzing as per: https://github.com/davxy/jam-conformance/discussions/64
+        /*if (blk_slot > time_slot_t<CFG>::current()) [[unlikely]]
+            throw err_future_slot_t{};*/
         // JAM (6.1)
         tau = blk_slot;
     }
@@ -1432,6 +1435,12 @@ namespace turbo::jam {
     void state_t<CFG>::rollback()
     {
         this->visit_simple([](auto &v){ v.rollback(); });
+    }
+
+    template<typename CFG>
+    void state_t<CFG>::reset_cache()
+    {
+        this->visit_simple([](auto &v){ v.reset(); });
     }
 
     template<typename CFG>

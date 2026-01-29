@@ -812,6 +812,7 @@ namespace turbo::jam {
 
         void commit();
         void rollback();
+        void reset_cache();
 
         // (4.1): Kapital upsilon
         void apply(const block_t<CFG> &, const ancestry_span_t<CFG> &);

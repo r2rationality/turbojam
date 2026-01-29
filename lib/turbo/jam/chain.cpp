@@ -49,11 +49,14 @@ namespace turbo::jam {
             } else {
                 _updatedb->reset();
                 const auto new_ancestry_end = _ancestry.known(blk.header.parent);
-                for (auto &ancestor: std::views::reverse(std::span{new_ancestry_end, _ancestry.end()})) {
-                    if (!ancestor.undo_redo) [[unlikely]]
-                        throw error(fmt::format("can't rollback block {} due to missing undo record", ancestor.header_hash));
-                    for (auto &&[k, v]: ancestor.undo_redo->undo)
-                        _updatedb->apply(k, v);
+                if (new_ancestry_end != _ancestry.end()) {
+                    for (auto &ancestor: std::views::reverse(std::span{new_ancestry_end, _ancestry.end()})) {
+                        if (!ancestor.undo_redo) [[unlikely]]
+                            throw error(fmt::format("can't rollback block {} due to missing undo record", ancestor.header_hash));
+                        for (auto &&[k, v]: ancestor.undo_redo->undo)
+                            _updatedb->apply(k, v);
+                    }
+                    _state->reset_cache();
                 }
                 _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
                 undo_redo = _updatedb->commit();

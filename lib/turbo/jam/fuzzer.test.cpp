@@ -142,11 +142,10 @@ namespace {
             return false;
         }
 
-        void test_dir(const std::filesystem::path &data_dir, std::optional<override_case_t> override={})
+        void test_dir(const std::filesystem::path &data_dir)
         {
             std::vector<std::string> fuzzer_files{};
             std::vector<std::string> target_files{};
-            std::optional<initialize_t<CFG>> override_init{};
             for (const auto &path: file::files_with_ext(data_dir.string(), ".bin")) {
                 if (path.contains("00000000_")) [[unlikely]]
                     continue;
@@ -154,32 +153,11 @@ namespace {
                     fuzzer_files.emplace_back(path);
                 if (path.contains("_target_"))
                     target_files.emplace_back(path);
-                if (path.contains("fuzzer_initialize")) {
-                    if (override_init) [[unlikely]]
-                        throw error(fmt::format("an unexpected second initialize: {}", path));
-                    override_init = load_obj<initialize_t<CFG>>(path);
-                }
             }
             if (fuzzer_files.size() != target_files.size())
                 throw error(fmt::format("the number of fuzzer files: {} != the number of target files: {}", fuzzer_files.size(), target_files.size()));
-            //if (override && std::filesystem::exists(override->snap_path))
-            //    override->snap = load_obj<state_snapshot_t>(override->snap_path);
             for (size_t i = 0; i < fuzzer_files.size(); ++i) {
-                if (!override || (!override->snap && i < override->case_no)) [[unlikely]] {
-                    test_sample(fuzzer_files[i], target_files[i]);
-                }
-                if (override && override->case_no == i) [[unlikely]] {
-                    if (override->snap) {
-                        override_init->state = std::move(*override->snap);
-                        _io_worker.sync_call(_set_state(initialize_t<CFG>(std::move(*override_init))));
-                    } else {
-                        const auto snap = _io_worker.sync_call(_get_state({}));
-                        const encoder enc{snap};
-                        file::write(override->snap_path, enc.bytes());
-                    }
-                    test_sample(fuzzer_files[i], target_files[i]);
-                    break;
-                }
+                test_sample(fuzzer_files[i], target_files[i]);
             }
         }
     private:
@@ -219,10 +197,7 @@ suite turbo_jam_fuzzer_suite = [] {
         }
         {
             client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir)};
-            c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/forks")/*, override_case_t{
-                45U,
-                file::install_path("test/overrides/minifuzz-snap-45.bin")
-            }*/);
+            c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/forks"));
         }
     };
 };
