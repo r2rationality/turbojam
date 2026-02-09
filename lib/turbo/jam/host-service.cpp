@@ -584,7 +584,7 @@ namespace turbo::jam {
             .code_hash=static_cast<buffer>(c),
             .min_item_gas=g,
             .min_memo_gas=m,
-            .bytes=81 + l,
+            .bytes=uint64_t{81} + l,
             .deposit_offset=f,
             .items=2,
             .creation_slot=this->_p.slot,
@@ -721,6 +721,11 @@ namespace turbo::jam {
         const auto &phi = this->_p.m.regs();
         lookup_meta_map_key_t key;
         this->_p.m.mem_read(key.hash, phi[7]);
+        if (phi[8] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::none);
+            this->_p.m.set_reg(8, 0ULL);
+            return;
+        }
         key.length = static_cast<uint32_t>(phi[8]);
         logger::trace("gas: {} host_service::query service: {} h: {} l: {}", this->_p.m.gas(), this->_p.service_id, key.hash, key.length);
         const auto a = this->_p.services.lookup_get(this->_p.service_id, key);
@@ -757,14 +762,19 @@ namespace turbo::jam {
         const auto &phi = this->_p.m.regs();
         lookup_meta_map_key_t key;
         this->_p.m.mem_read(key.hash, phi[7]);
+        if (phi[8] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
         key.length = static_cast<uint32_t>(phi[8]);
         logger::trace("gas: {} host_service::solicit service: {} h: {} l: {}", this->_p.m.gas(), this->_p.service_id, key.hash, key.length);
         auto info = this->_service_info();
         auto a_res = this->_p.services.lookup_get(this->_p.service_id, key);
         if (!a_res) {
             this->_p.services.lookup_set(this->_p.service_id, key, {});
-            info.items += 2;
-            info.bytes += 81 + key.length;
+            info.items += 2U;
+            info.bytes += 81U;
+            info.bytes += key.length;
             this->_p.services.info_set(this->_p.service_id, std::move(info));
         } else if (a_res->size() == 2) {
             a_res->emplace_back(this->_p.slot);
@@ -786,13 +796,18 @@ namespace turbo::jam {
         const auto &phi = this->_p.m.regs();
         lookup_meta_map_key_t key;
         this->_p.m.mem_read(key.hash, phi[7]);
+        if (phi[8] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
         key.length = static_cast<uint32_t>(phi[8]);
         logger::trace("gas: {} host_service::forget service: {} h: {} l: {}", this->_p.m.gas(), this->_p.service_id, key.hash, key.length);
         auto l_res = this->_p.services.lookup_get(this->_p.service_id, key);
         if (l_res && (l_res->size() == 0 || (l_res->size() == 2 && (*l_res)[1].slot() + CFG::D_preimage_expunge_delay < this->_p.slot.slot()))) {
             auto info = this->_service_info();
-            info.items -= 2;
-            info.bytes -= 81 + key.length;
+            info.items -= 2U;
+            info.bytes -= 81U;
+            info.bytes -= key.length;
             this->_p.services.info_set(this->_p.service_id, std::move(info));
             this->_p.services.lookup_erase(this->_p.service_id, key);
             this->_p.services.preimage_erase(this->_p.service_id, key.hash);
@@ -834,7 +849,12 @@ namespace turbo::jam {
             return;
         }
         const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
-        if (const auto l_res = this->_p.services.lookup_get(s_id, key); !l_res || !l_res->empty()) [[unlikely]] {
+        if (phi[9] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
+        if (const auto l_res = this->_p.services.lookup_get(s_id, key);
+            phi[9] > std::numeric_limits<decltype(key.length)>::max() || !l_res || !l_res->empty()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
@@ -842,8 +862,6 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        ++a->items;
-        a->bytes += 32 + i.size();
         this->_p.services.info_set(s_id, std::move(*a));
         this->_p.services.preimage_set(s_id, h, std::move(i));
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
