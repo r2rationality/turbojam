@@ -74,6 +74,9 @@ The project uses the following test-vector sets and tools to verify its conforma
 - [JIP-6: Program metadata](https://github.com/polkadot-fellows/JIPs/pull/3)
 - [JAM community-generated documentation](https://docs.jamcha.in/)
 
+## Community Tools
+- [JAM Conformance Performance Dashboard](https://paritytech.github.io/jam-conformance-dashboard/)
+
 ## Account IDs
 - DOT: 14Gnp9cpb4mrXrpbCVNQSEPyL3QhoccGB9qpTRxqKWWMWSxn
 - KSM: Fr7L8hdMeXJqydX1Z8TC2vpd1hHuysJZ2x5goFSFDhL5Ay8
