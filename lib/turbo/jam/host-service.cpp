@@ -348,7 +348,12 @@ namespace turbo::jam {
             val = _p.services.storage_get(s_id, key);
         }
         if (val) {
-            logger::trace("gas: {} host call: read: service_id: {} key: {} -> {} bytes", this->_p.m.gas(), s_id, key, val->size());
+            logger::trace("gas: {} host call: read: service_id: {} key: {} -> {}",
+                this->_p.m.gas(), s_id, key,
+                val->size() <= 32
+                    ? fmt::format("#{}", *val)
+                    : fmt::format("{} bytes", val->size())
+            );
             const auto f = std::min(phi[11], val->size());
             const auto l = std::min(phi[12], val->size() - f);
             _p.m.mem_write(o, static_cast<buffer>(*val).subbuf(f, l));
@@ -763,7 +768,7 @@ namespace turbo::jam {
         lookup_meta_map_key_t key;
         this->_p.m.mem_read(key.hash, phi[7]);
         if (phi[8] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            this->_p.m.set_reg(7, machine::host_call_res_t::full);
             return;
         }
         key.length = static_cast<uint32_t>(phi[8]);
@@ -853,8 +858,7 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        if (const auto l_res = this->_p.services.lookup_get(s_id, key);
-            phi[9] > std::numeric_limits<decltype(key.length)>::max() || !l_res || !l_res->empty()) [[unlikely]] {
+        if (const auto l_res = this->_p.services.lookup_get(s_id, key); !l_res || !l_res->empty()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }

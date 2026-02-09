@@ -279,7 +279,18 @@ namespace turbo::jam {
 
         std::optional<uint8_vector> storage_get(const service_id_t id, const buffer &k) const
         {
-            return _get<uint8_vector>(_storage_key(id, k));
+            const auto key = _storage_key(id, k);
+            auto val = _get<uint8_vector>(key);
+            logger::debug("storage_get: service_id: {} key: {} storage_key: {} val: {}",
+                id, k, key,
+                val
+                    ? val->size() <= 32
+                        ? fmt::format("{} {} bytes", *val, val->size())
+                        : fmt::format("{}... {} bytes", static_cast<buffer>(*val).subspan(0, 32), val->size())
+                    : std::string{"NONE"}
+
+            );
+            return val;
         }
 
         void storage_set_raw(const service_id_t id, const buffer &k, uint8_vector val)
@@ -294,8 +305,8 @@ namespace turbo::jam {
             logger::debug("storage_set: service_id: {} key: {} storage_key: {} val: {}",
                 id, k, key,
                 val.size() <= 32
-                    ? fmt::format("{}", val)
-                    : fmt::format("{}...#{}", static_cast<buffer>(val).subspan(0, 32), val.size())
+                    ? fmt::format("{} {} bytes", val, val.size())
+                    : fmt::format("{}... {} bytes", static_cast<buffer>(val).subspan(0, 32), val.size())
             );
             auto prev_val = _get<uint8_vector>(key);
             if (!val.empty()) {

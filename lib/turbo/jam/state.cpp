@@ -463,7 +463,7 @@ namespace turbo::jam {
         const service_id_t service_id, // s
         const entropy_t &new_eta0, const time_slot_t<CFG> &slot)
     {
-        logger::debug("accumulate_delta_one {}invocation t-count: {} r-count: {}",
+        logger::debug("accumulate_delta_one {} invocation t-count: {} r-count: {}",
             service_id, transfers.size(), reports.size());
 
         accumulate_inputs_t<CFG> inputs{};
