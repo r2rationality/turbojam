@@ -714,10 +714,10 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct avail_assurance_t {
-        opaque_hash_t anchor;
-        bitset_t<CFG::avail_bitfield_bytes * 8> bitfield;
-        validator_index_t validator_index;
-        ed25519_signature_t signature;
+        opaque_hash_t anchor; // a
+        bitset_t<CFG::avail_bitfield_bytes * 8> bitfield; // f
+        validator_index_t validator_index; // v
+        ed25519_signature_t signature; // s
 
         void serialize(auto &archive)
         {
