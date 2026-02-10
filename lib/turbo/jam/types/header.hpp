@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <ark-vrf.hpp>
+#include <numeric>
 #include <turbo/storage/update.hpp>
 #include "common.hpp"
 
@@ -13,6 +14,7 @@ namespace turbo::jam {
     struct ancestry_item_t {
         time_slot_t<CFG> slot;
         header_hash_t header_hash;
+        std::optional<state_root_t> state_root{};
         std::optional<storage::update::undo_redo_t> undo_redo{};
 
         void serialize(auto &archive)
@@ -32,27 +34,32 @@ namespace turbo::jam {
         using base_type = sequence_t<ancestry_item_t<CFG>>;
         using base_type::base_type;
 
-        void add(const header_hash_t &blk_hash)
+        void add(const header_hash_t &blk_hash, const state_root_t &state_root)
         {
-            add(0U, blk_hash);
+            const auto sum = std::accumulate(state_root.begin(), state_root.end(), uint64_t{0}, [](const auto &a, const auto &b) {return a + b;});
+            if (sum != 0)
+                add(0U, blk_hash, state_root);
+            else
+                add(0U, blk_hash);
         }
 
-        void add(const time_slot_t<CFG> &blk_slot, const header_hash_t &blk_hash, std::optional<storage::update::undo_redo_t> undo_redo={})
+        void add(const time_slot_t<CFG> &blk_slot, const header_hash_t &blk_hash, std::optional<state_root_t> state_root={}, std::optional<storage::update::undo_redo_t> undo_redo={})
         {
             // a duplicate check for monotonicity to ensure even initialized data comes in sorted to make binary search work
             // 0 is a special case that is used in testing only
             // to add blocks to the ancestry from beta state element when doing direct state initialization
             if (!this->empty() && this->back().slot >= blk_slot && (this->back().slot == 0U && blk_slot != 0U)) [[unlikely]]
                 throw error(fmt::format("out of order ancestry block: {} comes after {}", blk_slot, this->back().slot));
-            this->emplace_back(blk_slot, blk_hash, std::move(undo_redo));
+            this->emplace_back(blk_slot, blk_hash, std::move(state_root), std::move(undo_redo));
         }
 
-        base_type::const_iterator known(const header_hash_t &parent_hash) const {
+        base_type::const_iterator known(const header_hash_t &parent_hash, const state_root_t &parent_state_root) const {
             const auto parent_it = std::find_if(this->begin(), this->end(), [&](const auto &a) {
-                return a.header_hash == parent_hash;
+                return a.header_hash == parent_hash && (!a.state_root || *a.state_root == parent_state_root);
             });
-            if (parent_it == this->end()) [[unlikely]]
+            if (parent_it == this->end()) [[unlikely]] {
                 throw err_unknown_parent_t{};
+            }
             return std::next(parent_it);
         }
     };

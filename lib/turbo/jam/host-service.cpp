@@ -868,6 +868,7 @@ namespace turbo::jam {
         }
         this->_p.services.info_set(s_id, std::move(*a));
         this->_p.services.preimage_set(s_id, h, std::move(i));
+        this->_p.services.lookup_set(s_id, key, {this->_p.slot});
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 

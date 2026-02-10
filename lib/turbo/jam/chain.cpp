@@ -26,7 +26,7 @@ namespace turbo::jam {
                 _updatedb->commit();
                 const auto &beta = _state->beta.get();
                 for (const auto &h: beta.history) {
-                    _ancestry.add(h.header_hash);
+                    _ancestry.add(h.header_hash, h.state_root);
                 }
             }
         }
@@ -48,7 +48,7 @@ namespace turbo::jam {
                 _updatedb->commit();
             } else {
                 _updatedb->reset();
-                const auto new_ancestry_end = _ancestry.known(blk.header.parent);
+                const auto new_ancestry_end = _ancestry.known(blk.header.parent, blk.header.parent_state_root);
                 if (new_ancestry_end != _ancestry.end()) {
                     for (auto &ancestor: std::views::reverse(std::span{new_ancestry_end, _ancestry.end()})) {
                         if (!ancestor.undo_redo) [[unlikely]]
@@ -57,15 +57,16 @@ namespace turbo::jam {
                             _updatedb->apply(k, v);
                     }
                     _state->reset_cache();
+                } else {
+                    const auto local_state_root = state_root();
+                    if (local_state_root != blk.header.parent_state_root) [[unlikely]]
+                        throw err_bad_state_root_t{};
                 }
-                const auto parent_root = state_root();
-                if (blk.header.parent_state_root != parent_root) [[unlikely]]
-                    throw err_bad_state_root_t{};
                 _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
                 undo_redo = _updatedb->commit();
                 _ancestry.erase(new_ancestry_end, _ancestry.end());
             }
-            _ancestry.add(blk.header.slot, blk_hash, std::move(undo_redo));
+            _ancestry.add(blk.header.slot, blk_hash, state_root(), std::move(undo_redo));
         }
 
         [[nodiscard]] const std::string &id() const
