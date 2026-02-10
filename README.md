@@ -74,6 +74,14 @@ The project uses the following test-vector sets and tools to verify its conforma
 - [JIP-6: Program metadata](https://github.com/polkadot-fellows/JIPs/pull/3)
 - [JAM community-generated documentation](https://docs.jamcha.in/)
 
+## Custom 3rd-party libraries
+- [ark-vrf - Elliptic Curve VRF](https://github.com/davxy/ark-vrf)
+- [boost::ut - C++ single header/single module, macro-free μ(micro)/Unit Testing Framework](https://github.com/boost-ext/ut)
+- [ed25519-consensus - Ed25519 for consensus-critical contexts](https://github.com/penumbra-zone/ed25519-consensus)
+- [hash-library - Portable C++ Hashing Library](https://github.com/stbrumme/hash-library)
+- [msquic - a Microsoft implementation of the IETF QUIC protocol](https://github.com/microsoft/msquic)
+- [reed-solomon-simd - Reed-Solomon erasure coding based on Leopard-RS](https://github.com/ordian/reed-solomon-simd)
+
 ## Community Tools
 - [JAM Conformance Performance Dashboard](https://paritytech.github.io/jam-conformance-dashboard/)
 
