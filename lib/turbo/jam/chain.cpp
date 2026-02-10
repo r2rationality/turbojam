@@ -58,6 +58,9 @@ namespace turbo::jam {
                     }
                     _state->reset_cache();
                 }
+                const auto parent_root = state_root();
+                if (blk.header.parent_state_root != parent_root) [[unlikely]]
+                    throw err_bad_state_root_t{};
                 _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
                 undo_redo = _updatedb->commit();
                 _ancestry.erase(new_ancestry_end, _ancestry.end());
