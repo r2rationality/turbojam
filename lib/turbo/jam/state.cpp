@@ -1341,7 +1341,7 @@ namespace turbo::jam {
             // - updates pi';
             // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
             const auto ready_reports = rho_dagger_2(
-                this->rho.update(), new_pi, *prev_kappa_ptr,
+                this->rho.update(), new_pi, this->tau.get().epoch() == prev_tau.epoch() ? this->kappa.get() : this->lambda.get(),
                 blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
 
             account_updates_t<CFG> new_delta{this->delta};
