@@ -224,28 +224,40 @@ namespace turbo::jam {
 
     template<typename CFG>
     void state_t<CFG>::provide_preimages(account_updates_t<CFG> &accs, services_statistics_t &new_pi_services,
-        const time_slot_t<CFG> &slot, const preimages_extrinsic_t &preimages)
+        const time_slot_t<CFG> &slot, const accounts_t<CFG> &prev_accs, const preimages_extrinsic_t &preimages)
     {
         const preimage_t *prev = nullptr;
         for (const auto &p: preimages) {
             if (prev && *prev >= p) [[unlikely]]
                 throw err_preimages_not_sorted_or_unique_t{};
             prev = &p;
-            const auto info = accs.info_get(p.requester);
-            if (!info) [[unlikely]]
-                throw err_bad_service_id_t{};
+            // According to GP (12.4) validity is checked against the prior state
+            // When the image is not necessary due to accumulation effects such images are simply disregarded
+            {
+                const auto prev_info = prev_accs.info_get(p.requester);
+                if (!prev_info) [[unlikely]]
+                    throw err_bad_service_id_t{};
+            }
             const lookup_meta_map_key_t key{crypto::blake2b::digest<opaque_hash_t>(p.blob), static_cast<uint32_t>(p.blob.size())};
+            {
+                auto prev_l_val = prev_accs.lookup_get(p.requester, key);
+                if (!prev_l_val) [[unlikely]]
+                    throw err_preimage_unneeded_t{};
+                if (!prev_l_val->empty()) [[unlikely]]
+                    throw err_preimage_unneeded_t{};
+            }
+
             auto l_val = accs.lookup_get(p.requester, key);
-            if (!l_val) [[unlikely]]
-                throw err_preimage_unneeded_t{};
-            if (!l_val->empty()) [[unlikely]]
-                throw err_preimage_unneeded_t{};
-            l_val->emplace_back(slot);
-            accs.lookup_set(p.requester, key, std::move(*l_val));
-            accs.preimage_set(p.requester, key.hash, uint8_vector{p.blob});
-            auto &service_stats = new_pi_services[p.requester];
-            ++service_stats.provided_count;
-            service_stats.provided_size += p.blob.size();
+            if (accs.info_get(p.requester) && l_val && l_val->empty()) [[likely]] {
+                l_val->emplace_back(slot);
+                accs.lookup_set(p.requester, key, std::move(*l_val));
+                accs.preimage_set(p.requester, key.hash, uint8_vector{p.blob});
+            }
+            {
+                auto &s_stats = new_pi_services[p.requester];
+                ++s_stats.provided_count;
+                s_stats.provided_size += p.blob.size();
+            }
         }
     }
 
@@ -1386,7 +1398,7 @@ namespace turbo::jam {
 
             // can be run in parallel (if updates are committed explicitly
             {
-                provide_preimages(new_delta, new_pi.services, blk.header.slot, blk.extrinsic.preimages);
+                provide_preimages(new_delta, new_pi.services, blk.header.slot, this->delta, blk.extrinsic.preimages);
             }
 
             // (4.19) - can be run in parallel

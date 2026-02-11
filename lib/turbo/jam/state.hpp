@@ -882,7 +882,7 @@ namespace turbo::jam {
             const assurances_extrinsic_t<CFG> &assurances);
 
         // JAM (4.18)
-        static void provide_preimages(account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services, const time_slot_t<CFG> &slot, const preimages_extrinsic_t &preimages);
+        static void provide_preimages(account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services, const time_slot_t<CFG> &slot, const accounts_t<CFG> &prev_delta, const preimages_extrinsic_t &preimages);
         // JAM (4.16)
         static accumulate_output_t<CFG> accumulate(
             account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services,

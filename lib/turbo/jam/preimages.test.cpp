@@ -174,7 +174,7 @@ namespace {
         err_code_t::catch_into(
             [&] {
                 account_updates_t<CFG> acc_updates{new_st.delta};
-                state_t<CFG>::provide_preimages(acc_updates, new_st.pi_services, tc.in.slot, tc.in.preimages);
+                state_t<CFG>::provide_preimages(acc_updates, new_st.pi_services, tc.in.slot, new_st.delta, tc.in.preimages);
                 acc_updates.commit();
                 out.emplace(ok_t{});
             },
