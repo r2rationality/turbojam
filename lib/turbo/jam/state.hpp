@@ -107,7 +107,7 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct service_info_t {
-        uint8_t version; // expected to be 0
+        uint8_t version = 0; // expected to be 0
         opaque_hash_t code_hash {}; // c
         balance_t balance = 0; // b
         // gas saved in the fixed format form

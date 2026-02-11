@@ -130,7 +130,6 @@ namespace {
             try {
                 auto in = jam::load_obj<message_t<CFG>>(in_path);
                 auto exp = jam::load_obj<message_t<CFG>>(exp_path);
-                const auto start_time = std::chrono::system_clock::now();
                 const auto ok = _io_worker.sync_call(_test_case(std::move(in), std::move(exp)));
                 expect(ok) << in_path;
                 return ok;
