@@ -133,7 +133,7 @@ namespace turbo::jam::triedb {
             std::visit([&](const auto &vv) {
                 using T = std::decay_t<decltype(vv)>;
                 if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
-                    return _store->set(vv, std::move(val));
+                    return _store->set(vv, val);
                 }
             }, v);
 #           if !defined(NDEBUG)

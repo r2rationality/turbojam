@@ -563,7 +563,7 @@ namespace turbo::jam {
 
     // (12.19) - assumed to be called with service_id order!
     template<typename CFG>
-    void delta_star_result_t<CFG>::consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, const service_id_t service_id, accumulate_result_t<CFG> &&o, const time_slot_t<CFG> &tau_prime) {
+    void delta_star_result_t<CFG>::consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, const service_id_t service_id, accumulate_result_t<CFG> &&o, const time_slot_t<CFG> &/*tau_prime*/) {
         // mutable state components: d', i', q', m', a', v', r', z'
         state.consume_from(init_chi, m_chi, service_id, std::move(o.state));
 
@@ -1254,7 +1254,7 @@ namespace turbo::jam {
     {
         const timer t_apply{"state_t::apply", logger::level::debug};
         try {
-            const auto blk_hash = blk.header.hash();
+            //const auto blk_hash = blk.header.hash();
             const auto prev_tau = this->tau.get();
             state_t::tau_prime(this->tau.update(), blk.header.slot);
 
