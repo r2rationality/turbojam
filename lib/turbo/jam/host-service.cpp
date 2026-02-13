@@ -776,20 +776,20 @@ namespace turbo::jam {
         auto info = this->_service_info();
         auto a_res = this->_p.services.lookup_get(this->_p.service_id, key);
         if (!a_res) {
-            this->_p.services.lookup_set(this->_p.service_id, key, {});
             info.items += 2U;
             info.bytes += 81U;
             info.bytes += key.length;
+            if (info.balance < info.threshold()) [[unlikely]] {
+                this->_p.m.set_reg(7, machine::host_call_res_t::full);
+                return;
+            }
+            this->_p.services.lookup_set(this->_p.service_id, key, {});
             this->_p.services.info_set(this->_p.service_id, std::move(info));
         } else if (a_res->size() == 2) {
             a_res->emplace_back(this->_p.slot);
             this->_p.services.lookup_set(this->_p.service_id, key, std::move(*a_res));
         } else {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
-            return;
-        }
-        if (info.balance < info.threshold()) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::full);
             return;
         }
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
