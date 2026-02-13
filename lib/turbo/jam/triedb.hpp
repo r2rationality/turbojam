@@ -32,7 +32,7 @@ namespace turbo::jam::triedb {
         explicit db_t(store_ptr_t store, const db_t &o):
             _store{std::move(store)},
             _trie{std::make_shared<state_dict_t>(*o._trie)}
-#if         !defined(NDEBUG)
+#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
                 , _snapshot{o._snapshot}
 #endif
         {
@@ -54,7 +54,7 @@ namespace turbo::jam::triedb {
                 }, v);
             });
             _trie->clear();
-#if         !defined(NDEBUG)
+#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
                 _snapshot.clear();
 #endif
         }
@@ -62,7 +62,7 @@ namespace turbo::jam::triedb {
         void erase(const buffer key) override
         {
             const key_t k{key};
-#if         !defined(NDEBUG)
+#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
                 _snapshot.erase(k);
 #endif
             if (auto val = _trie->get(k); val) {
@@ -74,7 +74,7 @@ namespace turbo::jam::triedb {
                 }, *val);
                 _trie->erase(k);
             }
-#if         !defined(NDEBUG)
+#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
                 if (const auto cmp_root = _snapshot.root(); cmp_root != _trie->root()) [[unlikely]] {
                     /*_trie->foreach([&](const auto &k, const auto &v) {
                         logger::debug("trie new: {}", k);
@@ -125,7 +125,7 @@ namespace turbo::jam::triedb {
         void set(const buffer key, const buffer val) override
         {
             const key_t k{key};
-#           if !defined(NDEBUG)
+#           if !defined(NDEBUG) && !defined(MY_NDEBUG)
                 _snapshot[k] = byte_sequence_t{val};
 #           endif
             merkle::trie::value_t v{val, merkle::blake2b_hash_func};
@@ -136,7 +136,7 @@ namespace turbo::jam::triedb {
                     return _store->set(vv, val);
                 }
             }, v);
-#           if !defined(NDEBUG)
+#           if !defined(NDEBUG) && !defined(MY_NDEBUG)
                 if (_snapshot.root() != _trie->root()) [[unlikely]]
                     throw error(fmt::format("internal error: trie root mismatch after set key: {}!", k));
 #           endif
@@ -164,7 +164,7 @@ namespace turbo::jam::triedb {
     protected:
         store_ptr_t _store;
         state_dict_ptr_t _trie = std::make_shared<state_dict_t>();
-#if !defined(NDEBUG)
+#if !defined(NDEBUG) && !defined(MY_NDEBUG)
         state_snapshot_t _snapshot{};
 #endif
     };
