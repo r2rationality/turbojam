@@ -105,7 +105,7 @@ namespace turbo::storage::lmdb_rc {
 
             const uint64_t new_refc = refc + 1;
             uint8_vector count_blob(sizeof(uint64_t));
-            _store_u64_le(count_blob.data(), new_refc);
+            _store_u64(count_blob.data(), new_refc);
             MDB_val mv = _vec_to_mdb_val(count_blob);
             _throw_lmdb(mdb_put(_txn, _dbi_counts, &k, &mv, 0), "mdb_put(counts,update)");
         }
@@ -135,7 +135,7 @@ namespace turbo::storage::lmdb_rc {
             } else {
                 const uint64_t new_refc = refc - 1;
                 uint8_vector count_blob(sizeof(uint64_t));
-                _store_u64_le(count_blob.data(), new_refc);
+                _store_u64(count_blob.data(), new_refc);
                 MDB_val mv = _vec_to_mdb_val(count_blob);
                 _throw_lmdb(mdb_put(_txn, _dbi_counts, &k, &mv, 0), "mdb_put(counts,decrement)");
             }
@@ -209,13 +209,13 @@ namespace turbo::storage::lmdb_rc {
             return v;
         }
 
-        static uint64_t _load_u64_le(const void* p) {
+        static uint64_t _load_u64(const void* p) {
             uint64_t x;
             std::memcpy(&x, p, sizeof(x));
             return x;
         }
 
-        static void _store_u64_le(void* p, uint64_t x) {
+        static void _store_u64(void* p, uint64_t x) {
             std::memcpy(p, &x, sizeof(x));
         }
 
@@ -223,7 +223,7 @@ namespace turbo::storage::lmdb_rc {
             if (v.mv_size != sizeof(uint64_t)) {
                 throw error("lmdb_rc: corrupted refcount entry (expected 8 bytes)");
             }
-            return _load_u64_le(v.mv_data);
+            return _load_u64(v.mv_data);
         }
 
         template<typename Vec>
