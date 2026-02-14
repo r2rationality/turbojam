@@ -13,6 +13,15 @@ find_package(OpenSSL REQUIRED)
 pkg_check_modules(SODIUM REQUIRED libsodium>=1.0.18)
 pkg_check_modules(ZSTD REQUIRED libzstd>=1.4.8)
 
+find_package(unofficial-lmdb CONFIG QUIET)
+if(TARGET unofficial::lmdb::lmdb)
+    add_library(lmdb::lmdb ALIAS unofficial::lmdb::lmdb)
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LMDB REQUIRED IMPORTED_TARGET lmdb)
+    add_library(lmdb::lmdb ALIAS PkgConfig::LMDB)
+endif()
+
 file(GLOB_RECURSE LIB_SRCS *.cpp)
 list(FILTER LIB_SRCS EXCLUDE REGEX "\\.test\\.cpp$")
 list(FILTER LIB_SRCS EXCLUDE REGEX "\\.bench\\.cpp$")
@@ -23,15 +32,16 @@ target_precompile_headers(lib PUBLIC ${LIB_HDRS})
 target_include_directories(lib PUBLIC .)
 
 target_link_libraries(lib PUBLIC
-    OpenSSL::SSL OpenSSL::Crypto
-    fmt::fmt
-    ${SODIUM_LIBRARIES}
-    Boost::json Boost::coroutine Boost::url Boost::thread
-    ${ZSTD_LIBRARIES}
+        OpenSSL::SSL OpenSSL::Crypto
+        fmt::fmt
+        lmdb::lmdb
+        ${SODIUM_LIBRARIES}
+        Boost::json Boost::coroutine Boost::url Boost::thread
+        ${ZSTD_LIBRARIES}
 )
 target_link_directories(lib PUBLIC
-    ${SODIUM_LIBRARY_DIRS}
-    ${ZSTD_LIBRARY_DIRS}
+        ${SODIUM_LIBRARY_DIRS}
+        ${ZSTD_LIBRARY_DIRS}
 )
 
 find_package(spdlog CONFIG REQUIRED)
@@ -50,4 +60,3 @@ else()
     target_compile_options(lib PUBLIC "-DBOOST_STACKTRACE_LINK")
     target_link_libraries(lib PUBLIC Boost::stacktrace_backtrace dl)
 endif()
-

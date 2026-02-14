@@ -3,6 +3,7 @@
     "boost",
     "fmt",
     "libsodium",
+    "lmdb",
     "openssl",
     "pkgconf",
     "spdlog",

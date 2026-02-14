@@ -116,6 +116,10 @@ namespace turbo::storage::update {
             _num_removed = 0;
         }
 
+        void rollback() {
+            reset();
+        }
+
         [[nodiscard]] const update_map_t &updates() const noexcept {
             return _updates;
         }

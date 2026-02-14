@@ -64,6 +64,7 @@ namespace turbo::jam {
                 }
                 _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
                 undo_redo = _updatedb->commit();
+                _triedb->commit();
                 _ancestry.erase(new_ancestry_end, _ancestry.end());
             }
             _ancestry.add(blk.header.slot, blk_hash, state_root(), std::move(undo_redo));

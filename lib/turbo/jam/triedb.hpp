@@ -7,7 +7,7 @@
 #include <functional>
 #include <turbo/common/bytes.hpp>
 #include <turbo/jam/types/state-dict.hpp>
-#include <turbo/storage/file-rc.hpp>
+#include <turbo/storage/lmdb-rc.hpp>
 
 #define MY_NDEBUG
 
@@ -20,7 +20,7 @@ namespace turbo::jam::triedb {
     // - each maintains its own copy of the data even when they share the same data directory
     // - a copy creates a physical copy on disk
     struct db_t: storage::db_t {
-        using store_t = storage::file_rc::db_t;
+        using store_t = storage::lmdb_rc::db_t;
         using store_ptr_t = std::shared_ptr<store_t>;
         using observer_t = storage::observer_t;
 
@@ -39,7 +39,7 @@ namespace turbo::jam::triedb {
         }
 
         explicit db_t(const std::string_view db_dir):
-            _store{std::make_shared<storage::file_rc::db_t>(db_dir)}
+            _store{std::make_shared<store_t>(db_dir)}
         {
         }
 
@@ -152,15 +152,13 @@ namespace turbo::jam::triedb {
             return _trie->root();
         }
 
-        /*[[nodiscard]] const store_ptr_t &store() const
-        {
-            return _store;
+        void commit() {
+            _store->commit();
         }
 
-        [[nodiscard]] const state_dict_ptr_t &trie() const
-        {
-            return _trie;
-        }*/
+        void rollback() {
+            _store->rollback();
+        }
     protected:
         store_ptr_t _store;
         state_dict_ptr_t _trie = std::make_shared<state_dict_t>();
