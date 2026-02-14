@@ -106,5 +106,62 @@ suite turbo_jam_triedb_suite = [] {
             }
             client.erase(merkle::key_t::from_hex<merkle::key_t>("00FF00FF00FF00FF2C8EA9585FD170A4BE7405A0967EE61AD25E5C6FAB55A9"));
         };
+
+        "rollback"_test = [] {
+            const file::tmp_directory db_dir{"test-turbo-jam-triedb-4"};
+            db_t db{db_dir.path()};
+            {
+                db.set(state_dict_t::make_key(3U), "XY"sv);
+                db.set(state_dict_t::make_key(4U), "GH"sv);
+                db.erase(state_dict_t::make_key(2U));
+                const auto undo = db.commit();
+                expect_equal(storage::update::undo_list_t{
+                    {uint8_vector{state_dict_t::make_key(3U)}, value_t{}},
+                    {uint8_vector{state_dict_t::make_key(4U)}, value_t{}},
+                }, undo);
+            }
+            {
+                db.set(state_dict_t::make_key(4U), "AB"sv);
+                db.rollback();
+                expect_equal(uint8_vector{"GH"sv}, db.get(state_dict_t::make_key(4U)));
+            }
+        };
+
+        "undo"_test = [] {
+            const file::tmp_directory db_dir{"test-turbo-jam-triedb-4"};
+            db_t db{db_dir.path()};
+            {
+                db.set(state_dict_t::make_key(3U), "XY"sv);
+                db.set(state_dict_t::make_key(4U), "GH"sv);
+                db.erase(state_dict_t::make_key(2U));
+                const auto undo = db.commit();
+                expect_equal(storage::update::undo_list_t{
+                    {uint8_vector{state_dict_t::make_key(3U)}, value_t{}},
+                    {uint8_vector{state_dict_t::make_key(4U)}, value_t{}},
+                }, undo);
+            }
+            {
+                db.set(state_dict_t::make_key(4U), "AB"sv);
+                const auto undo = db.commit();
+                expect_equal(storage::update::undo_list_t{
+                    {uint8_vector{state_dict_t::make_key(4U)}, value_t{"GH"sv}},
+                }, undo);
+            }
+        };
+
+        "undo_empty"_test = [] {
+            const file::tmp_directory db_dir{"test-turbo-jam-triedb-5"};
+            db_t db{db_dir.path()};
+            db.erase(state_dict_t::make_key(10U));
+            const auto undo1 = db.commit();
+            expect(undo1.empty());
+            db.set(state_dict_t::make_key(10U), "VAL"sv);
+            const auto undo2 = db.commit();
+            expect(!undo2.empty());
+            db.set(state_dict_t::make_key(10U), "VAL"sv);
+            const auto undo3 = db.commit();
+            expect(undo3.empty());
+        };
+
     };
 };

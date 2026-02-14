@@ -92,9 +92,7 @@ namespace turbo::storage::update {
         }
 
         // N.B. an exception in set or erase base_db method would leave the state partially applied
-        undo_redo_t commit() {
-            undo_list_t undo{};
-            undo.reserve(_updates.size());
+        void commit() {
             for (const auto &[k, v]: _updates) {
                 auto prev_v = _base_db->get(k);
                 if (prev_v != v) {
@@ -102,12 +100,9 @@ namespace turbo::storage::update {
                         _base_db->set(k, *v);
                     else
                         _base_db->erase(k);
-                    undo.emplace_back(k, std::move(prev_v));
                 }
             }
-            auto redo = std::move(_updates);
             reset();
-            return {std::move(undo), std::move(redo)};
         }
 
         void reset() {

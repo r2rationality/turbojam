@@ -132,4 +132,43 @@ namespace turbo::jam::traces {
         }
         return {path, t.stop(false), success};
     }
+
+    inline void test_sequence(const std::span<const std::string> &paths, const state_snapshot_t &genesis_state)
+    {
+        if (paths.empty()) [[unlikely]] {
+            expect(false);
+            return;
+        }
+        try {
+            std::vector<test_case_t> test_cases{};
+            test_cases.reserve(paths.size());
+            for (const auto &p: paths)
+                test_cases.emplace_back(jam::load_obj<test_case_t>(p));
+            const file::tmp_directory data_dir{"test-jam-traces"};
+            chain_t<config_tiny> chain{
+                "dev",
+                data_dir.path(),
+                genesis_state,
+                test_cases[0].pre.keyvals
+            };
+            for (size_t i = 0; i < test_cases.size(); ++i) {
+                const auto &path = paths[i];
+                const auto &tc = test_cases[i];
+                try {
+                    chain.apply(tc.block);
+                    const auto &post_state = chain.state().snapshot();
+                    const auto state_matches = post_state.root() == tc.post.state_root;
+                    expect(state_matches) << path;
+                    if (!state_matches) {
+                        const auto act = chain.state().snapshot();
+                        logger::trace("{} diff:\n{}", path, act.diff(tc.post.keyvals));
+                    }
+                } catch (const std::exception &ex) {
+                    expect(false) << path << ex.what();
+                }
+            }
+        } catch (const std::exception &ex) {
+            expect(false) << paths[0] << ex.what();
+        }
+    }
 }

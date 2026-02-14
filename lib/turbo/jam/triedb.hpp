@@ -7,6 +7,7 @@
 #include <functional>
 #include <turbo/common/bytes.hpp>
 #include <turbo/jam/types/state-dict.hpp>
+#include <turbo/storage/update.hpp>
 #include <turbo/storage/lmdb-rc.hpp>
 
 #define MY_NDEBUG
@@ -128,18 +129,29 @@ namespace turbo::jam::triedb {
 #           if !defined(NDEBUG) && !defined(MY_NDEBUG)
                 _snapshot[k] = byte_sequence_t{val};
 #           endif
+            auto prev_v = get(key);
             merkle::trie::value_t v{val, merkle::blake2b_hash_func};
-            _trie->set(k, std::move(v));
-            std::visit([&](const auto &vv) {
-                using T = std::decay_t<decltype(vv)>;
-                if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
-                    return _store->set(vv, val);
-                }
-            }, v);
+            if (prev_v != val) {
+                _trie->set(k, std::move(v));
+                std::visit([&](const auto &vv) {
+                    using T = std::decay_t<decltype(vv)>;
+                    if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
+                        return _store->set(vv, val);
+                    }
+                }, v);
+                _undo.emplace_back(key, std::move(prev_v));
+            }
 #           if !defined(NDEBUG) && !defined(MY_NDEBUG)
                 if (_snapshot.root() != _trie->root()) [[unlikely]]
                     throw error(fmt::format("internal error: trie root mismatch after set key: {}!", k));
 #           endif
+        }
+
+        void apply(const buffer key, const storage::value_t &val) {
+            if (val)
+                set(key, *val);
+            else
+                erase(key);
         }
 
         [[nodiscard]] size_t size() const override
@@ -152,16 +164,27 @@ namespace turbo::jam::triedb {
             return _trie->root();
         }
 
-        void commit() {
-            _store->commit();
+        storage::update::undo_list_t commit() {
+            if (!_undo.empty()) {
+                _store->commit();
+                return std::move(_undo);
+            }
+            return {};
         }
 
         void rollback() {
-            _store->rollback();
+            if (!_undo.empty()) {
+                for (const auto &[k, v] : _undo) {
+                    apply(k, v);
+                }
+                _undo.clear();
+                _store->rollback();
+            }
         }
     protected:
         store_ptr_t _store;
         state_dict_ptr_t _trie = std::make_shared<state_dict_t>();
+        storage::update::undo_list_t _undo{};
 #if !defined(NDEBUG) && !defined(MY_NDEBUG)
         state_snapshot_t _snapshot{};
 #endif

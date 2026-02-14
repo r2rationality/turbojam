@@ -89,27 +89,6 @@ suite turbo_storage_update_suite = [] {
             expect_equal(size_t{1}, get_contents(*base_db).size());
         };
 
-        "undo_redo"_test = [] {
-            const auto base_db = make_base_db({
-                {"AC", "EF"},
-            });
-            update::db_t db{base_db};
-            db.set("AC"sv, "XY"sv);
-            db.set("AD"sv, "GH"sv);
-            db.erase("AB"sv);
-            const auto trace = db.commit();
-            expect_equal(size_t{2}, get_contents(*base_db).size());
-            expect_equal(undo_list_t{
-                {uint8_vector{"AC"sv}, value_t{"EF"sv}},
-                {uint8_vector{"AD"sv}, value_t{}},
-            }, trace.undo);
-            expect_equal(update_map_t{
-                {uint8_vector{"AB"sv}, value_t{}},
-                {uint8_vector{"AC"sv}, value_t{"XY"sv}},
-                {uint8_vector{"AD"sv}, value_t{"GH"sv}},
-            }, trace.redo);
-        };
-
         "size_tracking"_test = [] {
             const auto base_db = make_base_db({
                 {"B", "baseB"},
@@ -158,18 +137,6 @@ suite turbo_storage_update_suite = [] {
             const auto base_db = make_base_db();
             update::db_t db{base_db};
             expect(throws([&] { db.clear(); }));
-        };
-
-        "commit_no_op_update"_test = [] {
-            const auto base_db = make_base_db({
-                {"K", "VAL"},
-            });
-            update::db_t db{base_db};
-            db.set("K"sv, "VAL"sv);
-            const auto trace = db.commit();
-            expect_equal(value_t{"VAL"sv}, base_db->get("K"sv));
-            expect(trace.undo.empty());
-            expect_equal(size_t{1}, trace.redo.size());
         };
 
         "layered_consume_overlapping_keys"_test = [] {

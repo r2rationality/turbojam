@@ -21,9 +21,9 @@ namespace turbo::jam {
             if (ancestry)
                 _ancestry = std::move(*ancestry);
             if (!prev_state.empty()) {
-                _state.emplace(_updatedb);
+                _state.emplace(_triedb);
                 *_state = prev_state;
-                _updatedb->commit();
+                _triedb->commit();
                 const auto &beta = _state->beta.get();
                 for (const auto &h: beta.history) {
                     _ancestry.add(h.header_hash, h.state_root);
@@ -34,40 +34,44 @@ namespace turbo::jam {
         void apply(const block_t<CFG> &blk)
         {
             const auto blk_hash = blk.header.hash();
-            std::optional<storage::update::undo_redo_t> undo_redo{};
-            if (!_state) [[unlikely]] {
-                _state.emplace(_updatedb);
-                *_state = _genesis_state;
-                const auto genesis_header = _state->make_genesis_header();
-                if (blk_hash != genesis_header.hash()) [[unlikely]]
-                   throw error("the genesis header does not match the genesis state!");
-                logger::run_log_errors_rethrow([&] {
-                    state_t<CFG>::beta_prime(_state->beta.update(), blk.header.hash(), {}, {});
-                    _state->beta.commit();
-                });
-                _updatedb->commit();
-            } else {
-                _updatedb->reset();
-                const auto new_ancestry_end = _ancestry.known(blk.header.parent, blk.header.parent_state_root);
-                if (new_ancestry_end != _ancestry.end()) {
-                    for (auto &ancestor: std::views::reverse(std::span{new_ancestry_end, _ancestry.end()})) {
-                        if (!ancestor.undo_redo) [[unlikely]]
-                            throw error(fmt::format("can't rollback block {} due to missing undo record", ancestor.header_hash));
-                        for (auto &&[k, v]: ancestor.undo_redo->undo)
-                            _updatedb->apply(k, v);
-                    }
-                    _state->reset_cache();
+            std::optional<storage::update::undo_list_t> undo{};
+            try {
+                if (!_state) [[unlikely]] {
+                    _state.emplace(_triedb);
+                    *_state = _genesis_state;
+                    const auto genesis_header = _state->make_genesis_header();
+                    if (blk_hash != genesis_header.hash()) [[unlikely]]
+                       throw error("the genesis header does not match the genesis state!");
+                    logger::run_log_errors_rethrow([&] {
+                        state_t<CFG>::beta_prime(_state->beta.update(), blk.header.hash(), {}, {});
+                        _state->beta.commit();
+                    });
+                    _triedb->commit();
                 } else {
-                    const auto local_state_root = state_root();
-                    if (local_state_root != blk.header.parent_state_root) [[unlikely]]
-                        throw err_bad_state_root_t{};
+                    const auto new_ancestry_end = _ancestry.known(blk.header.parent, blk.header.parent_state_root);
+                    if (new_ancestry_end != _ancestry.end()) {
+                        for (auto &ancestor: std::views::reverse(std::span{new_ancestry_end, _ancestry.end()})) {
+                            if (!ancestor.undo) [[unlikely]]
+                                throw error(fmt::format("can't rollback block {} due to missing undo record", ancestor.header_hash));
+                            // in case of an error, the record must be kept, so copy values
+                            for (const auto &[k, v]: *ancestor.undo)
+                                _triedb->apply(k, v);
+                        }
+                        _state->reset_cache();
+                    } else {
+                        const auto local_state_root = state_root();
+                        if (local_state_root != blk.header.parent_state_root) [[unlikely]]
+                            throw err_bad_state_root_t{};
+                    }
+                    _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
+                    undo = _triedb->commit();
+                    _ancestry.erase(new_ancestry_end, _ancestry.end());
                 }
-                _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
-                undo_redo = _updatedb->commit();
-                _triedb->commit();
-                _ancestry.erase(new_ancestry_end, _ancestry.end());
+                _ancestry.add(blk.header.slot, blk_hash, state_root(), std::move(undo));
+            } catch (...) {
+                _triedb->rollback();
+                throw;
             }
-            _ancestry.add(blk.header.slot, blk_hash, state_root(), std::move(undo_redo));
         }
 
         [[nodiscard]] const std::string &id() const
@@ -114,7 +118,6 @@ namespace turbo::jam {
         std::string _id;
         std::string _path;
         triedb::db_ptr_t _triedb = std::make_shared<triedb::db_t>((std::filesystem::path{_path} / "kv").string());
-        storage::update::db_ptr_t _updatedb = std::make_shared<storage::update::db_t>(_triedb);
         state_snapshot_t _genesis_state;
         header_t<CFG> _genesis_header;
         std::optional<state_t<CFG>> _state{};

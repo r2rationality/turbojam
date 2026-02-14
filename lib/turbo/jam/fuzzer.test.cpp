@@ -192,11 +192,11 @@ suite turbo_jam_fuzzer_suite = [] {
         file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
         {
             client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir)};
-            c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/no_forks"));
+            c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/forks"));
         }
         {
             client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir)};
-            c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/forks"));
+            c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/no_forks"));
         }
     };
 };
