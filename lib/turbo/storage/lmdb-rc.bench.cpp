@@ -1,5 +1,5 @@
 /* Copyright (c) 2022-2023 Alex Sierkov (alex dot sierkov at gmail dot com)
-* Copyright (c) 2024-2025 R2 Rationality OÜ (info at r2rationality dot com) */
+ * Copyright (c) 2024-2025 R2 Rationality OÜ (info at r2rationality dot com) */
 
 #include <turbo/common/benchmark.hpp>
 #include <turbo/crypto/blake2b.hpp>
@@ -19,8 +19,8 @@ suite turbo_storage_lmdb_rc_bench_suite = [] {
             .unit("ops")
             .performanceCounters(true);
         std::map<blake2b::hash_t, uint8_vector> kvs{};
-        for (size_t i = 0; i < 250; ++i) {
-            kvs.emplace(blake2b::digest(buffer::from(i)), uint8_vector(i * 1000));
+        for (size_t i = 0; i < 10000; ++i) {
+            kvs.emplace(blake2b::digest(buffer::from(i)), uint8_vector(i * 10));
         }
         const file::tmp_directory tmp_dir{"test-turbo-lmdb-rc-bench"};
         lmdb_rc::db_t db{tmp_dir.path()};
@@ -34,6 +34,13 @@ suite turbo_storage_lmdb_rc_bench_suite = [] {
             for (const auto &[k, v]: kvs) {
                 expect(db.get(k) == v) << k;
             }
+        });
+        b.run("foreach",[&] {
+            size_t cnt = 0;
+            db.foreach([&](auto &&, auto &&) {
+                ++cnt;
+            });
+            expect_equal(kvs.size(), cnt);
         });
     };
 };
