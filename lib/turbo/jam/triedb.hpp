@@ -44,52 +44,6 @@ namespace turbo::jam::triedb {
         {
         }
 
-        void clear() override
-        {
-            _trie->foreach([&](const auto &, const auto &v) {
-                std::visit([&](const auto &vv) {
-                    using T = std::decay_t<decltype(vv)>;
-                    if constexpr (std::is_same_v<T, merkle::trie::value_hash_t>) {
-                        _store->erase(vv);
-                    }
-                }, v);
-            });
-            _trie->clear();
-#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
-                _snapshot.clear();
-#endif
-        }
-
-        void erase(const buffer key) override
-        {
-            const key_t k{key};
-#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
-                _snapshot.erase(k);
-#endif
-            if (auto val = _trie->get(k); val) {
-                std::visit([&](const auto &vv) {
-                    using T = std::decay_t<decltype(vv)>;
-                    if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
-                        _store->erase(vv);
-                    }
-                }, *val);
-                _trie->erase(k);
-            }
-#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
-                if (const auto cmp_root = _snapshot.root(); cmp_root != _trie->root()) [[unlikely]] {
-                    /*_trie->foreach([&](const auto &k, const auto &v) {
-                        logger::debug("trie new: {}", k);
-                    });
-                    merkle::trie_t cmp { _snapshot };
-                    logger::debug("trie cmp root: {} (computed: {} new root: {}", cmp_root, cmp.root(), _trie->root());
-                    cmp.foreach([&](const auto &k, const auto &v) {
-                        logger::debug("trie cmp: {}", k);
-                    });*/
-                    throw error(fmt::format("internal error: trie root mismatch after erase key: {}!", k));
-                }
-#endif
-        }
-
         void foreach(const observer_t &obs) const override
         {
             _trie->foreach([&](const auto &k, const auto &v) {
@@ -109,49 +63,8 @@ namespace turbo::jam::triedb {
 
         value_t get(const buffer key) const override
         {
-            const key_t k{key};
-            if (auto val = _trie->get(k); val) {
-                return std::visit([&](const auto &vv) {
-                    using T = std::decay_t<decltype(vv)>;
-                    if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
-                        return _store->get(vv);
-                    } else {
-                        return value_t { buffer { vv.data(), vv.size() } };
-                    }
-                }, *val);
-            }
-            return {};
-        }
-
-        void set(const buffer key, const buffer val) override
-        {
-            const key_t k{key};
-#           if !defined(NDEBUG) && !defined(MY_NDEBUG)
-                _snapshot[k] = byte_sequence_t{val};
-#           endif
-            auto prev_v = get(key);
-            merkle::trie::value_t v{val, merkle::blake2b_hash_func};
-            if (prev_v != val) {
-                _trie->set(k, std::move(v));
-                std::visit([&](const auto &vv) {
-                    using T = std::decay_t<decltype(vv)>;
-                    if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
-                        return _store->set(vv, val);
-                    }
-                }, v);
-                _undo.emplace_back(key, std::move(prev_v));
-            }
-#           if !defined(NDEBUG) && !defined(MY_NDEBUG)
-                if (_snapshot.root() != _trie->root()) [[unlikely]]
-                    throw error(fmt::format("internal error: trie root mismatch after set key: {}!", k));
-#           endif
-        }
-
-        void apply(const buffer key, const storage::value_t &val) {
-            if (val)
-                set(key, *val);
-            else
-                erase(key);
+            auto [val, trie_v] = _get(key);
+            return val;
         }
 
         [[nodiscard]] size_t size() const override
@@ -164,18 +77,54 @@ namespace turbo::jam::triedb {
             return _trie->root();
         }
 
+        void clear() override
+        {
+            _trie->foreach([&](auto &&k, auto &&v) {
+                std::visit([&](const auto &vv) {
+                    using T = std::decay_t<decltype(vv)>;
+                    if constexpr (std::is_same_v<T, merkle::trie::value_hash_t>) {
+                        auto val = _store->get(vv);
+                        if (!val) [[unlikely]]
+                            throw error(fmt::format("internal error: failed to get value for key {} from the store", k));
+                        _store->erase(vv);
+                        _undo.emplace_back(k, std::move(val));
+                    } else {
+                        _undo.emplace_back(k, buffer {vv.data(), vv.size()});
+                    }
+                }, v);
+            });
+            _trie->clear();
+#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
+                _snapshot.clear();
+#endif
+        }
+
+        void erase(const buffer key) override
+        {
+            _erase(key);
+        }
+
+        void set(const buffer key, const buffer val) override
+        {
+            _set(key, val);
+        }
+
+        void apply(const buffer key, const value_t &val)
+        {
+            _apply(key, val);
+        }
+
         storage::update::undo_list_t commit() {
-            if (!_undo.empty()) {
-                _store->commit();
-                return std::move(_undo);
-            }
-            return {};
+            if (_undo.empty())
+                return {};
+            _store->commit();
+            return std::exchange(_undo, {});
         }
 
         void rollback() {
             if (!_undo.empty()) {
                 for (const auto &[k, v] : _undo) {
-                    apply(k, v);
+                    _apply(k, v, false);
                 }
                 _undo.clear();
                 _store->rollback();
@@ -188,6 +137,95 @@ namespace turbo::jam::triedb {
 #if !defined(NDEBUG) && !defined(MY_NDEBUG)
         state_snapshot_t _snapshot{};
 #endif
+    private:
+        struct get_res_t {
+            value_t val;
+            merkle::trie_t::opt_value_t trie_v;
+        };
+
+        void _apply(const buffer key, const value_t &val, const bool track_undo=true)
+        {
+            if (!val) {
+                _erase(key, track_undo);
+            } else {
+                _set(key, *val, track_undo);
+            }
+        }
+
+        get_res_t _get(const buffer key) const
+        {
+            const key_t k{key};
+            auto val = _trie->get(k);
+            if (val) {
+                return std::visit([&](const auto &vv) -> get_res_t {
+                    using T = std::decay_t<decltype(vv)>;
+                    if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
+                        return {_store->get(vv), std::move(val)};
+                    } else {
+                        return {value_t { buffer { vv.data(), vv.size() } }, std::move(val)};
+                    }
+                }, *val);
+            }
+            return {value_t{}, std::move(val)};
+        }
+
+        void _erase(const buffer key, const bool track_undo=true)
+        {
+            const key_t k{key};
+#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
+                _snapshot.erase(k);
+#endif
+            auto [prev_v, trie_v] = _get(key);
+            if (trie_v) {
+                std::visit([&](const auto &vv) {
+                    using T = std::decay_t<decltype(vv)>;
+                    if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
+                        _store->erase(vv);
+                    }
+                }, *trie_v);
+                _trie->erase(k);
+                if (track_undo)
+                    _undo.emplace_back(key, std::move(prev_v));
+            }
+#if         !defined(NDEBUG) && !defined(MY_NDEBUG)
+                if (const auto cmp_root = _snapshot.root(); cmp_root != _trie->root()) [[unlikely]] {
+                    /*_trie->foreach([&](const auto &k, const auto &v) {
+                        logger::debug("trie new: {}", k);
+                    });
+                    merkle::trie_t cmp { _snapshot };
+                    logger::debug("trie cmp root: {} (computed: {} new root: {}", cmp_root, cmp.root(), _trie->root());
+                    cmp.foreach([&](const auto &k, const auto &v) {
+                        logger::debug("trie cmp: {}", k);
+                    });*/
+                    throw error(fmt::format("internal error: trie root mismatch after erase key: {}!", k));
+                }
+#endif
+        }
+
+        void _set(const buffer key, const buffer val, const bool track_undo=true)
+        {
+            const key_t k{key};
+#           if !defined(NDEBUG) && !defined(MY_NDEBUG)
+                _snapshot[k] = byte_sequence_t{val};
+#           endif
+            
+            merkle::trie::value_t v{val, merkle::blake2b_hash_func};
+            if (auto prev_v = get(key); prev_v != val) {
+                _trie->set(k, std::move(v));
+                std::visit([&](const auto &vv) {
+                    using T = std::decay_t<decltype(vv)>;
+                    if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
+                        return _store->set(vv, val);
+                    }
+                }, v);
+                if (track_undo)
+                    _undo.emplace_back(key, std::move(prev_v));
+            }
+#           if !defined(NDEBUG) && !defined(MY_NDEBUG)
+                if (_snapshot.root() != _trie->root()) [[unlikely]]
+                    throw error(fmt::format("internal error: trie root mismatch after set key: {}!", k));
+#           endif
+        }
     };
     using db_ptr_t = std::shared_ptr<db_t>;
 }
