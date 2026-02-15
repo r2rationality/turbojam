@@ -281,7 +281,7 @@ namespace turbo::jam {
         {
             const auto key = _storage_key(id, k);
             auto val = _get<uint8_vector>(key);
-            logger::debug("storage_get: service_id: {} key: {} storage_key: {} val: {}",
+            logger::trace("storage_get: service_id: {} key: {} storage_key: {} val: {}",
                 id, k, key,
                 val
                     ? val->size() <= 32
@@ -302,7 +302,7 @@ namespace turbo::jam {
         std::optional<uint8_vector> storage_set(const service_id_t id, const buffer &k, uint8_vector val)
         {
             const auto key = _storage_key(id, k);
-            logger::debug("storage_set: service_id: {} key: {} storage_key: {} val: {}",
+            logger::trace("storage_set: service_id: {} key: {} storage_key: {} val: {}",
                 id, k, key,
                 val.size() <= 32
                     ? fmt::format("{} {} bytes", val, val.size())

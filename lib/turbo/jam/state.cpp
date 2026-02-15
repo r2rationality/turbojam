@@ -475,7 +475,7 @@ namespace turbo::jam {
         const service_id_t service_id, // s
         const entropy_t &new_eta0, const time_slot_t<CFG> &slot)
     {
-        logger::debug("accumulate_delta_one {} invocation t-count: {} r-count: {}",
+        logger::trace("accumulate_delta_one {} invocation t-count: {} r-count: {}",
             service_id, transfers.size(), reports.size());
 
         accumulate_inputs_t<CFG> inputs{};
@@ -526,9 +526,9 @@ namespace turbo::jam {
 
             const auto code = ctx_err.state.services.preimage_get(service_id, prev_service_info->code_hash);
             if (!code) [[unlikely]] {
-                logger::debug("accumulate_delta_one {}: preimage for code hash {} is not available!", service_id, prev_service_info->code_hash);
+                logger::trace("accumulate_delta_one {}: preimage for code hash {} is not available!", service_id, prev_service_info->code_hash);
             } else if (code->size() > CFG::WC_max_service_code_size) [[unlikely]] {
-                logger::debug("accumulate_delta_one {}: preimage for code hash {} is too large!", service_id, prev_service_info->code_hash);
+                logger::trace("accumulate_delta_one {}: preimage for code hash {} is too large!", service_id, prev_service_info->code_hash);
             } else [[likely]] {
                 const auto code_hash = crypto::blake2b::digest(*code);
                 if (code_hash != prev_service_info->code_hash) [[unlikely]]
@@ -539,7 +539,7 @@ namespace turbo::jam {
                 arg_enc.uint_varlen(slot.slot());
                 arg_enc.uint_varlen(service_id);
                 arg_enc.uint_varlen(inputs.size());
-                logger::debug("accumulate_delta_one {} invocation input-count: {}", service_id, inputs.size());
+                logger::trace("accumulate_delta_one {} invocation input-count: {}", service_id, inputs.size());
                 std::optional<host_service_accumulate_t<CFG>> host_service{};
                 // JAM (B.9): bold psi_a
                 auto inv_res = machine::invoke(
