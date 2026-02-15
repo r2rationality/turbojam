@@ -15,7 +15,7 @@ RUN apt-get update
 RUN apt-get install -y build-essential cmake pkg-config git zstd
 RUN apt-get install -y pv telnet whois
 RUN apt-get install -y libboost1.83-all-dev libboost-url1.83-dev libsodium-dev libsecp256k1-dev libzstd-dev libssl-dev libfmt-dev libspdlog-dev libbotan-2-dev
-RUN apt-get install -y ninja-build libsecp256k1-dev
+RUN apt-get install -y ninja-build libsecp256k1-dev liblmdb-dev
 RUN apt-get install -y clang-19 clang-tools-19
 RUN useradd -m -s /bin/bash -d /home/dev -G sudo dev
 
@@ -40,7 +40,7 @@ FROM ubuntu:24.04
 RUN apt-get update
 RUN apt-get install -y libboost-json1.83.0 libboost-container1.83.0 libboost-coroutine1.83.0 libboost-context1.83.0 \
     libboost-url1.83.0 libboost-thread1.83.0 libboost-atomic1.83.0 libboost-stacktrace1.83.0 \
-    libfmt9 libspdlog1.12 libzstd1 libssl3t64 libsodium23 libatomic1 libnuma1
+    libfmt9 libspdlog1.12 libzstd1 libssl3t64 libsodium23 libatomic1 libnuma1 liblmdb0
 COPY --from=builder /home/dev/turbojam/build/tjam /usr/local/bin/tjam
 RUN useradd -m -s /bin/bash -d /opt/tjam tjam
 USER tjam

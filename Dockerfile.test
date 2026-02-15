@@ -14,7 +14,7 @@ RUN apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 31F54F3E108EAD31
 RUN apt-get update
 RUN apt-get install -y build-essential cmake pkg-config git zstd
 RUN apt-get install -y pv telnet whois
-RUN apt-get install -y libboost1.83-all-dev libboost-url1.83-dev libsodium-dev libsecp256k1-dev libzstd-dev libssl-dev libfmt-dev libspdlog-dev libbotan-2-dev
+RUN apt-get install -y libboost1.83-all-dev libboost-url1.83-dev libsodium-dev libsecp256k1-dev libzstd-dev libssl-dev libfmt-dev libspdlog-dev libbotan-2-dev liblmdb-dev
 RUN apt-get install -y ninja-build libsecp256k1-dev
 RUN apt-get install -y clang-19 clang-tools-19
 RUN useradd -m -s /bin/bash -d /home/dev -G sudo dev
