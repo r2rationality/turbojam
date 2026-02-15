@@ -12,6 +12,7 @@ BUILD_DIR=$3
 if [ -z "$BUILD_DIR" ]; then
   BUILD_DIR="build"
 fi
+export ASAN_OPTIONS="malloc_context_size=100:fast_unwind_on_malloc=0:fast_unwind_on_fatal=0"
 "$BUILD_DIR/tjam-test" "$TEST_NAME"
 if [ -f /usr/bin/llvm-profdata-19 ]; then
   PROFDATA_BIN=llvm-profdata-19
