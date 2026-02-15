@@ -22,7 +22,10 @@ namespace turbo::storage::lmdb_rc {
             _throw_lmdb(mdb_env_set_maxdbs(_env, 2), "_env_set_maxdbs");
             _throw_lmdb(mdb_env_set_mapsize(_env, 1ULL << 30U), "_env_set_mapsize");
             _throw_lmdb(mdb_env_open(_env, _dir_path.c_str(), 0, 0664), "_env_open");
-            _throw_lmdb(mdb_txn_begin(_env, nullptr, 0, &_txn), "txn_begin(open)");
+            if (const int rc = mdb_txn_begin(_env, nullptr, 0, &_txn); rc != MDB_SUCCESS) [[unlikely]] {
+                _txn = nullptr;
+                _throw_lmdb(rc, "txn_begin(open)");
+            }
             if (const int rc = mdb_dbi_open(_txn, "file_rc.data", MDB_CREATE, &_dbi_data); rc != MDB_SUCCESS) [[unlikely]]
                 _throw_lmdb(rc, "_dbi_open(data)");
             if (const int rc = mdb_dbi_open(_txn, "file_rc.counts", MDB_CREATE, &_dbi_counts); rc != MDB_SUCCESS) [[unlikely]]
@@ -31,8 +34,11 @@ namespace turbo::storage::lmdb_rc {
 
         ~impl() {
             // mdb_env_close will abort all open transactions and close all open DB handles
-            if (_env) [[likely]]
+            if (_env) [[likely]] {
+                if (_txn) [[likely]]
+                    mdb_txn_abort(_txn);
                 mdb_env_close(_env);
+            }
         }
 
         value_t get(const buffer key) const {
@@ -138,13 +144,22 @@ namespace turbo::storage::lmdb_rc {
         }
 
         void commit() {
-            _throw_lmdb(mdb_txn_commit(_txn), "txn_commit(open)");
-            _throw_lmdb(mdb_txn_begin(_env, nullptr, 0, &_txn), "txn_begin(open)");
+            if (const auto rc = mdb_txn_commit(_txn); rc != MDB_SUCCESS) [[unlikely]] {
+                _txn = nullptr;
+                _throw_lmdb(rc, "txn_commit");
+            }
+            if (const int rc = mdb_txn_begin(_env, nullptr, 0, &_txn); rc != MDB_SUCCESS) [[unlikely]] {
+                _txn = nullptr;
+                _throw_lmdb(rc, "txn_begin");
+            }
         }
 
         void rollback() {
             mdb_txn_abort(_txn);
-            _throw_lmdb(mdb_txn_begin(_env, nullptr, 0, &_txn), "txn_begin(open)");
+            if (const int rc = mdb_txn_begin(_env, nullptr, 0, &_txn); rc != MDB_SUCCESS) [[unlikely]] {
+                _txn = nullptr;
+                _throw_lmdb(rc, "txn_begin");
+            }
         }
     private:
         std::string _dir_path;
