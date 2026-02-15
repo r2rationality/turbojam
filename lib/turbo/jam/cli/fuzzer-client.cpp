@@ -8,53 +8,14 @@
 #include <turbo/common/file.hpp>
 #include <turbo/common/variant.hpp>
 #include <turbo/jam/traces.hpp>
+// Must be included the last as it includes boost::asio and windows headers
 #include "fuzzer.hpp"
-// Boost headers must be included after "fuzzer.hpp"
-#include <boost/asio/use_future.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
 
 namespace {
     using namespace turbo;
     using namespace turbo::cli::fuzzer;
     using namespace turbo::jam::traces;
     using namespace std::string_view_literals;
-
-
-    struct io_worker_t {
-        static io_worker_t &get()
-        {
-            static io_worker_t worker{};
-            return worker;
-        }
-
-        boost::asio::io_context &io_context()
-        {
-            return _ioc;
-        }
-
-        template<typename F>
-        auto sync_call(F f)
-        {
-            auto fut = boost::asio::co_spawn(_ioc, std::move(f), boost::asio::use_future);
-            if (_ioc.stopped())
-                _ioc.restart();
-            auto guard = boost::asio::make_work_guard(_ioc);
-            using T = std::decay_t<decltype(fut.get())>;
-            for (;;) {
-                if (fut.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) [[unlikely]] {
-                    if constexpr (std::is_void_v<T>) {
-                        fut.get();
-                        return;
-                    } else {
-                        return fut.get();
-                    }
-                }
-                _ioc.run_for(std::chrono::milliseconds{100});
-            }
-        }
-    private:
-        boost::asio::io_context _ioc {};
-    };
 
     template<typename CFG>
     struct local_processor_t {
@@ -106,95 +67,6 @@ namespace {
         {
             co_await write_message(_conn, std::move(msg));
             co_return co_await read_message<CFG>(_conn);
-        }
-    };
-
-    template<typename CFG, template<typename ...> typename PROC>
-    struct client_t {
-        using my_processor_ptr_t = std::unique_ptr<PROC<CFG>>;
-
-        explicit client_t(my_processor_ptr_t proc, io_worker_t &io_worker=io_worker_t::get()):
-            _proc{std::move(proc)},
-            _io_worker{io_worker}
-        {
-        }
-
-        bool test_sample(const std::string &path)
-        {
-            try {
-                const auto tc = jam::load_obj<test_case_t>(path);
-                const auto start_time = std::chrono::system_clock::now();
-                auto ok = _io_worker.sync_call(_test_case(initialize_t<CFG>::from_snapshot(tc.pre.keyvals), import_block_t<CFG>{tc.block}, tc.post.state_root));
-                if (!ok) {
-                    _print_state_diff(tc.block.header.hash(), tc.post.state_root, tc.post.keyvals);
-                }
-                logger::info("sample {}: {} in {:0.3f} sec", path, ok ? "OK" : "FAILED",
-                    std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count());
-                return ok;
-            } catch (const std::exception &ex) {
-                logger::error("sample {}: failed due to an uncaught exception: {}", path, ex.what());
-            } catch (...) {
-                logger::error("sample {}: failed due to an uncaught unknown exception", path);
-            }
-            return false;
-        }
-
-        void test_dir(const std::filesystem::path &data_dir)
-        {
-            size_t ok = 0, err = 0;
-            for (const auto &e: std::filesystem::recursive_directory_iterator(data_dir)) {
-                if (e.is_regular_file() && e.path().extension() == ".bin" && _trace_stem_ok(e.path().stem().string())) {
-                    auto &cnt = test_sample(e.path().string()) ? ok : err;
-                    ++cnt;
-                }
-            }
-            logger::info("{}: success rate: {:.3f}% ({} out of {})",
-                data_dir, static_cast<double>(ok) * 100 / static_cast<double>(ok + err), ok, ok + err);
-        }
-    private:
-        my_processor_ptr_t _proc;
-        io_worker_t &_io_worker;
-
-        static bool _trace_stem_ok(const std::string_view stem)
-        {
-            if (stem.size() != 8)
-                return false;
-            for (const auto k: stem) {
-                if (k < '0' || k > '9')
-                    return false;
-            }
-            return true;
-        }
-
-        boost::asio::awaitable<state_snapshot_t> _get_state(const header_hash_t &hh)
-        {
-            co_return variant::get_nice<state_snapshot_t>(_proc->process(message_t<CFG>{get_state_t{hh}}));
-        }
-
-        boost::asio::awaitable<bool> _test_case(initialize_t<CFG> init, import_block_t<CFG> block, const state_root_t &exp_root)
-        {
-            const auto pre_root = variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{std::move(init)}));
-            logger::trace("pre_root: {}", pre_root);
-            const auto resp = _proc->process(message_t<CFG>{std::move(block)});
-            co_return std::visit([&](const auto &rv) -> bool {
-                using T = std::decay_t<decltype(rv)>;
-                if constexpr (std::is_same_v<T, fuzzer::error_t>) {
-                    logger::trace("error: {}", rv);
-                    return pre_root == exp_root;
-                } else if constexpr (std::is_same_v<T, state_root_t>) {
-                    logger::trace("post_root: {}", rv);
-                    return rv == exp_root;
-                } else {
-                    throw error(fmt::format("unexpected message type: {}", typeid(rv).name()));
-                }
-            }, resp);
-        }
-
-        void _print_state_diff(const header_hash_t &hh, const state_root_t &exp_root, const state_snapshot_t &exp_state)
-        {
-            const auto snap = _io_worker.sync_call(_get_state(hh));
-            logger::debug("state for block {} does not match expected root: {} actual: {}", hh, exp_root, snap.root());
-            logger::debug("state diff: {}", snap.diff(exp_state));
         }
     };
 }
