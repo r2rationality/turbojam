@@ -63,7 +63,7 @@ set_target_properties(msquic PROPERTIES
 )
 add_dependencies(msquic msquic_build-install)
 
-add_library(3rdparty OBJECT hash-library/keccak.cpp nanobench.cpp)
+add_library(3rdparty OBJECT hash-library/keccak.cpp)
 target_include_directories(3rdparty PUBLIC .)
 set_target_properties(3rdparty PROPERTIES LINKER_LANGUAGE CXX)
 target_link_libraries(3rdparty PUBLIC ark_vrf_cpp erasure_coding ed25519_consensus_cpp msquic)
@@ -71,3 +71,5 @@ target_link_libraries(3rdparty PUBLIC ark_vrf_cpp erasure_coding ed25519_consens
 if(UNIX)
     target_link_libraries(3rdparty PUBLIC numa)
 endif()
+
+add_library(nanobench OBJECT nanobench.cpp)

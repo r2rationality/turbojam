@@ -119,7 +119,7 @@ target_link_libraries(tjam-test PRIVATE lib 3rdparty)
 
 file(GLOB_RECURSE BENCH_SRCS lib/*.bench.cpp)
 add_executable(tjam-bench src/run-test.cpp ${BENCH_SRCS})
-target_link_libraries(tjam-bench PRIVATE lib 3rdparty)
+target_link_libraries(tjam-bench PRIVATE lib 3rdparty nanobench)
 
 file(GLOB_RECURSE EXE_SRCS src/*.cpp)
 list(FILTER EXE_SRCS EXCLUDE REGEX "run-test\\.cpp$")
