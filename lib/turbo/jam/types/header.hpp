@@ -55,7 +55,13 @@ namespace turbo::jam {
 
         base_type::const_iterator known(const header_hash_t &parent_hash, const state_root_t &parent_state_root) const {
             const auto parent_it = std::find_if(this->begin(), this->end(), [&](const auto &a) {
-                return a.header_hash == parent_hash && (!a.state_root || *a.state_root == parent_state_root);
+                if (a.header_hash != parent_hash)
+                    return false;
+                if (a.state_root) {
+                    if (a.state_root.value() != parent_state_root)
+                        return false;
+                }
+                return true;
             });
             if (parent_it == this->end()) [[unlikely]] {
                 throw err_unknown_parent_t{};

@@ -77,16 +77,17 @@ namespace turbo::cli::fuzzer {
         {
         }
 
-        bool test_sample(const buffer tc_data)
+        bool test_sample(const uint8_vector tc_data)
         {
             try {
                 test_cases_t test_cases{};
-                decoder dec{tc_data};
-                while (!dec.empty()) {
-                    test_cases.emplace_back(codec::from<test_case_t>(dec));
+                {
+                    decoder dec{tc_data};
+                    while (!dec.empty()) {
+                        test_cases.emplace_back(codec::from<test_case_t>(dec));
+                    }
                 }
                 return _io_worker.sync_call(_test_sample(std::move(test_cases)));
-                //return _io_worker.sync_call(_test_case(initialize_t<CFG>::from_snapshot(tc.pre.keyvals), import_block_t<CFG>{tc.block}, tc.post.state_root));
             } catch (const std::exception &ex) {
                 logger::error("test_sample: failed due to an uncaught exception: {}", ex.what());
             } catch (...) {
@@ -102,7 +103,7 @@ namespace turbo::cli::fuzzer {
                 std::vector<std::string> paths{};
                 size_t total_size = 0;
                 for (const auto &e: std::filesystem::directory_iterator(sample_dir)) {
-                    if (e.is_regular_file() && e.path().extension() == ".bin") {
+                    if (e.is_regular_file() && e.path().extension() == ".bin" && e.path().stem().string() != "genesis") {
                         paths.emplace_back(e.path().string());
                         total_size += e.file_size();
                     }
@@ -113,7 +114,7 @@ namespace turbo::cli::fuzzer {
                 for (const auto &path: paths) {
                     sample_data << file::read(path);
                 }
-                auto ok = test_sample(sample_data);
+                const auto ok = test_sample(std::move(sample_data));
                 logger::info("sample {}({}): {} in {:0.3f} sec", sample_dir, paths.size(), ok ? "OK" : "FAILED",
                     std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count());
                 return ok;
@@ -134,8 +135,16 @@ namespace turbo::cli::fuzzer {
                     ++cnt;
                 }
             }
-            logger::info("{}: success rate: {:.3f}% ({} out of {})",
-                data_dir, static_cast<double>(ok) * 100 / static_cast<double>(ok + err), ok, ok + err);
+            if (ok + err == 0U) {
+                auto &cnt = test_sample(data_dir.string()) ? ok : err;
+                ++cnt;
+            }
+            if (ok + err > 0U) {
+                logger::info("{}: success rate: {:.3f}% ({} out of {})",
+                    data_dir, static_cast<double>(ok) * 100 / static_cast<double>(ok + err), ok, ok + err);
+            } else {
+                logger::info("no actionable samples found in {}", data_dir);
+            }
         }
     private:
         my_processor_ptr_t _proc;
@@ -146,12 +155,12 @@ namespace turbo::cli::fuzzer {
             co_return ::turbo::variant::get_nice<state_snapshot_t>(_proc->process(message_t<CFG>{get_state_t{hh}}));
         }
 
-        boost::asio::awaitable<bool> _test_sample(const test_cases_t &test_cases)
+        boost::asio::awaitable<bool> _test_sample(const test_cases_t test_cases)
         {
             if (test_cases.empty()) [[unlikely]]
                 throw error("test_sample: no test cases provided!");
             const auto &tc0 = test_cases[0];
-            const auto pre_root = ::turbo::variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals)}));
+            auto pre_root = ::turbo::variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals)}));
             logger::trace("pre_root: {}", pre_root);
             for (size_t i = 0; i < test_cases.size(); ++i) {
                 const auto &tc = test_cases[i];
@@ -161,7 +170,7 @@ namespace turbo::cli::fuzzer {
                     using T = std::decay_t<decltype(rv)>;
                     if constexpr (std::is_same_v<T, turbo::jam::fuzzer::error_t>) {
                         logger::trace("sample {}: error: {}", i, rv);
-                        return pre_root == tc.post.state_root;
+                        return tc.pre.state_root == tc.post.state_root;
                     } else if constexpr (std::is_same_v<T, state_root_t>) {
                         logger::trace("sample {}: post_root: {}", i, rv);
                         return rv == tc.post.state_root;

@@ -94,10 +94,7 @@ namespace turbo::cli::fuzzer_client {
     private:
         static void _run_tests(auto client, const std::string &path)
         {
-            if (std::filesystem::is_directory(path))
-                client.test_dir(path);
-            else
-                client.test_sample(path);
+            client.test_dir(path);
         }
     };
     static auto instance = command::reg(std::make_shared<cmd>());
