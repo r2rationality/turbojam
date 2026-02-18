@@ -29,6 +29,26 @@ namespace turbo::cli::fuzzer {
     using namespace turbo::jam::fuzzer;
     using namespace turbo::jam::traces;
     using boost::asio::local::stream_protocol;
+    
+    template<typename CFG>
+    static boost::asio::awaitable<message_t<CFG>> read_message(stream_protocol::socket &conn)
+    {
+        uint32_t msg_len = 0;
+        co_await boost::asio::async_read(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
+        uint8_vector msg_buf(msg_len);
+        co_await boost::asio::async_read(conn, boost::asio::buffer(msg_buf.data(), msg_buf.size()), boost::asio::use_awaitable);
+        decoder dec{msg_buf};
+        co_return codec::from<message_t<CFG>>(dec);
+    }
+
+    template<typename CFG>
+    static boost::asio::awaitable<void> write_message(stream_protocol::socket &conn, message_t<CFG> msg)
+    {
+        const encoder enc{msg};
+        const uint32_t msg_len = enc.bytes().size();
+        co_await boost::asio::async_write(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
+        co_await boost::asio::async_write(conn, boost::asio::buffer(enc.bytes()), boost::asio::use_awaitable);
+    }
 
     struct io_worker_t {
         static io_worker_t &get()
@@ -66,12 +86,65 @@ namespace turbo::cli::fuzzer {
         boost::asio::io_context _ioc {};
     };
 
+    template<typename CFG>
+    struct unix_socket_processor_t {
+        explicit unix_socket_processor_t(const std::string_view sock_path, io_worker_t &io_worker=io_worker_t::get()):
+            _sock_path{sock_path},
+            _io_worker{io_worker}
+        {
+            _io_worker.sync_call(_connect());
+            _io_worker.sync_call(_send_peer_info());
+        }
+
+        message_t<CFG> process(message_t<CFG> msg)
+        {
+            return _io_worker.sync_call(_process(std::move(msg)));
+        }
+    private:
+        std::string _sock_path;
+        io_worker_t &_io_worker;
+        stream_protocol::socket _conn{_io_worker.io_context()};
+
+        boost::asio::awaitable<void> _send_peer_info()
+        {
+            static const peer_info_t my_peer_info{"turbojam-fuzzer-client"};
+            co_await write_message(_conn, message_t<CFG>{my_peer_info});
+            const auto server_info = co_await read_message<CFG>(_conn);
+            my_peer_info.compatible_with(variant::get_nice<peer_info_t>(server_info));
+        }
+
+        boost::asio::awaitable<void> _connect()
+        {
+            const auto ex = co_await boost::asio::this_coro::executor;
+            const stream_protocol::endpoint ep{_sock_path};
+            boost::asio::steady_timer timer{ex};
+            timer.expires_after(std::chrono::milliseconds{500});
+            using boost::asio::experimental::awaitable_operators::operator||;
+            auto res = co_await (_conn.async_connect(ep, boost::asio::use_awaitable) || timer.async_wait(boost::asio::use_awaitable));
+            if (res.index() == 0) [[likely]] {
+                timer.cancel();
+                logger::info("connected to {}", _sock_path);
+            } else {
+                boost::system::error_code ignored;
+                _conn.cancel(ignored);
+                _conn.close(ignored);
+                throw error(fmt::format("timed out while trying to connect to {}", _sock_path));
+            }
+        }
+
+        boost::asio::awaitable<message_t<CFG>> _process(message_t<CFG> msg)
+        {
+            co_await write_message(_conn, std::move(msg));
+            co_return co_await read_message<CFG>(_conn);
+        }
+    };
+
     template<typename CFG, template<typename ...> typename PROC>
-    struct client_t {
+    struct impl_vs_trace_client_t {
         using test_cases_t = std::vector<test_case_t>;
         using my_processor_ptr_t = std::unique_ptr<PROC<CFG>>;
 
-        explicit client_t(my_processor_ptr_t proc, io_worker_t &io_worker=io_worker_t::get()):
+        explicit impl_vs_trace_client_t(my_processor_ptr_t proc, io_worker_t &io_worker=io_worker_t::get()):
             _proc{std::move(proc)},
             _io_worker{io_worker}
         {
@@ -193,23 +266,73 @@ namespace turbo::cli::fuzzer {
         }
     };
 
-    template<typename CFG>
-    static boost::asio::awaitable<message_t<CFG>> read_message(stream_protocol::socket &conn)
-    {
-        uint32_t msg_len = 0;
-        co_await boost::asio::async_read(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
-        uint8_vector msg_buf(msg_len);
-        co_await boost::asio::async_read(conn, boost::asio::buffer(msg_buf.data(), msg_buf.size()), boost::asio::use_awaitable);
-        decoder dec{msg_buf};
-        co_return codec::from<message_t<CFG>>(dec);
-    }
+    template<typename CFG, template<typename ...> typename PROC>
+    struct impl_vs_impl_client_t {
+        using test_cases_t = std::vector<test_case_t>;
+        using my_processor_ptr_t = std::unique_ptr<PROC<CFG>>;
 
-    template<typename CFG>
-    static boost::asio::awaitable<void> write_message(stream_protocol::socket &conn, message_t<CFG> msg)
-    {
-        const encoder enc{msg};
-        const uint32_t msg_len = enc.bytes().size();
-        co_await boost::asio::async_write(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
-        co_await boost::asio::async_write(conn, boost::asio::buffer(enc.bytes()), boost::asio::use_awaitable);
-    }
+        explicit impl_vs_impl_client_t(my_processor_ptr_t proc1, my_processor_ptr_t proc2, io_worker_t &io_worker=io_worker_t::get()):
+            _proc1{std::move(proc1)},
+            _proc2{std::move(proc2)},
+            _io_worker{io_worker}
+        {
+        }
+
+        bool test_sample(const uint8_vector tc_data)
+        {
+            try {
+                test_cases_t test_cases{};
+                {
+                    decoder dec{tc_data};
+                    while (!dec.empty()) {
+                        test_cases.emplace_back(codec::from<test_case_t>(dec));
+                    }
+                }
+                return _io_worker.sync_call(_test_sample(std::move(test_cases)));
+            } catch (const std::exception &ex) {
+                logger::error("test_sample: failed due to an uncaught exception: {}", ex.what());
+            } catch (...) {
+                logger::error("test_sample: failed due to an uncaught unknown exception");
+            }
+            return false;
+        }
+    private:
+        my_processor_ptr_t _proc1;
+        my_processor_ptr_t _proc2;
+        io_worker_t &_io_worker;
+
+        boost::asio::awaitable<bool> _test_sample(const test_cases_t test_cases)
+        {
+            if (test_cases.empty()) [[unlikely]]
+                throw error("test_sample: no test cases provided!");
+            const auto &tc0 = test_cases[0];
+            auto pre_root1 = ::turbo::variant::get_nice<state_root_t>(_proc1->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals)}));
+            auto pre_root2 = ::turbo::variant::get_nice<state_root_t>(_proc2->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals)}));
+            logger::trace("pre_root1: {} pre_root2: {}", pre_root1, pre_root2);
+            for (size_t i = 0; i < test_cases.size(); ++i) {
+                const auto &tc = test_cases[i];
+                logger::debug("sample {}: testing block {} {}", i, tc.block.header.slot, tc.block.header.hash());
+                const auto resp1 = _proc1->process(message_t<CFG>{import_block_t<CFG>{tc.block}});
+                const auto resp2 = _proc2->process(message_t<CFG>{import_block_t<CFG>{tc.block}});
+                const auto ok = std::visit([&](const auto &rv1, const auto &rv2) -> bool {
+                    using T1 = std::decay_t<decltype(rv1)>;
+                    using T2 = std::decay_t<decltype(rv2)>;
+                    if constexpr (std::is_same_v<T1, turbo::jam::fuzzer::error_t> && std::is_same_v<T2, turbo::jam::fuzzer::error_t>) {
+                        logger::trace("sample {}: impl1 error: {} impl2 error: {}", i, rv1, rv2);
+                        return true;
+                    } else if constexpr (std::is_same_v<T1, state_root_t> && std::is_same_v<T2, state_root_t>) {
+                        logger::trace("sample {}: post_root1: {} post_root2: {}", i, rv1, rv2);
+                        return rv1 == rv2;
+                    } else {
+                        logger::trace("sample {}: impl1 response type: {} impl2 response type: {}", i, typeid(rv1).name(), typeid(rv2).name());
+                        return false;
+                    }
+                }, resp1, resp2);
+                logger::debug("sample {}: {}", i, ok ? "OK" : "FAILED");
+                if (!ok)
+                    co_return false;
+            }
+            co_return true;
+        }
+    };
 }
