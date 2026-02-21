@@ -281,14 +281,16 @@ namespace turbo::cli::fuzzer {
         bool test_sample(const uint8_vector tc_data)
         {
             try {
-                test_cases_t test_cases{};
+                initialize_t<CFG> init;
+                std::vector<block_t<CFG>> blocks{};
                 {
                     decoder dec{tc_data};
+                    dec.process(init);
                     while (!dec.empty()) {
-                        test_cases.emplace_back(codec::from<test_case_t>(dec));
+                        blocks.emplace_back(codec::from<block_t<CFG>>(dec));
                     }
                 }
-                return _io_worker.sync_call(_test_sample(std::move(test_cases)));
+                return _io_worker.sync_call(_test_sample(std::move(init), std::move(blocks)));
             } catch (const std::exception &ex) {
                 logger::error("test_sample: failed due to an uncaught exception: {}", ex.what());
             } catch (...) {
@@ -301,19 +303,22 @@ namespace turbo::cli::fuzzer {
         my_processor_ptr_t _proc2;
         io_worker_t &_io_worker;
 
-        boost::asio::awaitable<bool> _test_sample(const test_cases_t test_cases)
+        boost::asio::awaitable<bool> _test_sample(const initialize_t<CFG> &init, const std::vector<block_t<CFG>> &blocks)
         {
-            if (test_cases.empty()) [[unlikely]]
-                throw error("test_sample: no test cases provided!");
-            const auto &tc0 = test_cases[0];
-            auto pre_root1 = ::turbo::variant::get_nice<state_root_t>(_proc1->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals)}));
-            auto pre_root2 = ::turbo::variant::get_nice<state_root_t>(_proc2->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals)}));
+            if (blocks.empty()) [[unlikely]]
+                throw error("test_sample: no test blocks provided!");
+            const auto pre_root1 = ::turbo::variant::get_nice<state_root_t>(_proc1->process(message_t<CFG>{init}));
+            const auto pre_root2 = ::turbo::variant::get_nice<state_root_t>(_proc2->process(message_t<CFG>{init}));
             logger::trace("pre_root1: {} pre_root2: {}", pre_root1, pre_root2);
-            for (size_t i = 0; i < test_cases.size(); ++i) {
-                const auto &tc = test_cases[i];
-                logger::debug("sample {}: testing block {} {}", i, tc.block.header.slot, tc.block.header.hash());
-                const auto resp1 = _proc1->process(message_t<CFG>{import_block_t<CFG>{tc.block}});
-                const auto resp2 = _proc2->process(message_t<CFG>{import_block_t<CFG>{tc.block}});
+            if (pre_root1 != pre_root2) {
+                logger::error("initial state root mismatch: impl1: {} impl2: {}", pre_root1, pre_root2);
+                co_return false;
+            }
+            for (size_t i = 0; i < blocks.size(); ++i) {
+                const auto &block = blocks[i];
+                logger::debug("sample {}: testing block {} {}", i, block.header.slot, block.header.hash());
+                const auto resp1 = _proc1->process(message_t<CFG>{import_block_t<CFG>{block}});
+                const auto resp2 = _proc2->process(message_t<CFG>{import_block_t<CFG>{block}});
                 const auto ok = std::visit([&](const auto &rv1, const auto &rv2) -> bool {
                     using T1 = std::decay_t<decltype(rv1)>;
                     using T2 = std::decay_t<decltype(rv2)>;
