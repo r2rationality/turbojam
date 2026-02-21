@@ -3,7 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include "traces.hpp"
+#include "traces-test.hpp"
 #include "test-vectors.hpp"
 
 namespace {

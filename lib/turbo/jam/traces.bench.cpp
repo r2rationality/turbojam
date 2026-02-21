@@ -3,7 +3,7 @@
 
 #include <turbo/common/benchmark.hpp>
 #include "test-vectors.hpp"
-#include "traces.hpp"
+#include "traces-test.hpp"
 
 namespace {
     using namespace turbo;
