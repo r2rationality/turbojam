@@ -4,6 +4,11 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#ifdef _MSC_VER
+#   include <SDKDDKVer.h>
+#endif
+#include <boost/asio/awaitable.hpp>
+
 #include "types/header.hpp"
 #include "types/state-dict.hpp"
 
@@ -128,7 +133,7 @@ namespace turbo::jam::fuzzer {
     struct processor_t {
         processor_t(std::string chain_id, file::tmp_directory tmp_dir);
         ~processor_t();
-        message_t<CFG> process(message_t<CFG> msg);
+        boost::asio::awaitable<message_t<CFG>> process(message_t<CFG> msg);
     private:
         struct impl_t;
         std::unique_ptr<impl_t> _impl;

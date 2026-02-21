@@ -67,7 +67,7 @@ namespace {
             processor_t<CFG> processor{_chain_id, _tmp_dir};
             for (;;) {
                 auto msg_in = co_await read_message<CFG>(conn);
-                auto msg_out = processor.process(std::move(msg_in));
+                auto msg_out = co_await processor.process(std::move(msg_in));
                 co_await write_message(conn, std::move(msg_out));
             }
         }

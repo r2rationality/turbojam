@@ -175,7 +175,7 @@ namespace {
 
         boost::asio::awaitable<bool> _test_case(message_t<CFG> in, message_t<CFG> exp)
         {
-            const auto out = _proc->process(std::move(in));
+            const auto out = co_await _proc->process(std::move(in));
             if (out.index() != exp.index()
                 || (!std::holds_alternative<fuzzer::error_t>(out) && out != exp)) {
                 logger::error("out: {}", out);

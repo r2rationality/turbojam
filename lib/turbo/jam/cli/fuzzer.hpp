@@ -96,9 +96,11 @@ namespace turbo::cli::fuzzer {
             _io_worker.sync_call(_send_peer_info());
         }
 
-        message_t<CFG> process(message_t<CFG> msg)
+        boost::asio::awaitable<message_t<CFG>> process(message_t<CFG> msg)
         {
-            return _io_worker.sync_call(_process(std::move(msg)));
+            co_await write_message(_conn, std::move(msg));
+            co_return co_await read_message<CFG>(_conn);
+            //return _io_worker.sync_call(_process(std::move(msg)));
         }
     private:
         std::string _sock_path;
@@ -130,12 +132,6 @@ namespace turbo::cli::fuzzer {
                 _conn.close(ignored);
                 throw error(fmt::format("timed out while trying to connect to {}", _sock_path));
             }
-        }
-
-        boost::asio::awaitable<message_t<CFG>> _process(message_t<CFG> msg)
-        {
-            co_await write_message(_conn, std::move(msg));
-            co_return co_await read_message<CFG>(_conn);
         }
     };
 
@@ -233,12 +229,12 @@ namespace turbo::cli::fuzzer {
             if (test_cases.empty()) [[unlikely]]
                 throw error("test_sample: no test cases provided!");
             const auto &tc0 = test_cases[0];
-            auto pre_root = ::turbo::variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals)}));
+            auto pre_root = ::turbo::variant::get_nice<state_root_t>(co_await _proc->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals)}));
             logger::trace("pre_root: {}", pre_root);
             for (size_t i = 0; i < test_cases.size(); ++i) {
                 const auto &tc = test_cases[i];
                 logger::debug("sample {}: testing block {} {}", i, tc.block.header.slot, tc.block.header.hash());
-                const auto resp = _proc->process(message_t<CFG>{import_block_t<CFG>{tc.block}});
+                const auto resp = co_await _proc->process(message_t<CFG>{import_block_t<CFG>{tc.block}});
                 const auto ok = std::visit([&](const auto &rv) -> bool {
                     using T = std::decay_t<decltype(rv)>;
                     if constexpr (std::is_same_v<T, turbo::jam::fuzzer::error_t>) {
@@ -305,20 +301,24 @@ namespace turbo::cli::fuzzer {
 
         boost::asio::awaitable<bool> _test_sample(const initialize_t<CFG> &init, const std::vector<block_t<CFG>> &blocks)
         {
+            using namespace boost::asio::experimental::awaitable_operators;
             if (blocks.empty()) [[unlikely]]
                 throw error("test_sample: no test blocks provided!");
-            const auto pre_root1 = ::turbo::variant::get_nice<state_root_t>(_proc1->process(message_t<CFG>{init}));
-            const auto pre_root2 = ::turbo::variant::get_nice<state_root_t>(_proc2->process(message_t<CFG>{init}));
-            logger::trace("pre_root1: {} pre_root2: {}", pre_root1, pre_root2);
-            if (pre_root1 != pre_root2) {
-                logger::error("initial state root mismatch: impl1: {} impl2: {}", pre_root1, pre_root2);
-                co_return false;
+            {
+                const auto[init1_res, init2_res] = co_await (_proc1->process(message_t<CFG>{init}) && _proc2->process(message_t<CFG>{init}));
+                const auto pre_root1 = ::turbo::variant::get_nice<state_root_t>(init1_res);
+                const auto pre_root2 = ::turbo::variant::get_nice<state_root_t>(init2_res);
+                logger::trace("pre_root1: {} pre_root2: {}", pre_root1, pre_root2);
+                if (pre_root1 != pre_root2) {
+                    logger::error("initial state root mismatch: impl1: {} impl2: {}", pre_root1, pre_root2);
+                    co_return false;
+                }
             }
             for (size_t i = 0; i < blocks.size(); ++i) {
                 const auto &block = blocks[i];
                 logger::debug("sample {}: testing block {} {}", i, block.header.slot, block.header.hash());
-                const auto resp1 = _proc1->process(message_t<CFG>{import_block_t<CFG>{block}});
-                const auto resp2 = _proc2->process(message_t<CFG>{import_block_t<CFG>{block}});
+                const auto [resp1, resp2] = co_await (_proc1->process(message_t<CFG>{import_block_t<CFG>{block}})
+                    && _proc2->process(message_t<CFG>{import_block_t<CFG>{block}}));
                 const auto ok = std::visit([&](const auto &rv1, const auto &rv2) -> bool {
                     using T1 = std::decay_t<decltype(rv1)>;
                     using T2 = std::decay_t<decltype(rv2)>;

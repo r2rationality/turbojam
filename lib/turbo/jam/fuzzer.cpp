@@ -76,9 +76,9 @@ namespace turbo::jam::fuzzer {
     processor_t<CFG>::~processor_t() =default;
 
     template<typename CFG>
-    message_t<CFG> processor_t<CFG>::process(message_t<CFG> msg)
+    boost::asio::awaitable<message_t<CFG>> processor_t<CFG>::process(message_t<CFG> msg)
     {
-        return _impl->process(std::move(msg));
+        co_return _impl->process(std::move(msg));
     }
 
     template struct processor_t<config_prod>;
