@@ -21,6 +21,18 @@ namespace {
         }
         logger::info("sample succeeded: input size={} hash={}", input.size(), input_hash);
     }
+
+    inline uint8_vector read_all_stdin() {
+        uint8_vector buf{};
+        std::array<uint8_t, 0x10000> rd_buf;
+        while (true) {
+            const auto n = ::read(0, rd_buf.data(), rd_buf.size());
+            if (n <= 0)
+                break;
+            buf.insert(buf.end(), rd_buf.data(), rd_buf.data() + numeric_cast<size_t>(n));
+        }
+        return buf;
+    }
 }
 
 int main(int, char**) {
@@ -30,25 +42,18 @@ int main(int, char**) {
 #ifdef __AFL_LOOP
     logger::info("automatic evaluation within of an AFL loop");
     // AFL++ persistent mode: keeps process alive for many testcases.
-    static std::array<uint8_t, FuzzMaxInputSize> buf{};
+    static uint8_vector buf{};
     while (__AFL_LOOP(1000)) {
-        ssize_t n = ::read(0, buf.data(), buf.size());
-        if (n <= 0)
+        const auto input = read_all_stdin();
+        if (input.empty())
             break;
-        run_one({buf.data(), static_cast<size_t>(n)});
+        run_one(input);
     }
     return 0;
 #else
     // Fallback (non-AFL build): read from stdin once.
     logger::info("manual evaluation of a sample read from stdin");
-    uint8_vector input{};
-    std::array<uint8_t, 0x1000> read_buf;
-    for (;;) {
-        const auto n_read = std::fread(read_buf.data(), 1, read_buf.size(), stdin);
-        if (!n_read)
-            break;
-        input << buffer{read_buf.data(), n_read};
-    }
+    const auto input = read_all_stdin();
     run_one(input);
     return 0;
 #endif
