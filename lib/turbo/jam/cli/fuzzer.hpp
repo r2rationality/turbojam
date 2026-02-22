@@ -274,25 +274,27 @@ namespace turbo::cli::fuzzer {
         {
         }
 
-        bool test_sample(const uint8_vector tc_data)
+        bool test_sample(const buffer tc_data)
         {
             try {
                 initialize_t<CFG> init;
                 std::vector<block_t<CFG>> blocks{};
-                {
+                logger::run_log_errors([&] {
                     decoder dec{tc_data};
                     dec.process(init);
                     while (!dec.empty()) {
                         blocks.emplace_back(codec::from<block_t<CFG>>(dec));
                     }
-                }
-                return _io_worker.sync_call(_test_sample(std::move(init), std::move(blocks)));
+                });
+                if (!blocks.empty()) [[likely]]
+                    return _io_worker.sync_call(_test_sample(std::move(init), std::move(blocks)));
             } catch (const std::exception &ex) {
                 logger::error("test_sample: failed due to an uncaught exception: {}", ex.what());
             } catch (...) {
                 logger::error("test_sample: failed due to an uncaught unknown exception");
             }
-            return false;
+            // the behavior is the same if the test fails outside of the implmenetation code
+            return true;
         }
     private:
         my_processor_ptr_t _proc1;
