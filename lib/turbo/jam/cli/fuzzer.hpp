@@ -262,84 +262,90 @@ namespace turbo::cli::fuzzer {
         }
     };
 
-    template<typename CFG, template<typename ...> typename PROC>
+    template<typename CFG, template<typename ...> typename PROC1, template<typename ...> typename PROC2>
     struct impl_vs_impl_client_t {
         using test_cases_t = std::vector<test_case_t>;
-        using my_processor_ptr_t = std::unique_ptr<PROC<CFG>>;
+        using proc1_ptr_t = std::unique_ptr<PROC1<CFG>>;
+        using proc2_ptr_t = std::unique_ptr<PROC2<CFG>>;
 
-        explicit impl_vs_impl_client_t(my_processor_ptr_t proc1, my_processor_ptr_t proc2, io_worker_t &io_worker=io_worker_t::get()):
+        explicit impl_vs_impl_client_t(proc1_ptr_t proc1, proc2_ptr_t proc2, io_worker_t &io_worker=io_worker_t::get()):
             _proc1{std::move(proc1)},
             _proc2{std::move(proc2)},
             _io_worker{io_worker}
         {
         }
 
-        bool test_sample(const buffer tc_data)
+        bool set_state(initialize_t<CFG> init)
         {
             try {
-                initialize_t<CFG> init;
-                std::vector<block_t<CFG>> blocks{};
-                logger::run_log_errors([&] {
-                    decoder dec{tc_data};
-                    dec.process(init);
-                    while (!dec.empty()) {
-                        blocks.emplace_back(codec::from<block_t<CFG>>(dec));
-                    }
-                });
-                if (!blocks.empty()) [[likely]]
-                    return _io_worker.sync_call(_test_sample(std::move(init), std::move(blocks)));
+                return _io_worker.sync_call(_set_state(std::move(init)));
             } catch (const std::exception &ex) {
-                logger::error("test_sample: failed due to an uncaught exception: {}", ex.what());
+                logger::error("set_init_state: failed due to an uncaught exception: {}", ex.what());
             } catch (...) {
-                logger::error("test_sample: failed due to an uncaught unknown exception");
+                logger::error("set_init_state: failed due to an uncaught unknown exception");
             }
-            // the behavior is the same if the test fails outside of the implmenetation code
+            return false;
+        }
+
+        bool test_block(const buffer blk_data)
+        {
+            try {
+                std::optional<block_t<CFG>> blk{};
+                logger::run_log_errors([&] {
+                    decoder dec{blk_data};
+                    blk = codec::from<block_t<CFG>>(dec);
+                });
+                if (blk) [[likely]]
+                    return _io_worker.sync_call(_test_block(std::move(*blk)));
+            } catch (const std::exception &ex) {
+                logger::error("test_block: failed due to an uncaught exception: {}", ex.what());
+            } catch (...) {
+                logger::error("test_block: failed due to an uncaught unknown exception");
+            }
+            // the behavior is the same if the test fails outside of the implementation code
             return true;
         }
     private:
-        my_processor_ptr_t _proc1;
-        my_processor_ptr_t _proc2;
+        proc1_ptr_t _proc1;
+        proc2_ptr_t _proc2;
         io_worker_t &_io_worker;
 
-        boost::asio::awaitable<bool> _test_sample(const initialize_t<CFG> &init, const std::vector<block_t<CFG>> &blocks)
+        boost::asio::awaitable<bool> _set_state(const initialize_t<CFG> init)
         {
             using namespace boost::asio::experimental::awaitable_operators;
-            if (blocks.empty()) [[unlikely]]
-                throw error("test_sample: no test blocks provided!");
-            {
-                const auto[init1_res, init2_res] = co_await (_proc1->process(message_t<CFG>{init}) && _proc2->process(message_t<CFG>{init}));
-                const auto pre_root1 = ::turbo::variant::get_nice<state_root_t>(init1_res);
-                const auto pre_root2 = ::turbo::variant::get_nice<state_root_t>(init2_res);
-                logger::trace("pre_root1: {} pre_root2: {}", pre_root1, pre_root2);
-                if (pre_root1 != pre_root2) {
-                    logger::error("initial state root mismatch: impl1: {} impl2: {}", pre_root1, pre_root2);
-                    co_return false;
-                }
-            }
-            for (size_t i = 0; i < blocks.size(); ++i) {
-                const auto &block = blocks[i];
-                logger::debug("sample {}: testing block {} {}", i, block.header.slot, block.header.hash());
-                const auto [resp1, resp2] = co_await (_proc1->process(message_t<CFG>{import_block_t<CFG>{block}})
-                    && _proc2->process(message_t<CFG>{import_block_t<CFG>{block}}));
-                const auto ok = std::visit([&](const auto &rv1, const auto &rv2) -> bool {
-                    using T1 = std::decay_t<decltype(rv1)>;
-                    using T2 = std::decay_t<decltype(rv2)>;
-                    if constexpr (std::is_same_v<T1, turbo::jam::fuzzer::error_t> && std::is_same_v<T2, turbo::jam::fuzzer::error_t>) {
-                        logger::trace("sample {}: impl1 error: {} impl2 error: {}", i, rv1, rv2);
-                        return true;
-                    } else if constexpr (std::is_same_v<T1, state_root_t> && std::is_same_v<T2, state_root_t>) {
-                        logger::trace("sample {}: post_root1: {} post_root2: {}", i, rv1, rv2);
-                        return rv1 == rv2;
-                    } else {
-                        logger::trace("sample {}: impl1 response type: {} impl2 response type: {}", i, typeid(rv1).name(), typeid(rv2).name());
-                        return false;
-                    }
-                }, resp1, resp2);
-                logger::debug("sample {}: {}", i, ok ? "OK" : "FAILED");
-                if (!ok)
-                    co_return false;
+            const auto[init1_res, init2_res] = co_await (_proc1->process(message_t<CFG>{init}) && _proc2->process(message_t<CFG>{init}));
+            const auto pre_root1 = ::turbo::variant::get_nice<state_root_t>(init1_res);
+            const auto pre_root2 = ::turbo::variant::get_nice<state_root_t>(init2_res);
+            logger::trace("pre_root1: {} pre_root2: {}", pre_root1, pre_root2);
+            if (pre_root1 != pre_root2) {
+                logger::error("initial state root mismatch: impl1: {} impl2: {}", pre_root1, pre_root2);
+                co_return false;
             }
             co_return true;
+        }
+
+        boost::asio::awaitable<bool> _test_block(const block_t<CFG> block)
+        {
+            using namespace boost::asio::experimental::awaitable_operators;
+            logger::debug("testing block slot={} hash={}", block.header.slot, block.header.hash());
+            const auto [resp1, resp2] = co_await (_proc1->process(message_t<CFG>{import_block_t<CFG>{block}})
+                && _proc2->process(message_t<CFG>{import_block_t<CFG>{block}}));
+            const auto ok = std::visit([&](const auto &rv1, const auto &rv2) -> bool {
+                using T1 = std::decay_t<decltype(rv1)>;
+                using T2 = std::decay_t<decltype(rv2)>;
+                if constexpr (std::is_same_v<T1, turbo::jam::fuzzer::error_t> && std::is_same_v<T2, turbo::jam::fuzzer::error_t>) {
+                    logger::trace("testing block slot={} hash={}: impl1 error: {} impl2 error: {}", block.header.slot, block.header.hash(), rv1, rv2);
+                    return true;
+                } else if constexpr (std::is_same_v<T1, state_root_t> && std::is_same_v<T2, state_root_t>) {
+                    logger::trace("testing block slot={} hash={}: post_root1: {} post_root2: {}", block.header.slot, block.header.hash(), rv1, rv2);
+                    return rv1 == rv2;
+                } else {
+                    logger::trace("testing block slot={} hash={}: impl1 response type: {} impl2 response type: {}", block.header.slot, block.header.hash(), typeid(rv1).name(), typeid(rv2).name());
+                    return false;
+                }
+            }, resp1, resp2);
+            logger::debug("testing block slot={} hash={}: {}", block.header.slot, block.header.hash(), ok ? "OK" : "FAILED");
+            co_return ok;
         }
     };
 }

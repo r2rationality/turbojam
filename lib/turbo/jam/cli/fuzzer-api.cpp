@@ -64,7 +64,7 @@ namespace {
                 co_await write_message<CFG>(conn, message_t<CFG>{my_peer_info});
                 my_peer_info.compatible_with(peer_info);
             }
-            processor_t<CFG> processor{_chain_id, _tmp_dir};
+            processor_t<CFG> processor{_chain_id, _tmp_dir.path()};
             for (;;) {
                 auto msg_in = co_await read_message<CFG>(conn);
                 auto msg_out = co_await processor.process(std::move(msg_in));

@@ -23,22 +23,23 @@ namespace turbo::cli::fuzzer_convert {
         void configure(config &cmd) const override
         {
             cmd.name = "fuzzer-convert";
-            cmd.desc = "Convert fuzzer traces in <source-dir> into an AFL fuzzer samples <seeds-dir>";
-            cmd.args.expect({"traces-dir", "seeds-dir"});
+            cmd.desc = "Convert fuzzer traces in <source-dir> into an AFL fuzzer <states-dir> and <blocks-dir>";
+            cmd.args.expect({"traces-dir", "states-dir", "blocks-dir"});
         }
 
         void run(const arguments &args) const override
         {
             const auto &traces_dir = args.at(0);
-            const auto &seeds_dir = args.at(1);
+            const auto &states_dir = args.at(1);
+            const auto &blocks_dir = args.at(2);
             for (const auto &e: std::filesystem::directory_iterator(traces_dir)) {
                 if (e.is_directory() && !e.path().filename().string().starts_with(".")) {
-                    _convert(e.path().string(), (std::filesystem::path(seeds_dir) / e.path().stem()).string());
+                    _convert(e.path().string(), (std::filesystem::path(states_dir) / e.path().stem()).string(), (std::filesystem::path(blocks_dir) / e.path().stem()).string());
                 }
             }
         }
     private:
-        static void _convert(const std::string &sample_dir, const std::string &out_path)
+        static void _convert(const std::string &sample_dir, const std::string &state_path, const std::string &out_prefix)
         {
             std::vector<test_case_t> test_cases{};
             {
@@ -54,15 +55,16 @@ namespace turbo::cli::fuzzer_convert {
                 }
             }
             if (!test_cases.empty()) {
-                jam::encoder enc{};
                 const auto &tc0 = test_cases[0];
-                enc << initialize_t<config_tiny>::from_snapshot(tc0.pre.keyvals);
-                enc << tc0.block;
-                for (const auto &tc: test_cases | std::views::drop(1)) {
-                    enc << tc.block;
+                {
+                    const jam::encoder enc{initialize_t<config_tiny>::from_snapshot(tc0.pre.keyvals)};
+                    file::write(state_path, enc.bytes());
                 }
-                file::write(out_path, enc.bytes());
-                logger::info("converted {} test cases from {} into an AFL sample at {}", test_cases.size(), sample_dir, out_path);
+                for (const auto &[i, tc]: test_cases | std::views::enumerate) {
+                    const jam::encoder enc{tc.block};
+                    file::write(fmt::format("{}-{}-{}-{}", out_prefix, i, tc.block.header.slot, tc.block.header.hash()), enc.bytes());
+                }
+                logger::info("converted {} test cases from {} into an AFL samples with prefix {}", test_cases.size(), sample_dir, out_prefix);
             } else {
                 logger::info("no test cases found in {}, skipping conversion", sample_dir);
             }

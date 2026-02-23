@@ -34,7 +34,8 @@ namespace turbo::cli::fuzzer_client {
             if (const auto it = opts.find("sock-path"); it != opts.end() && it->second) {
                 _run_tests(impl_vs_trace_client_t<config_tiny, unix_socket_processor_t>{std::make_unique<unix_socket_processor_t<config_tiny>>(*it->second)}, data_dir);
             } else {
-                _run_tests(impl_vs_trace_client_t<config_tiny, processor_t>{std::make_unique<processor_t<config_tiny>>("dev", file::tmp_directory{"turbo-jam-fuzzer"})}, data_dir);
+                file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
+                _run_tests(impl_vs_trace_client_t<config_tiny, processor_t>{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir.path())}, data_dir);
             }
         }
 

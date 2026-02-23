@@ -23,9 +23,9 @@ namespace turbo::jam::fuzzer {
 
     template<typename CFG>
     struct processor_t<CFG>::impl_t {
-        impl_t(std::string &&chain_id, file::tmp_directory &&tmp_dir):
+        impl_t(std::string &&chain_id, std::string_view chain_dir):
             _chain_id{std::move(chain_id)},
-            _tmp_dir{std::move(tmp_dir)}
+            _chain_dir{chain_dir}
         {
         }
 
@@ -37,7 +37,7 @@ namespace turbo::jam::fuzzer {
                     std::optional<ancestry_t<CFG>> ancestry{};
                     if (!m.ancestry.empty())
                         ancestry.emplace(std::move(m.ancestry));
-                    _chain.emplace(_chain_id, _tmp_dir.path(), m.state, m.state, std::move(ancestry));
+                    _chain.emplace(_chain_id, _chain_dir, m.state, m.state, std::move(ancestry));
                     return _chain->state_root();
                 } else if constexpr (std::is_same_v<T, import_block_t<CFG>>) {
                     if (!_chain) [[unlikely]]
@@ -62,13 +62,13 @@ namespace turbo::jam::fuzzer {
         }
     private:
         std::string _chain_id;
-        file::tmp_directory _tmp_dir;
+        std::string _chain_dir;
         std::optional<chain_t<CFG>> _chain {};
     };
 
     template<typename CFG>
-    processor_t<CFG>::processor_t(std::string chain_id, file::tmp_directory tmp_dir):
-        _impl{std::make_unique<impl_t>(std::move(chain_id), std::move(tmp_dir))}
+    processor_t<CFG>::processor_t(std::string chain_id, std::string_view chain_dir):
+        _impl{std::make_unique<impl_t>(std::move(chain_id), std::move(chain_dir))}
     {
     }
 

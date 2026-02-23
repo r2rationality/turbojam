@@ -131,7 +131,7 @@ namespace turbo::jam::fuzzer {
 
     template<typename CFG>
     struct processor_t {
-        processor_t(std::string chain_id, file::tmp_directory tmp_dir);
+        processor_t(std::string chain_id, std::string_view chain_dir);
         ~processor_t();
         boost::asio::awaitable<message_t<CFG>> process(message_t<CFG> msg);
     private:
