@@ -62,35 +62,33 @@ namespace turbo::jam {
 
         void uint_fixed(const size_t num_bytes, const uint64_t val)
         {
-            for (size_t i = 0; i < num_bytes; ++i) {
-                _bytes.emplace_back(0);
-            }
-            // emplace_back can reallocate, so take the pointer only after that
-            uint_fixed(std::span { _bytes.data() + _bytes.size() - num_bytes, num_bytes }, num_bytes, val);
+            _bytes.insert(_bytes.end(), num_bytes, 0U);
+            // insert can reallocate, so take the pointer only after that
+            uint_fixed(std::span{_bytes.data() + _bytes.size() - num_bytes, num_bytes}, num_bytes, val);
         }
 
         void uint_varlen(const uint64_t x)
         {
-            static constexpr size_t max_uint_val = uint64_t { 1 } << 63;
-            if (x >= max_uint_val) [[unlikely]] {
-                _bytes.emplace_back(0xFF);
-                uint_fixed(8, x);
-                return;
-            }
+            static_assert(sizeof(x) == 8U, "uint_varlen: sizeof(x) != 8U");
             if (x == 0) {
                 _bytes.emplace_back(0);
                 return;
             }
+            if (x >= uint64_t{1} << (7U * (7U + 1U))) [[unlikely]] {
+                _bytes.emplace_back(0xFF);
+                uint_fixed(8, x);
+                return;
+            }
             size_t l = 0;
-            while (x >= uint64_t { 1 } << (7 * (l + 1))) {
+            while (x >= uint64_t{1} << (7U * (l + 1U))) {
                 ++l;
             }
-            const auto base = l << 3;
-            const auto bit_mask = static_cast<uint8_t>(0x100 - (uint8_t { 1 } << (8 - l)));
+            const auto base = l << 3U;
+            const auto bit_mask = static_cast<uint8_t>(0x100 - (uint8_t{1} << (8U - l)));
             const auto high_bits = static_cast<uint8_t>(x >> base);
             _bytes.emplace_back(bit_mask | high_bits);
             if (l > 0)
-                uint_fixed(l, x & ((uint64_t { 1 } << base) - 1));
+                uint_fixed(l, x & ((uint64_t{1} << base) - 1U));
         }
 
         template<typename T>
@@ -197,6 +195,8 @@ namespace turbo::jam {
                 uint_fixed(1, val);
             } else if constexpr (std::is_same_v<T, bool>) {
                 uint_fixed(1, static_cast<uint8_t>(val));
+            } else if constexpr (std::convertible_to<T, std::span<const uint8_t>>) {
+                process_bytes_fixed(val);
             } else {
                 throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
             }
@@ -265,13 +265,14 @@ namespace turbo::jam {
         template<typename T=uint64_t>
         T uint_varlen()
         {
+            static_assert(sizeof(T) <= 8, "uint_varlen only supports types with the size of 8 bytes or less!");
             auto prefix = uint_fixed<uint8_t>(1);
             size_t l = 0;
-            while (prefix & (1 << (7 - l))) {
-                prefix &= ~(1 << (7 - l));
+            while (prefix & (1U << (7U - l))) {
+                prefix &= ~(1U << (7U - l));
                 ++l;
             }
-            uint64_t res = prefix << (l << 3);
+            uint64_t res = static_cast<uint64_t>(prefix) << (l * 8U);
             res |= uint_fixed<uint64_t>(l);
             return numeric_cast<T>(res);
         }
