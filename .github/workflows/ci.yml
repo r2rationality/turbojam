@@ -12,7 +12,10 @@ jobs:
         with:
           submodules: 'recursive'
       - name: Build docker image
-        run: docker build -t turbojam:test -f Dockerfile.test .
+        run: |
+          docker container prune -f
+          docker image prune -f
+          docker build -t turbojam:test -f Dockerfile.test .
       - name: Run unit tests
         id: tests
         run: |
