@@ -111,7 +111,7 @@ namespace turbo::jam {
                 throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", self.size(), min_sz, max_sz));
             process_varlen_uint(self.size());
             for (const auto &v: self)
-                encode(v);
+                process(v);
         }
 
         void process_map(auto &m)
@@ -131,7 +131,7 @@ namespace turbo::jam {
         void process_array_fixed(auto &self)
         {
             for (const auto &v: self)
-                encode(v);
+                process(v);
         }
 
         void process_bytes(const buffer bytes)
@@ -208,12 +208,6 @@ namespace turbo::jam {
             process(val);
         }
 
-        template<typename T>
-        void encode(const T &val)
-        {
-            process(val);;
-        }
-
         void next_bytes(const buffer data)
         {
             _bytes << data;
@@ -283,7 +277,19 @@ namespace turbo::jam {
         }
 
         template<typename T>
-        void decode(T &val)
+        void process_varlen_uint(T &val)
+        {
+            val = uint_varlen<T>();
+        }
+
+        template<typename T>
+        void process_uint(T &val)
+        {
+            val = uint_fixed<T>(sizeof(val));
+        }
+
+        template<typename T>
+        void process(T &val)
         {
             if constexpr (from_bytes_c<T>) {
                 val = T::from_bytes(*this);
@@ -304,24 +310,6 @@ namespace turbo::jam {
             } else {
                 throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
             }
-        }
-
-        template<typename T>
-        void process_varlen_uint(T &val)
-        {
-            val = uint_varlen<T>();
-        }
-
-        template<typename T>
-        void process_uint(T &val)
-        {
-            val = uint_fixed<T>(sizeof(val));
-        }
-
-        template<typename T>
-        void process(T &val)
-        {
-            decode(val);
         }
 
         template<typename T>
@@ -362,9 +350,9 @@ namespace turbo::jam {
             m.clear();
             for (size_t i = 0; i < sz; ++i) {
                 typename T::key_type k;
-                decode(k);
+                process(k);
                 typename T::mapped_type v;
-                decode(v);
+                process(v);
                 if (const auto [it, created] = m.try_emplace(std::move(k), std::move(v)); !created) [[unlikely]]
                     //throw error(fmt::format("a map contains non-unique items: {}", it->first));
                     logger::warn("a {} map contains non-unique items: {}", typeid(m).name(), it->first);
@@ -456,7 +444,7 @@ namespace turbo::jam {
     template<typename T>
     encoder &operator<<(encoder &enc, const T &val)
     {
-        enc.encode(val);
+        enc.process(val);
         return enc;
     }
 
