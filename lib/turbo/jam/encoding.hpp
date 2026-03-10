@@ -70,25 +70,26 @@ namespace turbo::jam {
         void uint_varlen(const uint64_t x)
         {
             static_assert(sizeof(x) == 8U, "uint_varlen: sizeof(x) != 8U");
-            if (x == 0) {
-                _bytes.emplace_back(0);
+            if (x == 0U) {
+                _bytes.emplace_back(0U);
                 return;
             }
-            if (x >= uint64_t{1} << (7U * (7U + 1U))) [[unlikely]] {
-                _bytes.emplace_back(0xFF);
-                uint_fixed(8, x);
-                return;
+            for (uint64_t l = 0U, boundary = uint64_t{1} << 7U; l < 8U; ++l, boundary <<= 7U) {
+                if (x < boundary) {
+                    const auto base = l << 3U;
+                    const auto bit_mask = static_cast<uint8_t>(0x100U - (1U << (8U - l)));
+                    const auto high_bits = static_cast<uint8_t>(x >> base);
+                    _bytes.reserve(_bytes.size() + size_t{1} + static_cast<size_t>(l));
+                    _bytes.emplace_back(bit_mask | high_bits);
+                    if (l > 0U)
+                        uint_fixed(l, x & ((uint64_t{1} << base) - 1U));
+                    return;
+                }
             }
-            size_t l = 0;
-            while (x >= uint64_t{1} << (7U * (l + 1U))) {
-                ++l;
-            }
-            const auto base = l << 3U;
-            const auto bit_mask = static_cast<uint8_t>(0x100 - (uint8_t{1} << (8U - l)));
-            const auto high_bits = static_cast<uint8_t>(x >> base);
-            _bytes.emplace_back(bit_mask | high_bits);
-            if (l > 0)
-                uint_fixed(l, x & ((uint64_t{1} << base) - 1U));
+            // x >= 2^56
+            _bytes.reserve(_bytes.size() + size_t{9});
+            _bytes.emplace_back(0xFF);
+            uint_fixed(8, x);
         }
 
         template<typename T>
@@ -250,7 +251,7 @@ namespace turbo::jam {
             // do nothing
         }
 
-        template<typename T>
+        template<std::unsigned_integral T>
         T uint_fixed(const size_t num_bytes)
         {
             if (num_bytes > 8) [[unlikely]]
@@ -262,10 +263,10 @@ namespace turbo::jam {
             return x;
         }
 
-        template<typename T=uint64_t>
+        template<std::unsigned_integral T=uint64_t>
         T uint_varlen()
         {
-            static_assert(sizeof(T) <= 8, "uint_varlen only supports types with the size of 8 bytes or less!");
+            static_assert(sizeof(T) <= 8U, "uint_varlen: only supports types with the size of 8 bytes or less!");
             auto prefix = uint_fixed<uint8_t>(1);
             size_t l = 0;
             while (prefix & (1U << (7U - l))) {
