@@ -146,7 +146,7 @@ namespace turbo::jam::merkle {
         }
     private:
         struct node_t;
-        using allocator_type = pool_allocator_t<node_t, 0x10000>;
+        using allocator_type = pool_allocator_t<node_t, 0x10000, true>;
         using node_ptr_t = allocator_type::ptr_t;
         struct node_t {
             key_t key;
