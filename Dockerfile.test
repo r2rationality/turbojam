@@ -25,13 +25,13 @@ WORKDIR /home/dev
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH=/home/dev/.cargo/bin:$PATH
 
+RUN install -d -o dev -g dev /home/dev/turbojam/
 COPY --chown=dev:dev 3rdparty    /home/dev/turbojam/3rdparty
 COPY --chown=dev:dev data        /home/dev/turbojam/data
 COPY --chown=dev:dev etc         /home/dev/turbojam/etc
 COPY --chown=dev:dev lib         /home/dev/turbojam/lib
 COPY --chown=dev:dev src         /home/dev/turbojam/src
 COPY --chown=dev:dev CMakeLists.txt /home/dev/turbojam/
-RUN sudo chown -R dev:dev /home/dev/turbojam/
 
 WORKDIR /home/dev/turbojam
 RUN rm -rf 3rdparty/msquic/bld 3rdparty/msquic/build \
