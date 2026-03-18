@@ -21,7 +21,7 @@ jobs:
         id: tests
         run: |
           docker rm -f test-container 2>/dev/null || true
-          docker run --name test-container -v ./test:/home/dev/turbojam/test turbojam:test sh /home/dev/turbojam/test/gen-coverage.sh
+          docker run --name test-container -v ${{github.workspace}}/test:/home/dev/turbojam/test turbojam:test sh /home/dev/turbojam/test/gen-coverage.sh
       - name: Copy coverage
         id: tests-copy-cov
         run: docker cp test-container:/home/dev/turbojam/tmp/coverage ./coverage-html
