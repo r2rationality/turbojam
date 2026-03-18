@@ -168,7 +168,7 @@ namespace turbo::jam::machine {
         }
     };
 
-    using result_base_t = std::variant<exit_halt_t, exit_panic_t, exit_out_of_gas_t, exit_page_fault_t, exit_host_call_t>;
+    using result_base_t = std::variant<exit_halt_t, exit_panic_t, exit_page_fault_t, exit_host_call_t, exit_out_of_gas_t>;
     struct result_t: result_base_t {
         using base_type = result_base_t;
         using base_type::base_type;
