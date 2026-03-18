@@ -31,8 +31,42 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct ancestry_t: sequence_t<ancestry_item_t<CFG>> {
-        using base_type = sequence_t<ancestry_item_t<CFG>>;
-        using base_type::base_type;
+        using item_t = ancestry_item_t<CFG>;
+        using iterator = std::vector<item_t>::iterator;
+        using const_iterator = std::vector<item_t>::const_iterator;
+
+        ancestry_t() = default;
+        ancestry_t(std::initializer_list<item_t> init): _data{std::move(init)} {}
+
+        const_iterator begin() const { return _data.begin() + _start; }
+        const_iterator end()   const { return _data.end(); }
+        iterator       begin()       { return _data.begin() + _start; }
+        iterator       end()         { return _data.end(); }
+
+        bool   empty() const { return size() == 0; }
+        size_t size()  const { return _data.size() - _start; }
+        const item_t &back()  const { return _data.back(); }
+
+        void add(const time_slot_t<CFG> &slot, const header_hash_t &hash,
+                 std::optional<state_root_t> sr={}, std::optional<storage::update::undo_list_t> undo={})
+        {
+            // a duplicate check for monotonicity to ensure even initialized data comes in sorted to make binary search work
+            // 0 is a special case that is used in testing only
+            // to add blocks to the ancestry from beta state element when doing direct state initialization
+            if (!this->empty() && this->back().slot >= slot && (this->back().slot == 0U && slot != 0U)) [[unlikely]]
+                throw error(fmt::format("out of order ancestry block: {} comes after {}", slot, this->back().slot));
+            _data.emplace_back(slot, hash, std::move(sr), std::move(undo));
+            if (size() > MAX_ANCESTRY) {
+                ++_start;
+                // compact when dead prefix grows large, amortized O(1)
+                if (_start > MAX_ANCESTRY) {
+                    _data.erase(_data.begin(), _data.begin() + _start);
+                    _start = 0;
+                }
+            }
+        }
+
+        void erase(const_iterator first, const_iterator last) { _data.erase(first, last); }
 
         void add(const header_hash_t &blk_hash, const state_root_t &state_root)
         {
@@ -43,17 +77,7 @@ namespace turbo::jam {
                 add(0U, blk_hash);
         }
 
-        void add(const time_slot_t<CFG> &blk_slot, const header_hash_t &blk_hash, std::optional<state_root_t> state_root={}, std::optional<storage::update::undo_list_t> undo={})
-        {
-            // a duplicate check for monotonicity to ensure even initialized data comes in sorted to make binary search work
-            // 0 is a special case that is used in testing only
-            // to add blocks to the ancestry from beta state element when doing direct state initialization
-            if (!this->empty() && this->back().slot >= blk_slot && (this->back().slot == 0U && blk_slot != 0U)) [[unlikely]]
-                throw error(fmt::format("out of order ancestry block: {} comes after {}", blk_slot, this->back().slot));
-            this->emplace_back(blk_slot, blk_hash, std::move(state_root), std::move(undo));
-        }
-
-        base_type::const_iterator known(const header_hash_t &parent_hash, const state_root_t &parent_state_root) const {
+        const_iterator known(const header_hash_t &parent_hash, const state_root_t &parent_state_root) const {
             const auto parent_it = std::find_if(this->begin(), this->end(), [&](const auto &a) {
                 if (a.header_hash != parent_hash)
                     return false;
@@ -68,6 +92,10 @@ namespace turbo::jam {
             }
             return std::next(parent_it);
         }
+    private:
+        std::vector<item_t> _data{};
+        size_t _start = 0;
+        static constexpr size_t MAX_ANCESTRY = CFG::H_max_blocks_history * 4U;
     };
 
     template<typename CFG>
