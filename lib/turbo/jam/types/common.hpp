@@ -854,7 +854,7 @@ namespace turbo::jam {
     };
 
     using ticket_id_t = opaque_hash_t;
-    using ticket_attempt_t = uint8_t;
+    using ticket_attempt_t = varlen_uint_t<uint8_t>;
 
     struct ticket_envelope_t {
         ticket_attempt_t attempt;
