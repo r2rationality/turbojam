@@ -224,7 +224,7 @@ namespace turbo::jam {
                     v.emplace((*_p.fetch.imports)[phi[11]][phi[12]]);
                 break;
             case 6:
-                if (_p.fetch.exports && _p.fetch.refined_item_index
+                if (_p.fetch.imports && _p.fetch.refined_item_index
                         && *_p.fetch.refined_item_index < _p.fetch.imports->size()
                         && phi[11] < (*_p.fetch.imports)[*_p.fetch.refined_item_index].size())
                     v.emplace((*_p.fetch.imports)[*_p.fetch.refined_item_index][phi[11]]);
@@ -283,18 +283,6 @@ namespace turbo::jam {
             case 15:
                 if (_p.fetch.inputs && phi[11] < _p.fetch.inputs->size()) {
                     encoder enc{(*_p.fetch.inputs)[phi[11]]};
-                    v.emplace(std::move(enc.bytes()));
-                }
-                break;
-            case 16:
-                if (_p.fetch.transfers) {
-                    encoder enc { *_p.fetch.transfers };
-                    v.emplace(std::move(enc.bytes()));
-                }
-                break;
-            case 17:
-                if (_p.fetch.transfers && phi[11] < _p.fetch.transfers->size()) {
-                    encoder enc { _p.fetch.transfers[phi[11]] };
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
