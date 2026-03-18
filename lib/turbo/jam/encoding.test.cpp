@@ -25,7 +25,7 @@ suite turbo_jam_encoding_suite = [] {
         // C.1
         "empty"_test = [] {
             encoder enc{};
-            expect_equal(0, enc.bytes().size());
+            expect_equal(0U, enc.bytes().size());
         };
         // C.2
         "octect"_test = [] {
