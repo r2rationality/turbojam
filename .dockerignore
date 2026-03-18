@@ -1,5 +1,8 @@
 .git
 .github
+.gitmodules
+.idea
+.vs
 3rdparty/ark-vrf-cpp/target
 3rdparty/erasure-coding/target
 3rdparty/msquic/build
