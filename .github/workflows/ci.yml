@@ -17,7 +17,6 @@ jobs:
           docker image prune -f
           docker build -t turbojam:test -f Dockerfile.test .
           docker image prune -f
-          docker buildx prune --all -f
       - name: Run unit tests
         id: tests
         run: |
