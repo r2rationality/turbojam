@@ -13,16 +13,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
-      - name: Check directories
-        run: |
-          echo "uid: $(id -u) gid: $(id -g)"
-          echo "pwd: $(pwd)"
-          echo "github.workspace: ${{github.workspace}}"
-          ls -lA .
-          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA /work
-          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA /work/turbojam/turbojam
-          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA /work/turbojam/turbojam/test
-          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test bash -lc "ln -sf /work/turbojam/turbojam/{lib,test,src} ./ && bash /work/turbojam/turbojam/test/gen-coverage.sh"
       - name: Build docker image
         run: |
           docker container prune -f
