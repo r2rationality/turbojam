@@ -7,7 +7,9 @@
 
 namespace turbo::crypto::sodium
 {
-    typedef turbo::error error;
+    struct error: turbo::error {
+        using turbo::error::error;
+    };
 
     extern "C" {
 #       include <sodium.h>
