@@ -44,7 +44,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata sudo \
-    clang-tools-19 \
+    clang-tools-19 llvm-19 \
     libnuma1 \
     libboost-json1.83 \
     libboost-url1.83 \

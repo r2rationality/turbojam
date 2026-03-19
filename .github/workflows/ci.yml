@@ -7,6 +7,8 @@ on:
 jobs:
   test:
     runs-on: self-hosted
+    env:
+      CI_SRC_VOLUME: turbojam-ci-1-src
     steps:
       - uses: actions/checkout@v4
         with:
@@ -23,11 +25,12 @@ jobs:
           docker rm -f test-container 2>/dev/null || true
           pwd
           ls -lA .
+          echo "uid: $(id -u) gid: $(id -g)"
           echo "pwd: $(pwd)"
           echo "github.workspace: ${{github.workspace}}"
-          docker run --rm -v $(pwd)/test:/home/dev/turbojam/test turbojam:test ls -lA .
-          docker run --rm -v $(pwd)/test:/home/dev/turbojam/test turbojam:test ls -lA test
-          docker run --name test-container -v $(pwd)/test:/home/dev/turbojam/test turbojam:test sh /home/dev/turbojam/test/gen-coverage.sh
+          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA ${{github.workspace}}
+          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA ${{github.workspace}}/test
+          docker run --name test-container -v ${CI_SRC_VOLUME}:/work turbojam:test sh ${{github.workspace}}/test/gen-coverage.sh
       - name: Copy coverage
         id: tests-copy-cov
         run: docker cp test-container:/home/dev/turbojam/tmp/coverage ./coverage-html
