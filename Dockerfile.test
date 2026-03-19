@@ -62,9 +62,9 @@ RUN useradd -m -s /bin/bash -d /home/dev -G sudo dev
 USER dev
 
 RUN install -d -o dev -g dev /home/dev/turbojam/
+WORKDIR /home/dev/turbojam
 COPY --from=builder --chown=dev:dev /home/dev/turbojam/build ./build
 COPY --from=builder --chown=dev:dev /home/dev/turbojam/data ./data
 COPY --from=builder --chown=dev:dev /home/dev/turbojam/etc ./etc
 
-WORKDIR /home/dev/turbojam
 CMD ["/bin/bash"]
