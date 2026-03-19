@@ -99,13 +99,30 @@ namespace turbo::cli::fuzzer_api {
             cmd.name = "fuzzer-api";
             cmd.desc = "Launch a local fuzzing API listening at <unix-socket-path>";
             cmd.args.expect({ "<unix-socket-path>" });
+            cmd.opts.try_emplace(
+                "cfg", "parameter set: either tiny or full", "tiny",
+                [](const std::optional<std::string> &v)-> std::optional<std::string> {
+                    if (!(v && (*v == "tiny" || *v == "full"))) {
+                        return "cfg can be either tiny or full";
+                    }
+                    return {};
+                }
+            );
         }
 
-        void run(const arguments &args) const override
+        void run(const arguments &args, const options &opts) const override
         {
             const auto &sock_path = args.at(0);
-            server_t<config_tiny> srv { "dev", sock_path };
-            srv.run();
+            const auto cfg = opts.at("cfg").value();
+            if (cfg == "tiny") {
+                logger::info("starting a fuzzer API with tiny config");
+                server_t<config_tiny> srv{"dev", sock_path};
+                srv.run();
+            } else {
+                logger::info("starting a fuzzer API with full config");
+                server_t<config_prod> srv{"dev", sock_path};
+                srv.run();
+            }
         }
     };
     static auto instance = command::reg(std::make_shared<cmd>());
