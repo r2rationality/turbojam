@@ -23,6 +23,8 @@ jobs:
           docker rm -f test-container 2>/dev/null || true
           pwd
           ls -lA .
+          echo "pwd: $(pwd)"
+          echo "github.workspace: ${{github.workspace}}"
           docker run --rm -v $(pwd)/test:/home/dev/turbojam/test turbojam:test ls -lA .
           docker run --rm -v $(pwd)/test:/home/dev/turbojam/test turbojam:test ls -lA test
           docker run --name test-container -v $(pwd)/test:/home/dev/turbojam/test turbojam:test sh /home/dev/turbojam/test/gen-coverage.sh
