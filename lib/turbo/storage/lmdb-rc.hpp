@@ -8,9 +8,17 @@
 #include "common.hpp"
 
 namespace turbo::storage::lmdb_rc {
-    typedef error error;
+    struct error: turbo::error {
+        using turbo::error::error;
+    };
+
+    struct map_info_t {
+        size_t map_size;   // total virtual address space reserved for the environment
+        size_t used_size;  // bytes consumed by committed + pending dirty pages
+    };
+
     struct db_t: storage::db_t {
-        db_t(std::string_view dir_path);
+        explicit db_t(std::string_view dir_path, size_t initial_mapsize = 1ULL << 30U);
         ~db_t() override;
         void clear() override;
         void erase(buffer key) override;
@@ -18,6 +26,7 @@ namespace turbo::storage::lmdb_rc {
         value_t get(buffer key) const override;
         void set(buffer key, buffer val) override;
         [[nodiscard]] size_t size() const override;
+        [[nodiscard]] map_info_t map_info() const;
         void commit();
         void rollback();
     private:

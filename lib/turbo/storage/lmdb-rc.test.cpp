@@ -57,5 +57,21 @@ suite turbo_storage_lmdb_rc_suite = [] {
             expect_equal(size_t{1}, db.size());
             expect_equal("111"sv, db.get("ABC"sv));
         };
+        "mapsize growth"_test = [&] {
+            const file::tmp_directory growth_dir{"test-turbo-lmdb-rc-growth"};
+            lmdb_rc::db_t db{growth_dir.path(), 1ULL << 17U};
+            const uint8_vector val(5000, uint8_t{'x'});
+            const auto initial_map_size = db.map_info().map_size;
+            for (int i = 0; db.map_info().map_size == initial_map_size; ++i) {
+                const auto key = fmt::format("growth-key-{:04d}", i);
+                db.set(buffer{reinterpret_cast<const uint8_t*>(key.data()), key.size()}, val);
+                db.commit();
+            }
+
+            expect_equal(initial_map_size * 2, db.map_info().map_size);
+            const size_t n = db.size();
+            lmdb_rc::db_t db2{growth_dir.path()};
+            expect_equal(n, db2.size());
+        };
     };
 };
