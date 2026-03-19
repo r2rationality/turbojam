@@ -22,7 +22,7 @@ jobs:
           docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA /work
           docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA /work/turbojam/turbojam
           docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA /work/turbojam/turbojam/test
-          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test sh -lc "ln -sf /work/turbojam/turbojam/test ./test && sh /work/turbojam/turbojam/test/gen-coverage.sh"
+          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test bash -lc "ln -sf /work/turbojam/turbojam/{lib,test,src} ./ && bash /work/turbojam/turbojam/test/gen-coverage.sh"
       - name: Build docker image
         run: |
           docker container prune -f
@@ -33,7 +33,7 @@ jobs:
         id: tests
         run: |
           docker rm -f test-container 2>/dev/null || true
-          docker run --name test-container -v ${CI_SRC_VOLUME}:/work turbojam:test sh -lc "ln -sf /work/turbojam/turbojam/test ./test && sh /work/turbojam/turbojam/test/gen-coverage.sh"
+          docker run --name test-container -v ${CI_SRC_VOLUME}:/work turbojam:test bash -lc "ln -sf /work/turbojam/turbojam/{lib,test,src} ./ && bash /work/turbojam/turbojam/test/gen-coverage.sh"
       - name: Copy coverage
         id: tests-copy-cov
         run: docker cp test-container:/home/dev/turbojam/tmp/coverage ./coverage-html
