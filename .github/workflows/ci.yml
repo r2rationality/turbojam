@@ -28,9 +28,10 @@ jobs:
           echo "uid: $(id -u) gid: $(id -g)"
           echo "pwd: $(pwd)"
           echo "github.workspace: ${{github.workspace}}"
-          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA ${{github.workspace}}
-          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA ${{github.workspace}}/test
-          docker run --name test-container -v ${CI_SRC_VOLUME}:/work turbojam:test sh ${{github.workspace}}/test/gen-coverage.sh
+          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA /work
+          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA /work/turbojam
+          docker run --rm -v ${CI_SRC_VOLUME}:/work turbojam:test ls -lA /work/turbojam/test
+          docker run --name test-container -v ${CI_SRC_VOLUME}:/work turbojam:test sh /work/turbojam/test/gen-coverage.sh
       - name: Copy coverage
         id: tests-copy-cov
         run: docker cp test-container:/home/dev/turbojam/tmp/coverage ./coverage-html
