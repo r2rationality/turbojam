@@ -754,23 +754,9 @@ namespace turbo::jam {
         }
 
         // (12.21)
-        boost::container::flat_set<service_id_t> free_services{};
         gas_t::base_type gas_limit = CFG::GA_max_accumulate_gas * CFG::C_core_count;
-
-        free_services.reserve(prev_chi.always_acc.size());
         for (const auto &[fs_id, fs_gas]: prev_chi.always_acc)
-            free_services.emplace_hint(free_services.end(), fs_id);
-
-        if (!free_services.empty()) {
-            for (const auto &re: omega) {
-                for (const auto &ri: re) {
-                    for (const auto &rr: ri.report.results) {
-                        if (free_services.contains(rr.service_id))
-                            gas_limit += rr.accumulate_gas;
-                    }
-                }
-            }
-        }
+            gas_limit += fs_gas;
         if (gas_limit < CFG::GT_max_total_accumulation_gas)
             gas_limit = CFG::GT_max_total_accumulation_gas;
 
@@ -824,7 +810,6 @@ namespace turbo::jam {
         // Therefore, the omega must be updated given the list of actually accumulated reports
 
         // (12.34)
-        accumulate_edit_queue(omega[m], ksi.back());
         const auto time_step = blk_slot.slot() - prev_tau.slot();
         for (size_t i = 0; i < omega.size(); ++i) {
             const auto nu_i = (m + omega.size() - i) % omega.size();

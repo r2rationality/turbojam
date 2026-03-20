@@ -1174,19 +1174,6 @@ namespace turbo::jam {
         std::string val_name = "gas";
     };
 
-    /*struct always_accumulate_map_item_t {
-        service_id_t id;
-        gas_t gas;
-
-        void serialize(auto &archive)
-        {
-            using namespace std::string_view_literals;
-            archive.process("id"sv, id);
-            archive.process("gas"sv, gas);
-        }
-
-        bool operator==(const always_accumulate_map_item_t &o) const = default;
-    };*/
     using free_services_t = flat_map_t<service_id_t, gas_t, always_accumulate_map_config_t>;
 
     template<typename CFG>
