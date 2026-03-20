@@ -338,7 +338,6 @@ namespace turbo::jam {
     template<typename CFG>
     static void accumulate_edit_queue(ready_queue_item_t<CFG> &queue, const set_t<work_package_hash_t> &known_reports)
     {
-        set_t<work_package_hash_t> ready{};
         for (auto q_it = queue.begin(); q_it != queue.end();) {
             if (!known_reports.contains(q_it->report.package_spec.hash)) {
                 for (auto d_it = q_it->dependencies.begin(); d_it != q_it->dependencies.end();) {
@@ -347,9 +346,6 @@ namespace turbo::jam {
                     } else {
                         ++d_it;
                     }
-                }
-                if (q_it->dependencies.empty()) {
-                    ready.emplace(q_it->report.package_spec.hash);
                 }
                 ++q_it;
             } else {
@@ -389,42 +385,9 @@ namespace turbo::jam {
         return a;
     }
 
-    // (12.19) with extra work to not trigger unnecessary state updates
     template<typename CFG>
-    void mutable_state_t<CFG>::consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, const service_id_t service_id, mutable_state_t<CFG> &&o) {
-        const auto &o_chi = o.chi.get();
+    void mutable_state_t<CFG>::consume_from(mutable_state_t<CFG> &&o) {
         services.consume_from(std::move(o.services));
-        // i'
-        if (service_id == init_chi.designate && o.iota)
-            iota = std::move(o.iota);
-        if (o.chi.updated()) {
-            if (service_id == init_chi.bless) {
-                chi.get_mutable().bless = o_chi.bless; // m'
-                chi.get_mutable().always_acc = o_chi.always_acc; // z'
-            }
-            // v'
-            if (service_id == init_chi.designate || service_id == init_chi.bless) {
-                if (const auto &new_val = accumulate_capital_r(init_chi.designate, m_chi.designate, o_chi.designate); chi.get().designate != new_val)
-                    chi.get_mutable().designate = new_val;
-            }
-            // r'
-            if (service_id == init_chi.registrar || service_id == init_chi.bless) {
-                if (const auto &new_val = accumulate_capital_r(init_chi.registrar, m_chi.registrar, o_chi.registrar); chi.get().registrar != new_val)
-                    chi.get_mutable().registrar = new_val;
-            }
-            // a' - allow for reassignment of per-core responsibilities
-            for (size_t ci = 0; ci < o_chi.assign.size(); ++ci) {
-                if (service_id == init_chi.assign[ci]) {
-                    if (const auto &new_val = accumulate_capital_r(init_chi.assign[ci], m_chi.assign[ci], o_chi.assign[ci]); chi.get().assign[ci] != new_val)
-                        chi.get_mutable().assign[ci] = new_val;
-                }
-            }
-        }
-        // q'
-        for (auto &&[c, q]: o.phi) {
-            if (service_id == init_chi.assign[c])
-                phi[c] = std::move(q);
-        }
     }
 
     template<typename CFG>
@@ -573,12 +536,10 @@ namespace turbo::jam {
         return {std::move(ctx_err.state), {}, {}, gas_t{0}, {}};
     }
 
-    // (12.19) - assumed to be called with service_id order!
+    // (12.19)
     template<typename CFG>
-    void delta_star_result_t<CFG>::consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, const service_id_t service_id, accumulate_result_t<CFG> &&o, const time_slot_t<CFG> &/*tau_prime*/) {
-        // mutable state components: d', i', q', m', a', v', r', z'
-        state.consume_from(init_chi, m_chi, service_id, std::move(o.state));
-
+    void delta_star_result_t<CFG>::consume_from(const service_id_t service_id, accumulate_result_t<CFG> &&o) {
+        state.consume_from(std::move(o.state));
         transfers.insert(transfers.end(), o.transfers.begin(), o.transfers.end()); // bold t_prime
         if (o.commitment) { // bold b
             service_commitment_item_t new_commitment{service_id, *o.commitment};
@@ -616,25 +577,56 @@ namespace turbo::jam {
 
 
         delta_star_result_t<CFG> res{std::move(init_state)};
-        // results place_holders - to allow for a concurrent execution of accumulation in the future
-        std::map<service_id_t, accumulate_result_t<CFG>> service_res{};
-        for (const auto &service_id: service_ids) {
+        // results placeholders - to allow for concurrent execution of accumulation in the future
+        service_results_t<CFG> service_res{};
+        for (const auto &service_id: service_ids)
             service_res.try_emplace(service_id, accumulate_delta_one(res.state, transfers, reports, free_services, service_id, new_eta0, blk_slot));
-        }
 
+        // (12.19): apply privilege, iota and phi updates with direct access to each named service's post-state
         const auto init_chi = res.state.chi.copy();
-        auto m_chi = init_chi; // bold e-star
-        if (const auto m_it = service_res.find(res.state.chi.get().bless); m_it != service_res.end()) {
-            m_chi = m_it->second.state.chi.copy();
+        // returns the post-state chi for service s, falling back to init_chi if s was not accumulated
+        const auto post_chi = [&](service_id_t s) -> const privileges_t<CFG> & {
+            if (const auto it = service_res.find(s); it != service_res.end())
+                return it->second.state.chi.get();
+            return *init_chi;
+        };
+        const auto &m_chi = post_chi(init_chi->bless); // e*
+        // m', z' — from bless service only
+        if (const auto m_it = service_res.find(init_chi->bless);
+                m_it != service_res.end() && m_it->second.state.chi.updated()) {
+            res.state.chi.get_mutable().bless      = m_chi.bless;
+            res.state.chi.get_mutable().always_acc = m_chi.always_acc;
         }
-        // combine results in service_id order to ensure expectations of (12.19) are upheld
-        for (auto &&[s_id, s_res]: service_res) {
-            res.consume_from(*init_chi, *m_chi, s_id, std::move(s_res), blk_slot);
+        // v'
+        if (const auto new_v = accumulate_capital_r(init_chi->designate, m_chi.designate, post_chi(init_chi->designate).designate);
+                res.state.chi.get().designate != new_v)
+            res.state.chi.get_mutable().designate = new_v;
+        // r'
+        if (const auto new_r = accumulate_capital_r(init_chi->registrar, m_chi.registrar, post_chi(init_chi->registrar).registrar);
+                res.state.chi.get().registrar != new_r)
+            res.state.chi.get_mutable().registrar = new_r;
+        // a'
+        for (size_t ci = 0; ci < init_chi->assign.size(); ++ci) {
+            if (const auto new_a = accumulate_capital_r(init_chi->assign[ci], m_chi.assign[ci], post_chi(init_chi->assign[ci]).assign[ci]);
+                    res.state.chi.get().assign[ci] != new_a)
+                res.state.chi.get_mutable().assign[ci] = new_a;
         }
+        // i' — designate service controls iota
+        if (const auto d_it = service_res.find(init_chi->designate); d_it != service_res.end())
+            if (d_it->second.state.iota)
+                res.state.iota = std::move(d_it->second.state.iota);
+        // q' — per-core assigner services control auth queues
+        for (size_t ci = 0; ci < init_chi->assign.size(); ++ci)
+            if (const auto a_it = service_res.find(init_chi->assign[ci]); a_it != service_res.end())
+                if (const auto phi_it = a_it->second.state.phi.find(ci); phi_it != a_it->second.state.phi.end())
+                    res.state.phi[ci] = std::move(phi_it->second);
+
+        // merge per-service account states, transfers, commitments and gas
+        for (auto &&[s_id, s_res]: service_res)
+            res.consume_from(s_id, std::move(s_res));
         // integrate preimages only after the final service state is ready
-        for (auto &&[s_id, s_res]: service_res) {
+        for (auto &&[s_id, s_res]: service_res)
             res.state.consume_preimages(blk_slot, std::move(s_res.code));
-        }
         return res;
     }
 
@@ -815,7 +807,7 @@ namespace turbo::jam {
             const auto nu_i = (m + omega.size() - i) % omega.size();
             if (i == 0) {
                 omega[nu_i] = std::move(queued);
-            } else if (i >= 1 && i < time_step) {
+            } else if (i < time_step) {
                 omega[nu_i].clear();
             }
             accumulate_edit_queue(omega[nu_i], ksi.back());

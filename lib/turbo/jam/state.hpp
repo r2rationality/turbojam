@@ -539,7 +539,7 @@ namespace turbo::jam {
         {
         }
         
-        void consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, service_id_t service_id, mutable_state_t &&o);
+        void consume_from(mutable_state_t &&o);
         void consume_preimages(const time_slot_t<CFG> &tau_prime, service_code_preimages_t<CFG> &&code);
     };
 
@@ -719,7 +719,7 @@ namespace turbo::jam {
         service_commitments_t commitments{}; // b
         services_gas_used_t gas_used{}; // u
 
-        void consume_from(const privileges_t<CFG> &init_chi, const privileges_t<CFG> &m_chi, service_id_t service_id, accumulate_result_t<CFG> &&o, const time_slot_t<CFG> &tau_prime);
+        void consume_from(service_id_t service_id, accumulate_result_t<CFG> &&o);
     };
 
     // JAM (12.16)
