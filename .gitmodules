@@ -16,3 +16,6 @@
 [submodule "test/jam-conformance"]
 	path = test/jam-conformance
 	url = https://github.com/davxy/jam-conformance.git
+[submodule "test/graypaper"]
+	path = test/graypaper
+	url = https://github.com/gavofyork/graypaper.git
