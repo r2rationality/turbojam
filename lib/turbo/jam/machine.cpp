@@ -26,10 +26,10 @@ namespace turbo::jam::machine {
         static constexpr bool tracing = false;
 
         explicit impl(program_t &&program, const state_t &init, const pages_t &page_map):
-            _program{std::move(program)},
-            _regs{init.regs},
             _pc{init.pc},
-            _gas{init.gas}
+            _gas{init.gas},
+            _regs{init.regs},
+            _program{std::move(program)}
         {
             static constexpr auto stack_end = (1ULL << 32U) - 2 * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
             _stack_begin = stack_end;
@@ -68,14 +68,16 @@ namespace turbo::jam::machine {
         }
 
         explicit impl(impl &&o):
-            _program{std::move(o._program)},
-            _regs{o._regs},
             _pc{o._pc},
             _gas{o._gas},
-            _page_storage{std::move(o._page_storage)},
+            _regs{o._regs},
+            _tlb_next{o._tlb_next},
+            _tlb{o._tlb},
             _pages{std::move(o._pages)},
+            _page_storage{std::move(o._page_storage)},
             _heap_end{o._heap_end},
-            _stack_begin{o._stack_begin}
+            _stack_begin{o._stack_begin},
+            _program{std::move(o._program)}
         {
         }
 
@@ -299,16 +301,19 @@ namespace turbo::jam::machine {
         };
         static constexpr size_t tlb_size = 4;
 
-        program_t _program;
-        registers_t _regs{};
+        // Hot fields - accessed on every instruction (first ~3 cache lines)
         uint32_t _pc{};
+        mutable uint_fast8_t _tlb_next = 0;   // 3 bytes padding to 8-align _tlb
         gas_remaining_t _gas = 0;
-        std::vector<std::unique_ptr<uint8_t[]>> _page_storage{};
-        page_map_t _pages;
+        registers_t _regs{};
         mutable std::array<tlb_entry_t, tlb_size> _tlb{};
-        mutable uint_fast8_t _tlb_next = 0;
+        // Warm fields - accessed on memory operations / page faults
+        page_map_t _pages{};
+        std::vector<std::unique_ptr<uint8_t[]>> _page_storage{};
         register_val_t _heap_end = 0;
         register_val_t _stack_begin = 0;
+        // Cold fields - rarely accessed after construction
+        program_t _program;
         std::optional<register_idx_t> _last_set_reg{};
         std::optional<mem_update_t> _last_store{};
 

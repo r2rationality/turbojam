@@ -265,7 +265,7 @@ namespace turbo::jam::machine {
         [[nodiscard]] state_t state() const;
     private:
         struct impl;
-        alignas(std::max_align_t) byte_array<376> _impl_storage;
+        alignas(std::max_align_t) byte_array<368> _impl_storage;
 
         impl *_impl_ptr();
     };
