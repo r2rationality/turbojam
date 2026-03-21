@@ -189,14 +189,21 @@ namespace {
 
 suite turbo_jam_fuzzer_suite = [] {
     "turbo::jam::fuzzer"_test = [] {
-        file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
-        {
+        "minifuzz forks"_test = [&] {
+            file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
             ::client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir.path())};
             c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/forks"));
-        }
-        {
+        };
+        "minifuzz no forks"_test = [&] {
+            file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
             ::client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir.path())};
             c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/no_forks"));
-        }
+        };
+        "jam-conformance fuzzer traces"_test = [&] {
+            file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
+            const auto data_dir = file::install_path("test/jam-conformance/fuzz-reports/0.7.2/traces/");
+            impl_vs_trace_client_t<config_tiny, processor_t> client{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir.path())};
+            client.test_dir(data_dir);
+        };
     };
 };
