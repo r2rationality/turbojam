@@ -1,5 +1,6 @@
 #ifdef MI_OVERRIDE
 #   include <mimalloc-new-delete.h>
+#   include <iostream>
 #endif
 #include <turbo/common/cli.hpp>
 

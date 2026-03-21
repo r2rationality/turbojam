@@ -104,6 +104,20 @@ elseif(CMAKE_BUILD_TYPE STREQUAL Coverage)
     endif()
 endif()
 
+if (WIN32)
+    add_compile_options(-DMI_BUILD_SHARED -DMI_OVERRIDE)
+    include(FetchContent)
+    FetchContent_Declare(
+            mimalloc
+            GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
+            GIT_TAG "v3.2.8"
+            GIT_SHALLOW TRUE
+            GIT_PROGRESS ON
+    )
+    FetchContent_MakeAvailable(mimalloc)
+    FetchContent_GetProperties(mimalloc)
+endif()
+
 add_subdirectory(3rdparty)
 add_subdirectory(lib)
 target_link_libraries(lib PUBLIC 3rdparty)
@@ -122,5 +136,22 @@ foreach(EXE_SRC ${EXE_SRCS})
     cmake_path(GET EXE_SRC STEM EXE_BIN)
     message("${EXE_BIN} ${EXE_SRC}")
     add_executable(${EXE_BIN} ${EXE_SRC})
-    target_link_libraries(${EXE_BIN} PRIVATE lib 3rdparty)
+    if (WIN32)
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            set(MIMALLOC_DLLNAME "mimalloc-debug.dll")
+        else()
+            set(MIMALLOC_DLLNAME "mimalloc.dll")
+        endif()
+        message("${EXE_BIN} ${mimalloc_BINARY_DIR}/${MIMALLOC_DLLNAME}")
+        target_link_libraries(${EXE_BIN} PRIVATE mimalloc lib 3rdparty)
+        add_custom_command(TARGET ${EXE_BIN}
+                POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${mimalloc_BINARY_DIR}/mimalloc-redirect.dll "${CMAKE_BINARY_DIR}"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different ${mimalloc_BINARY_DIR}/${MIMALLOC_DLLNAME} "${CMAKE_BINARY_DIR}"
+                COMMENT "Copy dll file to ${CMAKE_BINARY_DIR} directory" VERBATIM
+        )
+    else()
+        message("${EXE} no mimalloc")
+        target_link_libraries(${EXE_BIN} PRIVATE lib 3rdparty)
+    endif()
 endforeach()
