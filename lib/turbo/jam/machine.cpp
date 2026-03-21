@@ -305,8 +305,8 @@ namespace turbo::jam::machine {
         gas_remaining_t _gas = 0;
         std::vector<std::unique_ptr<uint8_t[]>> _page_storage{};
         page_map_t _pages;
-        std::array<tlb_entry_t, tlb_size> _tlb{};
-        uint_fast8_t _tlb_next = 0;
+        mutable std::array<tlb_entry_t, tlb_size> _tlb{};
+        mutable uint_fast8_t _tlb_next = 0;
         register_val_t _heap_end = 0;
         register_val_t _stack_begin = 0;
         std::optional<register_idx_t> _last_set_reg{};
