@@ -110,18 +110,18 @@ pub extern "C" fn ring_commitment(
     let num_vkeys = vkeys_len / VKEY_SZ;
     let vkeys = unsafe { std::slice::from_raw_parts(vkeys_ptr, vkeys_len) };
 
-    let mut pts = Vec::with_capacity(num_vkeys);
-    let pad_public = bandersnatch::Public::from(RingProofParams::padding_point());
-    for chunk in vkeys.chunks_exact(VKEY_SZ) {
-        let pk = bandersnatch::Public::deserialize_compressed_unchecked(chunk)
-            .unwrap_or_else(|_| pad_public.clone());
-        pts.push(pk.0);
-    }
-
     let ring_params = match ring_proof_params(num_vkeys) {
         Some(rp) => rp,
         None => return -1,
     };
+    let pad_point = RingProofParams::padding_point();
+    let mut pts = Vec::with_capacity(num_vkeys);
+    for chunk in vkeys.chunks_exact(VKEY_SZ) {
+        let pt = bandersnatch::Public::deserialize_compressed_unchecked(chunk)
+            .map(|pk| pk.0)
+            .unwrap_or_else(|_| pad_point);
+        pts.push(pt);
+    }
 
     let commitment = ring_params.verifier_key(&pts).commitment();
     let out_slice = unsafe { std::slice::from_raw_parts_mut(out_ptr, out_len) };
