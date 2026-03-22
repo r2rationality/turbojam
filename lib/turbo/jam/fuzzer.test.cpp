@@ -191,12 +191,12 @@ suite turbo_jam_fuzzer_suite = [] {
     "turbo::jam::fuzzer"_test = [] {
         "minifuzz forks"_test = [&] {
             file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
-            ::client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir.path())};
+            client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir.path())};
             c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/forks"));
         };
         "minifuzz no forks"_test = [&] {
             file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
-            ::client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir.path())};
+            client_t<config_tiny, processor_t> c{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir.path())};
             c.test_dir(file::install_path("test/jam-conformance/fuzz-proto/examples/0.7.2/no_forks"));
         };
         "jam-conformance fuzzer traces"_test = [&] {

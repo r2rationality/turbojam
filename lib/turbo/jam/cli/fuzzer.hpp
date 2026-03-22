@@ -146,15 +146,15 @@ namespace turbo::cli::fuzzer {
         {
         }
 
-        bool test_sample(const uint8_vector tc_data)
+        bool test_sample(const buffer tc_data, const std::optional<size_t> num_cases={})
         {
             try {
                 test_cases_t test_cases{};
-                {
-                    decoder dec{tc_data};
-                    while (!dec.empty()) {
-                        test_cases.emplace_back(codec::from<test_case_t>(dec));
-                    }
+                if (num_cases)
+                    test_cases.reserve(*num_cases);
+                decoder dec{tc_data};
+                while (!dec.empty()) {
+                    test_cases.emplace_back(codec::from<test_case_t>(dec));
                 }
                 return _io_worker.sync_call(_test_sample(std::move(test_cases)));
             } catch (const std::exception &ex) {
@@ -183,7 +183,7 @@ namespace turbo::cli::fuzzer {
                 for (const auto &path: paths) {
                     sample_data << file::read(path);
                 }
-                const auto ok = test_sample(std::move(sample_data));
+                const auto ok = test_sample(sample_data, paths.size());
                 logger::info("sample {}({}): {} in {:0.3f} sec", sample_dir, paths.size(), ok ? "OK" : "FAILED",
                     std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count());
                 return ok;

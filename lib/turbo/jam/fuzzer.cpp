@@ -10,10 +10,12 @@ namespace turbo::jam::fuzzer {
     template<typename CFG>
     initialize_t<CFG> initialize_t<CFG>::from_snapshot(const state_snapshot_t &snap)
     {
-        const file::tmp_directory data_dir{"jam-set-state-from-snapshot"};
-        state_t<CFG> state{std::make_shared<triedb::db_t>(data_dir.path())};
-        state = snap;
-        auto hdr = state.make_genesis_header();
+        const auto &eta_raw = snap.at(state_dict_t::make_key(6));
+        const auto &gamma_raw = snap.at(state_dict_t::make_key(4));
+        auto hdr = state_t<CFG>::make_genesis_header(
+            jam::from_bytes<typename decltype(state_t<CFG>::eta)::element_type>(eta_raw),
+            jam::from_bytes<typename decltype(state_t<CFG>::gamma)::element_type>(gamma_raw).p
+        );
         const auto hdr_hash = hdr.hash();
         return {std::move(hdr), snap, {{0, hdr_hash}}};
     }
