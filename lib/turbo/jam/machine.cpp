@@ -23,8 +23,6 @@ namespace turbo::jam::machine {
 #endif
 
     struct machine_t::impl {
-        static constexpr bool tracing = false;
-
         explicit impl(program_t &&program, const state_t &init, const pages_t &page_map):
             _pc{init.pc},
             _gas{init.gas},
@@ -85,17 +83,6 @@ namespace turbo::jam::machine {
         result_t run()
         {
             try {
-                std::string trace_str{};
-                const auto trace_print_fn = [&] {
-                    if (!trace_str.empty()) {
-                        logger::debug(trace_str);
-                        trace_str.clear();
-                    }
-                };
-                std::optional<scope_exit<decltype(trace_print_fn)>> trace_print{};
-                if constexpr (tracing) {
-                    trace_print.emplace(trace_print_fn);
-                }
                 for (;;) {
                     const uint8_t opcode = _pc < _program.code.size() ? _program.code[_pc] : 0x00U;
                     const auto len = _skip_len(_pc, _program.bitmasks);
@@ -104,9 +91,6 @@ namespace turbo::jam::machine {
                     if (!consume_gas(1U)) [[unlikely]]
                         return exit_out_of_gas_t{};
                     const auto prev_pc = _pc;
-                    if constexpr (tracing) {
-                        trace_str = fmt::format("PVM exec log: gas: {} pc: {}/{}: {} {}", _gas, prev_pc, len + 1, op.name, _args_str(op.make_args, data));
-                    }
                     const auto next_pc = _pc + len + 1;
                     auto res = (this->*op.exec)(data);
                     switch (res.index()) {
@@ -121,20 +105,6 @@ namespace turbo::jam::machine {
                         }
                         [[unlikely]] default:
                             throw error(fmt::format("unsupported op_res_t index: {}", res.index()));
-                    }
-                    if constexpr (tracing) {
-                        if (_last_set_reg) {
-                            trace_str += fmt::format(" {}=0x{:X}", _reg_name(*_last_set_reg), _regs[static_cast<int>(*_last_set_reg)]);
-                            _last_set_reg.reset();
-                        }
-                        if (_last_store) {
-                            trace_str += fmt::format(" 0x{:08X}:{}=0x{}",
-                                _last_store->address, _last_store->val.size(), buffer{_last_store->val.data(), _last_store->val.size()});
-                            _last_store.reset();
-                        }
-                        if (_pc != next_pc)
-                            trace_str += fmt::format(" pc=0x{:08X}", _pc);
-                        trace_print_fn();
                     }
                 }
             } catch (exit_halt_t &ex) {
@@ -303,7 +273,7 @@ namespace turbo::jam::machine {
 
         // Hot fields - accessed on every instruction (first ~3 cache lines)
         uint32_t _pc{};
-        mutable uint_fast8_t _tlb_next = 0;   // 3 bytes padding to 8-align _tlb
+        mutable uint_fast8_t _tlb_next = 0;
         gas_remaining_t _gas = 0;
         registers_t _regs{};
         mutable std::array<tlb_entry_t, tlb_size> _tlb{};
@@ -314,8 +284,6 @@ namespace turbo::jam::machine {
         register_val_t _stack_begin = 0;
         // Cold fields - rarely accessed after construction
         program_t _program;
-        std::optional<register_idx_t> _last_set_reg{};
-        std::optional<mem_update_t> _last_store{};
 
         using op_res_t = std::variant<std::monostate, register_val_t, result_t>;
         using op_exec_t = op_res_t(impl::*)(buffer);
@@ -636,9 +604,6 @@ namespace turbo::jam::machine {
 
         void _set_reg(const register_idx_t idx, const register_val_t val)
         {
-            if constexpr (tracing) {
-                _last_set_reg = idx;
-            }
             _regs[idx] = val;
         }
 
@@ -896,10 +861,6 @@ namespace turbo::jam::machine {
                 throw exit_page_fault_t{addr};
             uint8_t *dst_ptr = page_it->data() + page_off;
             *reinterpret_cast<T*>(dst_ptr) = val;
-            if constexpr (tracing) {
-                _last_store.emplace(static_cast<address_val_t>(addr));
-                std::copy(dst_ptr, dst_ptr + sizeof(val), std::back_inserter(_last_store->val));
-            }
         }
 
         // opcode implementations
@@ -1967,7 +1928,7 @@ namespace turbo::jam::machine {
 
     machine_t::impl *machine_t::_impl_ptr()
     {
-        static_assert(sizeof(_impl_storage) == sizeof(impl));
+        static_assert(sizeof(_impl_storage) >= sizeof(impl) && sizeof(_impl_storage) < 2U * sizeof(impl));
         return reinterpret_cast<impl *>(_impl_storage.data());
     }
 
