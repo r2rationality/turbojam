@@ -107,6 +107,8 @@ namespace turbo::jam {
     template<typename CFG>
     validators_data_t<CFG> state_t<CFG>::capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o)
     {
+        if (psi_o.empty())
+            return iota;
         validators_data_t<CFG> res;
         for (size_t i = 0; i < iota.size(); ++i) {
             const auto &v = iota[i];
