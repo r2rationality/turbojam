@@ -794,15 +794,16 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct block_info_t {
-        header_hash_t header_hash {}; // h
-        opaque_hash_t beefy_root {}; // b - MMR root
-        state_root_t state_root {}; // s
-        reported_work_seq_t<CFG> reported {}; // p
+        header_hash_t header_hash{}; // h
+        state_root_t state_root{}; // s
+        opaque_hash_t beefy_root{}; // b - MMR root
+        reported_work_seq_t<CFG> reported{}; // p
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("header_hash"sv, header_hash);
+            // Fuzzer currently uses GP 0.6.7-based order of fields not GP 0.7.2!
             archive.process("beefy_root"sv, beefy_root);
             archive.process("state_root"sv, state_root);
             archive.process("reported"sv, reported);
