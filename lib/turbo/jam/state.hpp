@@ -107,15 +107,14 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct service_info_t {
-        uint8_t version = 0; // expected to be 0
-        opaque_hash_t code_hash {}; // c
+        opaque_hash_t code_hash{}; // c
         balance_t balance = 0; // b
         // gas saved in the fixed format form
         gas_t::base_type min_item_gas = 0; // g
         gas_t::base_type min_memo_gas = 0; // m
-        uint64_t bytes = 0; // b
+        uint64_t bytes = 0; // ? - not in (9.3) anymore
         uint64_t deposit_offset = 0; // f
-        uint32_t items = 0; // i
+        uint32_t items = 0; // ? - not in (9.3) anymore
         time_slot_t<CFG> creation_slot = 0; // r
         time_slot_t<CFG> last_accumulation_slot = 0; // a
         service_id_t parent_service = 0; // p
@@ -123,7 +122,12 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            archive.process("version"sv, version);
+            {
+                uint8_t version = 0;
+                archive.process("version"sv, version);
+                if (version != 0) [[unlikely]]
+                    throw error(fmt::format("unsupported service_info_t version: {}", version));
+            }
             archive.process("code_hash"sv, code_hash);
             archive.process("balance"sv, balance);
             archive.process("min_item_gas"sv, min_item_gas);
