@@ -409,7 +409,7 @@ namespace turbo::jam {
                 if (!ov) {
                     out_it = fmt::format_to(out_it, "missing key: {}\n", k);
                 } else if (v != ov) {
-                    out_it = fmt::format_to(out_it, "key: {} expected: {} got: {}\n", k, v, *ov);
+                    out_it = fmt::format_to(out_it, "key: {} expected: {} got: {}\n", k, v, ov);
                 }
             });
             o._db->foreach([&](const auto &ok, const auto &) {
@@ -429,18 +429,20 @@ namespace turbo::jam {
             if constexpr (std::is_same_v<V, uint8_vector>) {
                 return std::move(v);
             } else {
-                encoder enc { v };
-                return { static_cast<buffer>(enc.bytes()) };
+                encoder enc{v};
+                return std::move(enc.bytes());
             }
         }
 
         template<typename V>
-        static V _decode(uint8_vector bytes)
+        static V _decode(const buffer bytes)
         {
-            if constexpr (std::is_same_v<V, uint8_vector>) {
+            if constexpr (std::is_same_v<V, buffer>) {
+                return bytes;
+            } else if constexpr (std::is_same_v<V, uint8_vector>) {
                 return bytes;
             } else {
-                decoder dec { bytes };
+                decoder dec{bytes};
                 V res;
                 dec.process(res);
                 return res;
@@ -456,7 +458,7 @@ namespace turbo::jam {
         std::optional<V> _get(const state_key_t &k) const
         {
             if (auto v = _db->get(k); v) {
-                return _decode<V>(std::move(*v));
+                return _decode<V>(*v);
             }
             return {};
         }
@@ -464,7 +466,8 @@ namespace turbo::jam {
         template<typename V>
         void _set(const state_key_t &trie_key, V val)
         {
-            _db->set(trie_key, _encode(std::move(val)));
+            auto encoded_val = _encode(std::move(val));
+            _db->set(trie_key, encoded_val);
         }
 
         static state_key_t _info_key(const service_id_t service_id) {

@@ -4,7 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/logger.hpp>
-#include <turbo/storage/file.hpp>
+#include <turbo/storage/common.hpp>
 #include "chain.hpp"
 
 #include "cli/fuzzer.hpp"

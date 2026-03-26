@@ -4,10 +4,11 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <turbo/common/logger.hpp>
 #include "common.hpp"
 
 namespace turbo::storage::update {
-    using update_map_t = std::map<uint8_vector, value_t>;
+    using update_map_t = std::map<uint8_vector, value_store_t>;
     using undo_item_t = typename update_map_t::value_type;
     using undo_list_t = std::vector<undo_item_t>;
 
@@ -38,7 +39,7 @@ namespace turbo::storage::update {
         }
 
         void erase(const buffer key) override {
-            _set(key, {});
+            _set(key, value_t{});
         }
 
         void foreach(const observer_t &obs) const override {
@@ -125,7 +126,6 @@ namespace turbo::storage::update {
         size_t _num_removed = 0;
 
         void _set(const buffer key, value_t val) {
-            //logger::trace("storage::update::db: key #{} set to: {}", key, val);
             const auto parent_val = _base_db->get(key);
             auto [it, created] = _updates.try_emplace(key, std::move(val));
             if (!created) {

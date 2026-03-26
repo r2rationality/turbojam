@@ -44,18 +44,18 @@ suite turbo_storage_lmdb_rc_suite = [] {
             expect_equal(size_t{1}, db.size());
             db.set("ABC"sv, "111"sv);
             expect_equal(size_t{1}, db.size());
-            expect_equal("111"sv, db.get("ABC"sv));
+            expect_equal(value_t{"111"sv}, db.get("ABC"sv));
             db.erase("ABC"sv);
             expect_equal(size_t{1}, db.size());
-            expect_equal("111"sv, db.get("ABC"sv));
+            expect_equal(value_t{"111"sv}, db.get("ABC"sv));
             db.erase("ABC"sv);
             expect_equal(size_t{1}, db.size());
-            expect_equal("111"sv, db.get("ABC"sv));
+            expect_equal(value_t{"111"sv}, db.get("ABC"sv));
             db.erase("ABC"sv);
             expect_equal(size_t{0}, db.size());
             db.set("ABC"sv, "111"sv);
             expect_equal(size_t{1}, db.size());
-            expect_equal("111"sv, db.get("ABC"sv));
+            expect_equal(value_t{"111"sv}, db.get("ABC"sv));
         };
         "mapsize growth"_test = [&] {
             const file::tmp_directory growth_dir{"test-turbo-lmdb-rc-growth"};

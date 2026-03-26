@@ -140,7 +140,7 @@ namespace turbo::jam::triedb {
     private:
         struct get_res_t {
             value_t val;
-            merkle::trie_t::opt_value_t trie_v;
+            const merkle::trie_t::opt_value_t &trie_v;
         };
 
         void _apply(const buffer key, const value_t &val, const bool track_undo=true)
@@ -155,18 +155,18 @@ namespace turbo::jam::triedb {
         get_res_t _get(const buffer key) const
         {
             const key_t k{key};
-            auto val = _trie->get(k);
+            const auto &val = _trie->get(k);
             if (val) {
                 return std::visit([&](const auto &vv) -> get_res_t {
                     using T = std::decay_t<decltype(vv)>;
                     if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
-                        return {_store->get(vv), std::move(val)};
+                        return {_store->get(vv), val};
                     } else {
-                        return {value_t { buffer { vv.data(), vv.size() } }, std::move(val)};
+                        return {value_t{buffer{vv.data(), vv.size()}}, val};
                     }
                 }, *val);
             }
-            return {value_t{}, std::move(val)};
+            return {value_t{}, val};
         }
 
         void _erase(const buffer key, const bool track_undo=true)
@@ -177,6 +177,10 @@ namespace turbo::jam::triedb {
 #endif
             auto [prev_v, trie_v] = _get(key);
             if (trie_v) {
+                // capture undo data before erasing: prev_v is a buffer view that becomes
+                // dangling once _store->erase or _trie->erase destroys the underlying data
+                if (track_undo)
+                    _undo.emplace_back(key, std::move(prev_v));
                 std::visit([&](const auto &vv) {
                     using T = std::decay_t<decltype(vv)>;
                     if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
@@ -184,8 +188,6 @@ namespace turbo::jam::triedb {
                     }
                 }, *trie_v);
                 _trie->erase(k);
-                if (track_undo)
-                    _undo.emplace_back(key, std::move(prev_v));
             }
 #if         !defined(NDEBUG) && !defined(MY_NDEBUG)
                 if (const auto cmp_root = _snapshot.root(); cmp_root != _trie->root()) [[unlikely]] {
@@ -211,6 +213,10 @@ namespace turbo::jam::triedb {
             
             merkle::trie::value_t v{val, merkle::blake2b_hash_func};
             if (auto prev_v = get(key); prev_v != val) {
+                // capture undo data before modifying the trie: prev_v is a buffer view into
+                // the trie node or LMDB memory that _trie->set may invalidate
+                if (track_undo)
+                    _undo.emplace_back(key, std::move(prev_v));
                 _trie->set(k, std::move(v));
                 std::visit([&](const auto &vv) {
                     using T = std::decay_t<decltype(vv)>;
@@ -218,8 +224,6 @@ namespace turbo::jam::triedb {
                         return _store->set(vv, val);
                     }
                 }, v);
-                if (track_undo)
-                    _undo.emplace_back(key, std::move(prev_v));
             }
 #           if !defined(NDEBUG) && !defined(MY_NDEBUG)
                 if (_snapshot.root() != _trie->root()) [[unlikely]]
