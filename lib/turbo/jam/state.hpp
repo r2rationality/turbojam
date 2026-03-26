@@ -136,11 +136,47 @@ namespace turbo::jam {
             archive.process("parent_service"sv, parent_service);
         }
 
-        [[nodiscard]] balance_t threshold() const
-        {
-            const auto t = config_base::BS_min_balance_per_service
-                + config_base::BI_min_balance_per_item * items
-                + config_base::BL_min_balance_per_octet * bytes;
+        [[nodiscard]] bool add_items(const uint32_t new_items) {
+            if (new_items + items < items) [[unlikely]]
+                return false;
+            items += new_items;
+            return balance_ok();
+        }
+
+        [[nodiscard]] bool add_bytes(const uint64_t new_bytes) {
+            if (new_bytes + bytes < bytes) [[unlikely]]
+                return false;
+            bytes += new_bytes;
+            return balance_ok();
+        }
+
+        [[nodiscard]] bool balance_ok() const {
+            auto free = balance;
+            if (free < std::numeric_limits<decltype(free)>::max() - deposit_offset) [[likely]]
+                free += deposit_offset;
+            else
+                free = std::numeric_limits<decltype(free)>::max();
+            if (free < CFG::BS_min_balance_per_service) [[unlikely]]
+                return false;
+            free -= CFG::BS_min_balance_per_service;
+            if (free / CFG::BL_min_balance_per_octet < bytes) [[unlikely]]
+                return false;
+            free -= bytes * CFG::BL_min_balance_per_octet;
+            return free / CFG::BI_min_balance_per_item >= items;
+        }
+
+        [[nodiscard]] balance_t threshold() const {
+            static_assert(std::numeric_limits<decltype(balance)>::max() / CFG::BI_min_balance_per_item >= std::numeric_limits<decltype(items)>::max());
+            static_assert(std::numeric_limits<decltype(balance)>::max() / CFG::BL_min_balance_per_octet >= std::numeric_limits<decltype(bytes)>::max());
+            auto t = numeric_cast<decltype(balance)>(CFG::BS_min_balance_per_service);
+            const auto items_cost = numeric_cast<decltype(balance)>(CFG::BI_min_balance_per_item) * items;
+            if (t + items_cost < t) [[unlikely]]
+                return std::numeric_limits<decltype(balance)>::max();
+            t += items_cost;
+            const auto bytes_cost = numeric_cast<decltype(balance)>(CFG::BL_min_balance_per_octet) * bytes;
+            if (t + bytes_cost < t) [[unlikely]]
+                return std::numeric_limits<decltype(balance)>::max();
+            t += bytes_cost;
             return t >= deposit_offset ? t - deposit_offset : 0;
         }
 
@@ -853,8 +889,27 @@ namespace turbo::jam {
             const time_slot_t<CFG> &prev_tau, const disputes_extrinsic_t<CFG> &disputes
         );
         // JAM (4.19)
-        static void alpha_prime(auth_pools_t<CFG> &new_alpha, const time_slot_t<CFG> &slot, const core_authorizers_t &cas,
-            const auth_queues_t<CFG> &new_phi);
+        template <std::ranges::input_range R>
+        requires std::same_as<std::decay_t<std::ranges::range_reference_t<R>>, core_authorizer_t>
+        static void alpha_prime(auth_pools_t<CFG> &new_alpha, const time_slot_t<CFG> &slot, R &&cas, const auth_queues_t<CFG> &new_phi)
+        {
+            // (8.3)
+            for (const auto &ca: cas) {
+                auto &pool = new_alpha.at(ca.core);
+                auto pool_it = std::find(pool.begin(), pool.end(), ca.auth_hash);
+                if (pool_it == pool.end()) [[unlikely]]
+                    throw error(fmt::format("a work report for core {} mentions an unknown auth_hash: {}", ca.core, ca.auth_hash));
+                pool.erase(pool_it);
+            }
+
+            // JAM (8.2)
+            for (auto &&[a_c, phi_c]: std::views::zip(new_alpha, new_phi)) {
+                if (a_c.size() == a_c.max_size)
+                    a_c.erase(a_c.begin());
+                a_c.emplace_back(phi_c.at(slot.slot() % phi_c.size()));
+            }
+        }
+
         // JAM (4.20)
         static void pi_prime(validators_statistics_t<CFG> &new_pi_current, validators_statistics_t<CFG> &new_pi_last,
             const reports_output_data_t &report_res, const validators_data_t<CFG> &new_kappa,

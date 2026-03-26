@@ -383,7 +383,6 @@ namespace turbo::jam {
     template<typename CONSTANT_SET=config_prod>
     using auth_queues_t = fixed_sequence_t<auth_queue_t<CONSTANT_SET>, CONSTANT_SET::C_core_count>;
 
-    // max size: auth_pool_max_size
     template<typename CFG=config_prod>
     using auth_pool_t = sequence_t<authorizer_hash_t, 0, CFG::O_auth_pool_max_size>;
 

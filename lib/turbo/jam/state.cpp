@@ -1216,29 +1216,6 @@ namespace turbo::jam {
         });
     }
 
-    template<typename CFG>
-    void state_t<CFG>::alpha_prime(auth_pools_t<CFG> &new_alpha, const time_slot_t<CFG> &slot, const core_authorizers_t &cas,
-        const auth_queues_t<CFG> &new_phi)
-    {
-        for (const auto &ca: cas) {
-            auto &pool = new_alpha.at(ca.core);
-            auto pool_it = std::find(pool.begin(), pool.end(), ca.auth_hash);
-            if (pool_it == pool.end()) [[unlikely]]
-                throw error(fmt::format("a work report for core {} mentions an unknown auth_hash: {}", ca.core, ca.auth_hash));
-            // remove the element and shift all elements after to make the final slot free
-            pool.erase(pool_it);
-        }
-
-        // JAM (8.2)
-        for (size_t core = 0; core < new_alpha.size(); ++core) {
-            auto &pool = new_alpha.at(core);
-            if (pool.size() == pool.max_size)
-                pool.erase(pool.begin());
-            const auto &queue = new_phi.at(core);
-            pool.emplace_back(queue.at(slot.slot() % queue.size()));
-        }
-    }
-
     // JAM (4.1): Kapital upsilon
     template<typename CFG>
     void state_t<CFG>::apply(const block_t<CFG> &blk, const ancestry_span_t<CFG> &ancestry)
@@ -1382,12 +1359,10 @@ namespace turbo::jam {
 
             // (4.19) - can be run in parallel
             {
-                core_authorizers_t cas{};
-                cas.reserve(blk.extrinsic.guarantees.size());
-                for (const auto &g: blk.extrinsic.guarantees) {
-                    cas.emplace_back(g.report.core_index, g.report.authorizer_hash);
-                }
-                state_t::alpha_prime(this->alpha.update(), blk.header.slot, cas, this->phi.get());
+                auto cas = blk.extrinsic.guarantees | std::views::transform([](const auto &g) -> core_authorizer_t {
+                    return {g.report.core_index, g.report.authorizer_hash};
+                });
+                state_t::alpha_prime(this->alpha.update(), blk.header.slot, std::move(cas), this->phi.get());
             }
 
             // (4.20) can be run in parallel

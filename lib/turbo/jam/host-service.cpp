@@ -365,7 +365,7 @@ namespace turbo::jam {
                 ? prev_val->size() <= 32 ? fmt::format("#{}", *prev_val) : fmt::format("{} bytes", prev_val->size())
                 : fmt::format("none"));
         const auto info = _p.services.info_get(_p.service_id);
-        if (info->balance >= info->threshold()) {
+        if (info->balance_ok()) {
             const machine::register_val_t l = prev_val ? prev_val->size() : machine::host_call_res_t::none;
             _p.m.set_reg(7, l);
         } else {
@@ -764,10 +764,8 @@ namespace turbo::jam {
         auto info = this->_service_info();
         auto a_res = this->_p.services.lookup_get(this->_p.service_id, key);
         if (!a_res) {
-            info.items += 2U;
-            info.bytes += 81U;
-            info.bytes += key.length;
-            if (info.balance < info.threshold()) [[unlikely]] {
+            const auto add_ok = info.add_items(2U) && info.add_bytes(81U) && info.add_bytes(key.length);
+            if (!add_ok) [[unlikely]] {
                 this->_p.m.set_reg(7, machine::host_call_res_t::full);
                 return;
             }
