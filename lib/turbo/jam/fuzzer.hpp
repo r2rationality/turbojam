@@ -90,7 +90,7 @@ namespace turbo::jam::fuzzer {
     struct error_t: std::string {
         void serialize(auto &archive)
         {
-            archive.process_string(*this);
+            archive.process(static_cast<std::string &>(*this));
         }
     };
 

@@ -24,11 +24,6 @@ namespace turbo::jam {
     struct byte_sequence_t: uint8_vector {
         using base_type = uint8_vector;
         using base_type::base_type;
-
-        void serialize(auto &archive)
-        {
-            archive.process_bytes(*this);
-        }
     };
 
     template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
@@ -132,11 +127,6 @@ namespace turbo::jam {
         using base_type = std::optional<T>;
         using base_type::base_type;
 
-        void serialize(auto &archive)
-        {
-            archive.process_optional(*this);
-        }
-
         bool operator==(const optional_t &o) const noexcept
         {
             return *reinterpret_cast<const base_type*>(this) == *reinterpret_cast<const base_type*>(&o);
@@ -147,11 +137,6 @@ namespace turbo::jam {
     struct byte_array_t: byte_array<SZ> {
         using base_type = byte_array<SZ>;
         using base_type::base_type;
-
-        void serialize(auto &archive)
-        {
-            archive.process_bytes_fixed(*this);
-        }
     };
 
     template<size_t SZ>
@@ -225,7 +210,7 @@ namespace turbo::jam {
 
         void serialize(auto &archive)
         {
-            archive.process_uint(_val);
+            archive.process(_val);
         }
 
         [[nodiscard]] uint32_t slot() const
@@ -278,9 +263,15 @@ namespace turbo::jam {
         {
         }
 
-        void serialize(auto &archive)
+        varlen_uint_t &operator=(const T v) noexcept
         {
-            archive.process_varlen_uint(_val);
+            _val = v;
+            return *this;
+        }
+
+        T value() const noexcept
+        {
+            return _val;
         }
 
         operator T() const
@@ -486,7 +477,7 @@ namespace turbo::jam {
 
         void serialize(auto &archive)
         {
-            archive.process_bytes(data);
+            archive.process(data);
         }
 
         bool operator==(const work_result_ok_t &o) const = default;

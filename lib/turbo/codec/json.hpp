@@ -51,7 +51,37 @@ namespace turbo::codec::json {
         template<typename T>
         static void decode(const boost::json::value &jv, T &val)
         {
-            if constexpr (from_json_c<T>) {
+            if constexpr (varlen_uint_c<T>) {
+                val = boost::json::value_to<typename T::base_type>(jv);
+            } else if constexpr (optional_like_c<T>) {
+                val.reset();
+                if (!jv.is_null()) {
+                    val.emplace();
+                    decode(jv, *val);
+                }
+            } else if constexpr (byte_array_like_c<T>) {
+                const auto hex = boost::json::value_to<std::string_view>(jv);
+                if (!hex.starts_with("0x")) [[unlikely]]
+                    throw error(fmt::format("expected a hex string but got: {}", hex));
+                init_from_hex(std::span<uint8_t>{val.data(), val.size()}, hex.substr(2));
+            } else if constexpr (byte_sequence_like_c<T>) {
+                if (jv.is_string()) {
+                    const auto hex = boost::json::value_to<std::string_view>(jv);
+                    if (!hex.starts_with("0x")) [[unlikely]]
+                        throw error(fmt::format("expected a hex string but got: {}", hex));
+                    const auto hex_data = hex.substr(2);
+                    val.resize(hex_data.size() / 2);
+                    init_from_hex(val, hex_data);
+                } else if (jv.is_array()) {
+                    const auto &ja = jv.as_array();
+                    val.clear();
+                    val.reserve(ja.size());
+                    for (const auto &byte: ja)
+                        val.emplace_back(boost::json::value_to<uint8_t>(byte));
+                } else {
+                    throw error(fmt::format("expected a bytestring got: {}", serialize_pretty(jv)));
+                }
+            } else if constexpr (from_json_c<T>) {
                 val = T::from_json(jv);
             } else if constexpr (serializable_c<T>) {
                 decoder dec { jv };
@@ -68,23 +98,6 @@ namespace turbo::codec::json {
             } else {
                 throw error(fmt::format("json serialization is not enabled for type {}", typeid(T).name()));
             }
-        }
-
-        template<typename T>
-        void process_varlen_uint(T &val)
-        {
-            val = boost::json::value_to<T>(_top());
-        }
-
-        void process_string(std::string &val)
-        {
-            val = boost::json::value_to<std::string_view>(_top());
-        }
-
-        template<typename T>
-        void process_uint(T &val)
-        {
-            process_varlen_uint(val);
         }
 
         void process(auto &val)
@@ -155,16 +168,6 @@ namespace turbo::codec::json {
         }
 
         template<typename T>
-        void process_optional(T &val)
-        {
-            val.reset();
-            if (!_top().is_null()) {
-                val.emplace();
-                decode(_top(), *val);
-            }
-        }
-
-        template<typename T>
         void process_variant(T &val, const codec::variant_names_t<T> &names, const variant_index_overrides_t *overrides=nullptr)
         {
             (void)overrides;
@@ -197,35 +200,6 @@ namespace turbo::codec::json {
             }
         }
 
-        void process_bytes(std::vector<uint8_t> &bytes)
-        {
-            const auto &jv = _top();
-            if (jv.is_string()) {
-                const auto hex = boost::json::value_to<std::string_view>(_top());
-                if (!hex.starts_with("0x")) [[unlikely]]
-                    throw error(fmt::format("expected a hex string but got: {}", hex));
-                const auto hex_data = hex.substr(2);
-                bytes.resize(hex_data.size() / 2);
-                init_from_hex(bytes, hex_data);
-            } else if (jv.is_array()) {
-                const auto &ja = jv.as_array();
-                bytes.clear();
-                bytes.reserve(ja.size());
-                for (const auto &byte: ja) {
-                    bytes.emplace_back(boost::json::value_to<uint8_t>(byte));
-                }
-            } else {
-                throw error(fmt::format("expected a bytestring got: {}", serialize_pretty(jv)));
-            }
-        }
-
-        void process_bytes_fixed(std::span<uint8_t> bytes)
-        {
-            const auto hex = boost::json::value_to<std::string_view>(_top());
-            if (!hex.starts_with("0x")) [[unlikely]]
-                throw error(fmt::format("expected a hex string but got: {}", hex));
-            init_from_hex(bytes, hex.substr(2));
-        }
     private:
         std::vector<std::reference_wrapper<const boost::json::value>> _vals {};
 

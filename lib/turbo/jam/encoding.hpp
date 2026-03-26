@@ -92,30 +92,18 @@ namespace turbo::jam {
             uint_fixed(8, x);
         }
 
-        template<typename T>
-        void process_uint(const T &val)
-        {
-            uint_fixed(sizeof(val), val);
-        }
-
-        template<typename T>
-        void process_varlen_uint(const T &val)
-        {
-            uint_varlen(val);
-        }
-
         void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
         {
             if (!(static_cast<int>(self.size() >= min_sz) & static_cast<int>(self.size() <= max_sz))) [[unlikely]]
                 throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", self.size(), min_sz, max_sz));
-            process_varlen_uint(self.size());
+            uint_varlen(self.size());
             for (const auto &v: self)
                 process(v);
         }
 
         void process_map(auto &m)
         {
-            process_varlen_uint(m.size());
+            uint_varlen(m.size());
             for (const auto &[k, v]: m) {
                 process(k);
                 process(v);
@@ -131,33 +119,6 @@ namespace turbo::jam {
         {
             for (const auto &v: self)
                 process(v);
-        }
-
-        void process_bytes(const buffer bytes)
-        {
-            process_varlen_uint(bytes.size());
-            _bytes << bytes;
-        }
-
-        void process_string(const std::string &s)
-        {
-            process_varlen_uint(s.size());
-            _bytes << buffer{s};
-        }
-
-        void process_bytes_fixed(const buffer bytes)
-        {
-            _bytes << bytes;
-        }
-
-        void process_optional(auto &val)
-        {
-            if (val.has_value()) {
-                uint_fixed(1, 1);
-                process(*val);
-            } else {
-                uint_fixed(1, 0);
-            }
         }
 
         template<typename T>
@@ -178,14 +139,27 @@ namespace turbo::jam {
         template<typename T>
         void process(const T &val)
         {
-            if constexpr (to_bytes_c<T>) {
+            if constexpr (codec::varlen_uint_c<T>) {
+                uint_varlen(val.value());
+            } else if constexpr (codec::optional_like_c<T>) {
+                if (val.has_value()) {
+                    uint_fixed(1, 1);
+                    process(*val);
+                } else {
+                    uint_fixed(1, 0);
+                }
+            } else if constexpr (codec::byte_sequence_like_c<T>) {
+                uint_varlen(val.size());
+                _bytes << buffer{val.data(), val.size()};
+            } else if constexpr (to_bytes_c<T>) {
                 val.to_bytes(*this);
             } else if constexpr (codec::serializable_c<T>) {
                 // since the encoder methods do not update the value, it's safe to const_cast the value
                 // this is needed to not implement a custom cost serialize method in each of the serialized classes
                 const_cast<T &>(val).serialize(*this);
             } else if constexpr (std::is_same_v<T, std::string>) {
-                process_string(val);
+                uint_varlen(val.size());
+                _bytes << buffer{val};
             } else if constexpr (std::is_same_v<T, uint64_t>) {
                 uint_fixed(8, val);
             } else if constexpr (std::is_same_v<T, uint32_t>) {
@@ -197,7 +171,7 @@ namespace turbo::jam {
             } else if constexpr (std::is_same_v<T, bool>) {
                 uint_fixed(1, static_cast<uint8_t>(val));
             } else if constexpr (std::convertible_to<T, std::span<const uint8_t>>) {
-                process_bytes_fixed(val);
+                _bytes << static_cast<std::span<const uint8_t>>(val);
             } else {
                 throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
             }
@@ -279,26 +253,34 @@ namespace turbo::jam {
         }
 
         template<typename T>
-        void process_varlen_uint(T &val)
-        {
-            val = uint_varlen<T>();
-        }
-
-        template<typename T>
-        void process_uint(T &val)
-        {
-            val = uint_fixed<T>(sizeof(val));
-        }
-
-        template<typename T>
         void process(T &val)
         {
-            if constexpr (from_bytes_c<T>) {
+            if constexpr (codec::varlen_uint_c<T>) {
+                val = uint_varlen<typename T::base_type>();
+            } else if constexpr (codec::optional_like_c<T>) {
+                val.reset();
+                switch (const auto typ = uint_fixed<uint8_t>(1)) {
+                    case 0: break;
+                    case 1: val.emplace(); process(*val); break;
+                    [[unlikely]] default: throw error(fmt::format("unsupported optional type: {}", typ));
+                }
+            } else if constexpr (codec::byte_array_like_c<T>) {
+                for (size_t i = 0; i < val.size(); ++i)
+                    val[i] = next();
+            } else if constexpr (codec::byte_sequence_like_c<T>) {
+                const auto sz = uint_varlen<size_t>();
+                val.resize(sz);
+                const auto data = next_bytes(sz);
+                memcpy(val.data(), data.data(), sz);
+            } else if constexpr (from_bytes_c<T>) {
                 val = T::from_bytes(*this);
             } else if constexpr (codec::serializable_c<T>) {
                 val.serialize(*this);
             } else if constexpr (std::is_same_v<T, std::string>) {
-                process_string(val);
+                const auto sz = uint_varlen<size_t>();
+                val.resize(sz);
+                const auto data = next_bytes(sz);
+                memcpy(val.data(), data.data(), sz);
             } else if constexpr (std::is_same_v<uint64_t, T>) {
                 val = uint_fixed<T>(8);
             } else if constexpr (std::is_same_v<uint32_t, T>) {
@@ -330,19 +312,6 @@ namespace turbo::jam {
                     vi = it->second;
             }
             variant_set_type<T, 0>(val, vi, *this);
-        }
-
-        void process_optional(auto &val)
-        {
-            val.reset();
-            switch (const auto typ = uint_fixed<uint8_t>(1)) {
-                case 0: break;
-                case 1:
-                    val.emplace();
-                    process(*val);
-                    break;
-                [[unlikely]] default: throw error(fmt::format("unsupported optional type: {}", typ));
-            }
         }
 
         void process_map(auto &m, const std::string_view /*key_name*/, const std::string_view /*val_name*/)
@@ -385,28 +354,6 @@ namespace turbo::jam {
             for (size_t i = 0; i < self.size(); ++i) {
                 process(self[i]);
             }
-        }
-
-        void process_bytes(std::vector<uint8_t> &bytes)
-        {
-            const auto sz = uint_varlen<size_t>();
-            bytes.resize(sz);
-            const auto data = next_bytes(sz);
-            memcpy(bytes.data(), data.data(), sz);
-        }
-
-        void process_string(std::string &s)
-        {
-            const auto sz = uint_varlen<size_t>();
-            s.resize(sz);
-            const auto data = next_bytes(sz);
-            memcpy(s.data(), data.data(), sz);
-        }
-
-        void process_bytes_fixed(const std::span<uint8_t> bytes)
-        {
-            for (size_t i = 0; i < bytes.size(); ++i)
-                bytes[i] = next();
         }
 
         [[nodiscard]] uint8_t next()
