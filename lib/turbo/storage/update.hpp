@@ -49,12 +49,12 @@ namespace turbo::storage::update {
             _base_db->foreach([&](const auto &k, const auto &v) {
                 while (upd_it != upd_end && upd_it->first < k) {
                     if (upd_it->second)
-                        obs(upd_it->first, *upd_it->second);
+                        obs(upd_it->first, upd_it->second);
                     ++upd_it;
                 }
                 if (upd_it != upd_end && upd_it->first == k) {
                     if (upd_it->second)
-                        obs(k, *upd_it->second);
+                        obs(k, upd_it->second);
                     ++upd_it;
                 } else {
                     obs(k, v);
@@ -62,7 +62,7 @@ namespace turbo::storage::update {
             });
             while (upd_it != upd_end) {
                 if (upd_it->second)
-                    obs(upd_it->first, *upd_it->second);
+                    obs(upd_it->first, upd_it->second);
                 ++upd_it;
             }
         }
@@ -98,7 +98,7 @@ namespace turbo::storage::update {
                 auto prev_v = _base_db->get(k);
                 if (prev_v != v) {
                     if (v)
-                        _base_db->set(k, *v);
+                        _base_db->set(k, v);
                     else
                         _base_db->erase(k);
                 }

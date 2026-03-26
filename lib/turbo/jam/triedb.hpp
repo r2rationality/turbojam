@@ -53,7 +53,7 @@ namespace turbo::jam::triedb {
                         auto val = _store->get(vv);
                         if (!val) [[unlikely]]
                             throw error(fmt::format("internal error: failed to get value for key {} from the store", k));
-                        obs(static_cast<buffer>(k), *val);
+                        obs(static_cast<buffer>(k), val);
                     } else {
                         obs(static_cast<buffer>(k), buffer {vv.data(), vv.size()});
                     }
@@ -148,7 +148,7 @@ namespace turbo::jam::triedb {
             if (!val) {
                 _erase(key, track_undo);
             } else {
-                _set(key, *val, track_undo);
+                _set(key, val, track_undo);
             }
         }
 
@@ -162,11 +162,11 @@ namespace turbo::jam::triedb {
                     if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
                         return {_store->get(vv), val};
                     } else {
-                        return {value_t{buffer{vv.data(), vv.size()}}, val};
+                        return {buffer{vv.data(), vv.size()}, val};
                     }
                 }, *val);
             }
-            return {value_t{}, val};
+            return {buffer{}, val};
         }
 
         void _erase(const buffer key, const bool track_undo=true)
