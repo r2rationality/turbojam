@@ -195,7 +195,7 @@ namespace turbo::cli::fuzzer {
             return false;
         }
 
-        void test_dir(const std::filesystem::path &data_dir)
+        bool test_dir(const std::filesystem::path &data_dir)
         {
             size_t ok = 0, err = 0;
             for (const auto &e: std::filesystem::directory_iterator(data_dir)) {
@@ -214,6 +214,7 @@ namespace turbo::cli::fuzzer {
             } else {
                 logger::info("no actionable samples found in {}", data_dir);
             }
+            return err == 0;
         }
     private:
         my_processor_ptr_t _proc;
