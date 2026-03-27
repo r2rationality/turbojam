@@ -111,7 +111,7 @@ namespace turbo_jam_accumulate_test {
                 "ok"sv,
                 "err"sv
             };
-            archive.template process_variant<base_type>(*this, names);
+            archive.process(codec::as_variant<base_type>(*this, names));
         }
     };
 

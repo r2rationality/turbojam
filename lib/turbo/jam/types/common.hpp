@@ -33,11 +33,6 @@ namespace turbo::jam {
         static_assert(MIN <= MAX);
         using base_type = std::vector<T>;
         using base_type::base_type;
-
-        void serialize(auto &archive)
-        {
-            archive.process_array(*this, MIN, MAX);
-        }
     };
 
     template<typename T, size_t MIN=0, size_t MAX=std::numeric_limits<size_t>::max()>
@@ -47,23 +42,14 @@ namespace turbo::jam {
         static_assert(MIN <= MAX);
         using base_type = boost::container::flat_set<T>;
         using base_type::base_type;
-
-        void serialize(auto &archive)
-        {
-            archive.process_array(*this, MIN, MAX);
-        }
     };
 
     template<typename T, size_t SZ>
     struct fixed_sequence_t: std::array<T, SZ> {
+        static constexpr bool is_element_sequence = true;
         static_assert(SZ > 0);
         using base_type = std::array<T, SZ>;
         using base_type::base_type;
-
-        void serialize(auto &archive)
-        {
-            archive.process_array_fixed(*this);
-        }
     };
 
     struct map_config_t {
@@ -81,11 +67,6 @@ namespace turbo::jam {
             static CFG cfg;
             return cfg;
         }
-
-        void serialize(auto &archive)
-        {
-            archive.process_map(*this, config().key_name, config().val_name);
-        }
     };
 
     template<typename K, typename V, typename CFG>
@@ -93,15 +74,10 @@ namespace turbo::jam {
         using base_type = boost::container::flat_map<K, V>;
         using base_type::base_type;
 
-        static CFG config()
+        static const CFG &config()
         {
             static CFG cfg;
             return cfg;
-        }
-
-        void serialize(auto &archive)
-        {
-            archive.process_map(*this, config().key_name, config().val_name);
         }
     };
 
@@ -110,15 +86,10 @@ namespace turbo::jam {
         using base_type = std::map<K, V>;
         using base_type::base_type;
 
-        static CFG config()
+        static const CFG &config()
         {
             static CFG cfg;
             return cfg;
-        }
-
-        void serialize(auto &archive)
-        {
-            archive.process_map(*this, config().key_name, config().val_name);
         }
     };
 
@@ -581,7 +552,7 @@ namespace turbo::jam {
                 "bad_code"sv,
                 "code_oversize"sv
             };
-            archive.template process_variant<base_type>(*this, names);
+            archive.process(codec::as_variant<base_type>(*this, names));
         }
     };
 
@@ -910,7 +881,7 @@ namespace turbo::jam {
                 "tickets"sv,
                 "keys"sv
             };
-            archive.template process_variant<base_type>(*this, names);
+            archive.process(codec::as_variant<base_type>(*this, names));
         }
     };
 

@@ -15,7 +15,7 @@ namespace turbo::jam::traces {
         bool success = false;
         try {
             const auto tc = jam::load_obj<test_case_t>(path + ".bin");
-            if (compare_with_json) {
+            if constexpr (compare_with_json) {
                 const auto j_tc = codec::json::load_obj<test_case_t>(path + ".json");
                 expect(tc == j_tc) << "the json test case does not match the binary one" << path;
             }

@@ -51,7 +51,12 @@ namespace turbo::codec::json {
         template<typename T>
         static void decode(const boost::json::value &jv, T &val)
         {
-            if constexpr (varlen_uint_c<T>) {
+            if constexpr (from_json_c<T>) {
+                val = T::from_json(jv);
+            } else if constexpr (serializable_c<T>) {
+                decoder dec { jv };
+                val.serialize(dec);
+            } else  if constexpr (varlen_uint_c<T>) {
                 val = boost::json::value_to<typename T::base_type>(jv);
             } else if constexpr (optional_like_c<T>) {
                 val.reset();
@@ -59,6 +64,43 @@ namespace turbo::codec::json {
                     val.emplace();
                     decode(jv, *val);
                 }
+            } else if constexpr (bounded_range_c<T>) {
+                const auto &j_arr = jv.get_array();
+                if (!(j_arr.size() >= T::min_size && j_arr.size() <= T::max_size)) [[unlikely]]
+                    throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", j_arr.size(), T::min_size, T::max_size));
+                val.clear();
+                if constexpr (requires { val.reserve(j_arr.size()); })
+                    val.reserve(j_arr.size());
+                for (size_t i = 0; i < j_arr.size(); ++i) {
+                    typename T::value_type v;
+                    decode(j_arr[i], v);
+                    if constexpr (has_emplace_c<T>) {
+                        val.emplace_hint_unique(val.end(), std::move(v));
+                    } else {
+                        val.emplace_back(std::move(v));
+                    }
+                }
+            } else if constexpr (map_like_c<T>) {
+                const auto key_name = T::config().key_name;
+                const auto val_name = T::config().val_name;
+                const auto &ja = jv.as_array();
+                val.clear();
+                for (const auto &jv_item: ja) {
+                    decoder jv_dec { jv_item };
+                    typename T::key_type k;
+                    jv_dec.process(key_name, k);
+                    typename T::mapped_type v;
+                    jv_dec.process(val_name, v);
+                    const auto [it, created] = val.try_emplace(std::move(k), std::move(v));
+                    if (!created) [[unlikely]]
+                        throw error(fmt::format("a map contains non-unique items: {}", typeid(val).name()));
+                }
+            } else if constexpr (fixed_array_like_c<T>) {
+                const auto &j_arr = jv.get_array();
+                if (j_arr.size() != val.size()) [[unlikely]]
+                    throw error(fmt::format("fixed array: expected size {} but got {}", val.size(), j_arr.size()));
+                for (size_t i = 0; i < j_arr.size(); ++i)
+                    decode(j_arr[i], val[i]);
             } else if constexpr (byte_array_like_c<T>) {
                 const auto hex = boost::json::value_to<std::string_view>(jv);
                 if (!hex.starts_with("0x")) [[unlikely]]
@@ -81,11 +123,6 @@ namespace turbo::codec::json {
                 } else {
                     throw error(fmt::format("expected a bytestring got: {}", serialize_pretty(jv)));
                 }
-            } else if constexpr (from_json_c<T>) {
-                val = T::from_json(jv);
-            } else if constexpr (serializable_c<T>) {
-                decoder dec { jv };
-                val.serialize(dec);
             } else if constexpr (std::is_same_v<T, uint8_t>
                     || std::is_same_v<T, uint16_t>
                     || std::is_same_v<T, uint32_t>
@@ -97,6 +134,38 @@ namespace turbo::codec::json {
                 val = boost::json::value_to<std::string_view>(jv);
             } else {
                 throw error(fmt::format("json serialization is not enabled for type {}", typeid(T).name()));
+            }
+        }
+
+        template<typename T>
+        static void decode(const boost::json::value &jv, codec::as_variant_t<T> av)
+        {
+            if (jv.is_object()) {
+                const auto &jo = jv.as_object();
+                size_t idx = 0;
+                for (const auto &name: av.names) {
+                    if (jo.contains(name)) {
+                        decoder inner { jo.at(name) };
+                        variant_set_type<T, 0>(av.val, idx, inner);
+                        return;
+                    }
+                    ++idx;
+                }
+                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(jv)));
+            } else if (jv.is_string()) {
+                const auto req_name = json::value_to<std::string_view>(jv);
+                size_t idx = 0;
+                for (const auto &name: av.names) {
+                    if (name == req_name) {
+                        decoder inner { jv };
+                        variant_set_type<T, 0>(av.val, idx, inner);
+                        return;
+                    }
+                    ++idx;
+                }
+                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(jv)));
+            } else {
+                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(jv)));
             }
         }
 
@@ -121,83 +190,10 @@ namespace turbo::codec::json {
             }
         }
 
-        void process_map(auto &m, const std::string_view key_name, const std::string_view val_name)
-        {
-            using T = std::decay_t<decltype(m)>;
-            const auto &ja = _top().as_array();
-            m.clear();
-            for (const auto &jv: ja) {
-                decoder jv_dec { jv };
-                typename T::key_type k;
-                jv_dec.process(key_name, k);
-                typename T::mapped_type v;
-                jv_dec.process(val_name, v);
-                const auto [it, created] = m.try_emplace(std::move(k), std::move(v));
-                if (!created) [[unlikely]]
-                    throw error(fmt::format("a map contains non-unique items: {}", typeid(m).name()));
-            }
-        }
-
-        void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
-        {
-            using T = std::decay_t<decltype(self)>;
-            const auto &j_arr = _top().get_array();
-            if (!(static_cast<int>(j_arr.size() >= min_sz) & static_cast<int>(j_arr.size() <= max_sz))) [[unlikely]]
-                throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", j_arr.size(), min_sz, max_sz));
-            self.clear();
-            self.reserve(j_arr.size());
-            for (size_t i = 0; i < j_arr.size(); ++i) {
-                typename T::value_type v;
-                decode(j_arr[i], v);
-                if constexpr (has_emplace_c<T>) {
-                    self.emplace_hint_unique(self.end(), std::move(v));
-                } else {
-                    self.emplace_back(std::move(v));
-                }
-            }
-        }
-
-        void process_array_fixed(auto &self)
-        {
-            const auto &j_arr = _top().get_array();
-            if (j_arr.size() != self.size()) [[unlikely]]
-                throw error(fmt::format("fixed array: expected size {} but got {}", self.size(), j_arr.size()));
-            for (size_t i = 0; i < j_arr.size(); ++i) {
-                decode(j_arr[i], self[i]);
-            }
-        }
-
         template<typename T>
-        void process_variant(T &val, const codec::variant_names_t<T> &names, const variant_index_overrides_t *overrides=nullptr)
+        void process(codec::as_variant_t<T> av)
         {
-            (void)overrides;
-            if (_top().is_object()) {
-                const auto &jo = _top().as_object();
-                size_t idx = 0;
-                for (const auto &name: names) {
-                    if (jo.contains(name)) {
-                        push(name);
-                        variant_set_type<T, 0>(val, idx, *this);
-                        pop();
-                        return;
-                    }
-                    ++idx;
-                }
-                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(_top())));
-            } else if (_top().is_string()) {
-                const auto req_name = json::value_to<std::string_view>(_top());
-                size_t idx = 0;
-                for (const auto &name: names) {
-                    if (name == req_name) {
-                        variant_set_type<T, 0>(val, idx, *this);
-                        return;
-                    }
-                    ++idx;
-                }
-                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(_top())));
-            } else {
-                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(_top())));
-            }
+            decode(_top(), av);
         }
 
     private:
@@ -215,7 +211,7 @@ namespace turbo::codec::json {
         const auto j = load(path);
         if constexpr (from_json_c<T>) {
             return T::from_json(j);
-        } else if constexpr (codec::serializable_c<T>) {
+        } else if constexpr (codec::archive_formattable_c<T>) {
             codec::json::decoder j_dec { j };
             return codec::from<T>(j_dec);
         } else {

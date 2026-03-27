@@ -133,7 +133,7 @@ namespace turbo_jam_reports_test {
                 "lookup-anchor-not-recept"sv,
                 "missing_work_results"sv
             };
-            archive.template process_variant<err_code_base_t>(*this, names);
+            archive.process(codec::as_variant<err_code_base_t>(*this, names));
         }
     };
 
@@ -150,7 +150,7 @@ namespace turbo_jam_reports_test {
                 "ok"sv,
                 "err"sv
             };
-            archive.template process_variant<base_type>(*this, names);
+            archive.process(codec::as_variant<base_type>(*this, names));
         }
     };
 

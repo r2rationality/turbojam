@@ -123,7 +123,7 @@ namespace turbo::jam::fuzzer {
                 "error"sv
             };
             static const codec::variant_index_overrides_t overrides{{{255U, 6U}}};
-            archive.template process_variant<base_type>(*this, names, &overrides);
+            archive.process(codec::as_variant<base_type>(*this, names, &overrides));
         }
 
         bool operator==(const message_t &) const =default;

@@ -69,7 +69,7 @@ namespace {
                 "bad_guarantor_key"sv,
                 "bad_auditor_key"sv
             };
-            archive.template process_variant<err_code_base_t>(*this, names);
+            archive.process(codec::as_variant<err_code_base_t>(*this, names));
         }
     };
 
@@ -98,7 +98,7 @@ namespace {
                 "ok"sv,
                 "err"sv
             };
-            archive.template process_variant<base_type>(*this, names);
+            archive.process(codec::as_variant<base_type>(*this, names));
         }
     };
 

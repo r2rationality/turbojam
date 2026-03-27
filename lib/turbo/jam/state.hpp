@@ -107,17 +107,17 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct service_info_t {
-        opaque_hash_t code_hash{}; // c
-        balance_t balance = 0; // b
+        opaque_hash_t code_hash{}; // c (9.3)
+        balance_t balance = 0; // b (9.3)
         // gas saved in the fixed format form
-        gas_t::base_type min_item_gas = 0; // g
-        gas_t::base_type min_memo_gas = 0; // m
-        uint64_t bytes = 0; // ? - not in (9.3) anymore
-        uint64_t deposit_offset = 0; // f
-        uint32_t items = 0; // ? - not in (9.3) anymore
-        time_slot_t<CFG> creation_slot = 0; // r
-        time_slot_t<CFG> last_accumulation_slot = 0; // a
-        service_id_t parent_service = 0; // p
+        gas_t::base_type min_item_gas = 0; // g (9.3)
+        gas_t::base_type min_memo_gas = 0; // m (9.3)
+        uint64_t bytes = 0; // o (9.8)
+        uint64_t deposit_offset = 0; // f (9.3)
+        uint32_t items = 0; // i (9.8)
+        time_slot_t<CFG> creation_slot = 0; // r (9.3)
+        time_slot_t<CFG> last_accumulation_slot = 0; // a (9.3)
+        service_id_t parent_service = 0; // p (9.3)
 
         void serialize(auto &archive)
         {
@@ -698,7 +698,7 @@ namespace turbo::jam {
                 "operand"sv,
                 "transfer"sv
             };
-            archive.template process_variant<base_type>(*this, names);
+            archive.process(codec::as_variant<base_type>(*this, names));
         }
     };
     template<typename CFG>

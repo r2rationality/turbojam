@@ -92,54 +92,31 @@ namespace turbo::jam {
             uint_fixed(8, x);
         }
 
-        void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
-        {
-            if (!(static_cast<int>(self.size() >= min_sz) & static_cast<int>(self.size() <= max_sz))) [[unlikely]]
-                throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", self.size(), min_sz, max_sz));
-            uint_varlen(self.size());
-            for (const auto &v: self)
-                process(v);
-        }
-
-        void process_map(auto &m)
-        {
-            uint_varlen(m.size());
-            for (const auto &[k, v]: m) {
-                process(k);
-                process(v);
-            }
-        }
-
-        void process_map(auto &m, const std::string_view /*key_name*/, const std::string_view /*val_name*/)
-        {
-            process_map(m);
-        }
-
-        void process_array_fixed(auto &self)
-        {
-            for (const auto &v: self)
-                process(v);
-        }
-
         template<typename T>
-        void process_variant(T &val, const codec::variant_names_t<T> &, const codec::variant_index_overrides_t *overrides=nullptr)
+        void process(codec::as_variant_t<T> av)
         {
-            auto ci = val.index();
-            if (overrides) {
-                const auto it = overrides->encode_overrides.find(ci);
-                if (it != overrides->encode_overrides.end())
+            auto ci = av.val.index();
+            if (av.overrides) {
+                const auto it = av.overrides->encode_overrides.find(ci);
+                if (it != av.overrides->encode_overrides.end())
                     ci = it->second;
             }
             uint_fixed(1, numeric_cast<uint8_t>(ci));
             std::visit([&](const auto &vv) {
                 process(vv);
-            }, val);
+            }, av.val);
         }
 
         template<typename T>
         void process(const T &val)
         {
-            if constexpr (codec::varlen_uint_c<T>) {
+            if constexpr (to_bytes_c<T>) {
+                val.to_bytes(*this);
+            } else if constexpr (codec::serializable_c<T>) {
+                // since the encoder methods do not update the value, it's safe to const_cast the value
+                // this is needed to not implement a custom cost serialize method in each of the serialized classes
+                const_cast<T &>(val).serialize(*this);
+            } else if constexpr (codec::varlen_uint_c<T>) {
                 uint_varlen(val.value());
             } else if constexpr (codec::optional_like_c<T>) {
                 if (val.has_value()) {
@@ -148,15 +125,24 @@ namespace turbo::jam {
                 } else {
                     uint_fixed(1, 0);
                 }
+            } else if constexpr (codec::bounded_range_c<T>) {
+                if (!(static_cast<int>(val.size() >= T::min_size) & static_cast<int>(val.size() <= T::max_size))) [[unlikely]]
+                    throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", val.size(), T::min_size, T::max_size));
+                uint_varlen(val.size());
+                for (const auto &v: val)
+                    process(v);
+            } else if constexpr (codec::map_like_c<T>) {
+                uint_varlen(val.size());
+                for (const auto &[k, v]: val) {
+                    process(k);
+                    process(v);
+                }
             } else if constexpr (codec::byte_sequence_like_c<T>) {
                 uint_varlen(val.size());
                 _bytes << buffer{val.data(), val.size()};
-            } else if constexpr (to_bytes_c<T>) {
-                val.to_bytes(*this);
-            } else if constexpr (codec::serializable_c<T>) {
-                // since the encoder methods do not update the value, it's safe to const_cast the value
-                // this is needed to not implement a custom cost serialize method in each of the serialized classes
-                const_cast<T &>(val).serialize(*this);
+            } else if constexpr (codec::fixed_array_like_c<T>) {
+                for (const auto &v: val)
+                    process(v);
             } else if constexpr (std::is_same_v<T, std::string>) {
                 uint_varlen(val.size());
                 _bytes << buffer{val};
@@ -253,9 +239,25 @@ namespace turbo::jam {
         }
 
         template<typename T>
+        void process(codec::as_variant_t<T> av)
+        {
+            auto vi = uint_fixed<uint8_t>(1);
+            if (av.overrides) {
+                const auto it = av.overrides->decode_overrides.find(vi);
+                if (it != av.overrides->decode_overrides.end())
+                    vi = it->second;
+            }
+            variant_set_type<T, 0>(av.val, vi, *this);
+        }
+
+        template<typename T>
         void process(T &val)
         {
-            if constexpr (codec::varlen_uint_c<T>) {
+            if constexpr (from_bytes_c<T>) {
+                val = T::from_bytes(*this);
+            } else if constexpr (codec::serializable_c<T>) {
+                val.serialize(*this);
+            } else if constexpr (codec::varlen_uint_c<T>) {
                 val = uint_varlen<typename T::base_type>();
             } else if constexpr (codec::optional_like_c<T>) {
                 val.reset();
@@ -263,6 +265,33 @@ namespace turbo::jam {
                     case 0: break;
                     case 1: val.emplace(); process(*val); break;
                     [[unlikely]] default: throw error(fmt::format("unsupported optional type: {}", typ));
+                }
+            } else if constexpr (codec::bounded_range_c<T>) {
+                const auto sz = uint_varlen<size_t>();
+                if (!(static_cast<int>(sz >= T::min_size) & static_cast<int>(sz <= T::max_size))) [[unlikely]]
+                    throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", sz, T::min_size, T::max_size));
+                val.clear();
+                if constexpr (requires { val.reserve(sz); })
+                    val.reserve(sz);
+                for (size_t i = 0; i < sz; ++i) {
+                    typename T::value_type v;
+                    process(v);
+                    if constexpr (codec::has_emplace_c<T>) {
+                        val.emplace_hint_unique(val.end(), std::move(v));
+                    } else {
+                        val.emplace_back(std::move(v));
+                    }
+                }
+            } else if constexpr (codec::map_like_c<T>) {
+                const auto sz = uint_varlen<size_t>();
+                val.clear();
+                for (size_t i = 0; i < sz; ++i) {
+                    typename T::key_type k;
+                    process(k);
+                    typename T::mapped_type v;
+                    process(v);
+                    if (const auto [it, created] = val.try_emplace(std::move(k), std::move(v)); !created) [[unlikely]]
+                        logger::warn("a {} map contains non-unique items: {}", typeid(val).name(), it->first);
                 }
             } else if constexpr (codec::byte_array_like_c<T>) {
                 for (size_t i = 0; i < val.size(); ++i)
@@ -272,10 +301,9 @@ namespace turbo::jam {
                 val.resize(sz);
                 const auto data = next_bytes(sz);
                 memcpy(val.data(), data.data(), sz);
-            } else if constexpr (from_bytes_c<T>) {
-                val = T::from_bytes(*this);
-            } else if constexpr (codec::serializable_c<T>) {
-                val.serialize(*this);
+            } else if constexpr (codec::fixed_array_like_c<T>) {
+                for (size_t i = 0; i < val.size(); ++i)
+                    process(val[i]);
             } else if constexpr (std::is_same_v<T, std::string>) {
                 const auto sz = uint_varlen<size_t>();
                 val.resize(sz);
@@ -300,60 +328,6 @@ namespace turbo::jam {
         void process(const std::string_view, T &val)
         {
             process(val);
-        }
-
-        template<typename T>
-        void process_variant(T &val, const codec::variant_names_t<T> &, const codec::variant_index_overrides_t *overrides=nullptr)
-        {
-            auto vi = uint_fixed<uint8_t>(1);
-            if (overrides) {
-                const auto it = overrides->decode_overrides.find(vi);
-                if (it != overrides->decode_overrides.end())
-                    vi = it->second;
-            }
-            variant_set_type<T, 0>(val, vi, *this);
-        }
-
-        void process_map(auto &m, const std::string_view /*key_name*/, const std::string_view /*val_name*/)
-        {
-            using T = std::decay_t<decltype(m)>;
-            const auto sz = uint_varlen<size_t>();
-            m.clear();
-            for (size_t i = 0; i < sz; ++i) {
-                typename T::key_type k;
-                process(k);
-                typename T::mapped_type v;
-                process(v);
-                if (const auto [it, created] = m.try_emplace(std::move(k), std::move(v)); !created) [[unlikely]]
-                    //throw error(fmt::format("a map contains non-unique items: {}", it->first));
-                    logger::warn("a {} map contains non-unique items: {}", typeid(m).name(), it->first);
-            }
-        }
-
-        void process_array(auto &self, const size_t min_sz=0, const size_t max_sz=std::numeric_limits<size_t>::max())
-        {
-            using T = std::decay_t<decltype(self)>;
-            const auto sz = uint_varlen<size_t>();
-            if (!(static_cast<int>(sz >= min_sz) & static_cast<int>(sz <= max_sz))) [[unlikely]]
-                throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", sz, min_sz, max_sz));
-            self.clear();
-            self.reserve(sz);
-            for (size_t i = 0; i < sz; ++i) {
-                typename T::value_type v;
-                process(v);
-                if constexpr (codec::has_emplace_c<T>) {
-                    self.emplace_hint_unique(self.end(), std::move(v));
-                } else {
-                    self.emplace_back(std::move(v));
-                }
-            }
-        }
-
-        void process_array_fixed(auto &self)
-        {
-            for (size_t i = 0; i < self.size(); ++i) {
-                process(self[i]);
-            }
         }
 
         [[nodiscard]] uint8_t next()
@@ -403,10 +377,8 @@ namespace turbo::jam {
         decoder dec { bytes };
         if constexpr (from_bytes_c<T>) {
             return T::from_bytes(dec);
-        } else if constexpr (codec::serializable_c<T>) {
-            return codec::from<T>(dec);
         } else {
-            throw error(fmt::format("binary deserialization not supported for type {}", typeid(T).name()));
+            return codec::from<T>(dec);
         }
     }
 
