@@ -126,8 +126,7 @@ namespace turbo::jam {
                     uint_fixed(1, 0);
                 }
             } else if constexpr (codec::bounded_range_c<T>) {
-                if (!(static_cast<int>(val.size() >= T::min_size) & static_cast<int>(val.size() <= T::max_size))) [[unlikely]]
-                    throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", val.size(), T::min_size, T::max_size));
+                codec::check_bounds(val);
                 uint_varlen(val.size());
                 for (const auto &v: val)
                     process(v);
@@ -137,6 +136,8 @@ namespace turbo::jam {
                     process(k);
                     process(v);
                 }
+            } else if constexpr (codec::byte_array_like_c<T>) {
+                _bytes << buffer{val.data(), val.size()};
             } else if constexpr (codec::byte_sequence_like_c<T>) {
                 uint_varlen(val.size());
                 _bytes << buffer{val.data(), val.size()};
@@ -294,8 +295,8 @@ namespace turbo::jam {
                         logger::warn("a {} map contains non-unique items: {}", typeid(val).name(), it->first);
                 }
             } else if constexpr (codec::byte_array_like_c<T>) {
-                for (size_t i = 0; i < val.size(); ++i)
-                    val[i] = next();
+                const auto data = next_bytes(val.size());
+                memcpy(val.data(), data.data(), val.size());
             } else if constexpr (codec::byte_sequence_like_c<T>) {
                 const auto sz = uint_varlen<size_t>();
                 val.resize(sz);
@@ -356,7 +357,7 @@ namespace turbo::jam {
             return {_ptr, size()};
         }
 
-        [[nodiscard]] size_t size() const noexcept
+        [[nodiscard]] size_t size() const
         {
             return empty() ? size_t { 0 } : numeric_cast<size_t>(_end - _ptr);
         }

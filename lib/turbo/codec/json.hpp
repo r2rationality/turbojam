@@ -66,8 +66,7 @@ namespace turbo::codec::json {
                 }
             } else if constexpr (bounded_range_c<T>) {
                 const auto &j_arr = jv.get_array();
-                if (!(j_arr.size() >= T::min_size && j_arr.size() <= T::max_size)) [[unlikely]]
-                    throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", j_arr.size(), T::min_size, T::max_size));
+                check_bounds<T>(j_arr.size());
                 val.clear();
                 if constexpr (requires { val.reserve(j_arr.size()); })
                     val.reserve(j_arr.size());
@@ -180,7 +179,7 @@ namespace turbo::codec::json {
             const auto &jo = _top().as_object();
             const auto it = jo.find(name);
             if (it != jo.end()) {
-                decode(_top().at(name), val);
+                decode(it->value(), val);
             } else {
                 if constexpr (optional_c<T>) {
                     val.reset();
