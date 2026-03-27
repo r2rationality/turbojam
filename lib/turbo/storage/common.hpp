@@ -9,8 +9,8 @@
 #include <turbo/common/bytes.hpp>
 
 namespace turbo::storage {
-    using value_store_t = uint8_vector;
-    using value_t = buffer;
+    using value_store_t = std::optional<uint8_vector>;
+    using value_t = std::optional<buffer>;
     using observer_t = std::function<void(buffer, buffer)>;
 
     struct db_t {

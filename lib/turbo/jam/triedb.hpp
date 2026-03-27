@@ -53,7 +53,7 @@ namespace turbo::jam::triedb {
                         auto val = _store->get(vv);
                         if (!val) [[unlikely]]
                             throw error(fmt::format("internal error: failed to get value for key {} from the store", k));
-                        obs(static_cast<buffer>(k), val);
+                        obs(static_cast<buffer>(k), *val);
                     } else {
                         obs(static_cast<buffer>(k), buffer {vv.data(), vv.size()});
                     }
@@ -145,10 +145,10 @@ namespace turbo::jam::triedb {
 
         void _apply(const buffer key, const value_t &val, const bool track_undo=true)
         {
-            if (!val) {
-                _erase(key, track_undo);
+            if (val) {
+                _set(key, *val, track_undo);
             } else {
-                _set(key, val, track_undo);
+                _erase(key, track_undo);
             }
         }
 
@@ -166,7 +166,7 @@ namespace turbo::jam::triedb {
                     }
                 }, *val);
             }
-            return {buffer{}, val};
+            return {value_t{}, val};
         }
 
         void _erase(const buffer key, const bool track_undo=true)

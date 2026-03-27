@@ -61,7 +61,7 @@ namespace turbo::jam {
                 const auto bytes = _db->get(_key);
                 if (!bytes) [[unlikely]]
                     throw error(fmt::format("a required state element is missing: {}", _key));
-                _ptr = std::make_shared<element_type>(jam::from_bytes<element_type>(bytes));
+                _ptr = std::make_shared<element_type>(jam::from_bytes<element_type>(*bytes));
             }
             return _ptr;
         }
@@ -461,8 +461,10 @@ namespace turbo::jam {
         template<typename V>
         std::optional<V> _get(const state_key_t &k) const
         {
-            if (auto v = _db->get(k); v) {
-                return _decode<V>(v);
+            auto v = _db->get(k);
+            logger::trace("service::_get: key: {} val: {}", k, v);
+            if (v) {
+                return _decode<V>(*v);
             }
             return {};
         }
@@ -471,6 +473,7 @@ namespace turbo::jam {
         void _set(const state_key_t &trie_key, V val)
         {
             auto encoded_val = _encode(std::move(val));
+            logger::trace("service::_set: key: {} val: {}", trie_key, val);
             _db->set(trie_key, encoded_val);
         }
 
