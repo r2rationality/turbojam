@@ -47,6 +47,7 @@ namespace turbo::jam {
 
     template<typename T, size_t SZ>
     struct fixed_sequence_t: std::array<T, SZ> {
+        static constexpr size_t fixed_size = SZ;
         static constexpr bool is_element_sequence = true;
         static_assert(SZ > 0);
         using base_type = std::array<T, SZ>;
@@ -732,9 +733,8 @@ namespace turbo::jam {
             _update_derived();
         }
 
-        constexpr size_t size() const noexcept {
-            static_assert(CFG::V_validator_count == _storage.size());
-            return CFG::V_validator_count;
+        consteval size_t size() const noexcept {
+            return storage_type::fixed_size;
         }
 
         void serialize(auto &archive)
