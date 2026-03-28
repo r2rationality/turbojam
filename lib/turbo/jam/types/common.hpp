@@ -733,7 +733,7 @@ namespace turbo::jam {
             _update_derived();
         }
 
-        consteval size_t size() const noexcept {
+        static consteval size_t size() noexcept {
             return storage_type::fixed_size;
         }
 
