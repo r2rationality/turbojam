@@ -67,9 +67,9 @@ namespace turbo::jam::machine {
 
         explicit impl(impl &&o):
             _pc{o._pc},
+            _tlb_next{o._tlb_next},
             _gas{o._gas},
             _regs{o._regs},
-            _tlb_next{o._tlb_next},
             _tlb{o._tlb},
             _pages{std::move(o._pages)},
             _page_storage{std::move(o._page_storage)},
