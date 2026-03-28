@@ -158,6 +158,7 @@ namespace {
                 auto new_offenders = state_t<CFG>::psi_prime(new_st.psi, new_st.rho,
                     tc.pre.kappa, tc.pre.lambda, tc.pre.tau, tc.in.disputes
                 );
+                state_t<CFG>::verify_dispute_signatures(tc.pre.tau, tc.pre.kappa, tc.pre.lambda, tc.in.disputes);
                 out.emplace(test_output_data_t{ .offenders_mark=std::move(new_offenders) });
             },
             [&](err_code_t err) {

@@ -971,10 +971,13 @@ namespace turbo::jam {
         // signature verification
         static void verify_all_signatures(const block_t<CFG> &blk, const time_slot_t<CFG> &prev_tau,
             const entropy_buffer_t &new_eta, const safrole_state_t<CFG> &new_gamma,
-            const validators_data_t<CFG> &prev_kappa, const validators_data_t<CFG> &prev_lambda);
+            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda, const disputes_records_t &prev_psi);
         static void verify_assurance_signatures(const header_hash_t &parent, const validators_data_t<CFG> &validators, const assurances_extrinsic_t<CFG> &assurances);
-        //static void verify_dispute_signatures(const disputes_extrinsic_t<CFG> &disputes);
-        //static void verify_guarantee_signatures(const guarantees_extrinsic_t<CFG> &guarantees);
+        static void verify_dispute_signatures(const time_slot_t<CFG> &prev_tau,
+            const validators_data_t<CFG> &prev_kappa, const validators_data_t<CFG> &prev_lambda,const disputes_extrinsic_t<CFG> &disputes);
+        static void verify_guarantee_signatures(const time_slot_t<CFG> &new_tau, const entropy_buffer_t &new_eta,
+            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
+            const ed25519_keys_set_t &new_psi_o, const guarantees_extrinsic_t<CFG> &guarantees);
         static void verify_ticket_signatures(const entropy_buffer_t &new_eta, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets);
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;

@@ -876,8 +876,6 @@ namespace turbo::jam {
                         throw err_report_epoch_before_last_t {};
                 }
 
-                const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi, g.slot, slot);
-
                 // JAM Paper (11.34)
                 if (g.report.context.lookup_anchor_slot.slot() + CFG::L_max_lookup_anchor_age < slot) [[unlikely]]
                     throw err_segment_root_lookup_invalid_t{};
@@ -938,6 +936,7 @@ namespace turbo::jam {
                     encoder enc{g.report};
                     msg << crypto::blake2b::digest(enc.bytes());
                 }
+                const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi, g.slot, slot);
                 std::optional<validator_index_t> prev_validator {};
                 for (const auto &s: g.signatures) {
                     if (s.validator_index >= new_kappa.size()) [[unlikely]]
@@ -956,8 +955,6 @@ namespace turbo::jam {
                     if (vk == offender_vk) [[unlikely]]
                         throw err_banned_validator_t{};
 
-                    if (!ed25519_consensus::zip215_verify(s.signature, msg, vk)) [[unlikely]]
-                        throw err_bad_signature_t {};
                     res.reporters.emplace(vk);
                 }
 
@@ -1027,11 +1024,6 @@ namespace turbo::jam {
         offenders_mark_t new_offenders{};
         if (!disputes.empty()) {
             new_offenders.reserve(disputes.culprits.size() + disputes.faults.size());
-            static constexpr size_t max_msg_size = sizeof(work_report_hash_t)
-                + std::max(std::max(CFG::jam_guarantee.size(), CFG::jam_valid.size()), CFG::jam_invalid.size());
-            uint8_vector msg{};
-            msg.reserve(max_msg_size);
-
             // JAM (10.3)
             const auto cur_epoch = prev_tau.epoch();
             const work_report_hash_t *prev_report = nullptr;
@@ -1052,14 +1044,9 @@ namespace turbo::jam {
                 for (const auto &j: v.judgements) {
                     if (prev_index && *prev_index >= j.index) [[unlikely]]
                         throw err_judgements_not_sorted_unique_t{};
-                    prev_index = &j.index;
-                    msg.clear();
-                    msg << static_cast<buffer>(j.vote ? CFG::jam_valid : CFG::jam_invalid);
-                    msg << v.report;
                     if (j.index >= CFG::V_validator_count) [[unlikely]]
                         throw err_bad_validator_index_t{};
-                    if (!ed25519_consensus::zip215_verify(j.signature, msg, validators[j.index].ed25519)) [[unlikely]]
-                        throw err_bad_signature_t{};
+                    prev_index = &j.index;
                     if (j.vote)
                         ++oks;
                 }
@@ -1105,11 +1092,6 @@ namespace turbo::jam {
                 if (prev_culprit_key && *prev_culprit_key >= c.key) [[unlikely]]
                     throw err_culprits_not_sorted_unique_t{};
                 prev_culprit_key = &c.key;
-                msg.clear();
-                msg << static_cast<buffer>(CFG::jam_guarantee);
-                msg << c.report;
-                if (!ed25519_consensus::zip215_verify(c.signature, msg, c.key)) [[unlikely]]
-                    throw err_bad_signature_t {};
                 ++new_culprits[c.report];
                 new_offenders.emplace_back(c.key);
             }
@@ -1130,12 +1112,6 @@ namespace turbo::jam {
                 if (prev_fault_key && *prev_fault_key >= f.key) [[unlikely]]
                     throw err_faults_not_sorted_unique_t{};
                 prev_fault_key = &f.key;
-                msg.clear();
-                const auto &verdict_prefix = f.vote ? CFG::jam_valid : CFG::jam_invalid;
-                msg << static_cast<buffer>(verdict_prefix);
-                msg << f.report;
-                if (!ed25519_consensus::zip215_verify(f.signature, msg, f.key)) [[unlikely]]
-                    throw err_bad_signature_t{};
                 new_fault_reports.emplace(f.report);
                 new_offenders.emplace_back(f.key);
             }
@@ -1242,7 +1218,7 @@ namespace turbo::jam {
             // TODO: to be started in a parallel thread for better performance
             verify_all_signatures(blk, prev_tau,
                 this->eta.get(), this->gamma.get(),
-                this->kappa.get(), this->lambda.get());
+                this->kappa.get(), this->lambda.get(), this->psi.get());
 
             // (5.4), (5.5), (5.6)
             // can be run in parallel
@@ -1378,6 +1354,65 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
+    void state_t<CFG>::verify_dispute_signatures(const time_slot_t<CFG> &prev_tau,
+        const validators_data_t<CFG> &prev_kappa, const validators_data_t<CFG> &prev_lambda,
+        const disputes_extrinsic_t<CFG> &disputes)
+    {
+        const auto cur_epoch = prev_tau.epoch();
+        uint8_vector msg{};
+        static constexpr size_t max_msg_size = sizeof(work_report_hash_t) + std::max(std::max(CFG::jam_guarantee.size(), CFG::jam_valid.size()), CFG::jam_invalid.size());
+        msg.reserve(max_msg_size);
+        for (const auto &v: disputes.verdicts) {
+            const auto & validators = v.age == cur_epoch ? prev_kappa : prev_lambda;
+            // uniqueness is checked already, so it's ok to rely on access to create a key-value pair
+            for (const auto &j: v.judgements) {
+                msg.clear();
+                msg << static_cast<buffer>(j.vote ? CFG::jam_valid : CFG::jam_invalid);
+                msg << v.report;
+                if (!ed25519_consensus::zip215_verify(j.signature, msg, validators.at(j.index).ed25519)) [[unlikely]]
+                    throw err_bad_signature_t{};
+            }
+        }
+        for (const auto &c: disputes.culprits) {
+            msg.clear();
+            msg << static_cast<buffer>(CFG::jam_guarantee);
+            msg << c.report;
+            if (!ed25519_consensus::zip215_verify(c.signature, msg, c.key)) [[unlikely]]
+                throw err_bad_signature_t {};
+        }
+        for (const auto &f: disputes.faults) {
+            msg.clear();
+            const auto &verdict_prefix = f.vote ? CFG::jam_valid : CFG::jam_invalid;
+            msg << static_cast<buffer>(verdict_prefix);
+            msg << f.report;
+            if (!ed25519_consensus::zip215_verify(f.signature, msg, f.key)) [[unlikely]]
+                throw err_bad_signature_t{};
+        }
+    }
+
+    template <typename CFG>
+    void state_t<CFG>::verify_guarantee_signatures(const time_slot_t<CFG> &new_tau, const entropy_buffer_t &new_eta,
+            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
+            const ed25519_keys_set_t &new_psi_o, const guarantees_extrinsic_t<CFG> &guarantees)
+    {
+        uint8_vector msg{};
+        for (const auto &g: guarantees) {
+            const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi_o, g.slot, new_tau);
+            msg.clear();
+            msg << CFG::jam_guarantee;
+            {
+                encoder enc{g.report};
+                msg << crypto::blake2b::digest(enc.bytes());
+            }
+            for (const auto &s: g.signatures) {
+                const auto &vk = guarantors.validators[s.validator_index].ed25519;
+                if (!ed25519_consensus::zip215_verify(s.signature, msg, vk)) [[unlikely]]
+                    throw err_bad_signature_t{};
+            }
+        }
+    }
+
+    template <typename CFG>
     void state_t<CFG>::verify_ticket_signatures(const entropy_buffer_t &new_eta, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets) {
         static const uint8_vector aux{};
         static constexpr std::string_view input_prefix{"jam_ticket_seal"};
@@ -1397,12 +1432,16 @@ namespace turbo::jam {
     void state_t<CFG>::verify_all_signatures(
         const block_t<CFG> &blk, const time_slot_t<CFG> &prev_tau,
         const entropy_buffer_t &new_eta, const safrole_state_t<CFG> &new_gamma,
-        const validators_data_t<CFG> &prev_kappa, const validators_data_t<CFG> &prev_lambda) {
+        const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
+        const disputes_records_t &prev_psi)
+    {
         blk.header.verify_signatures(
-            prev_kappa.at(blk.header.author_index).bandersnatch,
+            new_kappa.at(blk.header.author_index).bandersnatch,
             new_gamma.s, new_eta[3]
         );
-        verify_assurance_signatures(blk.header.parent, blk.header.slot.epoch() == prev_tau.epoch() ? prev_kappa : prev_lambda, blk.extrinsic.assurances);
+        verify_assurance_signatures(blk.header.parent, blk.header.slot.epoch() == prev_tau.epoch() ? new_kappa : new_lambda, blk.extrinsic.assurances);
+        verify_dispute_signatures(prev_tau, new_kappa, new_lambda, blk.extrinsic.disputes);
+        verify_guarantee_signatures(blk.header.slot, new_eta, new_kappa, new_lambda, prev_psi.offenders, blk.extrinsic.guarantees);
         verify_ticket_signatures(new_eta, new_gamma.z, blk.extrinsic.tickets);
     }
 

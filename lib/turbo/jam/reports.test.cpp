@@ -240,6 +240,7 @@ namespace turbo_jam_reports_test {
                             tc.in.slot, tc.in.guarantees
                         )
                     );
+                    state_t<CFG>::verify_guarantee_signatures(tc.in.slot, new_st.eta, new_st.kappa, new_st.lambda, new_st.offenders, tc.in.guarantees);
                     new_st.accounts.set(std::move(delta));
                 },
                 [&](err_code_t err) {

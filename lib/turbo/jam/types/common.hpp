@@ -745,8 +745,8 @@ namespace turbo::jam {
         }
 
         const validator_data_t &at(const size_t idx) const {
-            if (idx >= CFG::V_validator_count) {
-                throw error(fmt::format("validators_data_t::at: requested index {} >= the size of {} validators", idx, CFG::V_validator_count));
+            if (idx >= CFG::V_validator_count) [[unlikely]] {
+                throw err_bad_validator_index_t{};
             }
             return _storage[idx];
         }
