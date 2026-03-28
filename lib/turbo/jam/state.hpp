@@ -266,7 +266,7 @@ namespace turbo::jam {
 
         std::optional<service_info_t<CFG>> info_get(const service_id_t id) const
         {
-            return _get<service_info_t<CFG>>(_info_key(id));
+            return _get_coded<service_info_t<CFG>>(_info_key(id));
         }
 
         service_info_t<CFG> info_get_or_throw(const service_id_t id) const
@@ -284,12 +284,12 @@ namespace turbo::jam {
 
         void info_set(const service_id_t id, service_info_t<CFG> info)
         {
-            _set(_info_key(id), std::move(info));
+            _set_coded(_info_key(id), std::move(info));
         }
 
         std::optional<lookup_meta_map_val_t<CFG>> lookup_get(const service_id_t id, const lookup_meta_map_key_t &k) const
         {
-            return _get<lookup_meta_map_val_t<CFG>>(_lookup_key(id, k));
+            return _get_coded<lookup_meta_map_val_t<CFG>>(_lookup_key(id, k));
         }
 
         void lookup_erase(const service_id_t id, const lookup_meta_map_key_t &k)
@@ -299,12 +299,12 @@ namespace turbo::jam {
 
         void lookup_set(const service_id_t id, const lookup_meta_map_key_t &k, lookup_meta_map_val_t<CFG> val)
         {
-            _set(_lookup_key(id, k), std::move(val));
+            _set_coded(_lookup_key(id, k), std::move(val));
         }
 
-        std::optional<uint8_vector> preimage_get(const service_id_t id, const opaque_hash_t &k) const
+        std::optional<buffer> preimage_get(const service_id_t id, const opaque_hash_t &k) const
         {
-            return _get<uint8_vector>(_preimage_key(id, k));
+            return _db->get(_preimage_key(id, k));
         }
 
         void preimage_erase(const service_id_t id, const opaque_hash_t &k)
@@ -312,15 +312,15 @@ namespace turbo::jam {
             _erase(_preimage_key(id, k));
         }
 
-        void preimage_set(const service_id_t id, const opaque_hash_t &k, uint8_vector val)
+        void preimage_set(const service_id_t id, const opaque_hash_t &k, const buffer &val)
         {
-            _set(_preimage_key(id, k), std::move(val));
+            _db->set(_preimage_key(id, k), val);
         }
 
-        std::optional<uint8_vector> storage_get(const service_id_t id, const buffer &k) const
+        std::optional<buffer> storage_get(const service_id_t id, const buffer &k) const
         {
             const auto key = _storage_key(id, k);
-            auto val = _get<uint8_vector>(key);
+            auto val = _db->get(key);
             logger::trace("storage_get: service_id: {} key: {} storage_key: {} val: {}",
                 id, k, key,
                 val
@@ -333,13 +333,13 @@ namespace turbo::jam {
             return val;
         }
 
-        void storage_set_raw(const service_id_t id, const buffer &k, uint8_vector val)
+        void storage_set_raw(const service_id_t id, const buffer &k, const buffer &val)
         {
             const auto key = _storage_key(id, k);
-            _set(key, std::move(val));
+            _db->set(key, val);
         }
 
-        std::optional<uint8_vector> storage_set(const service_id_t id, const buffer &k, uint8_vector val)
+        std::optional<buffer> storage_set(const service_id_t id, const buffer &k, const buffer &val)
         {
             const auto key = _storage_key(id, k);
             logger::trace("storage_set: service_id: {} key: {} storage_key: {} val: {}",
@@ -348,7 +348,7 @@ namespace turbo::jam {
                     ? fmt::format("{} {} bytes", val, val.size())
                     : fmt::format("{}... {} bytes", static_cast<buffer>(val).subspan(0, 32), val.size())
             );
-            auto prev_val = _get<uint8_vector>(key);
+            auto prev_val = _db->get(key);
             if (!val.empty()) {
                 if (val != prev_val) {
                     auto info = info_get_or_throw(id);
@@ -360,7 +360,7 @@ namespace turbo::jam {
                     }
                     info.bytes += val.size();
                     info_set(id, std::move(info));
-                    _set(key, std::move(val));
+                    _db->set(key, val);
                 }
             } else if (prev_val) {
                 auto info = info_get_or_throw(id);
@@ -459,7 +459,7 @@ namespace turbo::jam {
         }
 
         template<typename V>
-        std::optional<V> _get(const state_key_t &k) const
+        std::optional<V> _get_coded(const state_key_t &k) const
         {
             auto v = _db->get(k);
             logger::trace("service::_get: key: {} val: {}", k, v);
@@ -470,7 +470,7 @@ namespace turbo::jam {
         }
 
         template<typename V>
-        void _set(const state_key_t &trie_key, V val)
+        void _set_coded(const state_key_t &trie_key, V val)
         {
             auto encoded_val = _encode(std::move(val));
             logger::trace("service::_set: key: {} val: {}", trie_key, val);
