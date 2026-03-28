@@ -350,11 +350,9 @@ namespace turbo::jam {
         const auto &phi = _p.m.regs();
         const auto key = _p.m.mem_read(phi[7], phi[8]);
         const auto val_data = _p.m.mem_read(phi[9], phi[10]);
-        const auto prev_val = _p.services.storage_set(_p.service_id, key, std::move(val_data));
-        const auto info = _p.services.info_get(_p.service_id);
-        if (info->balance_ok()) {
-            const machine::register_val_t l = prev_val ? prev_val->size() : machine::host_call_res_t::none;
-            _p.m.set_reg(7, l);
+        const auto set_res = _p.services.storage_set(_p.service_id, key, std::move(val_data));
+        if (set_res.ok) {
+            _p.m.set_reg(7, set_res.prev_size.value_or(machine::host_call_res_t::none));
         } else {
             _p.m.set_reg(7, machine::host_call_res_t::full);
         }
@@ -783,9 +781,11 @@ namespace turbo::jam {
         auto l_res = this->_p.services.lookup_get(this->_p.service_id, key);
         if (l_res && (l_res->size() == 0 || (l_res->size() == 2 && (*l_res)[1].slot() + CFG::D_preimage_expunge_delay < this->_p.slot.slot()))) {
             auto info = this->_service_info();
-            info.items -= 2U;
-            info.bytes -= 81U;
-            info.bytes -= key.length;
+            // this branch is activated only in the case of a numerical underflow and should never happen
+            if (!(info.del_items(2U) && info.del_bytes(81U) && info.del_bytes(key.length))) [[unlikely]] {
+                this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+                return;
+            }
             this->_p.services.info_set(this->_p.service_id, std::move(info));
             this->_p.services.lookup_erase(this->_p.service_id, key);
             this->_p.services.preimage_erase(this->_p.service_id, key.hash);
@@ -839,7 +839,6 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        this->_p.services.info_set(s_id, std::move(*a));
         this->_p.services.preimage_set(s_id, h, std::move(i));
         this->_p.services.lookup_set(s_id, key, {this->_p.slot});
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);

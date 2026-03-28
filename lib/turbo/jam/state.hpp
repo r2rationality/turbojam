@@ -147,10 +147,24 @@ namespace turbo::jam {
             return balance_ok();
         }
 
+        [[nodiscard]] bool del_items(const uint32_t num_items) {
+            if (items < num_items)
+                return false;
+            items -= num_items;
+            return balance_ok();
+        }
+
         [[nodiscard]] bool add_bytes(const uint64_t new_bytes) {
             if (new_bytes + bytes < bytes) [[unlikely]]
                 return false;
             bytes += new_bytes;
+            return balance_ok();
+        }
+
+        [[nodiscard]] bool del_bytes(const balance_t num_bytes) {
+            if (bytes < num_bytes) [[unlikely]]
+                return false;
+            bytes -= num_bytes;
             return balance_ok();
         }
 
@@ -249,6 +263,11 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct accounts_t {
+        struct set_res_t {
+            std::optional<size_t> prev_size{};
+            bool ok = false;
+        };
+
         accounts_t(const accounts_t &o)
         {
             *this = o;
@@ -320,17 +339,7 @@ namespace turbo::jam {
         std::optional<buffer> storage_get(const service_id_t id, const buffer &k) const
         {
             const auto key = _storage_key(id, k);
-            auto val = _db->get(key);
-            logger::trace("storage_get: service_id: {} key: {} storage_key: {} val: {}",
-                id, k, key,
-                val
-                    ? val->size() <= 32
-                        ? fmt::format("{} {} bytes", *val, val->size())
-                        : fmt::format("{}... {} bytes", static_cast<buffer>(*val).subspan(0, 32), val->size())
-                    : std::string{"NONE"}
-
-            );
-            return val;
+            return _db->get(key);
         }
 
         void storage_set_raw(const service_id_t id, const buffer &k, const buffer &val)
@@ -339,37 +348,35 @@ namespace turbo::jam {
             _db->set(key, val);
         }
 
-        std::optional<buffer> storage_set(const service_id_t id, const buffer &k, const buffer &val)
+        set_res_t storage_set(const service_id_t id, const buffer &k, const buffer &val)
         {
             const auto key = _storage_key(id, k);
-            logger::trace("storage_set: service_id: {} key: {} storage_key: {} val: {}",
-                id, k, key,
-                val.size() <= 32
-                    ? fmt::format("{} {} bytes", val, val.size())
-                    : fmt::format("{}... {} bytes", static_cast<buffer>(val).subspan(0, 32), val.size())
-            );
-            auto prev_val = _db->get(key);
+            const auto prev_val = _db->get(key);
+            set_res_t res{prev_val.transform([](const auto &v){ return v.size(); })};
             if (!val.empty()) {
                 if (val != prev_val) {
                     auto info = info_get_or_throw(id);
                     if (prev_val) {
-                        info.bytes -= prev_val->size();
+                        if (!info.del_bytes(prev_val->size())) [[unlikely]]
+                            return res;
                     } else {
-                        info.bytes += 34 + k.size();
-                        ++info.items;
+                        if (!(info.add_items(1) && info.add_bytes(34) && info.add_bytes(k.size()))) [[unlikely]]
+                            return res;
                     }
-                    info.bytes += val.size();
+                    if (!info.add_bytes(val.size())) [[unlikely]]
+                        return res;
                     info_set(id, std::move(info));
                     _db->set(key, val);
                 }
             } else if (prev_val) {
                 auto info = info_get_or_throw(id);
-                info.bytes -= 34 + k.size() + prev_val->size();
-                --info.items;
+                if (!(info.del_items(1) && info.del_bytes(34) && info.del_bytes(k.size()) && info.del_bytes(prev_val->size()))) [[unlikely]]
+                    return res;
                 info_set(id, std::move(info));
                 _erase(key);
             }
-            return prev_val;
+            res.ok = true;
+            return res;
         }
 
         accounts_t &operator=(accounts_t &&o) noexcept

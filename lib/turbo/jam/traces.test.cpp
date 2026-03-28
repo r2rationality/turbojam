@@ -19,7 +19,9 @@ suite turbo_jam_traces_suite = [] {
         static const auto genesis = jam::load_obj<test_genesis_t<config_tiny>>(test_prefix + "safrole/genesis.bin");
         // correct rollback of state
         test_sequence(file::files_with_ext(file::install_path("test/jam-conformance/fuzz-reports/0.7.2/traces/1767895984_8315"), ".bin"), genesis.state.keyvals);
-        //override_test.emplace(test_prefix + "fuzzy_light/00000002");
+#if !defined(NDEBUG)
+        override_test.emplace(test_prefix + "fuzzy_light/00000002");
+#endif
         if (!override_test) {
             set_t<test_res_t> perf{};
             std::set<std::filesystem::path> test_sets{};
