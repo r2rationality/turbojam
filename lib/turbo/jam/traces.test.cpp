@@ -20,7 +20,7 @@ suite turbo_jam_traces_suite = [] {
         // correct rollback of state
         test_sequence(file::files_with_ext(file::install_path("test/jam-conformance/fuzz-reports/0.7.2/traces/1767895984_8315"), ".bin"), genesis.state.keyvals);
 #if !defined(NDEBUG)
-        override_test.emplace(test_prefix + "fuzzy_light/00000002");
+        //override_test.emplace(test_prefix + "fuzzy_light/00000002");
 #endif
         if (!override_test) {
             set_t<test_res_t> perf{};

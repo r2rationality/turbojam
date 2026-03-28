@@ -46,21 +46,25 @@ namespace turbo::jam {
     }
 
     // Safrole-related state methods
-    struct ark_vrf_initialier_t {
-        explicit ark_vrf_initialier_t() {
+    struct ark_vrf_initializer_t {
+        explicit ark_vrf_initializer_t() {
             if (ark_vrf::init(file::install_path("data/zcash-srs-2-11-uncompressed.bin")) != 0) [[unlikely]]
                 throw error("ark_vrf_cpp::init() failed");;
         }
 
         static void init()
         {
-            static ark_vrf_initialier_t initializer{};
+            static ark_vrf_initializer_t initializer{};
         }
     };
 
-    template<typename CFG>
+    template <typename CFG> state_t<CFG>::state_t(storage::db_ptr_t db): state_base_t<CFG>{std::move(db)} {
+    }
+
+    template <typename CFG>
     void state_t<CFG>::_ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG>::bandersnatch_list_type &vkeys)
     {
+        ark_vrf_initializer_t::init();
         if (ark_vrf::ring_commitment(res, buffer{reinterpret_cast<const uint8_t *>(vkeys.data()), sizeof(vkeys)}) != 0) [[unlikely]]
             throw error("failed to generate a ring commitment!");
     }
@@ -124,8 +128,6 @@ namespace turbo::jam {
 
         safrole_output_data_t<CFG> res{};
 
-        ark_vrf_initialier_t::init();
-
         // Epoch transition
         if (blk_slot.epoch() > prev_tau.epoch()) [[unlikely]] {
             // JAM Paper (6.13)
@@ -172,19 +174,10 @@ namespace turbo::jam {
                 if (t.attempt >= CFG::N_ticket_attempts) [[unlikely]]
                     throw err_bad_ticket_attempt_t{};
             }
-
-            static const uint8_vector aux{};
-            static constexpr std::string_view input_prefix{"jam_ticket_seal"};
-            static constexpr size_t input_size = input_prefix.size() + sizeof(new_eta[2]) + 1U;
-            static_assert(input_size == 48U);
-            byte_array<input_size> input;
-            memcpy(input.data(), input_prefix.data(), input_prefix.size());
-            memcpy(input.data() + input_prefix.size(), new_eta[2].data(), new_eta[2].size());
             std::optional<ticket_body_t> prev_ticket{};
             for (const auto &t: extrinsic) {
                 ticket_body_t tb;
                 tb.attempt = t.attempt;
-                input[input_prefix.size() + new_eta[2].size()] = t.attempt;
                 if (ark_vrf::ring_vrf_output(tb.id, t.signature) != 0) [[unlikely]]
                     throw err_bad_ticket_proof_t{};
                 if (prev_ticket && *prev_ticket >= tb) [[unlikely]]
@@ -196,9 +189,6 @@ namespace turbo::jam {
                 // (6.35)
                 if (numeric_cast<size_t>(it - gamma.a.begin()) >= CFG::E_epoch_length) [[unlikely]]
                     throw err_unexpected_ticket_t{};
-                if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, gamma.z, t.signature, input, aux) != 0) [[unlikely]]
-                    throw err_bad_ticket_proof_t{};
-
             }
 
             if (gamma.a.size() > CFG::E_epoch_length) [[unlikely]]
@@ -1214,8 +1204,8 @@ namespace turbo::jam {
     {
         const timer t_apply{"state_t::apply", logger::level::debug};
         try {
-            //const auto blk_hash = blk.header.hash();
             const auto prev_tau = this->tau.get();
+
             state_t::tau_prime(this->tau.update(), blk.header.slot);
 
             auto &new_pi = this->pi.update();
@@ -1249,14 +1239,10 @@ namespace turbo::jam {
                     throw error("supplied tickets_mark does not match the computed one!");
             }
 
-            // signature verification depends on updated kappa, gamma.s and eta, so happens after update_safrole
-            // can be run in parallel
-            {
-                blk.header.verify_signatures(
-                    this->kappa.get().at(blk.header.author_index).bandersnatch,
-                    this->gamma.get().s, this->eta.get()[3]
-                );
-            }
+            // TODO: to be started in a parallel thread for better performance
+            verify_all_signatures(blk, prev_tau,
+                this->eta.get(), this->gamma.get(),
+                this->kappa.get(), this->lambda.get());
 
             // (5.4), (5.5), (5.6)
             // can be run in parallel
@@ -1374,6 +1360,53 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
+    void state_t<CFG>::verify_assurance_signatures(const header_hash_t &parent, const validators_data_t<CFG> &validators, const assurances_extrinsic_t<CFG> &assurances) {
+        uint8_vector msg{};
+        for (const auto &a: assurances) {
+            msg.clear();
+            msg << CFG::jam_available;
+            {
+                encoder enc{};
+                enc.process(parent);
+                enc.process(a.bitfield);
+                msg << crypto::blake2b::digest(enc.bytes());
+            }
+            const auto &vk = validators[a.validator_index].ed25519;
+            if (!ed25519_consensus::zip215_verify(a.signature, msg, vk)) [[unlikely]]
+                throw err_bad_signature_t{};
+        }
+    }
+
+    template<typename CFG>
+    void state_t<CFG>::verify_ticket_signatures(const entropy_buffer_t &new_eta, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets) {
+        static const uint8_vector aux{};
+        static constexpr std::string_view input_prefix{"jam_ticket_seal"};
+        static constexpr size_t input_size = input_prefix.size() + sizeof(new_eta[2]) + 1U;
+        static_assert(input_size == 48U);
+        byte_array<input_size> input;
+        memcpy(input.data(), input_prefix.data(), input_prefix.size());
+        memcpy(input.data() + input_prefix.size(), new_eta[2].data(), new_eta[2].size());
+        for (const auto &t: tickets) {
+            input[input_prefix.size() + new_eta[2].size()] = t.attempt;
+            if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, new_gamma_z, t.signature, input, aux) != 0) [[unlikely]]
+                throw err_bad_ticket_proof_t{};
+        }
+    }
+
+    template <typename CFG>
+    void state_t<CFG>::verify_all_signatures(
+        const block_t<CFG> &blk, const time_slot_t<CFG> &prev_tau,
+        const entropy_buffer_t &new_eta, const safrole_state_t<CFG> &new_gamma,
+        const validators_data_t<CFG> &prev_kappa, const validators_data_t<CFG> &prev_lambda) {
+        blk.header.verify_signatures(
+            prev_kappa.at(blk.header.author_index).bandersnatch,
+            new_gamma.s, new_eta[3]
+        );
+        verify_assurance_signatures(blk.header.parent, blk.header.slot.epoch() == prev_tau.epoch() ? prev_kappa : prev_lambda, blk.extrinsic.assurances);
+        verify_ticket_signatures(new_eta, new_gamma.z, blk.extrinsic.tickets);
+    }
+
+    template <typename CFG>
     work_reports_t<CFG> state_t<CFG>::rho_dagger_2(
         availability_assignments_t<CFG> &new_rho, statistics_t<CFG> &tmp_pi,
         const validators_data_t<CFG> &validators,
@@ -1390,17 +1423,6 @@ namespace turbo::jam {
             if (prev_validator && a.validator_index <= *prev_validator) [[unlikely]]
                 throw err_not_sorted_or_unique_assurers{};
             prev_validator = a.validator_index;
-            uint8_vector msg{};
-            msg << std::string_view{"jam_available"};
-            {
-                encoder enc{};
-                enc.process(parent);
-                enc.process(a.bitfield);
-                msg << crypto::blake2b::digest(enc.bytes());
-            }
-            const auto &vk = validators[a.validator_index].ed25519;
-            if (!ed25519_consensus::zip215_verify(a.signature, msg, vk)) [[unlikely]]
-                throw err_bad_signature_t {};
             for (size_t ci = 0; ci < CFG::C_core_count; ++ci) {
                 if (a.bitfield.test(ci)) {
                     if (!new_rho.at(ci)) [[unlikely]]

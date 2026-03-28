@@ -157,6 +157,7 @@ namespace {
                     tc.pre.tau, tc.pre.iota,
                     tc.in.slot, tc.in.extrinsic
                 );
+                state_t<CFG>::verify_ticket_signatures(new_st.eta, new_st.gamma.z, tc.in.extrinsic);
                 state_t<CFG>::tau_prime(new_st.tau, tc.in.slot);
                 out.emplace(test_output_data_t<CFG>{std::move(res.epoch_mark), std::move(res.tickets_mark)});
             },
@@ -178,9 +179,9 @@ suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         static const std::string test_prefix = "stf/safrole/";
         static std::optional<std::string> override_test{};
-        // an extra guard to ensure test cases overrides are never applied in release builds
+        // an extra guard to ensure test-case overrides are never applied in release builds
 #if !defined(NDEBUG)
-        //override_test.emplace("tiny/enact-epoch-change-with-no-tickets-4");
+        //override_test.emplace("tiny/publish-tickets-no-mark-5");
 #endif
         if (!override_test) {
             for (const auto &path: file::files_with_ext(test_vector_dir(test_prefix + "tiny"), ".bin")) {

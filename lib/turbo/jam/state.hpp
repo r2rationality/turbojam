@@ -864,7 +864,7 @@ namespace turbo::jam {
     struct state_t: state_base_t<CFG> {
         using observer_t = storage::observer_t;
 
-        state_t(storage::db_ptr_t db): state_base_t<CFG>{std::move(db)} {}
+        state_t(storage::db_ptr_t db);
         state_t(const state_t &) = delete;
 
         static std::string decode_val(buffer key, buffer val);
@@ -967,6 +967,15 @@ namespace turbo::jam {
 
         static validators_data_t<CFG> capital_phi(const validators_data_t<CFG> &iota, const ed25519_keys_set_t &psi_o);
         bool operator==(const state_t &o) const noexcept;
+
+        // signature verification
+        static void verify_all_signatures(const block_t<CFG> &blk, const time_slot_t<CFG> &prev_tau,
+            const entropy_buffer_t &new_eta, const safrole_state_t<CFG> &new_gamma,
+            const validators_data_t<CFG> &prev_kappa, const validators_data_t<CFG> &prev_lambda);
+        static void verify_assurance_signatures(const header_hash_t &parent, const validators_data_t<CFG> &validators, const assurances_extrinsic_t<CFG> &assurances);
+        //static void verify_dispute_signatures(const disputes_extrinsic_t<CFG> &disputes);
+        //static void verify_guarantee_signatures(const guarantees_extrinsic_t<CFG> &guarantees);
+        static void verify_ticket_signatures(const entropy_buffer_t &new_eta, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets);
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
         struct guarantors_t {
