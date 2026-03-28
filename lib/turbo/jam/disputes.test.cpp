@@ -178,7 +178,10 @@ suite turbo_jam_disputes_suite = [] {
     "turbo::jam::disputes"_test = [] {
         static const auto test_prefix = test_vector_dir("stf/disputes/");
         static std::optional<std::string> override_test{};
+        // an extra guard to ensure test cases overrides are never applied in release builds
+#if !defined(NDEBUG)
         //override_test.emplace("tiny/progress_with_culprits-6");
+#endif
         if (!override_test) {
             for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

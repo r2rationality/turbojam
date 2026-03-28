@@ -7,7 +7,6 @@
 #include <ark-vrf.hpp>
 #include <numeric>
 #include <ranges>
-#include <unordered_set>
 #include <ed25519-consensus.hpp>
 #include <turbo/common/timer.hpp>
 #include <turbo/crypto/blake2b.hpp>
@@ -60,12 +59,8 @@ namespace turbo::jam {
     };
 
     template<typename CFG>
-    void state_t<CFG>::_ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG> &gamma_k)
+    void state_t<CFG>::_ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG>::bandersnatch_list_type &vkeys)
     {
-        std::array<bandersnatch_public_t, CFG::V_validator_count> vkeys;
-        for (size_t i = 0; i < vkeys.size(); ++i) {
-            vkeys[i] = gamma_k[i].bandersnatch;
-        }
         if (ark_vrf::ring_commitment(res, buffer{reinterpret_cast<const uint8_t *>(vkeys.data()), sizeof(vkeys)}) != 0) [[unlikely]]
             throw error("failed to generate a ring commitment!");
     }
@@ -105,16 +100,16 @@ namespace turbo::jam {
 
     // (6.14)
     template<typename CFG>
-    validators_data_t<CFG> state_t<CFG>::capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o)
+    validators_data_t<CFG> state_t<CFG>::capital_phi(const validators_data_t<CFG> &iota, const ed25519_keys_set_t &psi_o)
     {
         if (psi_o.empty())
             return iota;
-        validators_data_t<CFG> res;
+        typename validators_data_t<CFG>::storage_type res;
         for (size_t i = 0; i < iota.size(); ++i) {
             const auto &v = iota[i];
             res[i] = psi_o.contains(v.ed25519) ? validator_data_t{} : v;
         }
-        return res;
+        return {std::move(res)};
     }
 
     template<typename CFG>
@@ -137,18 +132,9 @@ namespace turbo::jam {
             lambda = kappa;
             kappa = gamma.p;
             gamma.p = capital_phi(prev_iota, new_offenders);
-
-            {
-                bool new_ring = false;
-                for (size_t i = 0; i < kappa.size(); ++i) {
-                    if (kappa[i].bandersnatch != gamma.p[i].bandersnatch) [[unlikely]] {
-                        new_ring = true;
-                        break;
-                    }
-                }
-                if (new_ring)
-                    _ring_commitment(gamma.z, gamma.p);
-            }
+            // Ring VRF spec is order-dependent, so can't rely on gamma.p.bandersnatch_keys()
+            if (kappa.bandersnatch_list() != gamma.p.bandersnatch_list()) [[unlikely]]
+                _ring_commitment(gamma.z, gamma.p.bandersnatch_list());
 
             // JAM Paper (6.27) - epoch marker
             res.epoch_mark.emplace(new_eta[1], new_eta[2]);
@@ -324,7 +310,7 @@ namespace turbo::jam {
     template<typename CFG>
     state_t<CFG>::guarantors_t state_t<CFG>::_guarantors(const entropy_buffer_t &eta,
         const validators_data_t<CFG> &kappa, const validators_data_t<CFG> &lambda,
-        const offenders_mark_t &psi, const time_slot_t<CFG> &g_slot, const time_slot_t<CFG> &blk_slot)
+        const ed25519_keys_set_t &psi, const time_slot_t<CFG> &g_slot, const time_slot_t<CFG> &blk_slot)
     {
         const auto same_rotation = g_slot.slot() / CFG::R_core_assignment_rotation_period == blk_slot.slot() / CFG::R_core_assignment_rotation_period;
         if (same_rotation)
@@ -840,7 +826,7 @@ namespace turbo::jam {
         cores_statistics_t<CFG> &new_pi_cores,
         services_statistics_t &new_pi_services,
         const blocks_history_t<CFG> &tmp_beta,
-        const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_offenders,
+        const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_psi,
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
         const auth_pools_t<CFG> &prev_alpha,
         const accounts_t<CFG> &prev_delta,
@@ -900,7 +886,7 @@ namespace turbo::jam {
                         throw err_report_epoch_before_last_t {};
                 }
 
-                const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_offenders, g.slot, slot);
+                const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi, g.slot, slot);
 
                 // JAM Paper (11.34)
                 if (g.report.context.lookup_anchor_slot.slot() + CFG::L_max_lookup_anchor_age < slot) [[unlikely]]
@@ -1050,12 +1036,17 @@ namespace turbo::jam {
     {
         offenders_mark_t new_offenders{};
         if (!disputes.empty()) {
+            new_offenders.reserve(disputes.culprits.size() + disputes.faults.size());
+            static constexpr size_t max_msg_size = sizeof(work_report_hash_t)
+                + std::max(std::max(CFG::jam_guarantee.size(), CFG::jam_valid.size()), CFG::jam_invalid.size());
             uint8_vector msg{};
+            msg.reserve(max_msg_size);
 
             // JAM (10.3)
             const auto cur_epoch = prev_tau.epoch();
             const work_report_hash_t *prev_report = nullptr;
-            std::map<work_report_hash_t, size_t> report_oks{};
+            // bold_v (10.11)
+            std::map<work_report_hash_t, size_t> report_info{};
             for (const auto &v: disputes.verdicts) {
                 if (psi.known_report(v.report)) [[unlikely]]
                     throw err_already_judged_t{};
@@ -1063,47 +1054,49 @@ namespace turbo::jam {
                     throw err_verdicts_not_sorted_unique_t{};
                 prev_report = &v.report;
                 const validator_index_t *prev_index = nullptr;
-                if (v.age > cur_epoch || v.age + 1 < cur_epoch) [[unlikely]]
+                if (static_cast<int>(v.age > cur_epoch) | static_cast<int>(v.age + 1U < v.age) | static_cast<int>(v.age + 1U < cur_epoch)) [[unlikely]]
                     throw err_bad_judgement_age_t{};
-                auto &oks = report_oks[v.report];
+                const auto & validators = v.age == cur_epoch ? prev_kappa : prev_lambda;
+                // uniqueness is checked already, so it's ok to rely on access to create a key-value pair
+                auto &oks = report_info[v.report];
                 for (const auto &j: v.judgements) {
                     if (prev_index && *prev_index >= j.index) [[unlikely]]
                         throw err_judgements_not_sorted_unique_t{};
                     prev_index = &j.index;
                     msg.clear();
-                    msg.reserve(v.report.size() + std::max(CFG::jam_valid.size(), CFG::jam_invalid.size()));
                     msg << static_cast<buffer>(j.vote ? CFG::jam_valid : CFG::jam_invalid);
                     msg << v.report;
                     if (j.index >= CFG::V_validator_count) [[unlikely]]
                         throw err_bad_validator_index_t{};
-                    const auto &validators = v.age == cur_epoch ? prev_kappa : prev_lambda;
-                    const auto &val = validators[j.index];
-                    if (!ed25519_consensus::zip215_verify(j.signature, msg, val.ed25519)) [[unlikely]]
+                    if (!ed25519_consensus::zip215_verify(j.signature, msg, validators[j.index].ed25519)) [[unlikely]]
                         throw err_bad_signature_t{};
                     if (j.vote)
                         ++oks;
                 }
                 switch (oks) {
-                    case CFG::validator_super_majority: // JAM (10.16)
-                        psi.good.emplace(v.report);
+                    // JAM (10.16)
+                    case CFG::validator_super_majority: {
+                        const auto [it, ok] = psi.good.emplace(v.report);
+                        if (!ok) [[unlikely]]
+                            throw err_already_judged_t{};
                         continue;
-                    case CFG::V_validator_count / 3U: // JAM (10.18)
-                        psi.wonky.emplace(v.report);
+                    }
+                    // JAM (10.17)
+                    case 0U: {
+                        const auto [it, ok] = psi.bad.emplace(v.report);
+                        if (!ok) [[unlikely]]
+                            throw err_already_judged_t{};
                         break;
-                    case 0U: // JAM (10.17)
-                        psi.bad.emplace(v.report);
+                    }
+                    // JAM (10.18)
+                    case CFG::validator_wonky_count: {
+                        const auto [it, ok] = psi.wonky.emplace(v.report);
+                        if (!ok) [[unlikely]]
+                            throw err_already_judged_t{};
                         break;
+                    }
                     [[unlikely]] default:
                         throw err_bad_vote_split_t{};
-                }
-            }
-
-            // k for (10.5) and (10.6) - check for not in psi.offenders is done in the loop itself
-            ed25519_keys_set_t known_keys{};
-            known_keys.reserve(prev_kappa.size() + prev_lambda.size());
-            for (const auto &src: {prev_kappa, prev_lambda}) {
-                for (const auto &v: src) {
-                    known_keys.insert(v.ed25519);
                 }
             }
 
@@ -1117,20 +1110,18 @@ namespace turbo::jam {
                     throw err_culprits_verdict_not_bad_t{};
                 if (psi.offenders.contains(c.key)) [[unlikely]]
                     throw err_offender_already_reported_t{};
-                if (!known_keys.contains(c.key)) [[unlikely]]
+                if (!prev_kappa.ed25519_keys().contains(c.key) && !prev_lambda.ed25519_keys().contains(c.key)) [[unlikely]]
                     throw err_bad_guarantor_key_t{};
                 if (prev_culprit_key && *prev_culprit_key >= c.key) [[unlikely]]
                     throw err_culprits_not_sorted_unique_t{};
                 prev_culprit_key = &c.key;
                 msg.clear();
-                msg.reserve(c.report.size() + CFG::jam_guarantee.size());
                 msg << static_cast<buffer>(CFG::jam_guarantee);
                 msg << c.report;
                 if (!ed25519_consensus::zip215_verify(c.signature, msg, c.key)) [[unlikely]]
                     throw err_bad_signature_t {};
                 ++new_culprits[c.report];
-                if (const auto [it, created] = new_offenders.emplace(c.key); !created)
-                    throw err_offender_already_reported_t{};
+                new_offenders.emplace_back(c.key);
             }
 
             // JAM (10.6)
@@ -1138,29 +1129,28 @@ namespace turbo::jam {
             std::set<work_report_hash_t> new_fault_reports{};
             const ed25519_public_t *prev_fault_key = nullptr;
             for (const auto &f: disputes.faults) {
-                const auto &matching_set = f.vote ? psi.good : psi.bad;
-                if (matching_set.contains(f.report)) [[unlikely]]
+                const auto &containing_set = f.vote ? psi.bad : psi.good;
+                const auto &missing_set = f.vote ? psi.good : psi.bad;
+                if (!containing_set.contains(f.report) || missing_set.contains(f.report)) [[unlikely]]
                     throw err_fault_verdict_wrong_t{};
                 if (psi.offenders.contains(f.key)) [[unlikely]]
                     throw err_offender_already_reported_t{};
-                if (!known_keys.contains(f.key)) [[unlikely]]
+                if (!prev_kappa.ed25519_keys().contains(f.key) && !prev_lambda.ed25519_keys().contains(f.key)) [[unlikely]]
                     throw err_bad_auditor_key_t{};
                 if (prev_fault_key && *prev_fault_key >= f.key) [[unlikely]]
                     throw err_faults_not_sorted_unique_t{};
                 prev_fault_key = &f.key;
                 msg.clear();
                 const auto &verdict_prefix = f.vote ? CFG::jam_valid : CFG::jam_invalid;
-                msg.reserve(f.report.size() + verdict_prefix.size());
                 msg << static_cast<buffer>(verdict_prefix);
                 msg << f.report;
                 if (!ed25519_consensus::zip215_verify(f.signature, msg, f.key)) [[unlikely]]
                     throw err_bad_signature_t{};
                 new_fault_reports.emplace(f.report);
-                if (const auto [it, created] = new_offenders.emplace(f.key); !created)
-                    throw err_offender_already_reported_t{};
+                new_offenders.emplace_back(f.key);
             }
 
-            for (const auto &[report_hash, oks]: report_oks) {
+            for (const auto &[report_hash, oks]: report_info) {
                 switch (oks) {
                     case CFG::validator_super_majority: // JAM (10.13)
                         if (!new_fault_reports.contains(report_hash)) [[unlikely]]
@@ -1170,8 +1160,10 @@ namespace turbo::jam {
                         if (const auto c_it = new_culprits.find(report_hash); c_it == new_culprits.end() || c_it->second < 2)
                             throw err_not_enough_culprits_t{};
                         break;
-                    [[unlikely]] default:
+                    case CFG::validator_wonky_count: // JAM (10.13)
                         break;
+                    [[unlikely]] default:
+                        throw err_bad_vote_split_t{};
                 }
             }
 
@@ -1180,7 +1172,7 @@ namespace turbo::jam {
                 if (ra) {
                     const encoder enc{ra->report};
                     const auto report_hash = crypto::blake2b::digest<work_report_hash_t>(enc.bytes());
-                    if (const auto ok_it = report_oks.find(report_hash); ok_it != report_oks.end() && ok_it->second < CFG::validator_super_majority) [[unlikely]]
+                    if (const auto r_it = report_info.find(report_hash); r_it != report_info.end() && r_it->second < CFG::validator_super_majority) [[unlikely]]
                         ra.reset();
                 }
             }

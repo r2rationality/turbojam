@@ -178,7 +178,10 @@ suite turbo_jam_safrole_suite = [] {
     "turbo::jam::safrole"_test = [] {
         static const std::string test_prefix = "stf/safrole/";
         static std::optional<std::string> override_test{};
-        //override_test.emplace("tiny/publish-tickets-no-mark-3");
+        // an extra guard to ensure test cases overrides are never applied in release builds
+#if !defined(NDEBUG)
+        //override_test.emplace("tiny/enact-epoch-change-with-no-tickets-4");
+#endif
         if (!override_test) {
             for (const auto &path: file::files_with_ext(test_vector_dir(test_prefix + "tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

@@ -76,7 +76,7 @@ namespace turbo_jam_statistics_test {
         reports_output_data_t reports_res{};
         for (const auto &g: tc.in.extrinsic.guarantees) {
             for (const auto &s: g.signatures)
-                reports_res.reporters.emplace(tc.pre.kappa[s.validator_index].ed25519);
+                reports_res.reporters.emplace(tc.pre.kappa.at(s.validator_index).ed25519);
         }
         state_t<CFG>::pi_prime(new_st.pi_vals_curr, new_st.pi_vals_last, reports_res,
             new_st.kappa, tc.pre.tau, tc.in.slot, tc.in.author_index, tc.in.extrinsic);

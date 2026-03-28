@@ -7,6 +7,7 @@
 #include <array>
 #include <bitset>
 #include <optional>
+#include <ranges>
 #include <variant>
 #include <vector>
 #include <boost/container/flat_map.hpp>
@@ -714,7 +715,77 @@ namespace turbo::jam {
     using availability_assignments_item_t = optional_t<availability_assignment_t<CFG>>;
 
     template<typename CFG>
-    using validators_data_t = fixed_sequence_t<validator_data_t, CFG::V_validator_count>;
+    struct validators_data_t {
+        using ed25519_set_type = set_t<ed25519_public_t, 0, CFG::V_validator_count>;
+        using bandersnatch_set_type = set_t<bandersnatch_public_t, 0, CFG::V_validator_count>;
+        using bandersnatch_list_type = fixed_sequence_t<bandersnatch_public_t, CFG::V_validator_count>;
+        using storage_type = fixed_sequence_t<validator_data_t, CFG::V_validator_count>;
+
+        validators_data_t() {
+            _ed25519_keys.reserve(CFG::V_validator_count);
+            _bandersnatch_keys.reserve(CFG::V_validator_count);
+        }
+
+        validators_data_t(storage_type &&storage): _storage(std::move(storage)) {
+            _ed25519_keys.reserve(CFG::V_validator_count);
+            _bandersnatch_keys.reserve(CFG::V_validator_count);
+            _update_derived();
+        }
+
+        constexpr size_t size() const noexcept {
+            static_assert(CFG::V_validator_count == _storage.size());
+            return CFG::V_validator_count;
+        }
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process(_storage);
+            _update_derived();
+        }
+
+        const validator_data_t &at(const size_t idx) const {
+            if (idx >= CFG::V_validator_count) {
+                throw error(fmt::format("validators_data_t::at: requested index {} >= the size of {} validators", idx, CFG::V_validator_count));
+            }
+            return _storage[idx];
+        }
+
+        const validator_data_t &operator[](const size_t idx) const noexcept {
+            return _storage[idx];
+        }
+
+        const ed25519_set_type &ed25519_keys() const noexcept {
+            return _ed25519_keys;
+        }
+
+        const bandersnatch_set_type &bandersnatch_keys() const noexcept {
+            return _bandersnatch_keys;
+        }
+
+        const bandersnatch_list_type &bandersnatch_list() const noexcept {
+            return _bandersnatch_list;
+        }
+
+        bool operator==(const validators_data_t &o) const {
+            return _storage == o._storage;
+        };
+    private:
+        storage_type _storage{};
+        ed25519_set_type _ed25519_keys{};
+        bandersnatch_set_type _bandersnatch_keys{};
+        bandersnatch_list_type _bandersnatch_list{};
+
+        void _update_derived() {
+            _ed25519_keys.clear();
+            _bandersnatch_keys.clear();
+            for (const auto &[i, v]: std::views::enumerate(_storage)) {
+                _ed25519_keys.emplace(v.ed25519);
+                _bandersnatch_keys.emplace(v.bandersnatch);
+                _bandersnatch_list[i] = v.bandersnatch;
+            }
+        }
+    };
 
     template<typename CFG>
     using availability_assignments_t = fixed_sequence_t<availability_assignments_item_t<CFG>, CFG::C_core_count>;
@@ -971,6 +1042,7 @@ namespace turbo::jam {
     };
 
     using ed25519_keys_set_t = set_t<ed25519_public_t>;
+    using ed25519_keys_list_t = sequence_t<ed25519_public_t>;
 
     // JAM (10.1)
     struct disputes_records_t {
@@ -996,7 +1068,7 @@ namespace turbo::jam {
             if (wonky.contains(r))
                 return true;
             return false;
-        };
+        }
 
         bool operator==(const disputes_records_t &o) const = default;
     };
@@ -1230,7 +1302,7 @@ namespace turbo::jam {
     template<typename CFG=config_prod>
     using tickets_mark_t = fixed_sequence_t<ticket_body_t, CFG::E_epoch_length>;
 
-    using offenders_mark_t = ed25519_keys_set_t;
+    using offenders_mark_t = ed25519_keys_list_t;
 
     template<typename CFG=config_prod>
     using validators_statistics_t = fixed_sequence_t<validator_statistics_t, CFG::V_validator_count>;

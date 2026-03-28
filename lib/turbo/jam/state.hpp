@@ -933,7 +933,7 @@ namespace turbo::jam {
             cores_statistics_t<CFG> &new_pi_cores,
             services_statistics_t &new_pi_services,
             const blocks_history_t<CFG> &tmp_beta,
-            const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_offenders,
+            const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_psi,
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
             const auth_pools_t<CFG> &prev_alpha,
             const accounts_t<CFG> &prev_delta,
@@ -956,9 +956,9 @@ namespace turbo::jam {
             const time_slot_t<CFG> &prev_tau, const privileges_t<CFG> &prev_chi,
             const time_slot_t<CFG> &blk_slot, const work_reports_t<CFG> &reports);
 
-        // helper fuinctions
+        // helper functions
 
-        static validators_data_t<CFG> capital_phi(const validators_data_t<CFG> &iota, const offenders_mark_t &psi_o);
+        static validators_data_t<CFG> capital_phi(const validators_data_t<CFG> &iota, const ed25519_keys_set_t &psi_o);
         bool operator==(const state_t &o) const noexcept;
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
@@ -967,12 +967,12 @@ namespace turbo::jam {
             validators_data_t<CFG> validators;
         };
 
-        static void _ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG> &);
+        static void _ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG>::bandersnatch_list_type &);
         static keys_t<CFG> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CFG> &kappa);
         static tickets_t<CFG> _permute_tickets(const tickets_accumulator_t<CFG> &gamma_a);
         static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CFG> &slot);
         static guarantors_t _guarantors(const entropy_buffer_t &eta, const validators_data_t<CFG> &kappa, const validators_data_t<CFG> &lambda,
-            const offenders_mark_t &psi_o, const time_slot_t<CFG> &g_slot, const time_slot_t<CFG> &blk_slot);
+            const ed25519_keys_set_t &psi_o, const time_slot_t<CFG> &g_slot, const time_slot_t<CFG> &blk_slot);
 
         static delta_plus_result_t<CFG> accumulate_delta_plus(
             const entropy_t &new_eta0,
