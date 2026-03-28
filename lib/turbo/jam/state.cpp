@@ -1038,7 +1038,6 @@ namespace turbo::jam {
                 const validator_index_t *prev_index = nullptr;
                 if (static_cast<int>(v.age > cur_epoch) | static_cast<int>(v.age + 1U < v.age) | static_cast<int>(v.age + 1U < cur_epoch)) [[unlikely]]
                     throw err_bad_judgement_age_t{};
-                const auto & validators = v.age == cur_epoch ? prev_kappa : prev_lambda;
                 // uniqueness is checked already, so it's ok to rely on access to create a key-value pair
                 auto &oks = report_info[v.report];
                 for (const auto &j: v.judgements) {
