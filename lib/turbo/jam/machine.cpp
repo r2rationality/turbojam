@@ -90,7 +90,6 @@ namespace turbo::jam::machine {
                     const auto &op = _opcode_info(opcode);
                     if (!consume_gas(1U)) [[unlikely]]
                         return exit_out_of_gas_t{};
-                    const auto prev_pc = _pc;
                     const auto next_pc = _pc + len + 1;
                     auto res = (this->*op.exec)(data);
                     switch (res.index()) {
