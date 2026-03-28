@@ -1405,7 +1405,7 @@ namespace turbo::jam {
                 msg << crypto::blake2b::digest(enc.bytes());
             }
             for (const auto &s: g.signatures) {
-                const auto &vk = guarantors.validators[s.validator_index].ed25519;
+                const auto &vk = guarantors.validators.at(s.validator_index).ed25519;
                 if (!ed25519_consensus::zip215_verify(s.signature, msg, vk)) [[unlikely]]
                     throw err_bad_signature_t{};
             }
