@@ -336,18 +336,11 @@ namespace turbo::jam {
             val = _p.services.storage_get(s_id, key);
         }
         if (val) {
-            logger::trace("gas: {} host call: read: service_id: {} key: {} -> {}",
-                this->_p.m.gas(), s_id, key,
-                val->size() <= 32
-                    ? fmt::format("#{}", *val)
-                    : fmt::format("{} bytes", val->size())
-            );
             const auto f = std::min(phi[11], val->size());
             const auto l = std::min(phi[12], val->size() - f);
             _p.m.mem_write(o, static_cast<buffer>(*val).subbuf(f, l));
             _p.m.set_reg(7, val->size());
         } else {
-            logger::trace("gas: {} host call: read: service_id: {} key: {} -> NONE", this->_p.m.gas(), s_id, key);
             _p.m.set_reg(7, machine::host_call_res_t::none);
         }
     }
@@ -358,12 +351,6 @@ namespace turbo::jam {
         const auto key = _p.m.mem_read(phi[7], phi[8]);
         const auto val_data = _p.m.mem_read(phi[9], phi[10]);
         const auto prev_val = _p.services.storage_set(_p.service_id, key, std::move(val_data));
-        logger::trace("gas: {} host_service::write service {} set key: {} new_val: {} prev_val: {}",
-            _p.m.gas(), _p.service_id, key,
-            val_data.size() <= 32 ? fmt::format("#{}", val_data) : fmt::format("{} bytes", val_data.size()),
-            prev_val
-                ? prev_val->size() <= 32 ? fmt::format("#{}", *prev_val) : fmt::format("{} bytes", prev_val->size())
-                : fmt::format("none"));
         const auto info = _p.services.info_get(_p.service_id);
         if (info->balance_ok()) {
             const machine::register_val_t l = prev_val ? prev_val->size() : machine::host_call_res_t::none;
