@@ -265,9 +265,7 @@ namespace turbo::jam::machine {
         [[nodiscard]] state_t state() const;
     private:
         struct impl;
-        alignas(std::max_align_t) byte_array<360> _impl_storage;
-
-        impl *_impl_ptr();
+        std::unique_ptr<impl> _impl;
     };
 
     using invocation_result_base_t = std::variant<uint8_vector, exit_panic_t, exit_out_of_gas_t>;

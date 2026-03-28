@@ -67,7 +67,6 @@ namespace turbo::jam::machine {
 
         explicit impl(impl &&o):
             _pc{o._pc},
-            _tlb_next{o._tlb_next},
             _gas{o._gas},
             _regs{o._regs},
             _tlb{o._tlb},
@@ -265,22 +264,23 @@ namespace turbo::jam::machine {
         using page_map_t = boost::container::flat_map<register_val_t, page_info_t>;
 
         struct tlb_entry_t {
-            register_val_t page_id = ~register_val_t{0};
+            address_val_t page_id = ~address_val_t{0};
             page_info_t info{};
         };
-        static constexpr size_t tlb_size = 4;
+        static constexpr size_t tlb_size = 8;
 
         // Hot fields - accessed on every instruction (first ~3 cache lines)
         uint32_t _pc{};
-        mutable uint_fast8_t _tlb_next = 0;
+        address_val_t _heap_end = 0;
         gas_remaining_t _gas = 0;
         registers_t _regs{};
+        mutable address_val_t _last_page_id = ~address_val_t{0};
+        mutable page_info_t _last_page_info{};
         mutable std::array<tlb_entry_t, tlb_size> _tlb{};
         // Warm fields - accessed on memory operations / page faults
         page_map_t _pages{};
         std::vector<std::unique_ptr<uint8_t[]>> _page_storage{};
-        register_val_t _heap_end = 0;
-        register_val_t _stack_begin = 0;
+        address_val_t _stack_begin = 0;
         // Cold fields - rarely accessed after construction
         program_t _program;
 
@@ -794,68 +794,76 @@ namespace turbo::jam::machine {
 
         const page_info_t *_page_lookup(const register_val_t page_id) const noexcept
         {
-            for (const auto &e: _tlb) {
-                if (e.page_id == page_id) [[likely]]
-                    return &e.info;
+            if (page_id != _last_page_id) {
+                auto &tlb_slot = _tlb[page_id & (tlb_size - 1)];
+                if (tlb_slot.page_id != page_id) {
+                    const auto page_it = _pages.find(page_id);
+                    if (page_it == _pages.end()) [[unlikely]]
+                        return nullptr;
+                    tlb_slot.page_id = page_id;
+                    tlb_slot.info = page_it->second;
+                }
+                _last_page_id = page_id;
+                _last_page_info = tlb_slot.info;
             }
-            const auto page_it = _pages.find(page_id);
-            if (page_it == _pages.end()) [[unlikely]]
-                return nullptr;
-            auto &slot = _tlb[_tlb_next];
-            slot.page_id = page_id;
-            slot.info = page_it->second;
-            _tlb_next = (_tlb_next + 1) % tlb_size;
-            return &slot.info;
+            return &_last_page_info;
         }
 
-        std::pair<size_t, const page_info_t *> _addr_check(const register_val_t addr, const size_t sz) const
+        template<size_t SZ>
+        std::pair<size_t, const page_info_t *> _addr_check(const register_val_t addr) const
         {
+            static constexpr register_val_t page_size  = config_prod::ZP_pvm_page_size;
+            static constexpr register_val_t page_mask  = page_size - 1;
+            static constexpr unsigned page_shift = std::countr_zero(page_size);
+            static_assert((page_size & page_mask) == 0, "page size must be power of two");
             /* GP 0.7.2 seems to require that but not yet supported by the current PVM test cases
             const auto addr = static_cast<address_val_t>(addr_raw);
             if (addr < config_prod::ZZ_pvm_init_zone_size) [[unlikely]]
                 throw exit_panic_t{};*/
-            const auto page_off = addr % config_prod::ZP_pvm_page_size;
-            if (page_off + sz > config_prod::ZP_pvm_page_size) [[unlikely]]
-                throw exit_page_fault_t{addr - page_off + config_prod::ZP_pvm_page_size};
-            const auto page_id = addr / config_prod::ZP_pvm_page_size;
+            const auto page_off = addr & page_mask;
+            const auto page_id  = addr >> page_shift;
+            if (page_off > page_mask - (SZ - 1)) [[unlikely]]
+                throw exit_page_fault_t{(addr & ~page_mask) + page_size};
             const auto *page = _page_lookup(page_id);
             if (!page) [[unlikely]]
                 throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
             return {page_off, page};
         }
 
-        register_val_t _load_unsigned(const register_val_t addr, const size_t sz) const
+        template<size_t SZ>
+        register_val_t _load_unsigned(const register_val_t addr) const
         {
-            const auto [page_off, page_it] = _addr_check(addr, sz);
+            const auto [page_off, page_it] = _addr_check<SZ>(addr);
             register_val_t res;
-            switch (sz) {
+            switch (SZ) {
                 case 1: res = page_it->data()[page_off]; break;
-                case 2: res = buffer { page_it->data() + page_off, sz }.to<uint16_t>(); break;
-                case 4: res = buffer { page_it->data() + page_off, sz }.to<uint32_t>(); break;
-                case 8: res = buffer { page_it->data() + page_off, sz }.to<uint64_t>(); break;
+                case 2: res = buffer{page_it->data() + page_off, SZ}.to<uint16_t>(); break;
+                case 4: res = buffer{page_it->data() + page_off, SZ}.to<uint32_t>(); break;
+                case 8: res = buffer{page_it->data() + page_off, SZ}.to<uint64_t>(); break;
                 [[unlikely]] default: throw exit_panic_t{};
             }
             //logger::trace("PolkaVM: load {:08X}:{}: 0x{:X}", addr, sz, res);
             return res;
         }
 
-        register_val_t _load_signed(const register_val_t addr, const size_t sz)
+        template<size_t SZ>
+        register_val_t _load_signed(const register_val_t addr)
         {
-            return _sign_extend(sz, _load_unsigned(addr, sz));
+            return _sign_extend(SZ, _load_unsigned<SZ>(addr));
         }
 
         // used for the initialization so does not respect the is_writable false
-        void _store_unsigned_init(const register_val_t addr, const auto val)
+        void _store_unsigned_init(const register_val_t addr, const uint8_t val)
         {
             using T = std::decay_t<decltype(val)>;
-            const auto [page_off, page_it] = _addr_check(addr, sizeof(val));
+            const auto [page_off, page_it] = _addr_check<1>(addr);
             *reinterpret_cast<T*>(page_it->data() + page_off) = val;
         }
 
-        void _store_unsigned(const register_val_t addr, const auto val)
+        template<typename T>
+        void _store_unsigned(const register_val_t addr, const T val)
         {
-            using T = std::decay_t<decltype(val)>;
-            const auto [page_off, page_it] = _addr_check(addr, sizeof(val));
+            const auto [page_off, page_it] = _addr_check<sizeof(T)>(addr);
             if (!page_it->is_writable()) [[unlikely]]
                 throw exit_page_fault_t{addr};
             uint8_t *dst_ptr = page_it->data() + page_off;
@@ -1368,49 +1376,49 @@ namespace turbo::jam::machine {
         op_res_t load_u8(const buffer data)
         {
             const auto [r_a, nu_x] = _args_reg1_imm1_s32(data);
-            _set_reg(r_a, _load_unsigned(nu_x, 1));
+            _set_reg(r_a, _load_unsigned<1>(nu_x));
             return {};
         }
 
         op_res_t load_u16(const buffer data)
         {
             const auto [r_a, nu_x] = _args_reg1_imm1_s32(data);
-            _set_reg(r_a, _load_unsigned(nu_x, 2));
+            _set_reg(r_a, _load_unsigned<2>(nu_x));
             return {};
         }
 
         op_res_t load_u32(const buffer data)
         {
             const auto [r_a, nu_x] = _args_reg1_imm1_s32(data);
-            _set_reg(r_a, _load_unsigned(nu_x, 4));
+            _set_reg(r_a, _load_unsigned<4>(nu_x));
             return {};
         }
 
         op_res_t load_u64(const buffer data)
         {
             const auto [r_a, nu_x] = _args_reg1_imm1_s32(data);
-            _set_reg(r_a, _load_unsigned(nu_x, 8));
+            _set_reg(r_a, _load_unsigned<8>(nu_x));
             return {};
         }
 
         op_res_t load_i8(const buffer data)
         {
             const auto [r_a, nu_x] = _args_reg1_imm1_s32(data);
-            _set_reg(r_a, _load_signed(nu_x, 1));
+            _set_reg(r_a, _load_signed<1>(nu_x));
             return {};
         }
 
         op_res_t load_i16(const buffer data)
         {
             const auto [r_a, nu_x] = _args_reg1_imm1_s32(data);
-            _set_reg(r_a, _load_signed(nu_x, 2));
+            _set_reg(r_a, _load_signed<2>(nu_x));
             return {};
         }
 
         op_res_t load_i32(const buffer data)
         {
             const auto [r_a, nu_x] = _args_reg1_imm1_s32(data);
-            _set_reg(r_a, _load_signed(nu_x, 4));
+            _set_reg(r_a, _load_signed<4>(nu_x));
             return {};
         }
 
@@ -1502,49 +1510,49 @@ namespace turbo::jam::machine {
         op_res_t load_ind_u8(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _load_unsigned(_regs[r_b] + nu_x, 1));
+            _set_reg(r_a, _load_unsigned<1>(_regs[r_b] + nu_x));
             return {};
         }
 
         op_res_t load_ind_u16(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _load_unsigned(_regs[r_b] + nu_x, 2));
+            _set_reg(r_a, _load_unsigned<2>(_regs[r_b] + nu_x));
             return {};
         }
 
         op_res_t load_ind_u32(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _load_unsigned(_regs[r_b] + nu_x, 4));
+            _set_reg(r_a, _load_unsigned<4>(_regs[r_b] + nu_x));
             return {};
         }
 
         op_res_t load_ind_u64(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _load_unsigned(_regs[r_b] + nu_x, 8));
+            _set_reg(r_a, _load_unsigned<8>(_regs[r_b] + nu_x));
             return {};
         }
 
         op_res_t load_ind_i8(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _load_signed(_regs[r_b] + nu_x, 1));
+            _set_reg(r_a, _load_signed<1>(_regs[r_b] + nu_x));
             return {};
         }
 
         op_res_t load_ind_i16(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _load_signed(_regs[r_b] + nu_x, 2));
+            _set_reg(r_a, _load_signed<2>(_regs[r_b] + nu_x));
             return {};
         }
 
         op_res_t load_ind_i32(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _load_signed(_regs[r_b] + nu_x, 4));
+            _set_reg(r_a, _load_signed<4>(_regs[r_b] + nu_x));
             return {};
         }
 
@@ -1910,76 +1918,69 @@ namespace turbo::jam::machine {
         }
     };
 
-    machine_t::machine_t(program_t &&program, const state_t &init, const pages_t &page_map)
+    machine_t::machine_t(program_t &&program, const state_t &init, const pages_t &page_map):
+        _impl{std::make_unique<impl>(std::move(program), init, page_map)}
     {
-        new (_impl_ptr()) impl { std::move(program), init, page_map };
     }
 
-    machine_t::machine_t(machine_t &&o)
+    machine_t::machine_t(machine_t &&o):
+        _impl{std::move(o._impl)}
     {
-        new (_impl_ptr()) impl { std::move(*o._impl_ptr()) };
     }
 
     machine_t::~machine_t()
     {
-        _impl_ptr()->~impl();
-    }
-
-    machine_t::impl *machine_t::_impl_ptr()
-    {
-        static_assert(sizeof(_impl_storage) >= sizeof(impl) && sizeof(_impl_storage) < 2U * sizeof(impl));
-        return reinterpret_cast<impl *>(_impl_storage.data());
     }
 
     result_t machine_t::run()
     {
-        return _impl_ptr()->run();
+        return _impl->run();
     }
 
     void machine_t::consume_gas(const gas_t gas)
     {
-        if (!_impl_ptr()->consume_gas(gas)) [[unlikely]]
+        if (!_impl->consume_gas(gas)) [[unlikely]]
             throw exit_out_of_gas_t{};
     }
 
     void machine_t::set_reg(const size_t id, const register_val_t val)
     {
-        return _impl_ptr()->set_reg(id, val);
+        return _impl->set_reg(id, val);
     }
 
     void machine_t::skip_op()
     {
-        return _impl_ptr()->skip_op();
+        return _impl->skip_op();
     }
 
     gas_remaining_t machine_t::gas() const
     {
-        return const_cast<machine_t *>(this)->_impl_ptr()->gas();
+        return const_cast<machine_t *>(this)->_impl->gas();
     }
 
     uint32_t machine_t::pc() const
     {
-        return const_cast<machine_t *>(this)->_impl_ptr()->pc();
+        return const_cast<machine_t *>(this)->_impl->pc();
     }
 
     const registers_t &machine_t::regs() const
     {
-        return const_cast<machine_t *>(this)->_impl_ptr()->regs();
+        return const_cast<machine_t *>(this)->_impl->regs();
     }
 
     void machine_t::mem_write(const size_t offset, const buffer data)
     {
-        _impl_ptr()->mem_write(offset, data);
+        _impl->mem_write(offset, data);
     }
 
     void machine_t::mem_read(const std::span<uint8_t> out, const size_t offset) const
     {
-        const_cast<machine_t *>(this)->_impl_ptr()->mem_read(out, offset);
+        const_cast<machine_t *>(this)->_impl->mem_read(out, offset);
     }
 
     uint8_vector machine_t::mem_read(const size_t offset, const size_t sz) const
     {
-        return const_cast<machine_t *>(this)->_impl_ptr()->mem_read(offset, sz);
+        return const_cast<machine_t *>(this)->_impl->mem_read(offset, sz);
     }
 
     std::optional<uint8_vector> machine_t::try_mem_read(const size_t offset, const size_t sz) const noexcept
@@ -1993,7 +1994,7 @@ namespace turbo::jam::machine {
 
     state_t machine_t::state() const
     {
-        return const_cast<machine_t *>(this)->_impl_ptr()->state();
+        return const_cast<machine_t *>(this)->_impl->state();
     }
 
     std::optional<machine_t> configure(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
