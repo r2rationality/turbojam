@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 hex = "0.4"
-ark-vrf = { git = "https://github.com/davxy/ark-vrf", rev = "v0.2.2", features = ["bandersnatch", "ring", "parallel"] }
+ark-vrf = { git = "https://github.com/davxy/ark-vrf", rev = "v0.2.2", features = ["bandersnatch", "ring"] }
 
 # On Linux/macOS (GAS toolchain available) also enable hand-written Montgomery
 # multiplication assembly. Cargo unions features, so the base set above is
