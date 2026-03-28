@@ -59,12 +59,12 @@ namespace turbo::jam {
     };
 
     template <typename CFG> state_t<CFG>::state_t(storage::db_ptr_t db): state_base_t<CFG>{std::move(db)} {
+        ark_vrf_initializer_t::init();
     }
 
     template <typename CFG>
     void state_t<CFG>::_ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG>::bandersnatch_list_type &vkeys)
     {
-        ark_vrf_initializer_t::init();
         if (ark_vrf::ring_commitment(res, buffer{reinterpret_cast<const uint8_t *>(vkeys.data()), sizeof(vkeys)}) != 0) [[unlikely]]
             throw error("failed to generate a ring commitment!");
     }

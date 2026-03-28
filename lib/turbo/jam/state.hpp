@@ -865,6 +865,7 @@ namespace turbo::jam {
         using observer_t = storage::observer_t;
 
         state_t(storage::db_ptr_t db);
+        state_t() = delete;
         state_t(const state_t &) = delete;
 
         static std::string decode_val(buffer key, buffer val);
