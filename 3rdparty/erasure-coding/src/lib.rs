@@ -144,7 +144,7 @@ pub fn construct_chunks(n_chunks: u16, data: &[u8]) -> Result<Vec<Vec<u8>>, Erro
 }
 
 #[no_mangle]
-pub extern "C" fn construct_chunks_c(shards_ptr: *mut u8, shards_len: usize, n_chunks: u16, data_ptr: *const u8, data_len: usize) -> i32 {
+pub extern "C" fn construct_chunks_c(shards_ptr: *mut u8, _shards_len: usize, n_chunks: u16, data_ptr: *const u8, data_len: usize) -> i32 {
 	if shards_ptr.is_null() || data_ptr.is_null() || data_len == 0 {
 		return -1;
 	}

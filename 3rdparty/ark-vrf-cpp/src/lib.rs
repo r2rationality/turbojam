@@ -63,18 +63,27 @@ fn base_ring_proof_params(path_opt: Option<&str>) -> &'static Option<PcsParams> 
     })
 }
 
-fn ring_proof_params(ring_size: usize) -> Option<RingProofParams> {
-    base_ring_proof_params(None).clone().and_then(|params| {
-        match RingProofParams::from_pcs_params(ring_size, params) {
-            Ok(val) => {
-                Some(val)
-            }
+fn ring_proof_params(ring_size: usize) -> Option<std::sync::Arc<RingProofParams>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<usize, Arc<RingProofParams>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = cache.lock().unwrap();
+    if let Some(p) = map.get(&ring_size) {
+        return Some(Arc::clone(p));
+    }
+    let params = base_ring_proof_params(None).clone().and_then(|pcs_params| {
+        match RingProofParams::from_pcs_params(ring_size, pcs_params) {
+            Ok(val) => Some(val),
             Err(_err) => {
                 println!("ring_proof_params: RingProofParams::from_pcs_params failed");
                 None
             }
         }
-    })
+    })?;
+    let arc = Arc::new(params);
+    map.insert(ring_size, Arc::clone(&arc));
+    Some(arc)
 }
 
 #[no_mangle]

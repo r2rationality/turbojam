@@ -9,6 +9,10 @@ repository = "https://github.com/your-org/ed25519-consensus-cpp"
 ed25519-consensus = "2"
 zeroize = "1"
 
+[profile.release]
+codegen-units = 1
+lto = "thin"
+
 [lib]
 name = "ed25519_consensus_cpp"
 crate-type = ["staticlib"]
