@@ -7,6 +7,7 @@
 #   include <intrin.h>
 #endif
 #include <cstring>
+#include <type_traits>
 #include <boost/container/static_vector.hpp>
 #include "machine.hpp"
 #include "state.hpp"
@@ -367,28 +368,66 @@ namespace turbo::jam::machine {
             {
             }
 
-            [[nodiscard]] static constexpr uintptr_t _pack(const op_exec_t exec, const uint8_t min_len, const bool block_end) noexcept
+            [[nodiscard]] static constexpr uintptr_t _pack_raw(const uintptr_t exec_bits, const uint8_t min_len, const bool block_end) noexcept
             {
-                return std::bit_cast<uintptr_t>(exec)
+                return exec_bits
                     | (static_cast<uintptr_t>(min_len) << min_len_shift)
                     | (block_end ? block_end_mask : 0U);
+            }
+
+            [[nodiscard]] static uintptr_t _exec_bits_checked_impl(const op_exec_t exec, std::integral_constant<size_t, sizeof(uintptr_t)>)
+            {
+                uintptr_t raw = 0;
+                std::memcpy(&raw, &exec, sizeof(raw));
+                return raw;
+            }
+
+            [[nodiscard]] static uintptr_t _exec_bits_checked_impl(const op_exec_t exec, std::integral_constant<size_t, 2U * sizeof(uintptr_t)>)
+            {
+                std::array<uintptr_t, 2> raw {};
+                std::memcpy(raw.data(), &exec, sizeof(exec));
+                if (raw[1] != 0U) [[unlikely]]
+                    throw error("opcode exec pointer adjustment word must be zero");
+                return raw[0];
+            }
+
+            [[nodiscard]] static op_exec_t _exec_from_bits_impl(const uintptr_t raw, std::integral_constant<size_t, sizeof(uintptr_t)>) noexcept
+            {
+                op_exec_t exec {};
+                std::memcpy(&exec, &raw, sizeof(exec));
+                return exec;
+            }
+
+            [[nodiscard]] static op_exec_t _exec_from_bits_impl(const uintptr_t raw, std::integral_constant<size_t, 2U * sizeof(uintptr_t)>) noexcept
+            {
+                const std::array<uintptr_t, 2> words { raw, 0U };
+                op_exec_t exec {};
+                std::memcpy(&exec, words.data(), sizeof(exec));
+                return exec;
+            }
+
+            [[nodiscard]] static uintptr_t _exec_bits_checked(const op_exec_t exec)
+            {
+                static_assert(sizeof(op_exec_t) == sizeof(uintptr_t) || sizeof(op_exec_t) == 2U * sizeof(uintptr_t),
+                    "unsupported op_exec_t representation");
+                return _exec_bits_checked_impl(exec, std::integral_constant<size_t, sizeof(op_exec_t)> {});
             }
 
             [[nodiscard]] static uintptr_t _pack_checked(const op_exec_t exec, const uint8_t min_len, const bool block_end)
             {
-                const auto raw = std::bit_cast<uintptr_t>(exec);
+                const auto raw = _exec_bits_checked(exec);
                 if ((raw & flags_mask) != 0U) [[unlikely]]
                     throw error(fmt::format("opcode exec pointer {:x} overlaps packed flag bits {:x}", raw, flags_mask));
                 if (min_len > max_min_len) [[unlikely]]
                     throw error(fmt::format("opcode min_len {} exceeds packed max {}", min_len, max_min_len));
-                return raw
-                    | (static_cast<uintptr_t>(min_len) << min_len_shift)
-                    | (block_end ? block_end_mask : 0U);
+                return _pack_raw(raw, min_len, block_end);
             }
 
-            [[nodiscard]] constexpr op_exec_t exec() const noexcept
+            [[nodiscard]] op_exec_t exec() const noexcept
             {
-                return std::bit_cast<op_exec_t>(packed & ~flags_mask);
+                static_assert(sizeof(op_exec_t) == sizeof(uintptr_t) || sizeof(op_exec_t) == 2U * sizeof(uintptr_t),
+                    "unsupported op_exec_t representation");
+                return _exec_from_bits_impl(packed & ~flags_mask, std::integral_constant<size_t, sizeof(op_exec_t)> {});
             }
 
             [[nodiscard]] constexpr uint8_t min_len() const noexcept
