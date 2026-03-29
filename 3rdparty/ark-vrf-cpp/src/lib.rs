@@ -23,6 +23,7 @@ const OUTPUT_SZ: usize = <BandersnatchCodec as Codec<BandersnatchSha512Ell2>>::P
 struct RingContext {
     params: RingProofParams,
     builder_pcs_params: RingBuilderPcsParams,
+    empty_builder: RingVerifierKeyBuilder,
 }
 
 
@@ -94,10 +95,11 @@ fn ring_context(ring_size: usize) -> Option<std::sync::Arc<RingContext>> {
             }
         }
     })?;
-    let (_builder, builder_pcs_params) = params.verifier_key_builder();
+    let (empty_builder, builder_pcs_params) = params.verifier_key_builder();
     let arc = Arc::new(RingContext {
         params,
         builder_pcs_params,
+        empty_builder,
     });
     map.insert(ring_size, Arc::clone(&arc));
     Some(arc)
@@ -147,13 +149,17 @@ pub extern "C" fn ring_commitment(
     let pad_point = RingProofParams::padding_point();
     let mut pts = Vec::with_capacity(num_vkeys);
     for chunk in vkeys.chunks_exact(VKEY_SZ) {
-        let pt = bandersnatch::Public::deserialize_compressed_unchecked(chunk)
-            .map(|pk| pk.0)
-            .unwrap_or_else(|_| pad_point);
+        let pt = if chunk.iter().all(|byte| *byte == 0) {
+            pad_point
+        } else {
+            bandersnatch::Public::deserialize_compressed_unchecked(chunk)
+                .map(|pk| pk.0)
+                .unwrap_or_else(|_| pad_point)
+        };
         pts.push(pt);
     }
 
-    let mut builder = RingVerifierKeyBuilder::new(&ring_ctx.params, &ring_ctx.builder_pcs_params);
+    let mut builder = ring_ctx.empty_builder.clone();
     if builder.append(&pts, &ring_ctx.builder_pcs_params).is_err() {
         return -1;
     }
