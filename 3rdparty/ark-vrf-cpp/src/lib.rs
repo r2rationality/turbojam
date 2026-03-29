@@ -1,7 +1,9 @@
 use std::ptr;
 use ark_vrf::{
+    codec::Codec,
     reexports::ark_serialize::{self, CanonicalDeserialize, CanonicalSerialize},
-    suites::bandersnatch
+    suites::bandersnatch,
+    Suite,
 };
 use bandersnatch::{BandersnatchSha512Ell2, RingProofParams, PcsParams, Input, Output, RingProof, Public, IetfProof};
 
@@ -14,6 +16,9 @@ const VKEY_SZ: usize = 32;
 type RingCommitment = ark_vrf::ring::RingCommitment<BandersnatchSha512Ell2>;
 type RingBuilderPcsParams = ark_vrf::ring::RingBuilderPcsParams<BandersnatchSha512Ell2>;
 type RingVerifierKeyBuilder = ark_vrf::ring::VerifierKeyBuilder<BandersnatchSha512Ell2>;
+type BandersnatchCodec = <BandersnatchSha512Ell2 as Suite>::Codec;
+
+const OUTPUT_SZ: usize = <BandersnatchCodec as Codec<BandersnatchSha512Ell2>>::POINT_ENCODED_LEN;
 
 struct RingContext {
     params: RingProofParams,
@@ -161,13 +166,18 @@ pub extern "C" fn ring_commitment(
 
 #[no_mangle]
 pub extern "C" fn ring_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *const u8, sig_len: usize) -> i32 {
-    let sig_res = RingVrfSignature::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
-    if sig_res.is_err() {
+    if sig_ptr.is_null() || out_ptr.is_null() || sig_len != RING_SIG_SZ {
         return -1;
     }
-    let sig = sig_res.unwrap();
+    let output_res = Output::deserialize_compressed_unchecked(unsafe {
+        std::slice::from_raw_parts(sig_ptr, OUTPUT_SZ)
+    });
+    if output_res.is_err() {
+        return -1;
+    }
+    let output = output_res.unwrap();
 
-    let out_hash = sig.output.hash();
+    let out_hash = output.hash();
     if out_hash.len() < HASH_SZ || out_len < HASH_SZ {
         return -1;
     }
@@ -221,15 +231,17 @@ pub extern "C" fn ring_vrf_verify(ring_size: usize, comm_ptr: *const u8, comm_le
 
 #[no_mangle]
 pub extern "C" fn ietf_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *const u8, sig_len: usize) -> i32 {
-    if sig_len != IETF_SIG_SZ {
+    if sig_ptr.is_null() || out_ptr.is_null() || sig_len != IETF_SIG_SZ {
         return -1;
     }
-    let sig_res = IetfVrfSignature::deserialize_compressed_unchecked(unsafe { std::slice::from_raw_parts(sig_ptr, sig_len) });
-    if sig_res.is_err() {
+    let output_res = Output::deserialize_compressed_unchecked(unsafe {
+        std::slice::from_raw_parts(sig_ptr, OUTPUT_SZ)
+    });
+    if output_res.is_err() {
         return -1;
     }
-    let sig = sig_res.unwrap();
-    let out_hash = sig.output.hash();
+    let output = output_res.unwrap();
+    let out_hash = output.hash();
     if out_hash.len() < HASH_SZ || out_len < HASH_SZ {
         return -1;
     }
