@@ -60,12 +60,14 @@ namespace turbo::jam::machine {
 
         explicit impl(impl &&o):
             _pc{o._pc},
+            _heap_end{o._heap_end},
             _gas{o._gas},
             _regs{o._regs},
+            _last_page_id{o._last_page_id},
+            _last_page_info{o._last_page_info},
             _tlb{o._tlb},
             _page_dir{std::move(o._page_dir)},
             _page_storage{std::move(o._page_storage)},
-            _heap_end{o._heap_end},
             _stack_begin{o._stack_begin},
             _program{std::move(o._program)}
         {
