@@ -152,10 +152,7 @@ namespace turbo::cli::fuzzer {
                 test_cases_t test_cases{};
                 if (num_cases)
                     test_cases.reserve(*num_cases);
-                decoder dec{tc_data};
-                while (!dec.empty()) {
-                    test_cases.emplace_back(codec::from<test_case_t>(dec));
-                }
+                _append_test_cases(test_cases, tc_data);
                 return _io_worker.sync_call(_test_sample(std::move(test_cases)));
             } catch (const std::exception &ex) {
                 logger::error("test_sample: failed due to an uncaught exception: {}", ex.what());
@@ -174,16 +171,17 @@ namespace turbo::cli::fuzzer {
                 for (const auto &e: std::filesystem::directory_iterator(sample_dir)) {
                     if (e.is_regular_file() && e.path().extension() == ".bin" && e.path().stem().string() != "genesis") {
                         paths.emplace_back(e.path().string());
-                        total_size += e.file_size();
                     }
                 }
                 std::sort(paths.begin(), paths.end());
-                uint8_vector sample_data{};
-                sample_data.reserve(total_size);
+                test_cases_t test_cases{};
+                test_cases.reserve(paths.size());
+                uint8_vector tc_data{};
                 for (const auto &path: paths) {
-                    sample_data << file::read(path);
+                    file::read(path, tc_data);
+                    _append_test_cases(test_cases, tc_data);
                 }
-                const auto ok = test_sample(sample_data, paths.size());
+                const auto ok = _io_worker.sync_call(_test_sample(std::move(test_cases)));
                 logger::info("sample {}({}): {} in {:0.3f} sec", sample_dir, paths.size(), ok ? "OK" : "FAILED",
                     std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count());
                 return ok;
@@ -219,6 +217,14 @@ namespace turbo::cli::fuzzer {
     private:
         my_processor_ptr_t _proc;
         io_worker_t &_io_worker;
+
+        static void _append_test_cases(test_cases_t &test_cases, const buffer tc_data)
+        {
+            decoder dec{tc_data};
+            while (!dec.empty()) {
+                test_cases.emplace_back(codec::from<test_case_t>(dec));
+            }
+        }
 
         boost::asio::awaitable<state_snapshot_t> _get_state(const header_hash_t &hh)
         {
