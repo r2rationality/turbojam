@@ -68,11 +68,11 @@ namespace turbo::jam::machine {
                     const uint8_t opcode = _pc < _program.code.size() ? _program.code[_pc] : 0x00U;
                     const auto len = _skip_len(_pc, _program.bitmasks);
                     const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
-                    const auto &op = _opcode_info(opcode);
+                    const auto exec = _opcode_exec(opcode);
                     if (!consume_gas(1U)) [[unlikely]]
                         return exit_out_of_gas_t{};
                     const auto next_pc = _pc + len + 1;
-                    auto res = (this->*op.exec)(data);
+                    auto res = (this->*exec)(data);
                     switch (res.index()) {
                         [[likely]] case 0:
                             _pc = next_pc;
@@ -315,7 +315,7 @@ namespace turbo::jam::machine {
 
         struct tlb_entry_t {
             address_val_t page_id = ~address_val_t{0};
-            page_info_t info{};
+            const page_info_t *info = nullptr;
         };
         static constexpr size_t tlb_size = 8;
 
@@ -325,7 +325,7 @@ namespace turbo::jam::machine {
         gas_remaining_t _gas = 0;
         registers_t _regs{};
         mutable address_val_t _last_page_id = ~address_val_t{0};
-        mutable page_info_t _last_page_info{};
+        mutable const page_info_t *_last_page_info = nullptr;
         mutable std::array<tlb_entry_t, tlb_size> _tlb{};
         // Warm fields - accessed on memory operations / page faults
         page_dir_t _page_dir{};
@@ -377,7 +377,7 @@ namespace turbo::jam::machine {
             return std::min(size_t { 24 }, static_cast<size_t>(pc - start_pc));
         }
 
-        static const opcode_t &_opcode_info(const uint32_t opcode)
+        static const std::array<opcode_t, 0x100> &_opcode_table()
         {
             using namespace std::string_view_literals;
             static const opcode_t undef{"undefined"sv, &impl::trap, &impl::_args_none};
@@ -592,7 +592,20 @@ namespace turbo::jam::machine {
                 undef, undef, undef, undef,
                 undef, undef, undef, undef,
             };
-            return ops[opcode];
+            return ops;
+        }
+
+        static op_exec_t _opcode_exec(const uint32_t opcode)
+        {
+            static const auto execs = [] {
+                std::array<op_exec_t, 0x100> res{};
+                const auto &ops = _opcode_table();
+                for (size_t i = 0; i < ops.size(); ++i) {
+                    res[i] = ops[i].exec;
+                }
+                return res;
+            }();
+            return execs[opcode];
         }
 
         // opcode helper functions
@@ -837,31 +850,26 @@ namespace turbo::jam::machine {
                     if (!info) [[unlikely]]
                         return nullptr;
                     tlb_slot.page_id = page_id;
-                    tlb_slot.info = *info;
+                    tlb_slot.info = info;
                 }
                 _last_page_id = page_id;
                 _last_page_info = tlb_slot.info;
             }
-            return &_last_page_info;
+            return _last_page_info;
         }
 
         page_info_t *_page_lookup_mut(const register_val_t page_id) noexcept
         {
-            return _page_dir.lookup_mut(static_cast<uint32_t>(page_id));
+            return const_cast<page_info_t *>(_page_lookup(page_id));
         }
 
-        void _materialize_page(const register_val_t page_id, page_info_t &page)
+        void _materialize_page(const register_val_t, page_info_t &page)
         {
             if (page.is_materialized())
                 return;
             auto *mem_page = _page_pool.allocate();
             std::memset(mem_page, 0, sizeof(*mem_page));
             page = page_info_t{mem_page->bytes.data(), page.is_writable()};
-            if (_last_page_id == page_id)
-                _last_page_info = page;
-            auto &tlb_slot = _tlb[page_id & (tlb_size - 1)];
-            if (tlb_slot.page_id == page_id)
-                tlb_slot.info = page;
         }
 
         template<size_t SZ>
