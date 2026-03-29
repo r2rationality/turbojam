@@ -40,28 +40,59 @@ add_cargo_staticlib(ed25519_consensus_cpp "${CMAKE_CURRENT_LIST_DIR}/ed25519-con
 
 set(MSQUIC_SRC   "${CMAKE_CURRENT_LIST_DIR}/msquic")
 set(MSQUIC_BUILD "${CMAKE_CURRENT_BINARY_DIR}/msquic")
-set(MSQUIC_INST  "${CMAKE_CURRENT_BINARY_DIR}/msquic-install") # you used this path already
-set(MSQUIC_LIB   "${MSQUIC_INST}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}msquic${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(MSQUIC_STATIC_LIB   "${MSQUIC_BUILD}/obj/Release/${CMAKE_STATIC_LIBRARY_PREFIX}msquic_static${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(MSQUIC_CORE_LIB     "${MSQUIC_BUILD}/obj/Release/${CMAKE_STATIC_LIBRARY_PREFIX}core${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(MSQUIC_PLATFORM_LIB "${MSQUIC_BUILD}/obj/Release/${CMAKE_STATIC_LIBRARY_PREFIX}msquic_platform${CMAKE_STATIC_LIBRARY_SUFFIX}")
+set(MSQUIC_ETW_HEADER   "${MSQUIC_BUILD}/inc/MsQuicEtw.h")
 
 include(ExternalProject)
 ExternalProject_Add(
     msquic_build
     SOURCE_DIR  "${MSQUIC_SRC}"
     BINARY_DIR  "${MSQUIC_BUILD}"
-    INSTALL_DIR "${MSQUIC_INST}"
-    CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR> -DQUIC_BUILD_SHARED=OFF
+    CMAKE_ARGS
+        -DCMAKE_BUILD_TYPE=Release
+        -DQUIC_BUILD_SHARED=OFF
+        -DQUIC_SOURCE_LINK=OFF
+        -DQUIC_EMBED_GIT_HASH=OFF
+        -DQUIC_PDBALTPATH=OFF
     UPDATE_DISCONNECTED
-    STEP_TARGETS build install
-    BUILD_BYPRODUCTS "${MSQUIC_LIB}"
+    BUILD_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --config Release --target msquic_static MsQuicEtw_HeaderBuild
+    STEP_TARGETS build
+    BUILD_BYPRODUCTS
+        "${MSQUIC_STATIC_LIB}"
+        "${MSQUIC_CORE_LIB}"
+        "${MSQUIC_PLATFORM_LIB}"
+        "${MSQUIC_ETW_HEADER}"
+    INSTALL_COMMAND ""
 )
 
-add_library(msquic STATIC IMPORTED GLOBAL)
-file(MAKE_DIRECTORY "${MSQUIC_INST}/include")
-set_target_properties(msquic PROPERTIES
-    IMPORTED_LOCATION "${MSQUIC_LIB}"
-    INTERFACE_INCLUDE_DIRECTORIES "${MSQUIC_INST}/include"
+add_library(msquic INTERFACE)
+file(MAKE_DIRECTORY "${MSQUIC_BUILD}/inc")
+target_compile_definitions(msquic INTERFACE QUIC_BUILD_STATIC)
+target_include_directories(msquic INTERFACE "${MSQUIC_SRC}/src/inc" "${MSQUIC_BUILD}/inc")
+target_link_libraries(msquic INTERFACE
+    "${MSQUIC_STATIC_LIB}"
+    "${MSQUIC_CORE_LIB}"
+    "${MSQUIC_PLATFORM_LIB}"
 )
-add_dependencies(msquic msquic_build-install)
+if (WIN32)
+    target_link_libraries(msquic INTERFACE
+        ws2_32
+        schannel
+        ntdll
+        bcrypt
+        ncrypt
+        crypt32
+        iphlpapi
+        advapi32
+        wbemuuid
+        winmm
+        secur32
+        onecore
+    )
+endif()
+add_dependencies(msquic msquic_build-build)
 
 add_library(3rdparty OBJECT hash-library/keccak.cpp)
 target_include_directories(3rdparty PUBLIC .)

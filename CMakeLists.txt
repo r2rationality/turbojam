@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 project(TURBOJAM CXX)
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 set(CMAKE_PROJECT_VERSION_MAJOR 0)
 set(CMAKE_PROJECT_VERSION_MINOR 1)
 set(CMAKE_PROJECT_VERSION_PATCH 0)
@@ -111,6 +112,12 @@ endif()
 if (WIN32)
     add_compile_options(-DMI_BUILD_SHARED -DMI_OVERRIDE)
     include(FetchContent)
+    set(MI_BUILD_SHARED ON CACHE BOOL "Build mimalloc shared library" FORCE)
+    set(MI_BUILD_STATIC OFF CACHE BOOL "Do not build mimalloc static library" FORCE)
+    set(MI_BUILD_OBJECT OFF CACHE BOOL "Do not build mimalloc object library" FORCE)
+    set(MI_BUILD_TESTS OFF CACHE BOOL "Do not build mimalloc tests" FORCE)
+    set(MI_WIN_REDIRECT ON CACHE BOOL "Build the mimalloc redirect DLL" FORCE)
+    set(MI_OVERRIDE ON CACHE BOOL "Enable mimalloc override support" FORCE)
     FetchContent_Declare(
             mimalloc
             GIT_REPOSITORY https://github.com/microsoft/mimalloc.git
