@@ -163,5 +163,27 @@ suite turbo_jam_triedb_suite = [] {
             expect(undo3.empty());
         };
 
+        "reopen rebuilds trie from store"_test = [] {
+            const file::tmp_directory db_dir{"test-turbo-jam-triedb-6"};
+            const auto k1 = state_dict_t::make_key(1U);
+            const auto k2 = state_dict_t::make_key(2U);
+            const auto v1 = uint8_vector::from_hex("00112233");
+            const uint8_vector v2(0x1000U, uint8_t{0x5A});
+
+            {
+                db_t db{db_dir.path()};
+                db.set(k1, v1);
+                db.set(k2, v2);
+                const auto undo = db.commit();
+                expect_equal(size_t{2}, undo.size());
+            }
+
+            {
+                db_t reopened{db_dir.path()};
+                expect_equal(v1, reopened.get(k1));
+                expect_equal(v2, reopened.get(k2));
+            }
+        };
+
     };
 };

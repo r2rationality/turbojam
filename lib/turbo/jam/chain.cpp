@@ -13,9 +13,10 @@ namespace turbo::jam {
     template<typename CFG>
     struct chain_t<CFG>::impl {
         explicit impl(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state,
-            const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry):
+            const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry, const bool load_existing):
             _id{id},
             _path{path},
+            _triedb{std::make_shared<triedb::db_t>((std::filesystem::path{path} / "kv").string(), load_existing)},
             _genesis_state{genesis_state}
         {
             if (ancestry)
@@ -117,7 +118,7 @@ namespace turbo::jam {
     private:
         std::string _id;
         std::string _path;
-        triedb::db_ptr_t _triedb = std::make_shared<triedb::db_t>((std::filesystem::path{_path} / "kv").string());
+        triedb::db_ptr_t _triedb;
         state_snapshot_t _genesis_state;
         header_t<CFG> _genesis_header;
         std::optional<state_t<CFG>> _state{};
@@ -139,8 +140,8 @@ namespace turbo::jam {
 
     template<typename CFG>
     chain_t<CFG>::chain_t(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state,
-        const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry):
-        _impl{std::make_unique<impl>(id, path, genesis_state, prev_state, std::move(ancestry))}
+        const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry, bool load_existing):
+        _impl{std::make_unique<impl>(id, path, genesis_state, prev_state, std::move(ancestry), load_existing)}
     {
     }
 

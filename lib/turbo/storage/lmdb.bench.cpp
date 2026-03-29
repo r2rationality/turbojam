@@ -1,9 +1,9 @@
 /* Copyright (c) 2022-2023 Alex Sierkov (alex dot sierkov at gmail dot com)
- * Copyright (c) 2024-2025 R2 Rationality OÜ (info at r2rationality dot com) */
+ * Copyright (c) 2024-2025 R2 Rationality OÃœ (info at r2rationality dot com) */
 
 #include <turbo/common/benchmark.hpp>
 #include <turbo/crypto/blake2b.hpp>
-#include "lmdb-rc.hpp"
+#include "lmdb.hpp"
 
 namespace {
     using namespace turbo;
@@ -11,10 +11,10 @@ namespace {
     using namespace turbo::crypto;
 }
 
-suite turbo_storage_lmdb_rc_bench_suite = [] {
-    "turbo::storage::lmdb_rc"_test = [] {
+suite turbo_storage_lmdb_bench_suite = [] {
+    "turbo::storage::lmdb"_test = [] {
         ankerl::nanobench::Bench b{};
-        b.title("turbo::storage::lmdb_rc")
+        b.title("turbo::storage::lmdb")
             .output(&std::cerr)
             .unit("ops")
             .performanceCounters(true);
@@ -22,8 +22,8 @@ suite turbo_storage_lmdb_rc_bench_suite = [] {
         for (size_t i = 0; i < 10000; ++i) {
             kvs.emplace(blake2b::digest(buffer::from(i)), uint8_vector(i * 10));
         }
-        const file::tmp_directory tmp_dir{"test-turbo-lmdb-rc-bench"};
-        lmdb_rc::db_t db{tmp_dir.path()};
+        const file::tmp_directory tmp_dir{"test-turbo-lmdb-bench"};
+        lmdb::db_t db{tmp_dir.path()};
         b.batch(kvs.size());
         b.run("writes",[&] {
             for (const auto &[k, v]: kvs) {

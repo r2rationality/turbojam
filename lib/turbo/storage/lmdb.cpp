@@ -8,16 +8,16 @@ extern "C" {
 #include <filesystem>
 #include <mutex>
 #include <string>
-#include "lmdb-rc.hpp"
+#include "lmdb.hpp"
 
-namespace turbo::storage::lmdb_rc {
+namespace turbo::storage::lmdb {
     struct db_t::impl {
         explicit impl(const std::string_view dir_path, const size_t initial_mapsize):
             _dir_path{dir_path}
         {
             std::filesystem::create_directories(_dir_path);
             _throw_lmdb(mdb_env_create(&_env), "_env_create");
-            _throw_lmdb(mdb_env_set_maxdbs(_env, 2), "_env_set_maxdbs");
+            _throw_lmdb(mdb_env_set_maxdbs(_env, 1), "_env_set_maxdbs");
             _throw_lmdb(mdb_env_set_mapsize(_env, initial_mapsize), "_env_set_mapsize");
             _throw_lmdb(mdb_env_open(_env, _dir_path.c_str(), 0, 0664), "_env_open");
             if (const int rc = mdb_txn_begin(_env, nullptr, 0, &_txn); rc != MDB_SUCCESS) [[unlikely]] {
@@ -26,8 +26,6 @@ namespace turbo::storage::lmdb_rc {
             }
             if (const int rc = mdb_dbi_open(_txn, "file_rc.data", MDB_CREATE, &_dbi_data); rc != MDB_SUCCESS) [[unlikely]]
                 _throw_lmdb(rc, "_dbi_open(data)");
-            if (const int rc = mdb_dbi_open(_txn, "file_rc.counts", MDB_CREATE, &_dbi_counts); rc != MDB_SUCCESS) [[unlikely]]
-                _throw_lmdb(rc, "_dbi_open(counts)");
             MDB_stat st;
             _throw_lmdb(mdb_env_stat(_env, &st), "mdb_env_stat(init)");
             _page_size = st.ms_psize;
@@ -59,69 +57,23 @@ namespace turbo::storage::lmdb_rc {
             std::lock_guard<std::mutex> _g{_mutex};
             _check_txn();
             MDB_val k = _to_mdb_val(key);
-
-            uint64_t refc = 0;
-            MDB_val cv;
-            auto rc = mdb_get(_txn, _dbi_counts, &k, &cv);
-            if (rc == MDB_NOTFOUND) {
-                refc = 0;
-            } else if (rc != MDB_SUCCESS) [[unlikely]] {
-                _throw_lmdb(rc, "mdb_get(counts)");
-            } else {
-                refc = _from_mdb_val(cv).to<uint64_t>();
-            }
-
-            if (refc == 0) {
-                MDB_val dv = _to_mdb_val(val);
-                _throw_lmdb(mdb_put(_txn, _dbi_data, &k, &dv, 0), "mdb_put(data)");
-            } else {
-                MDB_val existing;
-                rc = mdb_get(_txn, _dbi_data, &k, &existing);
-                if (rc == MDB_NOTFOUND) [[unlikely]]
-                    throw error("lmdb_rc: counts present but data missing (corruption)");
-                if (rc != MDB_SUCCESS) [[unlikely]]
-                    _throw_lmdb(rc, "mdb_get(data,verify)");
-                if (existing.mv_size != val.size() ||
-                        (existing.mv_size > 0 && std::memcmp(existing.mv_data, val.data(), existing.mv_size) != 0)) {
-                    MDB_val dv = _to_mdb_val(val);
-                    _throw_lmdb(mdb_put(_txn, _dbi_data, &k, &dv, 0), "mdb_put(data,update)");
-                }
-            }
-
-            ++refc;
-            MDB_val mv = _to_mdb_val(buffer::from(refc));
-            _throw_lmdb(mdb_put(_txn, _dbi_counts, &k, &mv, 0), "mdb_put(counts)");
+            MDB_val dv = _to_mdb_val(val);
+            _throw_lmdb(mdb_put(_txn, _dbi_data, &k, &dv, 0), "mdb_put(data)");
         }
 
         void erase(const buffer key) {
             std::lock_guard<std::mutex> _g{_mutex};
             _check_txn();
             MDB_val k = _to_mdb_val(key);
-            MDB_val cv;
-            auto rc = mdb_get(_txn, _dbi_counts, &k, &cv);
-            if (rc == MDB_NOTFOUND)
-                return;
-            if (rc != MDB_SUCCESS) [[unlikely]]
-                _throw_lmdb(rc, "mdb_get(counts,erase)");
-
-            auto refc = _from_mdb_val(cv).to<uint64_t>();
-            if (refc <= 1U) {
-                _throw_lmdb(mdb_del(_txn, _dbi_counts, &k, nullptr), "mdb_del(counts)");
-                rc = mdb_del(_txn, _dbi_data, &k, nullptr);
-                if (rc != MDB_SUCCESS && rc != MDB_NOTFOUND) [[unlikely]]
-                    _throw_lmdb(rc, "mdb_del(data)");
-            } else {
-                --refc;
-                MDB_val mv = _to_mdb_val(buffer::from(refc));
-                _throw_lmdb(mdb_put(_txn, _dbi_counts, &k, &mv, 0), "mdb_put(counts,erase)");
-            }
+            const auto rc = mdb_del(_txn, _dbi_data, &k, nullptr);
+            if (rc != MDB_SUCCESS && rc != MDB_NOTFOUND) [[unlikely]]
+                _throw_lmdb(rc, "mdb_del(data)");
         }
 
         void clear() {
             std::lock_guard<std::mutex> _g{_mutex};
             _check_txn();
             _throw_lmdb(mdb_drop(_txn, _dbi_data, 0), "mdb_drop(data,clear)");
-            _throw_lmdb(mdb_drop(_txn, _dbi_counts, 0), "mdb_drop(counts,clear)");
         }
 
         void foreach(const observer_t& obs) const {
@@ -186,19 +138,18 @@ namespace turbo::storage::lmdb_rc {
         std::string _dir_path;
         MDB_env *_env{nullptr};
         MDB_dbi _dbi_data{0};
-        MDB_dbi _dbi_counts{0};
         MDB_txn *_txn{nullptr};
         size_t _page_size{0};
         mutable std::mutex _mutex{};
 
         void _check_txn() const {
             if (!_txn) [[unlikely]]
-                throw error("lmdb_rc: operation called with no active transaction");
+                throw error("lmdb: operation called with no active transaction");
         }
 
         static void _throw_lmdb(int rc, const char* what) {
             if (rc != MDB_SUCCESS) [[unlikely]]
-                throw error(fmt::format("lmdb_rc: {}: {}", what, mdb_strerror(rc)));
+                throw error(fmt::format("lmdb: {}: {}", what, mdb_strerror(rc)));
         }
 
         static MDB_val _to_mdb_val(const buffer b) {

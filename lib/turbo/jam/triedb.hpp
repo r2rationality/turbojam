@@ -8,7 +8,7 @@
 #include <turbo/common/bytes.hpp>
 #include <turbo/jam/types/state-dict.hpp>
 #include <turbo/storage/update.hpp>
-#include <turbo/storage/lmdb-rc.hpp>
+#include <turbo/storage/lmdb.hpp>
 
 #define MY_NDEBUG
 
@@ -21,13 +21,15 @@ namespace turbo::jam::triedb {
     // - each maintains its own copy of the data even when they share the same data directory
     // - a copy creates a physical copy on disk
     struct db_t: storage::db_t {
-        using store_t = storage::lmdb_rc::db_t;
+        using store_t = storage::lmdb::db_t;
         using store_ptr_t = std::shared_ptr<store_t>;
         using observer_t = storage::observer_t;
 
-        explicit db_t(store_ptr_t store):
+        explicit db_t(store_ptr_t store, const bool load_existing=true):
             _store{std::move(store)}
         {
+            if (load_existing)
+                _rebuild_trie();
         }
 
         explicit db_t(store_ptr_t store, const db_t &o):
@@ -37,11 +39,19 @@ namespace turbo::jam::triedb {
                 , _snapshot{o._snapshot}
 #endif
         {
+            if (_store && _store != o._store) {
+                _store->clear();
+                o.foreach([&](const auto &k, const auto &v) {
+                    _store->set(k, v);
+                });
+            }
         }
 
-        explicit db_t(const std::string_view db_dir):
+        explicit db_t(const std::string_view db_dir, const bool load_existing=true):
             _store{std::make_shared<store_t>(db_dir)}
         {
+            if (load_existing)
+                _rebuild_trie();
         }
 
         void foreach(const observer_t &obs) const override
@@ -50,7 +60,7 @@ namespace turbo::jam::triedb {
                 std::visit([&](const auto &vv) {
                     using T = std::decay_t<decltype(vv)>;
                     if constexpr (std::is_same_v<T, merkle::trie::value_hash_t>) {
-                        auto val = _store->get(vv);
+                        auto val = _store->get(buffer{k});
                         if (!val) [[unlikely]]
                             throw error(fmt::format("internal error: failed to get value for key {} from the store", k));
                         obs(static_cast<buffer>(k), *val);
@@ -83,15 +93,15 @@ namespace turbo::jam::triedb {
                 std::visit([&](const auto &vv) {
                     using T = std::decay_t<decltype(vv)>;
                     if constexpr (std::is_same_v<T, merkle::trie::value_hash_t>) {
-                        auto val = _store->get(vv);
+                        auto val = _store->get(buffer{k});
                         if (!val) [[unlikely]]
                             throw error(fmt::format("internal error: failed to get value for key {} from the store", k));
-                        _store->erase(vv);
                         _undo.emplace_back(k, std::move(val));
                     } else {
                         _undo.emplace_back(k, buffer {vv.data(), vv.size()});
                     }
                 }, v);
+                _store->erase(buffer{k});
             });
             _trie->clear();
 #if         !defined(NDEBUG) && !defined(MY_NDEBUG)
@@ -160,7 +170,7 @@ namespace turbo::jam::triedb {
                 return std::visit([&](const auto &vv) -> get_res_t {
                     using T = std::decay_t<decltype(vv)>;
                     if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
-                        return {_store->get(vv), val};
+                        return {_store->get(key), val};
                     } else {
                         return {buffer{vv.data(), vv.size()}, val};
                     }
@@ -181,12 +191,7 @@ namespace turbo::jam::triedb {
                 // dangling once _store->erase or _trie->erase destroys the underlying data
                 if (track_undo)
                     _undo.emplace_back(key, std::move(prev_v));
-                std::visit([&](const auto &vv) {
-                    using T = std::decay_t<decltype(vv)>;
-                    if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
-                        _store->erase(vv);
-                    }
-                }, *trie_v);
+                _store->erase(key);
                 _trie->erase(k);
             }
 #if         !defined(NDEBUG) && !defined(MY_NDEBUG)
@@ -218,17 +223,20 @@ namespace turbo::jam::triedb {
                 if (track_undo)
                     _undo.emplace_back(key, std::move(prev_v));
                 _trie->set(k, std::move(v));
-                std::visit([&](const auto &vv) {
-                    using T = std::decay_t<decltype(vv)>;
-                    if constexpr (std::is_same_v<T, merkle::trie_t::value_hash_t>) {
-                        return _store->set(vv, val);
-                    }
-                }, v);
+                _store->set(key, val);
             }
 #           if !defined(NDEBUG) && !defined(MY_NDEBUG)
                 if (_snapshot.root() != _trie->root()) [[unlikely]]
                     throw error(fmt::format("internal error: trie root mismatch after set key: {}!", k));
 #           endif
+        }
+
+        void _rebuild_trie()
+        {
+            _trie->clear();
+            _store->foreach([&](const auto &k, const auto &v) {
+                _trie->set(key_t{k}, v);
+            });
         }
     };
     using db_ptr_t = std::shared_ptr<db_t>;

@@ -13,7 +13,7 @@ namespace turbo::jam {
         static chain_t from_json_spec(const std::string_view &data_path, const std::string &spec_path);
 
         explicit chain_t(const std::string_view &id, const std::string_view &data_path, const state_snapshot_t &genesis_state,
-            const state_snapshot_t &prev_state={}, std::optional<ancestry_t<CFG>> ancestry={});
+            const state_snapshot_t &prev_state={}, std::optional<ancestry_t<CFG>> ancestry={}, bool load_existing=true);
         ~chain_t();
         [[nodiscard]] const std::string &id() const;
         [[nodiscard]] const std::string &path() const;

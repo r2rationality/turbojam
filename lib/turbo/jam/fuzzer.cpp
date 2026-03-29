@@ -39,7 +39,7 @@ namespace turbo::jam::fuzzer {
                     std::optional<ancestry_t<CFG>> ancestry{};
                     if (!m.ancestry.empty())
                         ancestry.emplace(std::move(m.ancestry));
-                    _chain.emplace(_chain_id, _chain_dir, m.state, m.state, std::move(ancestry));
+                    _chain.emplace(_chain_id, _chain_dir, m.state, m.state, std::move(ancestry), false);
                     return _chain->state_root();
                 } else if constexpr (std::is_same_v<T, import_block_t<CFG>>) {
                     if (!_chain) [[unlikely]]

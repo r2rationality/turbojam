@@ -7,7 +7,7 @@
 #include <turbo/common/file.hpp>
 #include "common.hpp"
 
-namespace turbo::storage::lmdb_rc {
+namespace turbo::storage::lmdb {
     struct error: turbo::error {
         using turbo::error::error;
     };
