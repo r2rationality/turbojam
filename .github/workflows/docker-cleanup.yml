@@ -1,0 +1,16 @@
+name: Docker Cleanup
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 4 * * 1'
+
+jobs:
+  cleanup:
+    runs-on: self-hosted
+    steps:
+      - name: Prune old containers
+        run: docker container prune -f --filter "until=168h"
+      - name: Prune old dangling images
+        run: docker image prune -f --filter "until=240h"
+      - name: Prune old builder cache
+        run: docker builder prune -f --filter "until=240h" --keep-storage 20GB

@@ -13,12 +13,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: 'recursive'
+      - name: Ensure test base image
+        run: |
+          docker image inspect turbojam:test-base >/dev/null 2>&1 || docker build -t turbojam:test-base -f Dockerfile.test-base .
       - name: Build docker image
         run: |
-          docker container prune -f
-          docker image prune -f
-          docker build -t turbojam:test -f Dockerfile.test .
-          docker image prune -f
+          docker build --build-arg TEST_BASE_IMAGE=turbojam:test-base -t turbojam:test -f Dockerfile.test .
       - name: Run unit tests
         id: tests
         run: |

@@ -1,0 +1,18 @@
+name: Docker Test Base
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - Dockerfile.test-base
+      - .github/workflows/docker-test-base.yml
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1'
+
+jobs:
+  build-test-base:
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test base image
+        run: docker build -t turbojam:test-base -f Dockerfile.test-base .
