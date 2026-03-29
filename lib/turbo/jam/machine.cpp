@@ -65,13 +65,14 @@ namespace turbo::jam::machine {
         result_t run()
         {
             try {
+                const buffer code_view { _program.code.data(), _program.code.size() };
                 for (;;) {
-                    const uint8_t opcode = _pc < _program.code.size() ? _program.code[_pc] : 0x00U;
+                    const uint8_t opcode = _pc < code_view.size() ? code_view[_pc] : 0x00U;
                     const auto len = _skip_len(_pc, _program.bitmasks);
-                    const auto data = static_cast<buffer>(_program.code).subbuf(_pc + 1, len);
-                    const auto exec = _opcode_exec(opcode);
                     if (!consume_gas(1U)) [[unlikely]]
                         return exit_out_of_gas_t{};
+                    const auto data = _pc < code_view.size() ? buffer { code_view.data() + _pc + 1U, len } : buffer {};
+                    const auto exec = _opcode_exec(opcode);
                     const auto next_pc = _pc + len + 1;
                     auto res = (this->*exec)(data);
                     switch (res.index()) {
@@ -685,9 +686,56 @@ namespace turbo::jam::machine {
             return x;
         }
 
+        static const uint8_t *_require_data(const buffer data, const size_t min_size)
+        {
+            if (data.size() >= min_size) [[likely]]
+                return data.data();
+            if (min_size == 0)
+                return data.data();
+            _require_byte(data, min_size - 1U);
+            throw exit_panic_t{};
+        }
+
+        static void _ensure_readable(const buffer data, const size_t off, const size_t num_bytes)
+        {
+            if (num_bytes == 0) [[likely]]
+                return;
+            if (off > data.size() || num_bytes > data.size() - off) [[unlikely]]
+                throw error(fmt::format("requested offset: {} and size: {} end over the end of buffer's size: {}!", off, num_bytes, data.size()));
+        }
+
+        static register_val_t _read_uint_le_unchecked(const uint8_t *ptr, const size_t num_bytes) noexcept
+        {
+            switch (num_bytes) {
+                case 0:
+                    return 0;
+                case 1:
+                    return static_cast<register_val_t>(ptr[0]);
+                case 2:
+                    return static_cast<register_val_t>(ptr[0])
+                        | (static_cast<register_val_t>(ptr[1]) << 8U);
+                case 3:
+                    return static_cast<register_val_t>(ptr[0])
+                        | (static_cast<register_val_t>(ptr[1]) << 8U)
+                        | (static_cast<register_val_t>(ptr[2]) << 16U);
+                case 4:
+                    return static_cast<register_val_t>(ptr[0])
+                        | (static_cast<register_val_t>(ptr[1]) << 8U)
+                        | (static_cast<register_val_t>(ptr[2]) << 16U)
+                        | (static_cast<register_val_t>(ptr[3]) << 24U);
+                default: {
+                    register_val_t x = 0;
+                    for (size_t i = 0; i < num_bytes; ++i)
+                        x |= static_cast<register_val_t>(ptr[i]) << (i * 8U);
+                    return x;
+                }
+            }
+        }
+
         std::tuple<register_idx_t, register_idx_t> _args_reg2(const buffer data) const
         {
-            const auto b0 = _require_byte(data, 0ULL);
+            const auto *ptr = _require_data(data, 1U);
+            const auto b0 = ptr[0];
             const register_idx_t r_d = std::min(12ULL, b0 & 0xFULL);
             const register_idx_t r_a = std::min(12ULL, b0 / 16ULL);
             return std::make_tuple(r_d, r_a);
@@ -695,8 +743,9 @@ namespace turbo::jam::machine {
 
         std::tuple<register_idx_t, register_idx_t, register_idx_t> _args_reg3(const buffer data) const
         {
-            const auto b0 = _require_byte(data, 0ULL);
-            const auto b1 = _require_byte(data, 1ULL);
+            const auto *ptr = _require_data(data, 2U);
+            const auto b0 = ptr[0];
+            const auto b1 = ptr[1];
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
             const register_idx_t r_b = std::min(12ULL, b0 / 16ULL);
             const register_idx_t r_d = std::min(12ULL, b1 & 0xFULL);
@@ -705,24 +754,28 @@ namespace turbo::jam::machine {
 
         std::tuple<register_idx_t, register_idx_t, register_val_t> _args_reg2_imm1(const buffer data) const
         {
-            const auto b0 = _require_byte(data, 0ULL);
+            const auto *ptr = _require_data(data, 1U);
+            const auto b0 = ptr[0];
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
             const register_idx_t r_b = std::min(12ULL, b0 / 16ULL);
-            const size_t l_x = std::min(size_t { 4 }, data.size() - 1);
-            const auto nu_x = sign_extend(l_x, _read_uint_le(data, 1ULL, l_x));
+            const size_t l_x = std::min(size_t { 4 }, data.size() - 1U);
+            const auto nu_x = sign_extend(l_x, _read_uint_le_unchecked(ptr + 1U, l_x));
             return std::make_tuple(r_a, r_b, nu_x);
         }
 
         std::tuple<register_idx_t, register_idx_t, register_val_t, register_val_t> _args_reg2_imm2(const buffer data) const
         {
-            const auto b0 = _require_byte(data, 0ULL);
-            const auto b1 = _require_byte(data, 1ULL);
+            const auto *ptr = _require_data(data, 2U);
+            const auto b0 = ptr[0];
+            const auto b1 = ptr[1];
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
             const register_idx_t r_b = std::min(12ULL, b0 / 16ULL);
             const size_t l_x = std::min(4ULL, b1 % 8ULL);
-            const size_t l_y = data.size() > l_x + 2 ? std::min(size_t { 4 }, data.size() - l_x - 2) : 0;
-            const auto nu_x = sign_extend(l_x, _read_uint_le(data, 2ULL, l_x));
-            const auto nu_y = sign_extend(l_y, _read_uint_le(data, 2ULL + l_x, l_y));
+            _ensure_readable(data, 2U, l_x);
+            const size_t base_y = 2U + l_x;
+            const size_t l_y = data.size() > base_y ? std::min(size_t { 4 }, data.size() - base_y) : 0U;
+            const auto nu_x = sign_extend(l_x, _read_uint_le_unchecked(ptr + 2U, l_x));
+            const auto nu_y = sign_extend(l_y, _read_uint_le_unchecked(ptr + base_y, l_y));
             return std::make_tuple(r_a, r_b, nu_x, nu_y);
         }
 
@@ -735,19 +788,21 @@ namespace turbo::jam::machine {
 
         static std::tuple<register_idx_t, register_val_t> _args_reg1_imm1(const buffer data, const size_t max_size)
         {
-            const auto b0 = _require_byte(data, 0ULL);
+            const auto *ptr = _require_data(data, 1U);
+            const auto b0 = ptr[0];
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const size_t l_x = std::min(max_size, data.size() - 1);
-            const auto nu_x = sign_extend(l_x, _read_uint_le(data, 1ULL, l_x));
+            const size_t l_x = std::min(max_size, data.size() - 1U);
+            const auto nu_x = sign_extend(l_x, _read_uint_le_unchecked(ptr + 1U, l_x));
             return std::make_tuple(r_a, nu_x);
         }
 
         static std::tuple<register_idx_t, register_val_t> _args_reg1_imm1_unsigned(const buffer data, const size_t max_size)
         {
-            const auto b0 = _require_byte(data, 0ULL);
+            const auto *ptr = _require_data(data, 1U);
+            const auto b0 = ptr[0];
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const size_t l_x = std::min(max_size, data.size() - 1);
-            const auto nu_x = _read_uint_le(data, 1ULL, l_x);
+            const size_t l_x = std::min(max_size, data.size() - 1U);
+            const auto nu_x = _read_uint_le_unchecked(ptr + 1U, l_x);
             return std::make_tuple(r_a, nu_x);
         }
 
@@ -768,23 +823,29 @@ namespace turbo::jam::machine {
 
         std::tuple<register_idx_t, register_val_t, register_val_t> _args_reg1_imm2(const buffer data) const
         {
-            const auto b0 = _require_byte(data, 0ULL);
+            const auto *ptr = _require_data(data, 1U);
+            const auto b0 = ptr[0];
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8);
-            const size_t l_y = data.size() > l_x + 1 ? std::min(size_t { 4 }, data.size() - l_x - 1) : 0;
-            const auto nu_x = sign_extend(l_x, _read_uint_le(data, 1ULL, l_x));
-            const auto nu_y = sign_extend(l_y, _read_uint_le(data, 1ULL + l_x, l_y));
+            const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8ULL);
+            _ensure_readable(data, 1U, l_x);
+            const size_t base_y = 1U + l_x;
+            const size_t l_y = data.size() > base_y ? std::min(size_t { 4 }, data.size() - base_y) : 0U;
+            const auto nu_x = sign_extend(l_x, _read_uint_le_unchecked(ptr + 1U, l_x));
+            const auto nu_y = sign_extend(l_y, _read_uint_le_unchecked(ptr + base_y, l_y));
             return std::make_tuple(r_a, nu_x, nu_y);
         }
 
         std::tuple<register_idx_t, register_val_t, register_val_t> _args_reg1_imm1_off1(const buffer data) const
         {
-            const auto b0 = _require_byte(data, 0ULL);
+            const auto *ptr = _require_data(data, 1U);
+            const auto b0 = ptr[0];
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8);
-            const size_t l_y = data.size() > l_x + 1 ? std::min(size_t { 4 }, data.size() - l_x - 1) : 0;
-            const auto nu_x = sign_extend(l_x, _read_uint_le(data, 1ULL, l_x));
-            const auto nu_y_pre = sign_extend(l_y, _read_uint_le(data, 1ULL + l_x, l_y));
+            const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8ULL);
+            _ensure_readable(data, 1U, l_x);
+            const size_t base_y = 1U + l_x;
+            const size_t l_y = data.size() > base_y ? std::min(size_t { 4 }, data.size() - base_y) : 0U;
+            const auto nu_x = sign_extend(l_x, _read_uint_le_unchecked(ptr + 1U, l_x));
+            const auto nu_y_pre = sign_extend(l_y, _read_uint_le_unchecked(ptr + base_y, l_y));
             const auto nu_y = static_cast<register_val_t>(static_cast<register_val_signed_t>(_pc) + static_cast<register_val_signed_t>(nu_y_pre));
             return std::make_tuple(r_a, nu_x, nu_y);
         }
@@ -792,22 +853,25 @@ namespace turbo::jam::machine {
         std::tuple<register_val_t> _args_imm1(const buffer data) const
         {
             const size_t l_x = std::min(size_t { 4 }, data.size());
-            return sign_extend(l_x, _read_uint_le(data, 0ULL, l_x));
+            return sign_extend(l_x, _read_uint_le_unchecked(data.data(), l_x));
         }
 
         std::tuple<register_val_t, register_val_t> _args_imm2(const buffer data) const
         {
-            const size_t l_x = std::min(4ULL, _require_byte(data, 0ULL) % 8ULL);
-            const size_t l_y = data.size() > l_x + 1 ? std::min(size_t { 4 }, data.size() - l_x - 1) : 0;
-            const auto nu_x = sign_extend(l_x, _read_uint_le(data, 1ULL, l_x));
-            const auto nu_y = sign_extend(l_y, _read_uint_le(data, 1ULL + l_x, l_y));
+            const auto *ptr = _require_data(data, 1U);
+            const size_t l_x = std::min(4ULL, ptr[0] % 8ULL);
+            _ensure_readable(data, 1U, l_x);
+            const size_t base_y = 1U + l_x;
+            const size_t l_y = data.size() > base_y ? std::min(size_t { 4 }, data.size() - base_y) : 0U;
+            const auto nu_x = sign_extend(l_x, _read_uint_le_unchecked(ptr + 1U, l_x));
+            const auto nu_y = sign_extend(l_y, _read_uint_le_unchecked(ptr + base_y, l_y));
             return std::make_tuple(nu_x, nu_y);
         }
 
         std::tuple<register_val_t> _args_off1(const buffer data) const
         {
             const size_t l_x = std::min(size_t { 4 }, data.size());
-            const auto nu_x_pre = sign_extend(l_x, _read_uint_le(data, 0ULL, l_x));
+            const auto nu_x_pre = sign_extend(l_x, _read_uint_le_unchecked(data.data(), l_x));
             const auto nu_x = static_cast<register_val_t>(static_cast<register_val_signed_t>(_pc) + static_cast<register_val_signed_t>(nu_x_pre));
             return std::make_tuple(nu_x);
         }
