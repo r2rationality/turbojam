@@ -9,6 +9,7 @@
 #include <boost/container/static_vector.hpp>
 #include "machine.hpp"
 #include "state.hpp"
+#include "turbo/common/pool-allocator.hpp"
 #include "turbo/common/scope-exit.hpp"
 
 namespace turbo::jam::machine {
@@ -31,7 +32,6 @@ namespace turbo::jam::machine {
         {
             static constexpr auto stack_end = (1ULL << 32U) - 2 * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
             _stack_begin = stack_end;
-            _page_storage.reserve(page_map.size() + size_t{32});
             for (const auto &page: page_map) {
                 const auto page_id = page.address / config_prod::ZP_pvm_page_size;
                 const auto cnt = page.length / config_prod::ZP_pvm_page_size;
@@ -58,20 +58,7 @@ namespace turbo::jam::machine {
             _stack_begin = ((_stack_begin - config_prod::ZZ_pvm_init_zone_size) / config_prod::ZZ_pvm_init_zone_size) * config_prod::ZZ_pvm_init_zone_size;
         }
 
-        explicit impl(impl &&o):
-            _pc{o._pc},
-            _heap_end{o._heap_end},
-            _gas{o._gas},
-            _regs{o._regs},
-            _last_page_id{o._last_page_id},
-            _last_page_info{o._last_page_info},
-            _tlb{o._tlb},
-            _page_dir{std::move(o._page_dir)},
-            _page_storage{std::move(o._page_storage)},
-            _stack_begin{o._stack_begin},
-            _program{std::move(o._program)}
-        {
-        }
+        impl(impl &&) = delete;
 
         // this must be re-entrant as it can be called again after a host call
         result_t run()
@@ -256,6 +243,12 @@ namespace turbo::jam::machine {
             bool is_writable() const noexcept { return _tagged & 1; }
         };
 
+        struct vm_page_t {
+            std::array<uint8_t, config_prod::ZP_pvm_page_size> bytes;
+        };
+
+        using page_pool_t = turbo::pool_allocator_t<vm_page_t, 0x100, true, turbo::zero_policy_t::new_arena>;
+
         typedef uint8_t register_idx_t;
 
         struct page_dir_t {
@@ -302,7 +295,7 @@ namespace turbo::jam::machine {
         mutable std::array<tlb_entry_t, tlb_size> _tlb{};
         // Warm fields - accessed on memory operations / page faults
         page_dir_t _page_dir{};
-        std::vector<std::unique_ptr<uint8_t[]>> _page_storage{};
+        page_pool_t _page_pool{};
         address_val_t _stack_begin = 0;
         // Cold fields - rarely accessed after construction
         program_t _program;
@@ -796,16 +789,13 @@ namespace turbo::jam::machine {
 
         void _add_pages(const size_t start_page, const size_t end_page, const bool is_writable)
         {
-            const auto num_pages = end_page - start_page;
-            auto ptr = std::make_unique<uint8_t[]>(num_pages * config_prod::ZP_pvm_page_size);
-            auto *page_ptr = ptr.get();
-            for (size_t i = 0; i < num_pages; ++i, page_ptr += config_prod::ZP_pvm_page_size) {
-                _page_dir.insert(static_cast<uint32_t>(start_page + i), page_info_t {
-                    page_ptr,
+            for (size_t page_id = start_page; page_id < end_page; ++page_id) {
+                auto *page = _page_pool.allocate();
+                _page_dir.insert(static_cast<uint32_t>(page_id), page_info_t {
+                    page->bytes.data(),
                     is_writable
                 });
             }
-            _page_storage.emplace_back(std::move(ptr));
         }
 
         const page_info_t *_page_lookup(const register_val_t page_id) const noexcept
