@@ -1263,7 +1263,7 @@ namespace turbo::jam {
             // - updates pi';
             // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
             const auto ready_reports = rho_dagger_2(
-                this->rho.update(), new_pi, this->tau.get().epoch() == prev_tau.epoch() ? this->kappa.get() : this->lambda.get(),
+                this->rho.update(), new_pi,
                 blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
 
             account_updates_t<CFG> new_delta{this->delta};
@@ -1456,7 +1456,6 @@ namespace turbo::jam {
     template <typename CFG>
     work_reports_t<CFG> state_t<CFG>::rho_dagger_2(
         availability_assignments_t<CFG> &new_rho, statistics_t<CFG> &tmp_pi,
-        const validators_data_t<CFG> &validators,
         const time_slot_t<CFG> &slot, const header_hash_t &parent, const assurances_extrinsic_t<CFG> &assurances)
     {
         std::optional<validator_index_t> prev_validator{};
