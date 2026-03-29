@@ -167,7 +167,6 @@ namespace turbo::cli::fuzzer {
             try {
                 const auto start_time = std::chrono::system_clock::now();
                 std::vector<std::string> paths{};
-                size_t total_size = 0;
                 for (const auto &e: std::filesystem::directory_iterator(sample_dir)) {
                     if (e.is_regular_file() && e.path().extension() == ".bin" && e.path().stem().string() != "genesis") {
                         paths.emplace_back(e.path().string());
