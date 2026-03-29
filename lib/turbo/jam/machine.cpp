@@ -150,7 +150,7 @@ namespace turbo::jam::machine {
                 if (!page) [[unlikely]]
                     throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
                 const auto chunk = std::min(remaining, config_prod::ZP_pvm_page_size - page_off);
-                consume(page->data() + page_off, chunk);
+                consume(page->is_materialized() ? page->data() + page_off : nullptr, chunk);
                 p += chunk;
                 remaining -= chunk;
             }
@@ -160,7 +160,11 @@ namespace turbo::jam::machine {
         {
             size_t i = 0;
             _mem_read_pages(offset, res.size(), [&](const uint8_t *src, const size_t chunk) {
-                std::memcpy(res.data() + i, src, chunk);
+                if (src) {
+                    std::memcpy(res.data() + i, src, chunk);
+                } else {
+                    std::memset(res.data() + i, 0, chunk);
+                }
                 i += chunk;
             });
         }
@@ -170,7 +174,11 @@ namespace turbo::jam::machine {
             uint8_vector res;
             res.reserve(sz);
             _mem_read_pages(offset, sz, [&](const uint8_t *src, const size_t chunk) {
-                res.insert(res.end(), src, src + chunk);
+                if (src) {
+                    res.insert(res.end(), src, src + chunk);
+                } else {
+                    res.insert(res.end(), chunk, uint8_t{0});
+                }
             });
             return res;
         }
@@ -181,11 +189,12 @@ namespace turbo::jam::machine {
             while (i < data.size()) {
                 const auto page_id = p / config_prod::ZP_pvm_page_size;
                 const auto page_off = p % config_prod::ZP_pvm_page_size;
-                const auto *page = _page_lookup(page_id);
+                auto *page = _page_lookup_mut(page_id);
                 if (!page) [[unlikely]]
                     throw exit_page_fault_t{p};
                 if (!page->is_writable()) [[unlikely]]
                     throw exit_page_fault_t{p};
+                _materialize_page(page_id, *page);
                 const auto chunk = std::min(data.size() - i, config_prod::ZP_pvm_page_size - page_off);
                 std::memcpy(page->data() + page_off, data.data() + i, chunk);
                 i += chunk;
@@ -209,7 +218,7 @@ namespace turbo::jam::machine {
                 if (!l2) continue;
                 for (size_t l2_idx = 0; l2_idx < page_dir_t::l2_size; ++l2_idx) {
                     const auto &info = (*l2)[l2_idx];
-                    if (!info._tagged) continue;
+                    if (!info.exists() || !info.is_materialized()) continue;
                     const register_val_t page_id = (l1_idx << page_dir_t::l2_bits) | l2_idx;
                     const register_val_t page_base = page_id * config_prod::ZP_pvm_page_size;
                     for (size_t off = 0; off < config_prod::ZP_pvm_page_size; ++off) {
@@ -232,22 +241,36 @@ namespace turbo::jam::machine {
         }
     private:
         struct page_info_t {
+            static constexpr uintptr_t flag_present = 0x1;
+            static constexpr uintptr_t flag_writable = 0x2;
+            static constexpr uintptr_t flag_materialized = 0x4;
+            static constexpr uintptr_t flag_mask = flag_present | flag_writable | flag_materialized;
+
             uintptr_t _tagged = 0;
 
             page_info_t() = default;
             page_info_t(uint8_t *ptr, const bool writable) noexcept:
-                _tagged { reinterpret_cast<uintptr_t>(ptr) | uintptr_t{writable} }
+                _tagged { reinterpret_cast<uintptr_t>(ptr) | flag_present | flag_materialized | (writable ? flag_writable : 0) }
             {}
 
-            uint8_t *data() const noexcept { return reinterpret_cast<uint8_t *>(_tagged & ~uintptr_t{1}); }
-            bool is_writable() const noexcept { return _tagged & 1; }
+            static page_info_t lazy_zero(const bool writable) noexcept
+            {
+                page_info_t info{};
+                info._tagged = flag_present | (writable ? flag_writable : 0);
+                return info;
+            }
+
+            bool exists() const noexcept { return _tagged & flag_present; }
+            uint8_t *data() const noexcept { return reinterpret_cast<uint8_t *>(_tagged & ~flag_mask); }
+            bool is_writable() const noexcept { return _tagged & flag_writable; }
+            bool is_materialized() const noexcept { return _tagged & flag_materialized; }
         };
 
         struct vm_page_t {
             std::array<uint8_t, config_prod::ZP_pvm_page_size> bytes;
         };
 
-        using page_pool_t = turbo::pool_allocator_t<vm_page_t, 0x100, true, turbo::zero_policy_t::new_arena>;
+        using page_pool_t = turbo::pool_allocator_t<vm_page_t, 0x20>;
 
         typedef uint8_t register_idx_t;
 
@@ -265,7 +288,18 @@ namespace turbo::jam::machine {
                 if (!l2) [[unlikely]]
                     return nullptr;
                 const auto &info = (*l2)[page_id & (l2_size - 1)];
-                if (!info._tagged)
+                if (!info.exists())
+                    return nullptr;
+                return &info;
+            }
+
+            page_info_t *lookup_mut(const uint32_t page_id) noexcept
+            {
+                auto &l2 = l1[page_id >> l2_bits];
+                if (!l2) [[unlikely]]
+                    return nullptr;
+                auto &info = (*l2)[page_id & (l2_size - 1)];
+                if (!info.exists())
                     return nullptr;
                 return &info;
             }
@@ -790,11 +824,7 @@ namespace turbo::jam::machine {
         void _add_pages(const size_t start_page, const size_t end_page, const bool is_writable)
         {
             for (size_t page_id = start_page; page_id < end_page; ++page_id) {
-                auto *page = _page_pool.allocate();
-                _page_dir.insert(static_cast<uint32_t>(page_id), page_info_t {
-                    page->bytes.data(),
-                    is_writable
-                });
+                _page_dir.insert(static_cast<uint32_t>(page_id), page_info_t::lazy_zero(is_writable));
             }
         }
 
@@ -813,6 +843,25 @@ namespace turbo::jam::machine {
                 _last_page_info = tlb_slot.info;
             }
             return &_last_page_info;
+        }
+
+        page_info_t *_page_lookup_mut(const register_val_t page_id) noexcept
+        {
+            return _page_dir.lookup_mut(static_cast<uint32_t>(page_id));
+        }
+
+        void _materialize_page(const register_val_t page_id, page_info_t &page)
+        {
+            if (page.is_materialized())
+                return;
+            auto *mem_page = _page_pool.allocate();
+            std::memset(mem_page, 0, sizeof(*mem_page));
+            page = page_info_t{mem_page->bytes.data(), page.is_writable()};
+            if (_last_page_id == page_id)
+                _last_page_info = page;
+            auto &tlb_slot = _tlb[page_id & (tlb_size - 1)];
+            if (tlb_slot.page_id == page_id)
+                tlb_slot.info = page;
         }
 
         template<size_t SZ>
@@ -840,6 +889,8 @@ namespace turbo::jam::machine {
         register_val_t _load_unsigned(const register_val_t addr) const
         {
             const auto [page_off, page_it] = _addr_check<SZ>(addr);
+            if (!page_it->is_materialized())
+                return 0;
             register_val_t res;
             if constexpr (SZ == 1) {
                 res = page_it->data()[page_off];
@@ -865,16 +916,34 @@ namespace turbo::jam::machine {
         void _store_unsigned_init(const register_val_t addr, const uint8_t val)
         {
             using T = std::decay_t<decltype(val)>;
-            const auto [page_off, page_it] = _addr_check<1>(addr);
+            static constexpr register_val_t page_size  = config_prod::ZP_pvm_page_size;
+            static constexpr register_val_t page_mask  = page_size - 1;
+            static constexpr unsigned page_shift = std::countr_zero(page_size);
+            const auto page_off = addr & page_mask;
+            const auto page_id = addr >> page_shift;
+            auto *page_it = _page_lookup_mut(page_id);
+            if (!page_it) [[unlikely]]
+                throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
+            _materialize_page(page_id, *page_it);
             *reinterpret_cast<T*>(page_it->data() + page_off) = val;
         }
 
         template<typename T>
         void _store_unsigned(const register_val_t addr, const T val)
         {
-            const auto [page_off, page_it] = _addr_check<sizeof(T)>(addr);
+            static constexpr register_val_t page_size  = config_prod::ZP_pvm_page_size;
+            static constexpr register_val_t page_mask  = page_size - 1;
+            static constexpr unsigned page_shift = std::countr_zero(page_size);
+            const auto page_off = addr & page_mask;
+            const auto page_id  = addr >> page_shift;
+            if (page_off > page_mask - (sizeof(T) - 1)) [[unlikely]]
+                throw exit_page_fault_t{(addr & ~page_mask) + page_size};
+            auto *page_it = _page_lookup_mut(page_id);
+            if (!page_it) [[unlikely]]
+                throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
             if (!page_it->is_writable()) [[unlikely]]
                 throw exit_page_fault_t{addr};
+            _materialize_page(page_id, *page_it);
             uint8_t *dst_ptr = page_it->data() + page_off;
             *reinterpret_cast<T*>(dst_ptr) = val;
         }
