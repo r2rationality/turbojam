@@ -12,6 +12,13 @@ const HASH_SZ: usize = 32;
 const VKEY_SZ: usize = 32;
 
 type RingCommitment = ark_vrf::ring::RingCommitment<BandersnatchSha512Ell2>;
+type RingBuilderPcsParams = ark_vrf::ring::RingBuilderPcsParams<BandersnatchSha512Ell2>;
+type RingVerifierKeyBuilder = ark_vrf::ring::VerifierKeyBuilder<BandersnatchSha512Ell2>;
+
+struct RingContext {
+    params: RingProofParams,
+    builder_pcs_params: RingBuilderPcsParams,
+}
 
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
 struct IetfVrfSignature {
@@ -63,10 +70,10 @@ fn base_ring_proof_params(path_opt: Option<&str>) -> &'static Option<PcsParams> 
     })
 }
 
-fn ring_proof_params(ring_size: usize) -> Option<std::sync::Arc<RingProofParams>> {
+fn ring_context(ring_size: usize) -> Option<std::sync::Arc<RingContext>> {
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, OnceLock};
-    static CACHE: OnceLock<Mutex<HashMap<usize, Arc<RingProofParams>>>> = OnceLock::new();
+    static CACHE: OnceLock<Mutex<HashMap<usize, Arc<RingContext>>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
     let mut map = cache.lock().unwrap();
     if let Some(p) = map.get(&ring_size) {
@@ -81,9 +88,17 @@ fn ring_proof_params(ring_size: usize) -> Option<std::sync::Arc<RingProofParams>
             }
         }
     })?;
-    let arc = Arc::new(params);
+    let (_builder, builder_pcs_params) = params.verifier_key_builder();
+    let arc = Arc::new(RingContext {
+        params,
+        builder_pcs_params,
+    });
     map.insert(ring_size, Arc::clone(&arc));
     Some(arc)
+}
+
+fn ring_proof_params(ring_size: usize) -> Option<std::sync::Arc<RingProofParams>> {
+    ring_context(ring_size).map(|ctx| std::sync::Arc::new(ctx.params.clone()))
 }
 
 #[no_mangle]
@@ -119,8 +134,8 @@ pub extern "C" fn ring_commitment(
     let num_vkeys = vkeys_len / VKEY_SZ;
     let vkeys = unsafe { std::slice::from_raw_parts(vkeys_ptr, vkeys_len) };
 
-    let ring_params = match ring_proof_params(num_vkeys) {
-        Some(rp) => rp,
+    let ring_ctx = match ring_context(num_vkeys) {
+        Some(ctx) => ctx,
         None => return -1,
     };
     let pad_point = RingProofParams::padding_point();
@@ -132,7 +147,11 @@ pub extern "C" fn ring_commitment(
         pts.push(pt);
     }
 
-    let commitment = ring_params.verifier_key(&pts).commitment();
+    let mut builder = RingVerifierKeyBuilder::new(&ring_ctx.params, &ring_ctx.builder_pcs_params);
+    if builder.append(&pts, &ring_ctx.builder_pcs_params).is_err() {
+        return -1;
+    }
+    let commitment = builder.finalize().commitment();
     let out_slice = unsafe { std::slice::from_raw_parts_mut(out_ptr, out_len) };
     match commitment.serialize_compressed(out_slice.as_mut()) {
         Ok(()) => 0,
