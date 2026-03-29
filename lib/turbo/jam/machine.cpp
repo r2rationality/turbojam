@@ -254,27 +254,24 @@ namespace turbo::jam::machine {
             bool is_writable() const noexcept { return _tagged & 1; }
         };
 
-        struct mem_update_t {
-            address_val_t address;
-            boost::container::static_vector<uint8_t, 8U> val;
-        };
-
         typedef uint8_t register_idx_t;
 
         struct page_dir_t {
             static constexpr size_t l2_bits = 10;
             static constexpr size_t l1_size = 1 << l2_bits;  // 1024
             static constexpr size_t l2_size = 1 << l2_bits;  // 1024
-
             using l2_table_t = std::array<page_info_t, l2_size>;
+
             std::array<std::unique_ptr<l2_table_t>, l1_size> l1{};
 
-            const page_info_t *lookup(const uint32_t page_id) const noexcept
+            [[nodiscard]] const page_info_t *lookup(const uint32_t page_id) const noexcept
             {
                 const auto &l2 = l1[page_id >> l2_bits];
-                if (!l2) [[unlikely]] return nullptr;
+                if (!l2) [[unlikely]]
+                    return nullptr;
                 const auto &info = (*l2)[page_id & (l2_size - 1)];
-                if (!info._tagged) return nullptr;
+                if (!info._tagged)
+                    return nullptr;
                 return &info;
             }
 
@@ -620,11 +617,6 @@ namespace turbo::jam::machine {
             }, op_make_args);
         }
 
-        static register_val_t _sign_extend(const size_t num_bytes, const register_val_t value)
-        {
-            return sign_extend(num_bytes, value);
-        }
-
         void _set_reg(const register_idx_t idx, const register_val_t val)
         {
             _regs[idx] = val;
@@ -651,7 +643,7 @@ namespace turbo::jam::machine {
             const register_idx_t r_b = std::min(12ULL, data.at(0ULL) / 16ULL);
             const size_t l_x = !data.empty() ? std::min(size_t { 4 }, data.size() - 1) : 0;
             decoder dec { data.subbuf(1) };
-            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_x = sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             return std::make_tuple(r_a, r_b, nu_x);
         }
 
@@ -662,8 +654,8 @@ namespace turbo::jam::machine {
             const size_t l_x = std::min(4ULL, data.at(1ULL) % 8ULL);
             const size_t l_y = data.size() > l_x + 1 ? std::min(size_t { 4 }, data.size() - l_x - 2) : 0;
             decoder dec { data.subbuf(2) };
-            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
-            const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
+            const auto nu_x = sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_y = sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
             return std::make_tuple(r_a, r_b, nu_x, nu_y);
         }
 
@@ -679,7 +671,7 @@ namespace turbo::jam::machine {
             const register_idx_t r_a = std::min(12ULL, data.at(0ULL) & 0xFULL);
             const size_t l_x = !data.empty() ? std::min(max_size, data.size() - 1) : 0;
             decoder dec { data.subbuf(1) };
-            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_x = sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             return std::make_tuple(r_a, nu_x);
         }
 
@@ -713,8 +705,8 @@ namespace turbo::jam::machine {
             const size_t l_x = std::min(4ULL, (data.at(0ULL) / 16ULL) % 8);
             const size_t l_y = data.size() > l_x ? std::min(size_t { 4 }, data.size() - l_x - 1) : 0;
             decoder dec { data.subbuf(1) };
-            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
-            const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
+            const auto nu_x = sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_y = sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
             return std::make_tuple(r_a, nu_x, nu_y);
         }
 
@@ -724,8 +716,8 @@ namespace turbo::jam::machine {
             const size_t l_x = std::min(4ULL, (data.at(0ULL) / 16ULL) % 8);
             const size_t l_y = data.size() > l_x ? std::min(size_t { 4 }, data.size() - l_x - 1) : 0;
             decoder dec { data.subbuf(1) };
-            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
-            const auto nu_y_pre = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
+            const auto nu_x = sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_y_pre = sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
             const auto nu_y = static_cast<register_val_t>(static_cast<register_val_signed_t>(_pc) + static_cast<register_val_signed_t>(nu_y_pre));
             return std::make_tuple(r_a, nu_x, nu_y);
         }
@@ -734,7 +726,7 @@ namespace turbo::jam::machine {
         {
             const size_t l_x = std::min(size_t { 4 }, data.size());
             decoder dec { data };
-            return _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            return sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
         }
 
         std::tuple<register_val_t, register_val_t> _args_imm2(const buffer data) const
@@ -742,8 +734,8 @@ namespace turbo::jam::machine {
             const size_t l_x = std::min(4ULL, data.at(0ULL) % 8ULL);
             const size_t l_y = !data.empty() ? std::min(size_t { 4 }, data.size() - l_x - 1) : 0;
             decoder dec { data.subbuf(1) };
-            const auto nu_x = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
-            const auto nu_y = _sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
+            const auto nu_x = sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_y = sign_extend(l_y, dec.uint_fixed<register_val_t>(l_y));
             return std::make_tuple(nu_x, nu_y);
         }
 
@@ -751,7 +743,7 @@ namespace turbo::jam::machine {
         {
             const size_t l_x = std::min(size_t { 4 }, data.size());
             decoder dec { data };
-            const auto nu_x_pre = _sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
+            const auto nu_x_pre = sign_extend(l_x, dec.uint_fixed<register_val_t>(l_x));
             const auto nu_x = static_cast<register_val_t>(static_cast<register_val_signed_t>(_pc) + static_cast<register_val_signed_t>(nu_x_pre));
             return std::make_tuple(nu_x);
         }
@@ -857,21 +849,24 @@ namespace turbo::jam::machine {
         {
             const auto [page_off, page_it] = _addr_check<SZ>(addr);
             register_val_t res;
-            switch (SZ) {
-                case 1: res = page_it->data()[page_off]; break;
-                case 2: res = buffer{page_it->data() + page_off, SZ}.to<uint16_t>(); break;
-                case 4: res = buffer{page_it->data() + page_off, SZ}.to<uint32_t>(); break;
-                case 8: res = buffer{page_it->data() + page_off, SZ}.to<uint64_t>(); break;
-                [[unlikely]] default: throw exit_panic_t{};
+            if constexpr (SZ == 1) {
+                res = page_it->data()[page_off];
+            } else if constexpr (SZ == 2) {
+                res = buffer{page_it->data() + page_off, SZ}.to<uint16_t>();
+            } else if constexpr (SZ == 4) {
+                res = buffer{page_it->data() + page_off, SZ}.to<uint32_t>();
+            } else if constexpr (SZ == 8) {
+                res = buffer{page_it->data() + page_off, SZ}.to<uint64_t>();
+            } else {
+                throw exit_panic_t{};
             }
-            //logger::trace("PolkaVM: load {:08X}:{}: 0x{:X}", addr, sz, res);
             return res;
         }
 
         template<size_t SZ>
         register_val_t _load_signed(const register_val_t addr)
         {
-            return _sign_extend(SZ, _load_unsigned<SZ>(addr));
+            return sign_extend(SZ, _load_unsigned<SZ>(addr));
         }
 
         // used for the initialization so does not respect the is_writable false
@@ -1030,14 +1025,14 @@ namespace turbo::jam::machine {
         op_res_t sign_extend_8(const buffer data)
         {
             const auto [r_d, r_a] = _args_reg2(data);
-            _set_reg(r_d, _sign_extend(1, _regs[r_a]));
+            _set_reg(r_d, sign_extend(1, _regs[r_a]));
             return {};
         }
 
         op_res_t sign_extend_16(const buffer data)
         {
             const auto [r_d, r_a] = _args_reg2(data);
-            _set_reg(r_d, _sign_extend(2, _regs[r_a]));
+            _set_reg(r_d, sign_extend(2, _regs[r_a]));
             return {};
         }
 
@@ -1094,7 +1089,7 @@ namespace turbo::jam::machine {
         op_res_t add_imm_32(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _sign_extend(4, static_cast<uint32_t>(_regs[r_b] + nu_x)));
+            _set_reg(r_a, sign_extend(4, static_cast<uint32_t>(_regs[r_b] + nu_x)));
             return {};
         }
 
@@ -1122,7 +1117,7 @@ namespace turbo::jam::machine {
         op_res_t mul_imm_32(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _sign_extend(4, _regs[r_b] * nu_x));
+            _set_reg(r_a, sign_extend(4, _regs[r_b] * nu_x));
             return {};
         }
 
@@ -1143,14 +1138,14 @@ namespace turbo::jam::machine {
         op_res_t shlo_l_imm_32(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _sign_extend(4, static_cast<uint32_t>(_regs[r_b]) << static_cast<uint32_t>(nu_x)));
+            _set_reg(r_a, sign_extend(4, static_cast<uint32_t>(_regs[r_b]) << static_cast<uint32_t>(nu_x)));
             return {};
         }
 
         op_res_t shlo_r_imm_32(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _sign_extend(4, static_cast<uint32_t>(_regs[r_b]) >> static_cast<uint32_t>(nu_x)));
+            _set_reg(r_a, sign_extend(4, static_cast<uint32_t>(_regs[r_b]) >> static_cast<uint32_t>(nu_x)));
             return {};
         }
 
@@ -1164,7 +1159,7 @@ namespace turbo::jam::machine {
         op_res_t neg_add_imm_32(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _sign_extend(4, static_cast<uint32_t>(nu_x + (1ULL << 32ULL) - _regs[r_b])));
+            _set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x + (1ULL << 32ULL) - _regs[r_b])));
             return {};
         }
 
@@ -1185,14 +1180,14 @@ namespace turbo::jam::machine {
         op_res_t shlo_l_imm_alt_32(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _sign_extend(4, static_cast<uint32_t>(nu_x) << static_cast<uint32_t>(_regs[r_b])));
+            _set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x) << static_cast<uint32_t>(_regs[r_b])));
             return {};
         }
 
         op_res_t shlo_r_imm_alt_32(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _sign_extend(4, static_cast<uint32_t>(nu_x) >> static_cast<uint32_t>(_regs[r_b])));
+            _set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x) >> static_cast<uint32_t>(_regs[r_b])));
             return {};
         }
 
@@ -1297,14 +1292,14 @@ namespace turbo::jam::machine {
         op_res_t rot_r_32_imm(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _sign_extend(4, std::rotr(static_cast<uint32_t>(_regs[r_b]), static_cast<uint32_t>(nu_x))));
+            _set_reg(r_a, sign_extend(4, std::rotr(static_cast<uint32_t>(_regs[r_b]), static_cast<uint32_t>(nu_x))));
             return {};
         }
 
         op_res_t rot_r_32_imm_alt(const buffer data)
         {
             const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            _set_reg(r_a, _sign_extend(4, std::rotr(static_cast<uint32_t>(nu_x), static_cast<uint32_t>(_regs[r_b]))));
+            _set_reg(r_a, sign_extend(4, std::rotr(static_cast<uint32_t>(nu_x), static_cast<uint32_t>(_regs[r_b]))));
             return {};
         }
 
@@ -1581,28 +1576,28 @@ namespace turbo::jam::machine {
         op_res_t add_32(const buffer data)
         {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
-            _set_reg(r_d, _sign_extend(4, static_cast<uint32_t>(_regs[r_a] + _regs[r_b])));
+            _set_reg(r_d, sign_extend(4, static_cast<uint32_t>(_regs[r_a] + _regs[r_b])));
             return {};
         }
 
         op_res_t sub_32(const buffer data)
         {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
-            _set_reg(r_d, _sign_extend(4, static_cast<uint32_t>(_regs[r_a] - _regs[r_b])));
+            _set_reg(r_d, sign_extend(4, static_cast<uint32_t>(_regs[r_a] - _regs[r_b])));
             return {};
         }
 
         op_res_t mul_32(const buffer data)
         {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
-            _set_reg(r_d, _sign_extend(4, static_cast<uint32_t>(_regs[r_a] * _regs[r_b])));
+            _set_reg(r_d, sign_extend(4, static_cast<uint32_t>(_regs[r_a] * _regs[r_b])));
             return {};
         }
 
         op_res_t div_u_32(const buffer data)
         {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
-            _set_reg(r_d, _regs[r_b] != 0 ? _sign_extend(4, static_cast<uint32_t>(_regs[r_a] / _regs[r_b])) : std::numeric_limits<uint64_t>::max());
+            _set_reg(r_d, _regs[r_b] != 0 ? sign_extend(4, static_cast<uint32_t>(_regs[r_a] / _regs[r_b])) : std::numeric_limits<uint64_t>::max());
             return {};
         }
 
@@ -1628,7 +1623,7 @@ namespace turbo::jam::machine {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
             const auto reg_a_u32 = static_cast<uint32_t>(_regs[r_a]);
             const auto reg_b_u32 = static_cast<uint32_t>(_regs[r_b]);
-            _set_reg(r_d, _sign_extend(4, reg_b_u32 != 0 ? reg_a_u32 % reg_b_u32 : reg_a_u32));
+            _set_reg(r_d, sign_extend(4, reg_b_u32 != 0 ? reg_a_u32 % reg_b_u32 : reg_a_u32));
             return {};
         }
 
@@ -1648,14 +1643,14 @@ namespace turbo::jam::machine {
         op_res_t shlo_l_32(const buffer data)
         {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
-            _set_reg(r_d, _sign_extend(4, static_cast<uint32_t>(_regs[r_a]) << static_cast<uint32_t>(_regs[r_b])));
+            _set_reg(r_d, sign_extend(4, static_cast<uint32_t>(_regs[r_a]) << static_cast<uint32_t>(_regs[r_b])));
             return {};
         }
 
         op_res_t shlo_r_32(const buffer data)
         {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
-            _set_reg(r_d, _sign_extend(4, static_cast<uint32_t>(_regs[r_a]) >> static_cast<uint32_t>(_regs[r_b] % 32U)));
+            _set_reg(r_d, sign_extend(4, static_cast<uint32_t>(_regs[r_a]) >> static_cast<uint32_t>(_regs[r_b] % 32U)));
             return {};
         }
 
@@ -1664,7 +1659,7 @@ namespace turbo::jam::machine {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
             const auto reg_a_s32 = static_cast<int32_t>(_regs[r_a]);
             const auto reg_b_s32 = static_cast<int32_t>(_regs[r_b] % 32U);
-            _set_reg(r_d, _sign_extend(4, reg_a_s32 >> reg_b_s32));
+            _set_reg(r_d, sign_extend(4, reg_a_s32 >> reg_b_s32));
             return {};
         }
 
@@ -1872,7 +1867,7 @@ namespace turbo::jam::machine {
         op_res_t rot_l_32(const buffer data)
         {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
-            _set_reg(r_d, _sign_extend(4, std::rotl(static_cast<uint32_t>(_regs[r_a]), static_cast<uint32_t>(_regs[r_b]))));
+            _set_reg(r_d, sign_extend(4, std::rotl(static_cast<uint32_t>(_regs[r_a]), static_cast<uint32_t>(_regs[r_b]))));
             return {};
         }
 
@@ -1886,7 +1881,7 @@ namespace turbo::jam::machine {
         op_res_t rot_r_32(const buffer data)
         {
             const auto [r_a, r_b, r_d] = _args_reg3(data);
-            _set_reg(r_d, _sign_extend(4, std::rotr(static_cast<uint32_t>(_regs[r_a]), static_cast<uint32_t>(_regs[r_b]))));
+            _set_reg(r_d, sign_extend(4, std::rotr(static_cast<uint32_t>(_regs[r_a]), static_cast<uint32_t>(_regs[r_b]))));
             return {};
         }
 

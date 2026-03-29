@@ -237,7 +237,7 @@ namespace turbo::jam::machine {
     inline register_val_t sign_extend(const size_t num_bytes, const register_val_t value)
     {
         if (num_bytes > 8) [[unlikely]]
-            throw exit_panic_t {};
+            throw exit_panic_t{};
         if (num_bytes == 0) [[unlikely]]
             return 0;
         const size_t bit_count = num_bytes << 3U;
