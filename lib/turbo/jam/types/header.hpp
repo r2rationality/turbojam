@@ -127,6 +127,12 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct header_t {
+        struct prepared_signatures_t {
+            entropy_t seal_output{};
+            entropy_t entropy_output{};
+        };
+
+
         // H_p
         header_hash_t parent{};
         // H_r - ancestors need to be stored only for previous 24-hours of any block to be validated
@@ -147,6 +153,8 @@ namespace turbo::jam {
         offenders_mark_t offenders_mark{};
         // H_s
         bandersnatch_vrf_signature_t seal{};
+
+        [[nodiscard]] prepared_signatures_t prepare_signatures() const;
 
         [[nodiscard]] uint8_vector unsigned_bytes() const
         {
@@ -172,7 +180,8 @@ namespace turbo::jam {
             return res;
         }
 
-        void verify_signatures(const bandersnatch_public_t &vkey, const tickets_or_keys_t<CFG> &gamma_s, const entropy_t &eta3) const;
+        void verify_signatures(const bandersnatch_public_t &vkey, const tickets_or_keys_t<CFG> &gamma_s,
+            const entropy_t &eta3, const prepared_signatures_t &prepared) const;
 
         void serialize_unsigned(auto &archive)
         {

@@ -972,7 +972,8 @@ namespace turbo::jam {
         // signature verification
         static void verify_all_signatures(const block_t<CFG> &blk, const time_slot_t<CFG> &prev_tau,
             const entropy_buffer_t &new_eta, const safrole_state_t<CFG> &new_gamma,
-            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda, const disputes_records_t &prev_psi);
+            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda, const disputes_records_t &prev_psi,
+            const typename header_t<CFG>::prepared_signatures_t &prepared_header_signatures);
         static void verify_assurance_signatures(const header_hash_t &parent, const validators_data_t<CFG> &validators, const assurances_extrinsic_t<CFG> &assurances);
         static void verify_dispute_signatures(const time_slot_t<CFG> &prev_tau,
             const validators_data_t<CFG> &prev_kappa, const validators_data_t<CFG> &prev_lambda,const disputes_extrinsic_t<CFG> &disputes);

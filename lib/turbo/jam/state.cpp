@@ -176,7 +176,7 @@ namespace turbo::jam {
             }
             std::optional<ticket_body_t> prev_ticket{};
             for (const auto &t: extrinsic) {
-                ticket_body_t tb;
+                ticket_body_t tb{};
                 tb.attempt = t.attempt;
                 if (ark_vrf::ring_vrf_output(tb.id, t.signature) != 0) [[unlikely]]
                     throw err_bad_ticket_proof_t{};
@@ -1179,6 +1179,7 @@ namespace turbo::jam {
     {
         const timer t_apply{"state_t::apply", logger::level::debug};
         try {
+            const auto prepared_header_signatures = blk.header.prepare_signatures();
             const auto prev_tau = this->tau.get();
 
             state_t::tau_prime(this->tau.update(), blk.header.slot);
@@ -1188,7 +1189,7 @@ namespace turbo::jam {
             new_pi.services = {};
 
             beta_dagger(this->beta.update(), blk.header.parent_state_root);
-            eta_prime(this->eta.update(), prev_tau, blk.header.slot, blk.header.entropy());
+            eta_prime(this->eta.update(), prev_tau, blk.header.slot, prepared_header_signatures.entropy_output);
 
             // (4.11) -> psi_prime - additional deps: relies on kappa', lambda' and updates_rho
             const auto new_offenders = psi_prime(
@@ -1217,7 +1218,7 @@ namespace turbo::jam {
             // TODO: to be started in a parallel thread for better performance
             verify_all_signatures(blk, prev_tau,
                 this->eta.get(), this->gamma.get(),
-                this->kappa.get(), this->lambda.get(), this->psi.get());
+                this->kappa.get(), this->lambda.get(), this->psi.get(), prepared_header_signatures);
 
             // (5.4), (5.5), (5.6)
             // can be run in parallel
@@ -1417,26 +1418,34 @@ namespace turbo::jam {
         static constexpr std::string_view input_prefix{"jam_ticket_seal"};
         static constexpr size_t input_size = input_prefix.size() + sizeof(new_eta[2]) + 1U;
         static_assert(input_size == 48U);
-        byte_array<input_size> input;
-        memcpy(input.data(), input_prefix.data(), input_prefix.size());
-        memcpy(input.data() + input_prefix.size(), new_eta[2].data(), new_eta[2].size());
-        for (const auto &t: tickets) {
-            input[input_prefix.size() + new_eta[2].size()] = t.attempt;
-            if (ark_vrf::ring_vrf_verify(CFG::V_validator_count, new_gamma_z, t.signature, input, aux) != 0) [[unlikely]]
-                throw err_bad_ticket_proof_t{};
+        if (tickets.empty())
+            return;
+        std::vector<uint8_t> sigs{};
+        std::vector<uint8_t> inputs(tickets.size() * input_size);
+        for (size_t i = 0; i < tickets.size(); ++i) {
+            const auto &t = tickets[i];
+            sigs.insert(sigs.end(), t.signature.begin(), t.signature.end());
+            auto inp = inputs.data() + i * input_size;
+            memcpy(inp, input_prefix.data(), input_prefix.size());
+            memcpy(inp + input_prefix.size(), new_eta[2].data(), new_eta[2].size());
+            inp[input_prefix.size() + new_eta[2].size()] = t.attempt;
         }
+        if (ark_vrf::ring_vrf_verify_batch(CFG::V_validator_count, new_gamma_z, sigs, inputs, input_size, aux) != 0) [[unlikely]]
+            throw err_bad_ticket_proof_t{};
     }
+
 
     template <typename CFG>
     void state_t<CFG>::verify_all_signatures(
         const block_t<CFG> &blk, const time_slot_t<CFG> &prev_tau,
         const entropy_buffer_t &new_eta, const safrole_state_t<CFG> &new_gamma,
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
-        const disputes_records_t &prev_psi)
+        const disputes_records_t &prev_psi,
+        const typename header_t<CFG>::prepared_signatures_t &prepared_header_signatures)
     {
         blk.header.verify_signatures(
             new_kappa.at(blk.header.author_index).bandersnatch,
-            new_gamma.s, new_eta[3]
+            new_gamma.s, new_eta[3], prepared_header_signatures
         );
         verify_assurance_signatures(blk.header.parent, blk.header.slot.epoch() == prev_tau.epoch() ? new_kappa : new_lambda, blk.extrinsic.assurances);
         verify_dispute_signatures(prev_tau, new_kappa, new_lambda, blk.extrinsic.disputes);

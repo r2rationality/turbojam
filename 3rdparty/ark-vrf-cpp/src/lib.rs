@@ -25,6 +25,7 @@ struct RingContext {
     builder_pcs_params: RingBuilderPcsParams,
 }
 
+
 #[derive(CanonicalSerialize, CanonicalDeserialize)]
 struct IetfVrfSignature {
     output: Output,
@@ -185,6 +186,7 @@ pub extern "C" fn ring_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *co
     return 0;
 }
 
+
 #[no_mangle]
 pub extern "C" fn ring_vrf_verify(ring_size: usize, comm_ptr: *const u8, comm_len: usize,
                                   sig_ptr: *const u8, sig_len: usize,
@@ -229,6 +231,79 @@ pub extern "C" fn ring_vrf_verify(ring_size: usize, comm_ptr: *const u8, comm_le
     return 0;
 }
 
+
+#[no_mangle]
+pub extern "C" fn ring_vrf_verify_batch(
+    ring_size: usize,
+    comm_ptr: *const u8,
+    comm_len: usize,
+    sigs_ptr: *const u8,
+    sigs_len: usize,
+    inputs_ptr: *const u8,
+    inputs_len: usize,
+    input_stride: usize,
+    aux_ptr: *const u8,
+    aux_len: usize,
+) -> i32 {
+    if comm_len != RING_COMMIT_SZ {
+        return -1;
+    }
+    if sigs_len == 0 {
+        return 0;
+    }
+    if sigs_ptr.is_null() || inputs_ptr.is_null() || input_stride == 0 {
+        return -1;
+    }
+    if sigs_len % RING_SIG_SZ != 0 {
+        return -1;
+    }
+    let n_sigs = sigs_len / RING_SIG_SZ;
+    if inputs_len != n_sigs * input_stride {
+        return -1;
+    }
+
+    let params_res = ring_proof_params(ring_size);
+    if params_res.is_none() {
+        return -1;
+    }
+    let params = params_res.unwrap();
+
+    let commitment_res = RingCommitment::deserialize_compressed_unchecked(unsafe {
+        std::slice::from_raw_parts(comm_ptr, comm_len)
+    });
+    if commitment_res.is_err() {
+        return -1;
+    }
+    let commitment = commitment_res.unwrap();
+
+    let verifier_key = params.verifier_key_from_commitment(commitment);
+    let verifier = params.verifier(verifier_key);
+    let mut batch = ark_vrf::ring::BatchVerifier::<BandersnatchSha512Ell2>::new(verifier);
+
+    let sigs = unsafe { std::slice::from_raw_parts(sigs_ptr, sigs_len) };
+    let inputs = unsafe { std::slice::from_raw_parts(inputs_ptr, inputs_len) };
+    let aux = unsafe { std::slice::from_raw_parts(aux_ptr, aux_len) };
+
+    for (sig_bytes, input_bytes) in sigs.chunks_exact(RING_SIG_SZ).zip(inputs.chunks_exact(input_stride)) {
+        let sig_res = RingVrfSignature::deserialize_compressed_unchecked(sig_bytes);
+        if sig_res.is_err() {
+            return -1;
+        }
+        let sig = sig_res.unwrap();
+        let input_res = Input::new(input_bytes);
+        if input_res.is_none() {
+            return -1;
+        }
+        let input = input_res.unwrap();
+        batch.push(input, sig.output, aux, &sig.proof);
+    }
+
+    if batch.verify().is_err() {
+        return -2;
+    }
+    0
+}
+
 #[no_mangle]
 pub extern "C" fn ietf_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *const u8, sig_len: usize) -> i32 {
     if sig_ptr.is_null() || out_ptr.is_null() || sig_len != IETF_SIG_SZ {
@@ -248,6 +323,7 @@ pub extern "C" fn ietf_vrf_output(out_ptr: *mut u8, out_len: usize, sig_ptr: *co
     unsafe { ptr::copy_nonoverlapping(out_hash.as_ptr(), out_ptr, HASH_SZ) };
     return 0;
 }
+
 
 #[no_mangle]
 pub extern "C" fn ietf_vrf_verify(vkey_ptr: *const u8, vkey_len: usize,
@@ -285,6 +361,7 @@ pub extern "C" fn ietf_vrf_verify(vkey_ptr: *const u8, vkey_len: usize,
     }
     return 0;
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -351,7 +428,22 @@ mod tests {
         let mut comm_buf: Vec<u8> = vec![];
         comm.serialize_compressed(&mut comm_buf).unwrap();
         assert_eq!(RING_COMMIT_SZ, comm_buf.len());
-    
+
+        assert_eq!(
+            0,
+            ring_vrf_verify_batch(
+                ring_vk.len(),
+                comm_buf.as_ptr(),
+                comm_buf.len(),
+                sig_buf.as_ptr(),
+                sig_buf.len(),
+                input_buf.as_ptr(),
+                input_buf.len(),
+                input_buf.len(),
+                aux_buf.as_ptr(),
+                aux_buf.len()
+            )
+        );
         assert_eq!(0, ring_vrf_verify(ring_vk.len(), comm_buf.as_ptr(), comm_buf.len(),
                       sig_buf.as_ptr(), sig_buf.len(),
                       input_buf.as_ptr(), input_buf.len(), aux_buf.as_ptr(), aux_buf.len()));

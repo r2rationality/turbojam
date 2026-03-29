@@ -15,6 +15,10 @@ namespace ark_vrf {
             int ring_vrf_verify(size_t ring_size, const void *comm_ptr, size_t comm_len,
                 const void* sig_ptr, size_t sig_len,
                 const void *input_ptr, size_t input_len, const void *aux_ptr, size_t aux_len);
+            int ring_vrf_verify_batch(size_t ring_size, const void *comm_ptr, size_t comm_len,
+                const void *sigs_ptr, size_t sigs_len,
+                const void *inputs_ptr, size_t inputs_len, size_t input_stride,
+                const void *aux_ptr, size_t aux_len);
             int ietf_vrf_output(void *out_ptr, size_t out_len, const void *sig_ptr, size_t sig_len);
             int ietf_vrf_verify(const void* vkey_ptr, size_t vkey_len,
                 const void* sig_ptr, size_t sig_len,
@@ -44,6 +48,16 @@ namespace ark_vrf {
         return internal::ring_vrf_verify(ring_size, comm.data(), comm.size(),
             sig.data(), sig.size(),
             input.data(), input.size(), aux.data(), aux.size());
+    }
+
+    inline int ring_vrf_verify_batch(size_t ring_size, const std::span<const uint8_t> &comm,
+        const std::span<const uint8_t> &sigs, const std::span<const uint8_t> &inputs, size_t input_stride,
+        const std::span<const uint8_t> &aux)
+    {
+        return internal::ring_vrf_verify_batch(ring_size, comm.data(), comm.size(),
+            sigs.data(), sigs.size(),
+            inputs.data(), inputs.size(), input_stride,
+            aux.data(), aux.size());
     }
 
     inline int ietf_vrf_output(const std::span<uint8_t, 32> &out, const std::span<const uint8_t> &sig)
