@@ -6,7 +6,7 @@
 #if defined(_MSC_VER)
 #   include <intrin.h>
 #endif
-#include <boost/container/flat_map.hpp>
+#include <boost/container/static_vector.hpp>
 #include "machine.hpp"
 #include "state.hpp"
 #include "turbo/common/scope-exit.hpp"
@@ -31,14 +31,7 @@ namespace turbo::jam::machine {
         {
             static constexpr auto stack_end = (1ULL << 32U) - 2 * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
             _stack_begin = stack_end;
-            {
-                size_t total_pages = 0;
-                for (const auto &page: page_map)
-                    total_pages += page.length / config_prod::ZP_pvm_page_size;
-                // Reserve some extra pages to unnecessary reallocations on reasonable sbrk calls
-                _pages.reserve(total_pages + std::max(size_t{1024}, total_pages));
-                _page_storage.reserve(page_map.size() + size_t{32});
-            }
+            _page_storage.reserve(page_map.size() + size_t{32});
             for (const auto &page: page_map) {
                 const auto page_id = page.address / config_prod::ZP_pvm_page_size;
                 const auto cnt = page.length / config_prod::ZP_pvm_page_size;
@@ -70,7 +63,7 @@ namespace turbo::jam::machine {
             _gas{o._gas},
             _regs{o._regs},
             _tlb{o._tlb},
-            _pages{std::move(o._pages)},
+            _page_dir{std::move(o._page_dir)},
             _page_storage{std::move(o._page_storage)},
             _heap_end{o._heap_end},
             _stack_begin{o._stack_begin},
@@ -222,17 +215,24 @@ namespace turbo::jam::machine {
                     chunk.contents.clear();
                 }
             };
-            for (const auto &[page_id, info]: _pages) {
-                const register_val_t page_base = page_id * config_prod::ZP_pvm_page_size;
-                for (size_t off = 0; off < config_prod::ZP_pvm_page_size; ++off) {
-                    const auto b = info.data()[off];
-                    if (b) {
-                        chunk.contents.emplace_back(b);
-                    } else {
-                        flush_chunk(page_base, off);
+            for (size_t l1_idx = 0; l1_idx < page_dir_t::l1_size; ++l1_idx) {
+                const auto &l2 = _page_dir.l1[l1_idx];
+                if (!l2) continue;
+                for (size_t l2_idx = 0; l2_idx < page_dir_t::l2_size; ++l2_idx) {
+                    const auto &info = (*l2)[l2_idx];
+                    if (!info._tagged) continue;
+                    const register_val_t page_id = (l1_idx << page_dir_t::l2_bits) | l2_idx;
+                    const register_val_t page_base = page_id * config_prod::ZP_pvm_page_size;
+                    for (size_t off = 0; off < config_prod::ZP_pvm_page_size; ++off) {
+                        const auto b = info.data()[off];
+                        if (b) {
+                            chunk.contents.emplace_back(b);
+                        } else {
+                            flush_chunk(page_base, off);
+                        }
                     }
+                    flush_chunk(page_base, config_prod::ZP_pvm_page_size);
                 }
-                flush_chunk(page_base, config_prod::ZP_pvm_page_size);
             }
             return {
                 _regs,
@@ -261,7 +261,31 @@ namespace turbo::jam::machine {
 
         typedef uint8_t register_idx_t;
 
-        using page_map_t = boost::container::flat_map<register_val_t, page_info_t>;
+        struct page_dir_t {
+            static constexpr size_t l2_bits = 10;
+            static constexpr size_t l1_size = 1 << l2_bits;  // 1024
+            static constexpr size_t l2_size = 1 << l2_bits;  // 1024
+
+            using l2_table_t = std::array<page_info_t, l2_size>;
+            std::array<std::unique_ptr<l2_table_t>, l1_size> l1{};
+
+            const page_info_t *lookup(const uint32_t page_id) const noexcept
+            {
+                const auto &l2 = l1[page_id >> l2_bits];
+                if (!l2) [[unlikely]] return nullptr;
+                const auto &info = (*l2)[page_id & (l2_size - 1)];
+                if (!info._tagged) return nullptr;
+                return &info;
+            }
+
+            void insert(const uint32_t page_id, const page_info_t info)
+            {
+                auto &l2 = l1[page_id >> l2_bits];
+                if (!l2)
+                    l2 = std::make_unique<l2_table_t>();
+                (*l2)[page_id & (l2_size - 1)] = info;
+            }
+        };
 
         struct tlb_entry_t {
             address_val_t page_id = ~address_val_t{0};
@@ -278,7 +302,7 @@ namespace turbo::jam::machine {
         mutable page_info_t _last_page_info{};
         mutable std::array<tlb_entry_t, tlb_size> _tlb{};
         // Warm fields - accessed on memory operations / page faults
-        page_map_t _pages{};
+        page_dir_t _page_dir{};
         std::vector<std::unique_ptr<uint8_t[]>> _page_storage{};
         address_val_t _stack_begin = 0;
         // Cold fields - rarely accessed after construction
@@ -780,11 +804,9 @@ namespace turbo::jam::machine {
         {
             const auto num_pages = end_page - start_page;
             auto ptr = std::make_unique<uint8_t[]>(num_pages * config_prod::ZP_pvm_page_size);
-            _pages.reserve(_pages.size() + num_pages);
-            auto hint_it = _pages.end();
             auto *page_ptr = ptr.get();
             for (size_t i = 0; i < num_pages; ++i, page_ptr += config_prod::ZP_pvm_page_size) {
-                hint_it = ++_pages.emplace_hint(hint_it, start_page + i, page_info_t {
+                _page_dir.insert(static_cast<uint32_t>(start_page + i), page_info_t {
                     page_ptr,
                     is_writable
                 });
@@ -797,11 +819,11 @@ namespace turbo::jam::machine {
             if (page_id != _last_page_id) {
                 auto &tlb_slot = _tlb[page_id & (tlb_size - 1)];
                 if (tlb_slot.page_id != page_id) {
-                    const auto page_it = _pages.find(page_id);
-                    if (page_it == _pages.end()) [[unlikely]]
+                    const auto *info = _page_dir.lookup(static_cast<uint32_t>(page_id));
+                    if (!info) [[unlikely]]
                         return nullptr;
                     tlb_slot.page_id = page_id;
-                    tlb_slot.info = page_it->second;
+                    tlb_slot.info = *info;
                 }
                 _last_page_id = page_id;
                 _last_page_info = tlb_slot.info;
