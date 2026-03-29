@@ -2,7 +2,7 @@ FROM ubuntu:24.04 AS builder
 LABEL MAINTAINER="R2 Rationality <info@r2rationality.com>"
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata curl ca-certificates gnupg2 \
     build-essential cmake pkg-config git zstd ninja-build \
     libnuma-dev \
@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
     libboost-stacktrace1.83-dev \
     libsodium-dev libsecp256k1-dev libzstd-dev libssl-dev \
     libfmt-dev libspdlog-dev libbotan-2-dev liblmdb-dev \
-    clang-19 clang-tools-19 \
+    clang-19 clang-tools-19 llvm-19 libclang-rt-19-dev \
     && ln -fs /usr/share/zoneinfo/Europe/Berlin /etc/localtime \
     && dpkg-reconfigure --frontend noninteractive tzdata \
     && rm -rf /var/lib/apt/lists/*
@@ -22,7 +22,7 @@ RUN useradd -m -s /bin/bash -d /home/dev dev
 USER dev
 WORKDIR /home/dev
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
 ENV PATH=/home/dev/.cargo/bin:$PATH
 
 RUN install -d -o dev -g dev /home/dev/turbojam/

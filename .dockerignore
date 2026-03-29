@@ -11,3 +11,4 @@ cmake-*
 build-*
 log
 tmp
+test
