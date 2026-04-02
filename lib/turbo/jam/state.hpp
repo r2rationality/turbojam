@@ -36,15 +36,13 @@ namespace turbo::jam {
         persistent_value_t(storage::db_ptr_t db, const state_key_t &key, T val):
             persistent_value_t{std::move(db), key}
         {
-            set(std::move(val));
+            set(std::make_shared<element_type>(std::move(val)));
         }
 
         void serialize(auto &archive) {
             using namespace std::string_view_literals;
             // TODO: can be optimized for the decoding case. That happens only in unit tests though.
-            T tmp;
-            archive.process(tmp);
-            set(std::move(tmp));
+            archive.process(update());
         }
 
         const element_type &get() const {
@@ -52,6 +50,8 @@ namespace turbo::jam {
         }
 
         void set(ptr_type new_ptr) {
+            if (!new_ptr) [[unlikely]]
+                throw error("cannot set a persistent value to nullptr");
             _updated = true;
             _ptr = std::move(new_ptr);
         }
@@ -94,7 +94,9 @@ namespace turbo::jam {
         }
 
         bool operator==(const persistent_value_t &o) const {
-            return *_ptr == *o._ptr;
+            const auto &my_ptr = storage();
+            const auto &o_ptr = o.storage();
+            return my_ptr == o_ptr || *my_ptr == *o_ptr;
         }
     private:
         storage::db_ptr_t _db;
