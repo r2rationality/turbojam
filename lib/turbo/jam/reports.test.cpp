@@ -235,7 +235,7 @@ namespace turbo_jam_reports_test {
                             new_st.beta.history,
                             new_st.eta, new_st.offenders,
                             new_st.kappa, new_st.lambda,
-                    {}, {},
+                            {}, {},
                             tc.pre.rho, new_st.alpha,
                             delta, ancestry,
                             tc.in.slot, tc.in.guarantees
