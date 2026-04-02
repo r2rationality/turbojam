@@ -1217,8 +1217,6 @@ namespace turbo::jam {
                 throw err_bad_offenders_mark_t{};
 
             // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime - deps match GP
-            const auto prev_kappa_ptr = this->kappa.storage();
-            const auto prev_lambda_ptr = this->lambda.storage();
             {
                 const auto safrole_res = update_safrole(
                     this->gamma.update(), this->kappa.update(), this->lambda.update(),
@@ -1235,7 +1233,6 @@ namespace turbo::jam {
             // TODO: to be started in a parallel thread for better performance
             verify_all_signatures(blk, prev_tau,
                 this->eta.get(), this->gamma.get(),
-                //*prev_kappa_ptr, *prev_lambda_ptr,
                 this->kappa.get(), this->lambda.get(),
                 this->psi.get(), prepared_header_signatures);
 
