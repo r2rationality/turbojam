@@ -67,8 +67,13 @@ namespace turbo::jam {
         }
 
         element_type &update() {
-            _updated = true;
-            return const_cast<element_type &>(get());
+            if (!_updated) {
+                if (const auto &act_ptr = storage(); act_ptr.use_count() > 1) {
+                    _ptr = std::make_shared<element_type>(*act_ptr);
+                }
+                _updated = true;
+            }
+            return *_ptr;
         }
 
         void reset() {
@@ -943,7 +948,8 @@ namespace turbo::jam {
             const blocks_history_t<CFG> &tmp_beta,
             const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_psi,
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
-            const auth_pools_t<CFG> &prev_alpha,
+            const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
+            const availability_assignments_t<CFG> &prev_rho, const auth_pools_t<CFG> &prev_alpha,
             const accounts_t<CFG> &prev_delta,
             const ancestry_span_t<CFG> &ancestry,
             const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees);

@@ -1,5 +1,5 @@
 /* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
- * Copyright (c) 2025 R2 Rationality OÜ (info at r2rationality dot com)
+ * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
@@ -7,6 +7,7 @@
 #include <ark-vrf.hpp>
 #include <numeric>
 #include <ranges>
+#include <unordered_set>
 #include <ed25519-consensus.hpp>
 #include <turbo/common/timer.hpp>
 #include <turbo/crypto/blake2b.hpp>
@@ -285,6 +286,7 @@ namespace turbo::jam {
     template<typename CFG>
     state_t<CFG>::guarantor_assignments_t state_t<CFG>::_guarantor_assignments(const entropy_t &e, const time_slot_t<CFG> &slot)
     {
+        // (11.19) + (11.20)
         guarantor_assignments_t in;
         for (size_t vi = 0; vi < in.size(); ++vi) {
             in[vi] = CFG::C_core_count * vi / CFG::V_validator_count;
@@ -303,12 +305,12 @@ namespace turbo::jam {
         const ed25519_keys_set_t &psi, const time_slot_t<CFG> &g_slot, const time_slot_t<CFG> &blk_slot)
     {
         const auto same_rotation = g_slot.slot() / CFG::R_core_assignment_rotation_period == blk_slot.slot() / CFG::R_core_assignment_rotation_period;
-        if (same_rotation)
+        if (same_rotation) // (11.21)
             return {_guarantor_assignments(eta[2], blk_slot), capital_phi(kappa, psi)};
+        // (11.22)
         const auto base_slot = blk_slot.slot() - CFG::R_core_assignment_rotation_period;
         const auto same_epoch = base_slot / CFG::E_epoch_length == blk_slot.slot() / CFG::E_epoch_length;
-        const auto &e = same_epoch ? eta[2] : eta[3];
-        const auto &k = same_epoch ? kappa : lambda;
+        const auto &[e, k] = same_epoch ? std::tie(eta[2], kappa) : std::tie(eta[3], lambda);
         return {_guarantor_assignments(e, base_slot), capital_phi(k, psi)};
     }
 
@@ -818,30 +820,53 @@ namespace turbo::jam {
         const blocks_history_t<CFG> &tmp_beta,
         const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_psi,
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
-        const auth_pools_t<CFG> &prev_alpha,
-        const accounts_t<CFG> &prev_delta,
-        const ancestry_span_t<CFG> &ancestry,
-        const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees)
+        const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
+        const availability_assignments_t<CFG> &prev_rho, const auth_pools_t<CFG> &prev_alpha,
+        const accounts_t<CFG> &prev_delta, const ancestry_span_t<CFG> &ancestry,
+        const time_slot_t<CFG> &blk_slot, const guarantees_extrinsic_t<CFG> &guarantees)
     {
-        reports_output_data_t res {};
+        reports_output_data_t res{};
 
         if (!guarantees.empty()) {
-            std::set<opaque_hash_t> known_packages {};
-            std::set<opaque_hash_t> known_segment_roots {};
+            std::unordered_set<opaque_hash_t> all_known_packages{};
+            all_known_packages.reserve(CFG::C_core_count * CFG::E_epoch_length);
+            std::unordered_set<opaque_hash_t> recent_known_packages{};
+            recent_known_packages.reserve(CFG::C_core_count * CFG::H_max_blocks_history);
+            std::set<opaque_hash_t> known_segment_roots{};
             for (const auto &blk: tmp_beta) {
                 for (const auto &wr: blk.reported) {
-                    known_packages.insert(wr.hash);
+                    recent_known_packages.emplace(wr.hash);
+                    all_known_packages.emplace(wr.hash);
                     known_segment_roots.insert(wr.exports_root);
                 }
             }
 
-            std::set<opaque_hash_t> wp_hashes {};
+            // (11.36)
+            for (const auto &w: prev_omega) {
+                for (const auto &ws: w) {
+                    all_known_packages.emplace(ws.report.package_spec.hash);
+                }
+            }
+
+            // (11.37)
+            for (const auto &r: prev_rho) {
+                if (r) {
+                    all_known_packages.emplace(r->report.package_spec.hash);
+                }
+            }
+
+            // (11.38) Ksi term
+            for (const auto &k: prev_ksi) {
+                all_known_packages.insert(k.begin(), k.end());
+            }
+
+            std::set<opaque_hash_t> wp_hashes{};
             for (const auto &g: guarantees) {
                 wp_hashes.emplace(g.report.package_spec.hash);
                 known_segment_roots.insert(g.report.package_spec.exports_root);
             }
 
-            std::optional<core_index_t> prev_core {};
+            std::optional<core_index_t> prev_core{};
 
             for (const auto &g: guarantees) {
                 if (g.report.results.empty()) [[unlikely]]
@@ -852,32 +877,33 @@ namespace turbo::jam {
                     return blk.header_hash == g.report.context.anchor;
                 });
                 if (blk_it == tmp_beta.end()) [[unlikely]]
-                    throw err_anchor_not_recent_t {};
+                    throw err_anchor_not_recent_t{};
                 if (blk_it->state_root != g.report.context.state_root) [[unlikely]]
-                    throw err_bad_state_root_t {};
+                    throw err_bad_state_root_t{};
                 if (blk_it->beefy_root != g.report.context.beefy_root) [[unlikely]]
-                    throw err_bad_beefy_mmr_root_t {};
+                    throw err_bad_beefy_mmr_root_t{};
                 if (g.report.core_index >= tmp_rho.size()) [[unlikely]]
-                    throw err_bad_core_index_t {};
+                    throw err_bad_core_index_t{};
                 // (11.24)
                 if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
-                    throw err_out_of_order_guarantee_t {};
+                    throw err_out_of_order_guarantee_t{};
                 // JAM (11.3)
                 if (g.report.segment_root_lookup.size() + g.report.context.prerequisites.size() > CFG::J_max_report_dependencies) [[unlikely]]
-                    throw err_too_many_dependencies_t {};
+                    throw err_too_many_dependencies_t{};
                 prev_core = g.report.core_index;
-                if (g.slot > slot) [[unlikely]]
+                if (g.slot > blk_slot) [[unlikely]]
                     throw err_future_report_slot_t{};
                 {
                     static_assert(CFG::E_epoch_length % CFG::R_core_assignment_rotation_period == 0);
-                    const auto current_rotation = slot.slot() / CFG::R_core_assignment_rotation_period;
+                    const auto current_rotation = blk_slot.slot() / CFG::R_core_assignment_rotation_period;
                     const auto report_rotation = g.slot.slot() / CFG::R_core_assignment_rotation_period;
+                    // The line below checks for non-validity of "R*(floor(tau'/R) - 1) <= g.slot" in a way preventing underflows
                     if (current_rotation - report_rotation >= 2) [[unlikely]]
-                        throw err_report_epoch_before_last_t {};
+                        throw err_report_epoch_before_last_t{};
                 }
 
                 // JAM Paper (11.34)
-                if (g.report.context.lookup_anchor_slot.slot() + CFG::L_max_lookup_anchor_age < slot) [[unlikely]]
+                if (g.report.context.lookup_anchor_slot.slot() + CFG::L_max_lookup_anchor_age < blk_slot) [[unlikely]]
                     throw err_segment_root_lookup_invalid_t{};
 
                 // JAM Paper (11.35) - temporarily disabled
@@ -885,8 +911,6 @@ namespace turbo::jam {
                     return blk.header_hash == g.report.context.lookup_anchor;
                 });
                 if (lblk_it == tmp_beta.end()) [[unlikely]] {
-                    if (ancestry.empty())
-                        throw err_segment_root_lookup_invalid_t{};
                     const auto a_it = std::lower_bound(ancestry.begin(), ancestry.end(), g.report.context.lookup_anchor_slot,
                         [](const auto &a, const auto &v) { return a.slot < v; });
                     if (a_it == ancestry.end() || a_it->slot != g.report.context.lookup_anchor_slot || a_it->header_hash != g.report.context.lookup_anchor) [[unlikely]]
@@ -894,61 +918,52 @@ namespace turbo::jam {
                 }
 
                 // JAM Paper (11.38)
-                if (known_packages.contains(g.report.package_spec.hash)) [[unlikely]]
-                    throw err_duplicate_package_t {};
-                // + add a check that the package is not in the accumulation queue
-                // + add a check that the package is not in the accumulation history
+                if (all_known_packages.contains(g.report.package_spec.hash)) [[unlikely]]
+                    throw err_duplicate_package_t{};
 
                 // JAM Paper (11.3)
                 if (g.report.context.prerequisites.size() + g.report.segment_root_lookup.size() > CFG::J_max_report_dependencies) [[unlikely]]
-                    throw err_too_many_dependencies_t {};
+                    throw err_too_many_dependencies_t{};
 
                 // circular dependencies are allowed
                 for (const auto &pr: g.report.context.prerequisites) {
-                    if (!known_packages.contains(pr) && !wp_hashes.contains(pr)) [[unlikely]]
-                        throw err_dependency_missing_t {};
+                    if (!recent_known_packages.contains(pr) && !wp_hashes.contains(pr)) [[unlikely]]
+                        throw err_dependency_missing_t{};
                 }
 
                 for (const auto &s: g.report.segment_root_lookup) {
-                    if (!known_packages.contains(s.work_package_hash) && !wp_hashes.contains(s.work_package_hash)) [[unlikely]]
-                        throw err_segment_root_lookup_invalid_t {};
+                    if (!recent_known_packages.contains(s.work_package_hash) && !wp_hashes.contains(s.work_package_hash)) [[unlikely]]
+                        throw err_segment_root_lookup_invalid_t{};
                     if (!known_segment_roots.contains(s.segment_tree_root)) [[unlikely]]
-                        throw err_segment_root_lookup_invalid_t {};
+                        throw err_segment_root_lookup_invalid_t{};
                 }
 
                 // JAM Paper: (11.29)
                 {
                     if (tmp_rho[g.report.core_index])
-                        throw err_core_engaged_t {};
+                        throw err_core_engaged_t{};
                     const auto &auth_pool = prev_alpha[g.report.core_index];
                     const auto auth_it = std::find(auth_pool.begin(), auth_pool.end(), g.report.authorizer_hash);
                     if (auth_it == auth_pool.end()) [[unlikely]]
-                        throw err_core_unauthorized_t {};
+                        throw err_core_unauthorized_t{};
                 }
 
-                tmp_rho[g.report.core_index] = availability_assignment_t<CFG> {
-                    .report=g.report, .timeout=slot.slot()
-                };
+                tmp_rho[g.report.core_index] = availability_assignment_t<CFG>{g.report, blk_slot.slot()};
                 res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
 
-                uint8_vector msg{CFG::jam_guarantee};
-                {
-                    encoder enc{g.report};
-                    msg << crypto::blake2b::digest(enc.bytes());
-                }
-                const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi, g.slot, slot);
+                const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi, g.slot, blk_slot);
                 std::optional<validator_index_t> prev_validator {};
                 for (const auto &s: g.signatures) {
                     if (s.validator_index >= new_kappa.size()) [[unlikely]]
-                        throw err_bad_validator_index_t {};
+                        throw err_bad_validator_index_t{};
 
                     // JAM Paper (11.25)
                     if (prev_validator && *prev_validator >= s.validator_index) [[unlikely]]
-                        throw err_not_sorted_or_unique_guarantors_t {};
+                        throw err_not_sorted_or_unique_guarantors_t{};
                     prev_validator = s.validator_index;
 
                     if (guarantors.guarantors[s.validator_index] != g.report.core_index) [[unlikely]]
-                        throw err_wrong_assignment_t {};
+                        throw err_wrong_assignment_t{};
 
                     const auto &vk = guarantors.validators[s.validator_index].ed25519;
                     static const ed25519_public_t offender_vk{};
@@ -962,7 +977,7 @@ namespace turbo::jam {
                 // No need to check for g.signatures.size() > validators per core
                 // since core assignment check won't pass in that case
                 if (g.signatures.size() < CFG::min_guarantors) [[unlikely]]
-                    throw err_insufficient_guarantees_t {};
+                    throw err_insufficient_guarantees_t{};
 
                 size_t blobs_size = g.report.auth_output.size();
                 gas_t total_accumulate_gas = 0;
@@ -975,13 +990,13 @@ namespace turbo::jam {
                     }
                     const auto s_info = prev_delta.info_get(r.service_id);
                     if (!s_info) [[unlikely]]
-                        throw err_bad_service_id_t {};
+                        throw err_bad_service_id_t{};
                     if (s_info->code_hash != r.code_hash) [[unlikely]]
-                        throw err_bad_code_hash_t {};
+                        throw err_bad_code_hash_t{};
 
                     // JAM (11.30) part 1
                     if (r.accumulate_gas < s_info->min_item_gas) [[unlikely]]
-                        throw err_service_item_gas_too_low_t {};
+                        throw err_service_item_gas_too_low_t{};
                     total_accumulate_gas += r.accumulate_gas;
 
                     core_stats.gas_used += r.refine_load.gas_used;
@@ -1000,15 +1015,15 @@ namespace turbo::jam {
                 }
                 // JAM (11.30) part 2
                 if (total_accumulate_gas > CFG::GA_max_accumulate_gas) [[unlikely]]
-                    throw err_work_report_gas_too_high_t {};
+                    throw err_work_report_gas_too_high_t{};
 
                 // JAM Paper (11.8)
                 if (blobs_size > CFG::WR_max_blobs_size) [[unlikely]]
-                    throw err_work_report_too_big_t {};
+                    throw err_work_report_too_big_t{};
             }
             // Jam Paper (11.32)
             if (guarantees.size() != wp_hashes.size()) [[unlikely]]
-                throw err_duplicate_package_t {};
+                throw err_duplicate_package_t{};
             std::sort(res.reported.begin(), res.reported.end());
             std::sort(res.reporters.begin(), res.reporters.end());
         }
@@ -1192,6 +1207,7 @@ namespace turbo::jam {
             eta_prime(this->eta.update(), prev_tau, blk.header.slot, prepared_header_signatures.entropy_output);
 
             // (4.11) -> psi_prime - additional deps: relies on kappa', lambda' and updates_rho
+            const auto prev_rho_ptr = this->rho.storage();
             const auto new_offenders = psi_prime(
                 this->psi.update(), this->rho.update(),
                 this->kappa.get(), this->lambda.get(),
@@ -1202,6 +1218,7 @@ namespace turbo::jam {
 
             // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime - deps match GP
             const auto prev_kappa_ptr = this->kappa.storage();
+            const auto prev_lambda_ptr = this->lambda.storage();
             {
                 const auto safrole_res = update_safrole(
                     this->gamma.update(), this->kappa.update(), this->lambda.update(),
@@ -1218,46 +1235,9 @@ namespace turbo::jam {
             // TODO: to be started in a parallel thread for better performance
             verify_all_signatures(blk, prev_tau,
                 this->eta.get(), this->gamma.get(),
-                this->kappa.get(), this->lambda.get(), this->psi.get(), prepared_header_signatures);
-
-            // (5.4), (5.5), (5.6)
-            // can be run in parallel
-            {
-                uint8_vector leafs{};
-                {
-                    encoder enc{blk.extrinsic.tickets};
-                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
-                }
-                {
-                    encoder enc{blk.extrinsic.preimages};
-                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
-                }
-                {
-                    report_guarantee_infos_t<CFG> g_infos{};
-                    g_infos.reserve(blk.extrinsic.guarantees.size());
-                    for (const auto &g: blk.extrinsic.guarantees) {
-                        const encoder r_enc{g.report};
-                        g_infos.emplace_back(
-                            crypto::blake2b::digest<opaque_hash_t>(r_enc.bytes()),
-                            g.slot,
-                            g.signatures
-                        );
-                    }
-                    encoder enc{g_infos};
-                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
-                }
-                {
-                    encoder enc{blk.extrinsic.assurances};
-                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
-                }
-                {
-                    encoder enc{blk.extrinsic.disputes};
-                    leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
-                }
-                const auto ex_hash = crypto::blake2b::digest<opaque_hash_t>(leafs);
-                if (ex_hash != blk.header.extrinsic_hash) [[unlikely]]
-                    throw err_bad_extrinsic_hash_t{};
-            }
+                //*prev_kappa_ptr, *prev_lambda_ptr,
+                this->kappa.get(), this->lambda.get(),
+                this->psi.get(), prepared_header_signatures);
 
             // (4.13) (4.14) (4.15) - extra deps:
             // - updates pi';
@@ -1273,8 +1253,9 @@ namespace turbo::jam {
                 this->beta.get().history,
                 this->eta.get(), this->psi.get().offenders,
                 this->kappa.get(), this->lambda.get(),
-                this->alpha.get(), new_delta,
-                ancestry,
+                this->omega.get(), this->ksi.get(),
+                *prev_rho_ptr, this->alpha.get(),
+                new_delta, ancestry,
                 blk.header.slot, blk.extrinsic.guarantees
             );
 
@@ -1447,6 +1428,7 @@ namespace turbo::jam {
             new_kappa.at(blk.header.author_index).bandersnatch,
             new_gamma.s, new_eta[3], prepared_header_signatures
         );
+        blk.verify_extrinsic_hash();
         verify_assurance_signatures(blk.header.parent, blk.header.slot.epoch() == prev_tau.epoch() ? new_kappa : new_lambda, blk.extrinsic.assurances);
         verify_dispute_signatures(prev_tau, new_kappa, new_lambda, blk.extrinsic.disputes);
         verify_guarantee_signatures(blk.header.slot, new_eta, new_kappa, new_lambda, prev_psi.offenders, blk.extrinsic.guarantees);
@@ -1454,8 +1436,7 @@ namespace turbo::jam {
     }
 
     template <typename CFG>
-    work_reports_t<CFG> state_t<CFG>::rho_dagger_2(
-        availability_assignments_t<CFG> &new_rho, statistics_t<CFG> &tmp_pi,
+    work_reports_t<CFG> state_t<CFG>::rho_dagger_2(availability_assignments_t<CFG> &new_rho, statistics_t<CFG> &tmp_pi,
         const time_slot_t<CFG> &slot, const header_hash_t &parent, const assurances_extrinsic_t<CFG> &assurances)
     {
         std::optional<validator_index_t> prev_validator{};
@@ -1464,15 +1445,16 @@ namespace turbo::jam {
                 throw err_bad_validator_index_t{};
             // (11.11)
             if (a.anchor != parent) [[unlikely]]
-                throw err_bad_attestation_parent_t {};
+                throw err_bad_attestation_parent_t{};
             // (11.12)
             if (prev_validator && a.validator_index <= *prev_validator) [[unlikely]]
                 throw err_not_sorted_or_unique_assurers{};
             prev_validator = a.validator_index;
             for (size_t ci = 0; ci < CFG::C_core_count; ++ci) {
                 if (a.bitfield.test(ci)) {
+                    //(11.15)
                     if (!new_rho.at(ci)) [[unlikely]]
-                        throw err_core_not_engaged_t {};
+                        throw err_core_not_engaged_t{};
                     ++tmp_pi.cores[ci].popularity;
                 }
             }
@@ -1480,6 +1462,8 @@ namespace turbo::jam {
         work_reports_t<CFG> res {};
         for (size_t ci = 0; ci < CFG::C_core_count; ++ci) {
             if (new_rho[ci]) {
+                // (11.16) - validator_super_majority = 2/3V + 1
+                // For that reason the "strictly greater" in the spec is replaced with "greater or equal" below
                 if (tmp_pi.cores[ci].popularity >= CFG::validator_super_majority) {
                     tmp_pi.cores[ci].da_load += new_rho[ci]->report.package_spec.length;
                     res.emplace_back(std::move(new_rho[ci]->report));

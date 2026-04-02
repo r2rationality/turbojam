@@ -139,7 +139,11 @@ namespace turbo::jam {
 
     using bandersnatch_ring_commitment_t = byte_array_t<144>;
 
-    using opaque_hash_t = byte_array_t<32>;
+    struct opaque_hash_t: byte_array_t<32> {
+        using base_type = byte_array_t<32>;
+        using base_type::base_type;
+        opaque_hash_t(const base_type &o) noexcept: base_type(o) {}
+    };
 
     // JAM (4.28)
     template<typename CFG>
@@ -578,7 +582,7 @@ namespace turbo::jam {
         bool operator==(const refine_load_t &o) const = default;
     };
 
-    // JAM (11.6)
+    // JAM (11.6) AKA work digest
     struct work_result_t {
         service_id_t service_id; // s
         opaque_hash_t code_hash; // c
@@ -1140,9 +1144,9 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct report_guarantee_t {
-        work_report_t<CFG> report;
-        time_slot_t<CFG> slot;
-        sequence_t<validator_signature_t> signatures;
+        work_report_t<CFG> report; // r
+        time_slot_t<CFG> slot; // t
+        sequence_t<validator_signature_t> signatures; // a
 
         void serialize(auto &archive)
         {
@@ -1179,8 +1183,8 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct ready_record_t {
-        work_report_t<CFG> report;
-        report_deps_t dependencies;
+        work_report_t<CFG> report; // r
+        report_deps_t dependencies; // d
 
         void serialize(auto &archive)
         {
@@ -1389,5 +1393,18 @@ namespace turbo::jam {
         }
 
         bool operator==(const statistics_t &o) const = default;
+    };
+}
+
+namespace std {
+    template<>
+    struct hash<turbo::jam::opaque_hash_t> {
+        size_t operator()(const turbo::jam::opaque_hash_t &v) const noexcept
+        {
+            static_assert(sizeof(size_t) <= sizeof(turbo::jam::opaque_hash_t));
+            size_t h;
+            memcpy(&h, v.data(), sizeof(h));
+            return h;
+        }
     };
 }

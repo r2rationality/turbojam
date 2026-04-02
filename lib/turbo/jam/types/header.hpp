@@ -213,6 +213,44 @@ namespace turbo::jam {
         header_t<CFG> header;
         extrinsic_t<CFG> extrinsic;
 
+        // (5.4), (5.5), (5.6) can be run in parallel
+        void verify_extrinsic_hash() const {
+            uint8_vector leafs{};
+            {
+                encoder enc{extrinsic.tickets};
+                leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+            }
+            {
+                encoder enc{extrinsic.preimages};
+                leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+            }
+            {
+                report_guarantee_infos_t<CFG> g_infos{};
+                g_infos.reserve(extrinsic.guarantees.size());
+                for (const auto &g: extrinsic.guarantees) {
+                    const encoder r_enc{g.report};
+                    g_infos.emplace_back(
+                        crypto::blake2b::digest<opaque_hash_t>(r_enc.bytes()),
+                        g.slot,
+                        g.signatures
+                    );
+                }
+                encoder enc{g_infos};
+                leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+            }
+            {
+                encoder enc{extrinsic.assurances};
+                leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+            }
+            {
+                encoder enc{extrinsic.disputes};
+                leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
+            }
+            const auto ex_hash = crypto::blake2b::digest<opaque_hash_t>(leafs);
+            if (ex_hash != header.extrinsic_hash) [[unlikely]]
+                throw err_bad_extrinsic_hash_t{};
+        }
+
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
