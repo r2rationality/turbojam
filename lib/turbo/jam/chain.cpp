@@ -19,16 +19,38 @@ namespace turbo::jam {
             _triedb{std::make_shared<triedb::db_t>((std::filesystem::path{path} / "kv").string(), load_existing)},
             _genesis_state{genesis_state}
         {
+            _genesis_header = state_t<CFG>::make_genesis_header(_genesis_state);
             if (ancestry)
                 _ancestry = std::move(*ancestry);
             if (!prev_state.empty()) {
+                _triedb->replace_with(prev_state);
                 _state.emplace(_triedb);
-                *_state = prev_state;
-                _triedb->commit();
                 const auto &beta = _state->beta.get();
                 for (const auto &h: beta.history) {
                     _ancestry.add(h.header_hash, h.state_root);
                 }
+            }
+        }
+
+        void reset(const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry)
+        {
+            _genesis_state = genesis_state;
+            _genesis_header = state_t<CFG>::make_genesis_header(_genesis_state);
+            _ancestry = ancestry ? std::move(*ancestry) : ancestry_t<CFG>{};
+
+            _triedb->replace_with(prev_state);
+            if (prev_state.empty()) {
+                _state.reset();
+                return;
+            }
+
+            if (!_state)
+                _state.emplace(_triedb);
+            else
+                _state->reset_cache();
+            const auto &beta = _state->beta.get();
+            for (const auto &h: beta.history) {
+                _ancestry.add(h.header_hash, h.state_root);
             }
         }
 
@@ -188,6 +210,13 @@ namespace turbo::jam {
     void chain_t<CFG>::apply(const block_t<CFG> &blk)
     {
         _impl->apply(blk);
+    }
+
+    template<typename CFG>
+    void chain_t<CFG>::reset(const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state,
+        std::optional<ancestry_t<CFG>> ancestry)
+    {
+        _impl->reset(genesis_state, prev_state, std::move(ancestry));
     }
 
     template struct chain_t<config_prod>;

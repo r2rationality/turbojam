@@ -140,6 +140,25 @@ namespace turbo::jam::triedb {
                 _store->rollback();
             }
         }
+
+        void replace_with(const state_snapshot_t &st)
+        {
+            // in contrast to rollback there is no need to reapply undo.
+            if (!_undo.empty()) {
+                _undo.clear();
+                _store->rollback();
+            }
+            _store->clear();
+            _trie->clear();
+            for (const auto &[k, v]: st) {
+                _store->set(k, v);
+                _trie->set(key_t{k}, v);
+            }
+            _store->commit();
+#if !defined(NDEBUG) && !defined(MY_NDEBUG)
+            _snapshot = st;
+#endif
+        }
     protected:
         store_ptr_t _store;
         state_dict_ptr_t _trie = std::make_shared<state_dict_t>();
