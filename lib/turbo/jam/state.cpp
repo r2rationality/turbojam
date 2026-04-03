@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <ark-vrf.hpp>
+#include <boost/container/static_vector.hpp>
 #include <limits>
 #include <numeric>
 #include <ranges>
@@ -1316,7 +1317,8 @@ namespace turbo::jam {
 
     template<typename CFG>
     void state_t<CFG>::verify_assurance_signatures(const header_hash_t &parent, const validators_data_t<CFG> &validators, const assurances_extrinsic_t<CFG> &assurances) {
-        uint8_vector msg{};
+        static constexpr size_t msg_size = CFG::jam_available.size() + sizeof(opaque_hash_t);
+        boost::container::static_vector<uint8_t, msg_size> msg{};
         for (const auto &a: assurances) {
             msg.clear();
             msg << CFG::jam_available;
@@ -1327,7 +1329,7 @@ namespace turbo::jam {
                 msg << crypto::blake2b::digest(enc.bytes());
             }
             const auto &vk = validators[a.validator_index].ed25519;
-            if (!ed25519_consensus::zip215_verify(a.signature, msg, vk)) [[unlikely]]
+            if (!ed25519_consensus::zip215_verify(a.signature, buffer{msg.data(), msg.size()}, vk)) [[unlikely]]
                 throw err_bad_signature_t{};
         }
     }
@@ -1338,33 +1340,29 @@ namespace turbo::jam {
         const disputes_extrinsic_t<CFG> &disputes)
     {
         const auto cur_epoch = prev_tau.epoch();
-        uint8_vector msg{};
         static constexpr size_t max_msg_size = sizeof(work_report_hash_t) + std::max(std::max(CFG::jam_guarantee.size(), CFG::jam_valid.size()), CFG::jam_invalid.size());
-        msg.reserve(max_msg_size);
+        boost::container::static_vector<uint8_t, max_msg_size> msg{};
         for (const auto &v: disputes.verdicts) {
             const auto & validators = v.age == cur_epoch ? prev_kappa : prev_lambda;
             // uniqueness is checked already, so it's ok to rely on access to create a key-value pair
             for (const auto &j: v.judgements) {
                 msg.clear();
-                msg << static_cast<buffer>(j.vote ? CFG::jam_valid : CFG::jam_invalid);
-                msg << v.report;
-                if (!ed25519_consensus::zip215_verify(j.signature, msg, validators.at(j.index).ed25519)) [[unlikely]]
+                msg << static_cast<buffer>(j.vote ? CFG::jam_valid : CFG::jam_invalid) << v.report;
+                if (!ed25519_consensus::zip215_verify(j.signature, buffer{msg.data(), msg.size()}, validators.at(j.index).ed25519)) [[unlikely]]
                     throw err_bad_signature_t{};
             }
         }
         for (const auto &c: disputes.culprits) {
             msg.clear();
-            msg << static_cast<buffer>(CFG::jam_guarantee);
-            msg << c.report;
-            if (!ed25519_consensus::zip215_verify(c.signature, msg, c.key)) [[unlikely]]
+            msg << CFG::jam_guarantee << c.report;
+            if (!ed25519_consensus::zip215_verify(c.signature, buffer{msg.data(), msg.size()}, c.key)) [[unlikely]]
                 throw err_bad_signature_t {};
         }
         for (const auto &f: disputes.faults) {
             msg.clear();
             const auto &verdict_prefix = f.vote ? CFG::jam_valid : CFG::jam_invalid;
-            msg << static_cast<buffer>(verdict_prefix);
-            msg << f.report;
-            if (!ed25519_consensus::zip215_verify(f.signature, msg, f.key)) [[unlikely]]
+            msg << static_cast<buffer>(verdict_prefix) << f.report;
+            if (!ed25519_consensus::zip215_verify(f.signature, buffer{msg.data(), msg.size()}, f.key)) [[unlikely]]
                 throw err_bad_signature_t{};
         }
     }
@@ -1374,7 +1372,8 @@ namespace turbo::jam {
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
             const ed25519_keys_set_t &new_psi_o, const guarantees_extrinsic_t<CFG> &guarantees)
     {
-        uint8_vector msg{};
+        static constexpr size_t msg_size = CFG::jam_guarantee.size() + sizeof(opaque_hash_t);
+        boost::container::static_vector<uint8_t, msg_size> msg{};
         for (const auto &g: guarantees) {
             const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi_o, g.slot, new_tau);
             msg.clear();
@@ -1385,7 +1384,7 @@ namespace turbo::jam {
             }
             for (const auto &s: g.signatures) {
                 const auto &vk = guarantors.validators.at(s.validator_index).ed25519;
-                if (!ed25519_consensus::zip215_verify(s.signature, msg, vk)) [[unlikely]]
+                if (!ed25519_consensus::zip215_verify(s.signature, buffer{msg.data(), msg.size()}, vk)) [[unlikely]]
                     throw err_bad_signature_t{};
             }
         }
@@ -1395,19 +1394,22 @@ namespace turbo::jam {
     void state_t<CFG>::verify_ticket_signatures(const entropy_buffer_t &new_eta, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets) {
         static const uint8_vector aux{};
         static constexpr std::string_view input_prefix = CFG::jam_ticket_seal;
-        static constexpr size_t input_size = input_prefix.size() + sizeof(new_eta[2]) + 1U;
+        static constexpr size_t input_size = input_prefix.size() + sizeof(entropy_t) + 1U;
+        static constexpr size_t sig_size = sizeof(bandersnatch_ring_vrf_signature_t);
         static_assert(input_size == 48U);
         if (tickets.empty())
             return;
-        std::vector<uint8_t> sigs{};
+        std::vector<uint8_t> sigs(tickets.size() * sig_size);
         std::vector<uint8_t> inputs(tickets.size() * input_size);
+        std::array<uint8_t, input_size> input_base{};
+        memcpy(input_base.data(), input_prefix.data(), input_prefix.size());
+        memcpy(input_base.data() + input_prefix.size(), new_eta[2].data(), sizeof(entropy_t));
         for (size_t i = 0; i < tickets.size(); ++i) {
             const auto &t = tickets[i];
-            sigs.insert(sigs.end(), t.signature.begin(), t.signature.end());
+            memcpy(sigs.data() + i * sig_size, t.signature.data(), sig_size);
             auto inp = inputs.data() + i * input_size;
-            memcpy(inp, input_prefix.data(), input_prefix.size());
-            memcpy(inp + input_prefix.size(), new_eta[2].data(), new_eta[2].size());
-            inp[input_prefix.size() + new_eta[2].size()] = t.attempt;
+            memcpy(inp, input_base.data(), input_size);
+            inp[input_size - 1U] = static_cast<uint8_t>(t.attempt);
         }
         if (ark_vrf::ring_vrf_verify_batch(CFG::V_validator_count, new_gamma_z, sigs, inputs, input_size, aux) != 0) [[unlikely]]
             throw err_bad_ticket_proof_t{};

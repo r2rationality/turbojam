@@ -20,6 +20,8 @@
 #include "constants.hpp"
 
 namespace turbo::jam {
+    using turbo::operator<<;
+
     // jam-types.asn
 
     struct byte_sequence_t: uint8_vector {

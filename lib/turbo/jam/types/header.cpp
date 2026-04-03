@@ -4,6 +4,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <ark-vrf.hpp>
+#include <boost/container/static_vector.hpp>
 #include "header.hpp"
 
 namespace turbo::jam {
@@ -11,6 +12,7 @@ namespace turbo::jam {
     header_t<CFG>::prepared_signatures_t header_t<CFG>::prepare_signatures() const
     {
         prepared_signatures_t prepared{};
+        prepared.unsigned_header = unsigned_bytes();
         if (ark_vrf::ietf_vrf_output(prepared.entropy_output, entropy_source) != 0) [[unlikely]]
             throw err_bad_signature_t{};
         if (ark_vrf::ietf_vrf_output(prepared.seal_output, seal) != 0) [[unlikely]]
@@ -23,35 +25,36 @@ namespace turbo::jam {
         const entropy_t &eta3, const prepared_signatures_t &prepared) const
     {
         using namespace std::string_view_literals;
+        static constexpr size_t ticket_seal_input_size = CFG::jam_ticket_seal.size() + sizeof(entropy_t) + 1U;
+        static constexpr size_t fallback_seal_input_size = CFG::jam_fallback_seal.size() + sizeof(entropy_t);
+        static constexpr size_t seal_input_capacity = ticket_seal_input_size > fallback_seal_input_size
+            ? ticket_seal_input_size
+            : fallback_seal_input_size;
+        static constexpr size_t entropy_input_size = CFG::jam_entropy.size() + sizeof(entropy_t);
         const auto &seal_vrf_output = prepared.seal_output;
-        uint8_vector seal_input {};
+        boost::container::static_vector<uint8_t, seal_input_capacity> seal_input {};
         std::visit([&](const auto &s) {
             using T = std::decay_t<decltype(s)>;
             if constexpr (std::is_same_v<T, tickets_t<CFG>>) {
                 auto &i = s[slot.slot() % s.size()];
                 if (i.id != seal_vrf_output) [[unlikely]]
                     throw err_bad_signature_t {};
-                seal_input << "jam_ticket_seal"sv;
-                seal_input << eta3;
-                seal_input << i.attempt;
+                seal_input << CFG::jam_ticket_seal << eta3 << static_cast<uint8_t>(i.attempt);
             } else if constexpr (std::is_same_v<T, keys_t<CFG>>) {
                 auto &i = s[slot.slot() % s.size()];
                 if (i != vkey) [[unlikely]]
                     throw err_bad_signature_t {};
-                seal_input << "jam_fallback_seal"sv;
-                seal_input << eta3;
+                seal_input << CFG::jam_fallback_seal << eta3;
             } else {
                 throw error(fmt::format("unsupported type for tickets_or_keys: {}", typeid(T).name()));
             }
         }, gamma_s);
-        const auto unsigned_header = unsigned_bytes();
-        if (ark_vrf::ietf_vrf_verify(vkey, seal, seal_input, unsigned_header) != 0) [[unlikely]]
+        if (ark_vrf::ietf_vrf_verify(vkey, seal, buffer{seal_input.data(), seal_input.size()}, prepared.unsigned_header) != 0) [[unlikely]]
             throw err_bad_signature_t {};
         {
-            uint8_vector entropy_input {};
-            entropy_input << "jam_entropy"sv;
-            entropy_input << seal_vrf_output;
-            if (ark_vrf::ietf_vrf_verify(vkey, entropy_source, entropy_input, uint8_vector {}) != 0) [[unlikely]]
+            boost::container::static_vector<uint8_t, entropy_input_size> entropy_input {};
+            entropy_input << CFG::jam_entropy << seal_vrf_output;
+            if (ark_vrf::ietf_vrf_verify(vkey, entropy_source, buffer{entropy_input.data(), entropy_input.size()}, buffer{}) != 0) [[unlikely]]
                 throw err_bad_signature_t {};
         }
     }

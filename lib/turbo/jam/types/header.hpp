@@ -130,6 +130,7 @@ namespace turbo::jam {
         struct prepared_signatures_t {
             entropy_t seal_output{};
             entropy_t entropy_output{};
+            uint8_vector unsigned_header{};
         };
 
 
