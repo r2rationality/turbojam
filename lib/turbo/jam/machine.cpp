@@ -674,29 +674,9 @@ namespace turbo::jam::machine {
             _regs[idx] = val;
         }
 
-        static uint8_t _require_byte(const buffer data, const size_t off)
-        {
-            if (off < data.size()) [[likely]]
-                return data[off];
-            throw error(fmt::format("requested offset: {} that behind the end of buffer: {}!", off, data.size()));
-        }
-
-        static register_val_t _read_uint_le(const buffer data, const size_t off, const size_t num_bytes)
-        {
-            if (num_bytes == 0) [[likely]]
-                return 0;
-            if (off > data.size() || num_bytes > data.size() - off) [[unlikely]]
-                throw error(fmt::format("requested offset: {} and size: {} end over the end of buffer's size: {}!", off, num_bytes, data.size()));
-            register_val_t x = 0;
-            const auto *ptr = data.data() + off;
-            for (size_t i = 0; i < num_bytes; ++i)
-                x |= static_cast<register_val_t>(ptr[i]) << (i * 8);
-            return x;
-        }
-
         static void _ensure_readable(const buffer data, const size_t off, const size_t num_bytes)
         {
-            if (num_bytes == 0) [[likely]]
+            if (num_bytes == 0)
                 return;
             if (off > data.size() || num_bytes > data.size() - off) [[unlikely]]
                 throw error(fmt::format("requested offset: {} and size: {} end over the end of buffer's size: {}!", off, num_bytes, data.size()));
