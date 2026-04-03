@@ -11,7 +11,7 @@
 namespace turbo::jam::merkle {
     using hash_t = byte_array_t<32>;
     using hash_span_t = crypto::blake2b::hash_span_t;
-    using hash_func = std::function<void(const hash_span_t &, const buffer &)>;
+    using hash_func = void(*)(const hash_span_t &, const buffer &);
     using key_t = byte_array_t<31>;
 
     static constexpr auto blake2b_hash_func = static_cast<void(*)(const hash_span_t &, const buffer &)>(crypto::blake2b::digest);
@@ -41,7 +41,7 @@ namespace turbo::jam::merkle {
         struct value_t: value_base_t {
             using base_type = value_base_t;
 
-            value_t(const buffer &val, const hash_func &hf):
+            value_t(const buffer &val, hash_func hf):
                 base_type { from_byte_sequence(val, hf) }
             {
             }
@@ -56,7 +56,7 @@ namespace turbo::jam::merkle {
                 archive.process(codec::as_variant<base_type>(*this, names));
             }
         private:
-            static value_base_t from_byte_sequence(const buffer &v, const hash_func &hf)
+            static value_base_t from_byte_sequence(const buffer &v, hash_func hf)
             {
                 if (v.size() <= sizeof(hash_t))
                     return value_inplace_t { v.begin(), v.end() };
@@ -78,7 +78,7 @@ namespace turbo::jam::merkle {
 
         // JAM Paper D.2.1 "Bit encoding": The bit order is the least significant first.
         struct compact_node_t: node_t {
-            compact_node_t(const key_t &k, const buffer &v, const hash_func &hf)
+            compact_node_t(const key_t &k, const buffer &v, hash_func hf)
             {
                 static_assert(sizeof(left) == sizeof(k) + 1);
                 static constexpr size_t max_inplace_value = sizeof(right);
@@ -132,7 +132,7 @@ namespace turbo::jam::merkle {
                 return left[0] & 1;
             }
 
-            hash_t hash(const hash_func &hf) const
+            hash_t hash(hash_func hf) const
             {
                 hash_t res;
                 hf(res, *this);
@@ -172,8 +172,8 @@ namespace turbo::jam::merkle {
         using opt_value_t = std::optional<value_t>;
         using observer_t = std::function<void(const key_t &, const value_t &)>;
 
-        trie_t(const trie::input_map_t &inputs, const hash_func &hf=blake2b_hash_func);
-        trie_t(const hash_func &hf=blake2b_hash_func);
+        trie_t(const trie::input_map_t &inputs, hash_func hf=blake2b_hash_func);
+        trie_t(hash_func hf=blake2b_hash_func);
         trie_t(const trie_t &o);
         trie_t(trie_t &&o);
         ~trie_t();

@@ -14,12 +14,12 @@
 
 namespace turbo::jam::merkle {
     struct trie_t::impl {
-        impl(const hash_func &hf):
+        impl(hash_func hf):
             _hash_func { hf }
         {
         }
 
-        impl(const trie::input_map_t &inputs, const hash_func &hf):
+        impl(const trie::input_map_t &inputs, hash_func hf):
             _hash_func { hf }
         {
             for (const auto &kv: inputs)
@@ -165,14 +165,14 @@ namespace turbo::jam::merkle {
             {
             }
 
-            [[nodiscard]] const hash_t &hash(const hash_func &hf)
+            [[nodiscard]] const hash_t &hash(hash_func hf)
             {
                 if (!_hash)
                     branch_hash(this, hf, 0);
                 return _hash.value();
             }
         private:
-            static const hash_t &branch_hash(const node_t *ptr, const hash_func &hf, const uint8_t bit_start)
+            static const hash_t &branch_hash(const node_t *ptr, hash_func hf, const uint8_t bit_start)
             {
                 if (!ptr)
                     return _empty_hash();
@@ -290,13 +290,13 @@ namespace turbo::jam::merkle {
         }
     };
 
-    trie_t::trie_t(const trie::input_map_t &inputs, const hash_func &hf):
+    trie_t::trie_t(const trie::input_map_t &inputs, hash_func hf):
         _impl { std::make_unique<impl>(inputs, hf) }
     {
     }
 
 
-    trie_t::trie_t(const hash_func &hf):
+    trie_t::trie_t(hash_func hf):
         _impl { std::make_unique<impl>(hf) }
     {
     }
@@ -395,7 +395,7 @@ namespace turbo::jam::merkle {
             }
         };
 
-        static hash_or_buffer_t encode_node(const value_span &items, const hash_func &hash_f)
+        static hash_or_buffer_t encode_node(const value_span &items, hash_func hash_f)
         {
             using namespace std::string_view_literals;
             static hash_t h0{};
@@ -416,7 +416,7 @@ namespace turbo::jam::merkle {
             return res;
         }
 
-        static hash_t encode_tree(const value_span &items, const hash_func &hash_f)
+        static hash_t encode_tree(const value_span &items, hash_func hash_f)
         {
             if (items.size() == 1U) {
                 hash_t res;
@@ -428,14 +428,12 @@ namespace turbo::jam::merkle {
 
         hash_t encode_blake2b(const value_span items)
         {
-            static const auto hash_f = [](const hash_span_t &out, const buffer bytes) { crypto::blake2b::digest(out, bytes); };
-            return encode_tree(items, hash_f);
+            return encode_tree(items, blake2b_hash_func);
         }
 
         hash_t encode_keccak(const value_span items)
         {
-            static const auto hash_f = [](const hash_span_t &out, const buffer bytes) { crypto::keccak::digest(out, bytes); };
-            return encode_tree(items, hash_f);
+            return encode_tree(items, keccak_hash_func);
         }
     }
 }
