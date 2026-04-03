@@ -401,14 +401,14 @@ namespace turbo::jam {
     };
 
     struct work_item_t {
-        service_id_t service;
-        opaque_hash_t code_hash;
-        gas_t::base_type refine_gas_limit;
-        gas_t::base_type accumulate_gas_limit;
-        uint16_t export_count;
-        byte_sequence_t payload;
-        sequence_t<import_spec_t> import_segments;
-        sequence_t<extrinsic_spec_t> extrinsic;
+        service_id_t service; // s
+        opaque_hash_t code_hash; // c
+        gas_t::base_type refine_gas_limit; // g
+        gas_t::base_type accumulate_gas_limit; // a
+        uint16_t export_count; // e
+        byte_sequence_t payload; // y
+        sequence_t<import_spec_t> import_segments; // i_bold
+        sequence_t<extrinsic_spec_t> extrinsic; // x_bold
 
         void serialize(auto &archive)
         {
@@ -428,12 +428,12 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct work_package_t {
-        service_id_t auth_code_host;
-        opaque_hash_t auth_code_hash;
-        refine_context_t<CFG> context;
-        byte_sequence_t authorization;
-        byte_sequence_t authorizer_config;
-        sequence_t<work_item_t, 1, CFG::I_max_work_items> items;
+        service_id_t auth_code_host; // h
+        opaque_hash_t auth_code_hash; // u
+        refine_context_t<CFG> context; // c_bold
+        byte_sequence_t authorization; // j_bold
+        byte_sequence_t authorizer_config; // f_bold
+        sequence_t<work_item_t, 1, CFG::I_max_work_items> items; // w_bold
 
         void serialize(auto &archive)
         {
