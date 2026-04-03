@@ -4,6 +4,8 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <exception>
 #include <type_traits>
@@ -87,11 +89,13 @@ namespace turbo::jam::machine {
         bit_vector_t(const bit_vector_t &o) =delete;
 
         bit_vector_t(const buffer bytes, const size_t num_bits):
-            _num_bits{num_bits},
-            _bytes{bytes}
+            _num_bits{num_bits}
         {
-            if (_num_bits > _bytes.size() * 8U) [[unlikely]]
-                throw error(fmt::format("too many bits for bit vector of {} bytes: {}", _bytes.size(), _num_bits));
+            if (_num_bits > bytes.size() * 8U) [[unlikely]]
+                throw error(fmt::format("too many bits for bit vector of {} bytes: {}", bytes.size(), _num_bits));
+            _bytes.reserve(bytes.size() + 3U);
+            _bytes.insert(_bytes.end(), bytes.begin(), bytes.end());
+            _bytes.insert(_bytes.end(), 3U, uint8_t{0});
         }
 
         bit_vector_t(bit_vector_t &&o) noexcept:
@@ -100,18 +104,53 @@ namespace turbo::jam::machine {
         {
         }
 
-        [[nodiscard]] size_t size() const
+        [[nodiscard]] size_t size() const noexcept
         {
             return _num_bits;
         }
 
-        [[nodiscard]] bool test(const size_t pos) const
+        [[nodiscard]] bool test(const size_t pos) const noexcept
         {
             if (pos >= _num_bits) [[unlikely]]
                 return true;
-            const auto byte_pos = pos >> 3;
-            const auto bit_pos = pos & 7;
-            return (_bytes)[byte_pos] & (1 << bit_pos);
+            return test_unchecked(pos);
+        }
+
+        [[nodiscard]] bool test_unchecked(const size_t pos) const noexcept
+        {
+            return ((_bytes[pos >> 3U] >> (pos & 7U)) & 0x1U) != 0U;
+        }
+
+        [[nodiscard]] size_t count_zeros(const size_t pos, const size_t max_len) const noexcept
+        {
+            if (pos >= _num_bits || max_len == 0U) [[unlikely]]
+                return 0U;
+
+            auto current = pos;
+            auto remaining = std::min(max_len, _num_bits - pos);
+            size_t zeroes = 0U;
+
+            while (remaining != 0U) {
+                const auto byte_pos = current >> 3U;
+                const auto bit_pos = current & 7U;
+                const auto chunk_bits = std::min(remaining, size_t { 32 } - bit_pos);
+                const auto *ptr = _bytes.data() + byte_pos;
+                auto bits = static_cast<uint32_t>(ptr[0])
+                    | (static_cast<uint32_t>(ptr[1]) << 8U)
+                    | (static_cast<uint32_t>(ptr[2]) << 16U)
+                    | (static_cast<uint32_t>(ptr[3]) << 24U);
+                bits >>= bit_pos;
+                const auto mask = chunk_bits == 32U
+                    ? ~uint32_t { 0 }
+                    : (uint32_t { 1 } << chunk_bits) - 1U;
+                const auto chunk = bits & mask;
+                if (chunk != 0U)
+                    return zeroes + static_cast<size_t>(std::countr_zero(chunk));
+                zeroes += chunk_bits;
+                current += chunk_bits;
+                remaining -= chunk_bits;
+            }
+            return zeroes;
         }
     private:
         size_t _num_bits;

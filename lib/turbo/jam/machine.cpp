@@ -443,12 +443,7 @@ namespace turbo::jam::machine {
 
         static size_t _skip_len(const register_val_t opcode_pc, const bit_vector_t &bitmasks)
         {
-            const auto start_pc = opcode_pc + 1;
-            auto pc = start_pc;
-            while (!bitmasks.test(pc)) {
-                ++pc;
-            }
-            return std::min(size_t { 24 }, static_cast<size_t>(pc - start_pc));
+            return bitmasks.count_zeros(static_cast<size_t>(opcode_pc) + 1U, 24U);
         }
 
         static const std::array<opcode_t, 0x100> &_opcode_table()
@@ -989,7 +984,7 @@ namespace turbo::jam::machine {
             if (cond) {
                 if (new_pc >= _program.code.size()) [[unlikely]]
                     return exit_panic_t{};
-                if (!_program.bitmasks.test(new_pc)) [[unlikely]]
+                if (!_program.bitmasks.test_unchecked(new_pc)) [[unlikely]]
                     return exit_panic_t{};
                 return {new_pc};
             }
