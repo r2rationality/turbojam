@@ -216,13 +216,12 @@ namespace turbo::jam::triedb {
                 _snapshot[k] = byte_sequence_t{val};
 #           endif
             
-            merkle::trie::value_t v{val, merkle::blake2b_hash_func};
             if (auto prev_v = get(key); prev_v != val) {
                 // capture undo data before modifying the trie: prev_v is a buffer view into
                 // the trie node or LMDB memory that _trie->set may invalidate
                 if (track_undo)
                     _undo.emplace_back(key, std::move(prev_v));
-                _trie->set(k, std::move(v));
+                _trie->set(k, merkle::trie::value_t{val, merkle::blake2b_hash_func});
                 _store->set(key, val);
             }
 #           if !defined(NDEBUG) && !defined(MY_NDEBUG)
