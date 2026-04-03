@@ -1394,7 +1394,7 @@ namespace turbo::jam {
     template <typename CFG>
     void state_t<CFG>::verify_ticket_signatures(const entropy_buffer_t &new_eta, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets) {
         static const uint8_vector aux{};
-        static constexpr std::string_view input_prefix{"jam_ticket_seal"};
+        static constexpr std::string_view input_prefix = CFG::jam_ticket_seal;
         static constexpr size_t input_size = input_prefix.size() + sizeof(new_eta[2]) + 1U;
         static_assert(input_size == 48U);
         if (tickets.empty())
