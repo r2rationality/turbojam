@@ -1312,14 +1312,14 @@ namespace turbo::jam {
     using validators_statistics_t = fixed_sequence_t<validator_statistics_t, CFG::V_validator_count>;
 
     struct core_activity_record_t {
-        varlen_uint_t<uint32_t> da_load = 0;
-        varlen_uint_t<uint16_t> popularity = 0;
-        varlen_uint_t<uint16_t> imports = 0;
-        varlen_uint_t<uint16_t> extrinsic_count = 0;
-        varlen_uint_t<uint32_t> extrinsic_size = 0;
-        varlen_uint_t<uint16_t> exports = 0;
-        varlen_uint_t<uint32_t> bundle_size = 0;
-        gas_t gas_used = 0;
+        varlen_uint_t<uint32_t> da_load = 0; // d
+        varlen_uint_t<uint16_t> popularity = 0; // p
+        varlen_uint_t<uint16_t> imports = 0; // i
+        varlen_uint_t<uint16_t> extrinsic_count = 0; // z
+        varlen_uint_t<uint32_t> extrinsic_size = 0; // e
+        varlen_uint_t<uint16_t> exports = 0; // x
+        varlen_uint_t<uint32_t> bundle_size = 0; // l
+        gas_t gas_used = 0; // g
 
         void serialize(auto &archive)
         {
@@ -1341,16 +1341,16 @@ namespace turbo::jam {
     using cores_statistics_t = fixed_sequence_t<core_activity_record_t, CFG::C_core_count>;
 
     struct service_activity_record_t {
-        varlen_uint_t<uint16_t> provided_count {};
-        varlen_uint_t<uint32_t> provided_size {};
-        varlen_uint_t<uint32_t> refinement_count {};
-        gas_t refinement_gas_used {};
-        varlen_uint_t<uint32_t> imports {};
-        varlen_uint_t<uint32_t> extrinsic_count {};
-        varlen_uint_t<uint32_t> extrinsic_size {};
-        varlen_uint_t<uint32_t> exports {};
-        varlen_uint_t<uint32_t> accumulate_count {};
-        gas_t accumulate_gas_used {};
+        varlen_uint_t<uint16_t> provided_count{}; // p.1
+        varlen_uint_t<uint32_t> provided_size{}; // p.2
+        varlen_uint_t<uint32_t> refinement_count{}; // r.1
+        gas_t refinement_gas_used{}; // r.2
+        varlen_uint_t<uint32_t> imports{}; // i
+        varlen_uint_t<uint32_t> extrinsic_count{}; // x
+        varlen_uint_t<uint32_t> extrinsic_size{}; // z
+        varlen_uint_t<uint32_t> exports{}; // e
+        varlen_uint_t<uint32_t> accumulate_count{}; // a.1
+        gas_t accumulate_gas_used{}; // a.2
 
         void serialize(auto &archive)
         {

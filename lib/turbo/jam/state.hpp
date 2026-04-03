@@ -40,8 +40,7 @@ namespace turbo::jam {
         }
 
         void serialize(auto &archive) {
-            using namespace std::string_view_literals;
-            // TODO: can be optimized for the decoding case. That happens only in unit tests though.
+            // TODO: can be optimized for the decoding case, but that happens only in unit tests so not a priority.
             archive.process(update());
         }
 
@@ -957,7 +956,7 @@ namespace turbo::jam {
             const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees);
 
         static work_reports_t<CFG> rho_dagger_2(
-            availability_assignments_t<CFG> &new_rho, statistics_t<CFG> &tmp_pi,
+            availability_assignments_t<CFG> &new_rho, cores_statistics_t<CFG> &tmp_pi_cores,
             const time_slot_t<CFG> &slot, const header_hash_t &parent,
             const assurances_extrinsic_t<CFG> &assurances);
 

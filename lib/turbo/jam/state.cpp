@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <ark-vrf.hpp>
+#include <limits>
 #include <numeric>
 #include <ranges>
 #include <unordered_set>
@@ -1240,7 +1241,7 @@ namespace turbo::jam {
             // - updates pi';
             // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
             const auto ready_reports = rho_dagger_2(
-                this->rho.update(), new_pi,
+                this->rho.update(), new_pi.cores,
                 blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
 
             account_updates_t<CFG> new_delta{this->delta};
@@ -1433,7 +1434,7 @@ namespace turbo::jam {
     }
 
     template <typename CFG>
-    work_reports_t<CFG> state_t<CFG>::rho_dagger_2(availability_assignments_t<CFG> &new_rho, statistics_t<CFG> &tmp_pi,
+    work_reports_t<CFG> state_t<CFG>::rho_dagger_2(availability_assignments_t<CFG> &new_rho, cores_statistics_t<CFG> &tmp_pi_cores,
         const time_slot_t<CFG> &slot, const header_hash_t &parent, const assurances_extrinsic_t<CFG> &assurances)
     {
         std::optional<validator_index_t> prev_validator{};
@@ -1452,7 +1453,7 @@ namespace turbo::jam {
                     //(11.15)
                     if (!new_rho.at(ci)) [[unlikely]]
                         throw err_core_not_engaged_t{};
-                    ++tmp_pi.cores[ci].popularity;
+                    ++tmp_pi_cores[ci].popularity;
                 }
             }
         }
@@ -1461,9 +1462,27 @@ namespace turbo::jam {
             if (new_rho[ci]) {
                 // (11.16) - validator_super_majority = 2/3V + 1
                 // For that reason the "strictly greater" in the spec is replaced with "greater or equal" below
-                if (tmp_pi.cores[ci].popularity >= CFG::validator_super_majority) {
-                    tmp_pi.cores[ci].da_load += new_rho[ci]->report.package_spec.length;
-                    res.emplace_back(std::move(new_rho[ci]->report));
+                if (tmp_pi_cores[ci].popularity >= CFG::validator_super_majority) {
+                    auto &report = new_rho[ci]->report;
+                    {
+                        using da_load_t = decltype(core_activity_record_t{}.da_load)::base_type;
+                        constexpr uint64_t max_da_segment_count = CFG::WX_max_package_exports + (CFG::WX_max_package_exports + 63ULL) / 64ULL;
+                        constexpr uint64_t max_valid_da_load = CFG::WB_max_work_package_size + CFG::WG_segment_size * max_da_segment_count;
+                        static_assert(max_da_segment_count * static_cast<uint64_t>(CFG::WG_segment_size) <= std::numeric_limits<da_load_t>::max());
+                        static_assert(max_valid_da_load <= std::numeric_limits<da_load_t>::max());
+
+                        const auto exports_count = numeric_cast<da_load_t>(report.package_spec.exports_count);
+                        const auto da_segment_count = exports_count + (exports_count + 63U) / 64U;
+                        const auto da_segment_size = numeric_cast<da_load_t>(CFG::WG_segment_size) * da_segment_count;
+                        const auto da_load = report.package_spec.length + da_segment_size;
+                        if (da_load < report.package_spec.length) [[unlikely]]
+                            throw error("numeric overflow in da_load");
+                        const auto prev_da_load = tmp_pi_cores[ci].da_load;
+                        tmp_pi_cores[ci].da_load += da_load;
+                        if (tmp_pi_cores[ci].da_load < prev_da_load) [[unlikely]]
+                            throw error("numeric overflow in da_load");
+                    }
+                    res.emplace_back(std::move(report));
                     new_rho[ci].reset();
                 } else if (slot >= new_rho[ci]->timeout + CFG::U_reported_work_timeout) {
                     new_rho[ci].reset();
