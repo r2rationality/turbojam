@@ -9,10 +9,6 @@
 namespace turbo::jam {
     using namespace std::string_view_literals;
 
-    struct err_unknown_key_t: error {
-        using error::error;
-    };
-
     template<typename CFG>
     host_service_base_t<CFG>::host_service_base_t(host_service_params_t<CFG> params):
         _p{std::move(params)}
@@ -110,31 +106,6 @@ namespace turbo::jam {
         if (id > std::numeric_limits<service_id_t>::max()) [[unlikely]]
             return {static_cast<service_id_t>(id), {}};
         return {static_cast<service_id_t>(id), _p.services.info_get(id)};
-    }
-
-    template<typename CFG>
-    machine::host_call_res_t host_service_base_t<CFG>::_safe_call(const call_func &f) noexcept
-    {
-        try {
-            f();
-        } catch (const err_unknown_key_t &) {
-            _p.m.set_reg(7, machine::host_call_res_t::none);
-            return std::monostate {};
-        } catch (const err_bad_service_id_t &) {
-            _p.m.set_reg(7, machine::host_call_res_t::none);
-            return std::monostate {};
-        } catch (machine::exit_out_of_gas_t &ex) {
-            return machine::exit_out_of_gas_t { std::move(ex) };
-        } catch (machine::exit_page_fault_t &ex) {
-            return machine::exit_panic_t {};
-        } catch (const std::exception &ex) {
-            logger::error("host call failed with error: {}", ex.what());
-            return machine::exit_panic_t {};
-        } catch (...) {
-            logger::error("host call failed with unknown error");
-            return machine::exit_panic_t {};
-        }
-        return std::monostate {};
     }
 
     template<typename CFG>

@@ -4,6 +4,8 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <utility>
+#include <turbo/common/logger.hpp>
 #include "machine.hpp"
 #include "state.hpp"
 
@@ -66,7 +68,6 @@ namespace turbo::jam {
     struct host_service_base_t {
         host_service_base_t(host_service_params_t<CFG> params);
     protected:
-        using call_func = std::function<void()>;
         struct service_lookup_res_t {
             service_id_t id;
             std::optional<service_info_t<CFG>> account;
@@ -77,7 +78,27 @@ namespace turbo::jam {
         // helper methods
         service_info_t<CFG> _service_info() const;
         service_lookup_res_t _get_service(machine::register_val_t id);
-        [[nodiscard]] machine::host_call_res_t _safe_call(const call_func &f) noexcept;
+        template<typename F>
+        [[nodiscard]] machine::host_call_res_t _safe_call(F &&f) noexcept
+        {
+            try {
+                f();
+            } catch (const err_bad_service_id_t &) {
+                _p.m.set_reg(7, machine::host_call_res_t::none);
+                return std::monostate {};
+            } catch (machine::exit_out_of_gas_t &ex) {
+                return machine::exit_out_of_gas_t { std::move(ex) };
+            } catch (const machine::exit_page_fault_t &) {
+                return machine::exit_panic_t {};
+            } catch (const std::exception &ex) {
+                logger::error("host call failed with error: {}", ex.what());
+                return machine::exit_panic_t {};
+            } catch (...) {
+                logger::error("host call failed with unknown error");
+                return machine::exit_panic_t {};
+            }
+            return std::monostate {};
+        }
 
         // General functions
         void gas();
