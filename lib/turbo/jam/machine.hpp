@@ -5,6 +5,8 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <cstdint>
+#include <exception>
+#include <type_traits>
 #include <variant>
 #include "types/common.hpp"
 #include "types/constants.hpp"
@@ -304,10 +306,55 @@ namespace turbo::jam::machine {
         gas_t gas_used {};
         invocation_result_base_t result;
     };
-    using host_service_init_func_t = std::function<void(machine_t &)>;
-    using host_service_call_func_t = std::function<host_call_res_t(register_val_t)>;
-
     extern std::optional<machine_t> configure(buffer blob, uint32_t pc, gas_t gas, buffer args);
-    extern invocation_t invoke(buffer blob, uint32_t pc, gas_t gas, buffer args,
-        const host_service_init_func_t &host_init, const host_service_call_func_t &host_fn);
+    template<typename HostInit, typename HostFn>
+    invocation_t invoke(buffer blob, uint32_t pc, gas_t gas, buffer args,
+        HostInit &&host_init, HostFn &&host_fn)
+    {
+        auto m = configure(blob, pc, gas, args);
+        if (!m) [[unlikely]]
+            return { 0, exit_panic_t {} };
+        host_init(*m);
+        const auto halt_status = [&]() -> uint8_vector {
+            auto data = m->try_mem_read(m->regs().at(7), m->regs().at(8));
+            return data ? std::move(*data) : uint8_vector {};
+        };
+        const auto gas_begin = m->gas();
+        std::variant<std::monostate, invocation_result_base_t> status {};
+        try {
+            while (std::holds_alternative<std::monostate>(status)) {
+                const auto m_res = m->run();
+                std::visit([&](const auto &rv) {
+                    using T = std::decay_t<decltype(rv)>;
+                    if constexpr (std::is_same_v<T, exit_host_call_t>) {
+                        auto h_res = host_fn(rv.id);
+                        std::visit([&](auto &&hv) {
+                            using HT = std::decay_t<decltype(hv)>;
+                            if constexpr (std::is_same_v<HT, std::monostate>) {
+                                m->skip_op();
+                            } else if constexpr (std::is_same_v<HT, exit_halt_t>) {
+                                status = halt_status();
+                            } else if constexpr (std::is_same_v<HT, exit_out_of_gas_t>) {
+                                status = std::move(hv);
+                            } else {
+                                status = exit_panic_t {};
+                            }
+                        }, std::move(h_res));
+                    } else if constexpr (std::is_same_v<T, exit_out_of_gas_t>) {
+                        status = exit_out_of_gas_t {};
+                    } else if constexpr (std::is_same_v<T, exit_halt_t>) {
+                        status = halt_status();
+                    } else {
+                        status = exit_panic_t {};
+                    }
+                }, m_res);
+            }
+        } catch (const std::exception &) {
+            status = exit_panic_t {};
+        }
+        return {
+            numeric_cast<gas_t::base_type>(gas_begin - m->gas()),
+            std::get<invocation_result_base_t>(std::move(status))
+        };
+    }
 }
