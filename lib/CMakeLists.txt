@@ -44,12 +44,12 @@ if (WIN32)
     find_package(ngtcp2 CONFIG REQUIRED)
     target_link_libraries(lib PUBLIC ngtcp2::ngtcp2)
     find_library(NGTCP2_CRYPTO_GNUTLS_LIBRARY NAMES ngtcp2_crypto_gnutls REQUIRED)
-    find_library(GNUTLS_LIBRARY NAMES gnutls libgnutls REQUIRED)
     find_path(GNUTLS_INCLUDE_DIR NAMES gnutls/gnutls.h REQUIRED)
     target_include_directories(lib PUBLIC ${GNUTLS_INCLUDE_DIR})
     target_link_libraries(lib PUBLIC
         ${NGTCP2_CRYPTO_GNUTLS_LIBRARY}
-        ${GNUTLS_LIBRARY}
+        $<$<CONFIG:Debug>:${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/debug/lib/gnutlsd.lib>
+        $<$<NOT:$<CONFIG:Debug>>:${CMAKE_BINARY_DIR}/vcpkg_installed/x64-windows/lib/gnutls.lib>
     )
 else()
     pkg_check_modules(NGTCP2 REQUIRED IMPORTED_TARGET libngtcp2)
