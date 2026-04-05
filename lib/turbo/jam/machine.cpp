@@ -351,8 +351,10 @@ namespace turbo::jam::machine {
 
         struct opcode_t
         {
-            static constexpr uintptr_t block_end_mask = 0x1U;
-            static constexpr uintptr_t min_len_shift = 1U;
+            static constexpr uintptr_t packed_bits = sizeof(uintptr_t) * 8U;
+            static constexpr uintptr_t block_end_shift = packed_bits - 1U;
+            static constexpr uintptr_t min_len_shift = packed_bits - 3U;
+            static constexpr uintptr_t block_end_mask = uintptr_t{1} << block_end_shift;
             static constexpr uint8_t max_min_len = 2U;
             static constexpr uintptr_t min_len_value_mask = 0x3U;
             static constexpr uintptr_t min_len_mask = min_len_value_mask << min_len_shift;
