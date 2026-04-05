@@ -4,10 +4,22 @@
     "fmt",
     "libsodium",
     "lmdb",
+    {
+      "name": "ngtcp2",
+      "features": [
+        "gnutls"
+      ]
+    },
     "openssl",
     "pkgconf",
     "spdlog",
     "zstd"
   ],
-  "builtin-baseline": "a9eee3b18df395dbb8be71a31bd78ea441056e42"
+  "builtin-baseline": "a9eee3b18df395dbb8be71a31bd78ea441056e42",
+  "overrides": [
+    {
+      "name": "getopt-win32",
+      "version": "2.42.0"
+    }
+  ]
 }

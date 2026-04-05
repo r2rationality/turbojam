@@ -39,6 +39,28 @@ target_link_libraries(lib PUBLIC
         Boost::json Boost::coroutine Boost::url Boost::thread
         ${ZSTD_LIBRARIES}
 )
+
+if (WIN32)
+    find_package(ngtcp2 CONFIG REQUIRED)
+    target_link_libraries(lib PUBLIC ngtcp2::ngtcp2)
+    find_library(NGTCP2_CRYPTO_GNUTLS_LIBRARY NAMES ngtcp2_crypto_gnutls REQUIRED)
+    find_library(GNUTLS_LIBRARY NAMES gnutls libgnutls REQUIRED)
+    find_path(GNUTLS_INCLUDE_DIR NAMES gnutls/gnutls.h REQUIRED)
+    target_include_directories(lib PUBLIC ${GNUTLS_INCLUDE_DIR})
+    target_link_libraries(lib PUBLIC
+        ${NGTCP2_CRYPTO_GNUTLS_LIBRARY}
+        ${GNUTLS_LIBRARY}
+    )
+else()
+    pkg_check_modules(NGTCP2 REQUIRED IMPORTED_TARGET libngtcp2)
+    pkg_check_modules(NGTCP2_CRYPTO_GNUTLS REQUIRED IMPORTED_TARGET libngtcp2_crypto_gnutls)
+    pkg_check_modules(GNUTLS REQUIRED IMPORTED_TARGET gnutls)
+    target_link_libraries(lib PUBLIC
+        PkgConfig::NGTCP2
+        PkgConfig::NGTCP2_CRYPTO_GNUTLS
+        PkgConfig::GNUTLS
+    )
+endif()
 target_link_directories(lib PUBLIC
         ${SODIUM_LIBRARY_DIRS}
         ${ZSTD_LIBRARY_DIRS}

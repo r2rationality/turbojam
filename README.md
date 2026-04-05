@@ -79,7 +79,7 @@ The project uses the following test-vector sets and tools to verify its conforma
 - [boost::ut - C++ single header/single module, macro-free μ(micro)/Unit Testing Framework](https://github.com/boost-ext/ut)
 - [ed25519-consensus - Ed25519 for consensus-critical contexts](https://github.com/penumbra-zone/ed25519-consensus)
 - [hash-library - Portable C++ Hashing Library](https://github.com/stbrumme/hash-library)
-- [msquic - a Microsoft implementation of the IETF QUIC protocol](https://github.com/microsoft/msquic)
+- [ngtcp2 - an implementation of the IETF QUIC protocol](https://github.com/ngtcp2/ngtcp2)
 - [reed-solomon-simd - Reed-Solomon erasure coding based on Leopard-RS](https://github.com/ordian/reed-solomon-simd)
 
 ## Community Tools

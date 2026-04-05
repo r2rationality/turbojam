@@ -7,8 +7,7 @@ COPY --chown=dev:dev src         /home/dev/turbojam/src
 COPY --chown=dev:dev CMakeLists.txt /home/dev/turbojam/
 
 WORKDIR /home/dev/turbojam
-RUN rm -rf 3rdparty/msquic/bld 3rdparty/msquic/build \
-    && cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Coverage -DCMAKE_CXX_COMPILER=clang++-19 \
+RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Coverage -DCMAKE_CXX_COMPILER=clang++-19 \
     && cmake --build build -t tjam-test
 
 FROM ${TEST_BASE_IMAGE} AS runtime

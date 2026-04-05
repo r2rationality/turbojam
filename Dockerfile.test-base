@@ -13,6 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libboost-stacktrace1.83-dev \
     libsodium-dev libsecp256k1-dev libzstd-dev libssl-dev \
     libfmt-dev libspdlog-dev libbotan-2-dev liblmdb-dev \
+    libngtcp2-dev libngtcp2-crypto-gnutls-dev libgnutls28-dev \
     clang-19 clang-tools-19 llvm-19 libclang-rt-19-dev \
     && ln -fs /usr/share/zoneinfo/Europe/Berlin /etc/localtime \
     && dpkg-reconfigure --frontend noninteractive tzdata \

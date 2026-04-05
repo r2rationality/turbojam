@@ -7,8 +7,6 @@ test
 3rdparty/ark-vrf-cpp/target
 3rdparty/erasure-coding/target
 3rdparty/ed25519-consensus-cpp/target
-3rdparty/msquic/build
-3rdparty/msquic/bld
 cmake-*
 build-*
 log
