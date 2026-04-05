@@ -1,5 +1,5 @@
 /* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
- * Copyright (c) 2025 R2 Rationality OÜ (info at r2rationality dot com)
+ * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
@@ -15,7 +15,6 @@
 #include "turbo/common/scope-exit.hpp"
 
 namespace turbo::jam::machine {
-    using namespace std::string_view_literals;
 
 #if defined(__GNUC__) || defined(__clang__)
 #   pragma GCC diagnostic push
@@ -76,7 +75,7 @@ namespace turbo::jam::machine {
                         return exit_out_of_gas_t{};
                     if (len < op.min_len()) [[unlikely]]
                         throw exit_panic_t{};
-                    const auto data = _pc < code_view.size() ? buffer { code_view.data() + _pc + 1U, len } : buffer {};
+                    const auto data = _pc < code_view.size() ? buffer{code_view.data() + _pc + 1U, len} : buffer{};
                     const auto exec = op.exec();
                     const auto next_pc = _pc + len + 1;
                     if (!op.block_end()) [[likely]] {
@@ -101,16 +100,16 @@ namespace turbo::jam::machine {
                 }
             } catch (exit_halt_t &ex) {
                 //_pc = 0; GP 0.7.2 seem to require that but breaks the existing PVM test cases
-                return { std::move(ex) };
+                return {std::move(ex)};
             } catch (exit_page_fault_t &ex) {
-                return { std::move(ex) };
+                return {std::move(ex)};
             } catch (exit_out_of_gas_t &ex) {
-                return { std::move(ex) };
+                return {std::move(ex)};
             } catch (exit_host_call_t &ex) {
-                return { std::move(ex) };
+                return {std::move(ex)};
             } catch (...) { // exit_panic_t or anything else
                 //_pc = 0; GP 0.7.2 seem to require that but breaks the existing PVM test cases
-                return { exit_panic_t {} };
+                return {exit_panic_t{}};
             }
         }
 
@@ -216,8 +215,8 @@ namespace turbo::jam::machine {
 
         state_t state() const
         {
-            memory_chunks_t mem {};
-            memory_chunk_t chunk {};
+            memory_chunks_t mem{};
+            memory_chunk_t chunk{};
             const auto flush_chunk = [&chunk, &mem](const register_val_t page_base, const size_t off) {
                 if (!chunk.contents.empty()) {
                     chunk.address = numeric_cast<uint32_t>(page_base + off - chunk.contents.size());
@@ -262,7 +261,7 @@ namespace turbo::jam::machine {
 
             page_info_t() = default;
             page_info_t(uint8_t *ptr, const bool writable) noexcept:
-                _tagged { reinterpret_cast<uintptr_t>(ptr) | flag_present | flag_materialized | (writable ? flag_writable : 0) }
+                _tagged{reinterpret_cast<uintptr_t>(ptr) | flag_present | flag_materialized | (writable ? flag_writable : 0)}
             {}
 
             static page_info_t lazy_zero(const bool writable) noexcept
@@ -365,8 +364,7 @@ namespace turbo::jam::machine {
 
             constexpr opcode_t() noexcept = default;
 
-            template<typename Ignored>
-            opcode_t(std::string_view, const op_exec_t e, Ignored &&, const bool block_end_ = false, const uint8_t min_len_ = 0U):
+            opcode_t(const op_exec_t e, const bool block_end_ = false, const uint8_t min_len_ = 0U):
                 packed(_pack_checked(e, min_len_, block_end_))
             {
             }
@@ -425,209 +423,208 @@ namespace turbo::jam::machine {
 
         static const std::array<opcode_t, 0x100> &_opcode_table()
         {
-            using namespace std::string_view_literals;
             static const auto ops = [] {
-                const opcode_t undef{"undefined"sv, &impl::trap, &impl::_args_none};
+                const opcode_t undef{&impl::trap};
                 std::array<opcode_t, 0x100> res {
                     // 0x00
-                    opcode_t { "trap"sv, &impl::trap, &impl::_args_none, true },
-                    opcode_t { "fallthrough"sv, &impl::fallthrough, &impl::_args_none, true },
+                    opcode_t{&impl::trap, true},
+                    opcode_t{&impl::fallthrough, true},
                     undef, undef,
                     undef, undef, undef, undef,
                     // 0x08
                     undef, undef,
-                    opcode_t { "ecalli"sv, &impl::ecalli, &impl::_args_imm1, true },
+                    opcode_t{&impl::ecalli, true},
                     undef,
                     undef, undef, undef, undef,
                     // 0x10
                     undef, undef, undef, undef,
-                    opcode_t { "load_imm_64"sv, &impl::load_imm_64, &impl::_args_reg1_imm1_s64, false, 1U },
+                    opcode_t{&impl::load_imm_64, false, 1U},
                     undef, undef, undef,
                     // 0x18
                     undef, undef, undef, undef,
                     undef, undef,
-                    opcode_t { "undefined", &impl::store_imm_u8, &impl::_args_imm2, false, 1U },
-                    opcode_t { "undefined", &impl::store_imm_u16, &impl::_args_imm2, false, 1U },
+                    opcode_t{&impl::store_imm_u8, false, 1U},
+                    opcode_t{&impl::store_imm_u16, false, 1U},
                     // 0x20
-                    opcode_t { "store_imm_u32", &impl::store_imm_u32, &impl::_args_imm2, false, 1U },
-                    opcode_t { "store_imm_u64", &impl::store_imm_u64, &impl::_args_imm2, false, 1U },
+                    opcode_t{&impl::store_imm_u32, false, 1U},
+                    opcode_t{&impl::store_imm_u64, false, 1U},
                     undef, undef,
                     undef, undef, undef, undef,
                     // 0x28
-                    { "jump", &impl::jump, &impl::_args_off1, true },
+                    opcode_t{&impl::jump, true},
                     undef, undef, undef,
                     undef, undef, undef, undef,
                     // 0x30
                     undef, undef,
-                    opcode_t { "jump_ind", &impl::jump_ind, &impl::_args_reg1_imm1_s32, true, 1U },
-                    opcode_t { "load_imm", &impl::load_imm, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "load_u8", &impl::load_u8, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "load_i8", &impl::load_i8, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "load_u16", &impl::load_u16, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "load_i16", &impl::load_i16, &impl::_args_reg1_imm1_s32, false, 1U },
+                    opcode_t{&impl::jump_ind, true, 1U},
+                    opcode_t{&impl::load_imm, false, 1U},
+                    opcode_t{&impl::load_u8, false, 1U},
+                    opcode_t{&impl::load_i8, false, 1U},
+                    opcode_t{&impl::load_u16, false, 1U},
+                    opcode_t{&impl::load_i16, false, 1U},
                     // 0x38
-                    opcode_t { "load_u32", &impl::load_u32, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "load_i32", &impl::load_i32, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "load_u64", &impl::load_u64, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "store_u8", &impl::store_u8, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "store_u16", &impl::store_u16, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "store_u32", &impl::store_u32, &impl::_args_reg1_imm1_s32, false, 1U },
-                    opcode_t { "store_u64", &impl::store_u64, &impl::_args_reg1_imm1_s32, false, 1U },
+                    opcode_t{&impl::load_u32, false, 1U},
+                    opcode_t{&impl::load_i32, false, 1U},
+                    opcode_t{&impl::load_u64, false, 1U},
+                    opcode_t{&impl::store_u8, false, 1U},
+                    opcode_t{&impl::store_u16, false, 1U},
+                    opcode_t{&impl::store_u32, false, 1U},
+                    opcode_t{&impl::store_u64, false, 1U},
                     undef,
                     // 0x40
                     undef, undef, undef, undef,
                     undef, undef,
-                    opcode_t { "store_imm_ind_u8", &impl::store_imm_ind_u8, &impl::_args_reg1_imm2, false, 1U },
-                    opcode_t { "store_imm_ind_u16", &impl::store_imm_ind_u16, &impl::_args_reg1_imm2, false, 1U },
+                    opcode_t{&impl::store_imm_ind_u8, false, 1U},
+                    opcode_t{&impl::store_imm_ind_u16, false, 1U},
                     // 0x48
-                    opcode_t { "store_imm_ind_u32", &impl::store_imm_ind_u32, &impl::_args_reg1_imm2, false, 1U },
-                    opcode_t { "store_imm_ind_u64", &impl::store_imm_ind_u64, &impl::_args_reg1_imm2, false, 1U },
+                    opcode_t{&impl::store_imm_ind_u32, false, 1U},
+                    opcode_t{&impl::store_imm_ind_u64, false, 1U},
                     undef, undef,
                     undef, undef, undef, undef,
                     // 0x50
-                    opcode_t { "load_imm_jump", &impl::load_imm_jump, &impl::_args_reg1_imm1_off1, true, 1U },
-                    opcode_t { "branch_eq_imm", &impl::branch_eq_imm, &impl::_args_reg1_imm1_off1, true, 1U },
-                    opcode_t { "branch_ne_imm", &impl::branch_ne_imm, &impl::_args_reg1_imm1_off1, true, 1U },
-                    opcode_t { "branch_lt_u_imm", &impl::branch_lt_u_imm, &impl::_args_reg1_imm1_off1, true, 1U },
-                    opcode_t { "branch_le_u_imm", &impl::branch_le_u_imm, &impl::_args_reg1_imm1_off1, true, 1U },
-                    opcode_t { "branch_ge_u_imm", &impl::branch_ge_u_imm, &impl::_args_reg1_imm1_off1, true, 1U },
-                    opcode_t { "branch_gt_u_imm", &impl::branch_gt_u_imm, &impl::_args_reg1_imm1_off1, true, 1U },
-                    opcode_t { "branch_lt_s_imm", &impl::branch_lt_s_imm, &impl::_args_reg1_imm1_off1, true, 1U },
+                    opcode_t{&impl::load_imm_jump, true, 1U},
+                    opcode_t{&impl::branch_eq_imm, true, 1U},
+                    opcode_t{&impl::branch_ne_imm, true, 1U},
+                    opcode_t{&impl::branch_lt_u_imm, true, 1U},
+                    opcode_t{&impl::branch_le_u_imm, true, 1U},
+                    opcode_t{&impl::branch_ge_u_imm, true, 1U},
+                    opcode_t{&impl::branch_gt_u_imm, true, 1U},
+                    opcode_t{&impl::branch_lt_s_imm, true, 1U},
                     //0x58
-                    opcode_t { "branch_le_s_imm", &impl::branch_le_s_imm, &impl::_args_reg1_imm1_off1, true, 1U },
-                    opcode_t { "branch_ge_s_imm", &impl::branch_ge_s_imm, &impl::_args_reg1_imm1_off1, true, 1U },
-                    opcode_t { "branch_gt_s_imm", &impl::branch_gt_s_imm, &impl::_args_reg1_imm1_off1, true, 1U },
+                    opcode_t{&impl::branch_le_s_imm, true, 1U},
+                    opcode_t{&impl::branch_ge_s_imm, true, 1U},
+                    opcode_t{&impl::branch_gt_s_imm, true, 1U},
                     undef,
                     undef, undef, undef, undef,
                     // 0x60
                     undef, undef, undef, undef,
-                    opcode_t { "move_reg", &impl::move_reg, &impl::_args_reg2, false, 1U },
-                    opcode_t { "sbrk", &impl::sbrk, &impl::_args_reg2, false, 1U },
-                    opcode_t { "count_set_bits_64", &impl::count_set_bits_64, &impl::_args_reg2, false, 1U },
-                    opcode_t { "count_set_bits_32", &impl::count_set_bits_32, &impl::_args_reg2, false, 1U },
+                    opcode_t{&impl::move_reg, false, 1U},
+                    opcode_t{&impl::sbrk, false, 1U},
+                    opcode_t{&impl::count_set_bits_64, false, 1U},
+                    opcode_t{&impl::count_set_bits_32, false, 1U},
                     // 0x68
-                    opcode_t { "leading_zero_bits_64", &impl::leading_zero_bits_64, &impl::_args_reg2, false, 1U },
-                    opcode_t { "leading_zero_bits_32", &impl::leading_zero_bits_32, &impl::_args_reg2, false, 1U },
-                    opcode_t { "trailing_zero_bits_64", &impl::trailing_zero_bits_64, &impl::_args_reg2, false, 1U },
-                    opcode_t { "trailing_zero_bits_32", &impl::trailing_zero_bits_32, &impl::_args_reg2, false, 1U },
-                    opcode_t { "sign_extend_8", &impl::sign_extend_8, &impl::_args_reg2, false, 1U },
-                    opcode_t { "sign_extend_16", &impl::sign_extend_16, &impl::_args_reg2, false, 1U },
-                    opcode_t { "zero_extend_16", &impl::zero_extend_16, &impl::_args_reg2, false, 1U },
-                    opcode_t { "reverse_bytes", &impl::reverse_bytes, &impl::_args_reg2, false, 1U },
+                    opcode_t{&impl::leading_zero_bits_64, false, 1U},
+                    opcode_t{&impl::leading_zero_bits_32, false, 1U},
+                    opcode_t{&impl::trailing_zero_bits_64, false, 1U},
+                    opcode_t{&impl::trailing_zero_bits_32, false, 1U},
+                    opcode_t{&impl::sign_extend_8, false, 1U},
+                    opcode_t{&impl::sign_extend_16, false, 1U},
+                    opcode_t{&impl::zero_extend_16, false, 1U},
+                    opcode_t{&impl::reverse_bytes, false, 1U},
                     // 0x70
                     undef, undef, undef, undef,
                     undef, undef, undef, undef,
                     // 0x78
-                    opcode_t { "store_ind_u8", &impl::store_ind_u8, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "store_ind_u16", &impl::store_ind_u16, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "store_ind_u32", &impl::store_ind_u32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "store_ind_u64", &impl::store_ind_u64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "load_ind_u8", &impl::load_ind_u8, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "load_ind_i8", &impl::load_ind_i8, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "load_ind_u16", &impl::load_ind_u16, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "load_ind_i16", &impl::load_ind_i16, &impl::_args_reg2_imm1, false, 1U },
+                    opcode_t{&impl::store_ind_u8, false, 1U},
+                    opcode_t{&impl::store_ind_u16, false, 1U},
+                    opcode_t{&impl::store_ind_u32, false, 1U},
+                    opcode_t{&impl::store_ind_u64, false, 1U},
+                    opcode_t{&impl::load_ind_u8, false, 1U},
+                    opcode_t{&impl::load_ind_i8, false, 1U},
+                    opcode_t{&impl::load_ind_u16, false, 1U},
+                    opcode_t{&impl::load_ind_i16, false, 1U},
                     // 0x80
-                    opcode_t { "load_ind_u32", &impl::load_ind_u32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "load_ind_i32", &impl::load_ind_i32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "load_ind_u64", &impl::load_ind_u64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "add_imm_32", &impl::add_imm_32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "and_imm", &impl::and_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "xor_imm", &impl::xor_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "or_imm", &impl::or_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "mul_imm_32", &impl::mul_imm_32, &impl::_args_reg2_imm1, false, 1U },
+                    opcode_t{&impl::load_ind_u32, false, 1U},
+                    opcode_t{&impl::load_ind_i32, false, 1U},
+                    opcode_t{&impl::load_ind_u64, false, 1U},
+                    opcode_t{&impl::add_imm_32, false, 1U},
+                    opcode_t{&impl::and_imm, false, 1U},
+                    opcode_t{&impl::xor_imm, false, 1U},
+                    opcode_t{&impl::or_imm, false, 1U},
+                    opcode_t{&impl::mul_imm_32, false, 1U},
                     // 0x88
-                    opcode_t { "set_lt_u_imm", &impl::set_lt_u_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "set_lt_s_imm", &impl::set_lt_s_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shlo_l_imm_32", &impl::shlo_l_imm_32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shlo_r_imm_32", &impl::shlo_r_imm_32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shar_r_imm_32", &impl::shar_r_imm_32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "neg_add_imm_32", &impl::neg_add_imm_32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "set_gt_u_imm", &impl::set_gt_u_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "set_gt_s_imm", &impl::set_gt_s_imm, &impl::_args_reg2_imm1, false, 1U },
+                    opcode_t{&impl::set_lt_u_imm, false, 1U},
+                    opcode_t{&impl::set_lt_s_imm, false, 1U},
+                    opcode_t{&impl::shlo_l_imm_32, false, 1U},
+                    opcode_t{&impl::shlo_r_imm_32, false, 1U},
+                    opcode_t{&impl::shar_r_imm_32, false, 1U},
+                    opcode_t{&impl::neg_add_imm_32, false, 1U},
+                    opcode_t{&impl::set_gt_u_imm, false, 1U},
+                    opcode_t{&impl::set_gt_s_imm, false, 1U},
                     // 0x90
-                    opcode_t { "shlo_l_imm_alt_32", &impl::shlo_l_imm_alt_32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shlo_r_imm_alt_32", &impl::shlo_r_imm_alt_32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shar_r_imm_alt_32", &impl::shar_r_imm_alt_32, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "cmov_iz_imm", &impl::cmov_iz_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "cmov_nz_imm", &impl::cmov_nz_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "add_imm_64", &impl::add_imm_64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "mul_imm_64", &impl::mul_imm_64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shlo_l_imm_64", &impl::shlo_l_imm_64, &impl::_args_reg2_imm1, false, 1U },
+                    opcode_t{&impl::shlo_l_imm_alt_32, false, 1U},
+                    opcode_t{&impl::shlo_r_imm_alt_32, false, 1U},
+                    opcode_t{&impl::shar_r_imm_alt_32, false, 1U},
+                    opcode_t{&impl::cmov_iz_imm, false, 1U},
+                    opcode_t{&impl::cmov_nz_imm, false, 1U},
+                    opcode_t{&impl::add_imm_64, false, 1U},
+                    opcode_t{&impl::mul_imm_64, false, 1U},
+                    opcode_t{&impl::shlo_l_imm_64, false, 1U},
                     // 0x98
-                    opcode_t { "shlo_r_imm_64", &impl::shlo_r_imm_64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shar_r_imm_64", &impl::shar_r_imm_64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "neg_add_imm_64", &impl::neg_add_imm_64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shlo_l_imm_alt_64", &impl::shlo_l_imm_alt_64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shlo_r_imm_alt_64", &impl::shlo_r_imm_alt_64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "shar_r_imm_alt_64", &impl::shar_r_imm_alt_64, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "rot_r_64_imm", &impl::rot_r_64_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "rot_r_64_imm_alt", &impl::rot_r_64_imm_alt, &impl::_args_reg2_imm1, false, 1U },
+                    opcode_t{&impl::shlo_r_imm_64, false, 1U},
+                    opcode_t{&impl::shar_r_imm_64, false, 1U},
+                    opcode_t{&impl::neg_add_imm_64, false, 1U},
+                    opcode_t{&impl::shlo_l_imm_alt_64, false, 1U},
+                    opcode_t{&impl::shlo_r_imm_alt_64, false, 1U},
+                    opcode_t{&impl::shar_r_imm_alt_64, false, 1U},
+                    opcode_t{&impl::rot_r_64_imm, false, 1U},
+                    opcode_t{&impl::rot_r_64_imm_alt, false, 1U},
                     // 0xA0
-                    opcode_t { "rot_r_32_imm", &impl::rot_r_32_imm, &impl::_args_reg2_imm1, false, 1U },
-                    opcode_t { "rot_r_32_imm_alt", &impl::rot_r_32_imm_alt, &impl::_args_reg2_imm1, false, 1U },
+                    opcode_t{&impl::rot_r_32_imm, false, 1U},
+                    opcode_t{&impl::rot_r_32_imm_alt, false, 1U},
                     undef, undef,
                     undef, undef, undef, undef,
                     // 0xA8
                     undef, undef,
-                    opcode_t { "branch_eq", &impl::branch_eq, &impl::_args_reg2_off1, true, 1U },
-                    opcode_t { "branch_ne", &impl::branch_ne, &impl::_args_reg2_off1, true, 1U },
-                    opcode_t { "branch_lt_u", &impl::branch_lt_u, &impl::_args_reg2_off1, true, 1U },
-                    opcode_t { "branch_lt_s", &impl::branch_lt_s, &impl::_args_reg2_off1, true, 1U },
-                    opcode_t { "branch_ge_u", &impl::branch_ge_u, &impl::_args_reg2_off1, true, 1U },
-                    opcode_t { "branch_ge_s", &impl::branch_ge_s, &impl::_args_reg2_off1, true, 1U },
+                    opcode_t{&impl::branch_eq, true, 1U},
+                    opcode_t{&impl::branch_ne, true, 1U},
+                    opcode_t{&impl::branch_lt_u, true, 1U},
+                    opcode_t{&impl::branch_lt_s, true, 1U},
+                    opcode_t{&impl::branch_ge_u, true, 1U},
+                    opcode_t{&impl::branch_ge_s, true, 1U},
                     // 0xB0
                     undef, undef, undef, undef,
-                    opcode_t { "load_imm_jump_ind", &impl::load_imm_jump_ind, &impl::_args_reg2_imm2, true, 2U },
+                    opcode_t{&impl::load_imm_jump_ind, true, 2U},
                     undef, undef, undef,
                     // 0xB8
                     undef, undef, undef, undef,
                     undef, undef,
-                    opcode_t { "add_32", &impl::add_32, &impl::_args_reg3, false, 2U },
-                    opcode_t { "sub_32", &impl::sub_32, &impl::_args_reg3, false, 2U },
+                    opcode_t{&impl::add_32, false, 2U},
+                    opcode_t{&impl::sub_32, false, 2U},
                     // 0xC0
-                    opcode_t { "mul_32", &impl::mul_32, &impl::_args_reg3, false, 2U },
-                    opcode_t { "div_u_32", &impl::div_u_32, &impl::_args_reg3, false, 2U },
-                    opcode_t { "div_s_32", &impl::div_s_32, &impl::_args_reg3, false, 2U },
-                    opcode_t { "rem_u_32", &impl::rem_u_32, &impl::_args_reg3, false, 2U },
-                    opcode_t { "rem_s_32", &impl::rem_s_32, &impl::_args_reg3, false, 2U },
-                    opcode_t { "shlo_l_32", &impl::shlo_l_32, &impl::_args_reg3, false, 2U },
-                    opcode_t { "shlo_r_32", &impl::shlo_r_32, &impl::_args_reg3, false, 2U },
-                    opcode_t { "shar_r_32", &impl::shar_r_32, &impl::_args_reg3, false, 2U },
+                    opcode_t{&impl::mul_32, false, 2U},
+                    opcode_t{&impl::div_u_32, false, 2U},
+                    opcode_t{&impl::div_s_32, false, 2U},
+                    opcode_t{&impl::rem_u_32, false, 2U},
+                    opcode_t{&impl::rem_s_32, false, 2U},
+                    opcode_t{&impl::shlo_l_32, false, 2U},
+                    opcode_t{&impl::shlo_r_32, false, 2U},
+                    opcode_t{&impl::shar_r_32, false, 2U},
                     // 0xC8
-                    opcode_t { "add_64", &impl::add_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "sub_64", &impl::sub_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "mul_64", &impl::mul_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "div_u_64", &impl::div_u_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "div_s_64", &impl::div_s_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "rem_u_64", &impl::rem_u_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "rem_s_64", &impl::rem_s_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "shlo_l_64", &impl::shlo_l_64, &impl::_args_reg3, false, 2U },
+                    opcode_t{&impl::add_64, false, 2U},
+                    opcode_t{&impl::sub_64, false, 2U},
+                    opcode_t{&impl::mul_64, false, 2U},
+                    opcode_t{&impl::div_u_64, false, 2U},
+                    opcode_t{&impl::div_s_64, false, 2U},
+                    opcode_t{&impl::rem_u_64, false, 2U},
+                    opcode_t{&impl::rem_s_64, false, 2U},
+                    opcode_t{&impl::shlo_l_64, false, 2U},
                     // 0xD0
-                    opcode_t { "shlo_r_64", &impl::shlo_r_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "shar_r_64", &impl::shar_r_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "and_", &impl::and_, &impl::_args_reg3, false, 2U },
-                    opcode_t { "xor_", &impl::xor_, &impl::_args_reg3, false, 2U },
-                    opcode_t { "or_", &impl::or_, &impl::_args_reg3, false, 2U },
-                    opcode_t { "mul_upper_s_s", &impl::mul_upper_s_s, &impl::_args_reg3, false, 2U },
-                    opcode_t { "mul_upper_u_u", &impl::mul_upper_u_u, &impl::_args_reg3, false, 2U },
-                    opcode_t { "mul_upper_s_u", &impl::mul_upper_s_u, &impl::_args_reg3, false, 2U },
+                    opcode_t{&impl::shlo_r_64, false, 2U},
+                    opcode_t{&impl::shar_r_64, false, 2U},
+                    opcode_t{&impl::and_, false, 2U},
+                    opcode_t{&impl::xor_, false, 2U},
+                    opcode_t{&impl::or_, false, 2U},
+                    opcode_t{&impl::mul_upper_s_s, false, 2U},
+                    opcode_t{&impl::mul_upper_u_u, false, 2U},
+                    opcode_t{&impl::mul_upper_s_u, false, 2U},
                     // 0xD8
-                    opcode_t { "set_lt_u", &impl::set_lt_u, &impl::_args_reg3, false, 2U },
-                    opcode_t { "set_lt_s", &impl::set_lt_s, &impl::_args_reg3, false, 2U },
-                    opcode_t { "cmov_iz", &impl::cmov_iz, &impl::_args_reg3, false, 2U },
-                    opcode_t { "cmov_nz", &impl::cmov_nz, &impl::_args_reg3, false, 2U },
-                    opcode_t { "rot_l_64", &impl::rot_l_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "rot_l_32", &impl::rot_l_32, &impl::_args_reg3, false, 2U },
-                    opcode_t { "rot_r_64", &impl::rot_r_64, &impl::_args_reg3, false, 2U },
-                    opcode_t { "rot_r_32", &impl::rot_r_32, &impl::_args_reg3, false, 2U },
+                    opcode_t{&impl::set_lt_u, false, 2U},
+                    opcode_t{&impl::set_lt_s, false, 2U},
+                    opcode_t{&impl::cmov_iz, false, 2U},
+                    opcode_t{&impl::cmov_nz, false, 2U},
+                    opcode_t{&impl::rot_l_64, false, 2U},
+                    opcode_t{&impl::rot_l_32, false, 2U},
+                    opcode_t{&impl::rot_r_64, false, 2U},
+                    opcode_t{&impl::rot_r_32, false, 2U},
                     // 0xE0
-                    opcode_t { "and_inv", &impl::and_inv, &impl::_args_reg3, false, 2U },
-                    opcode_t { "or_inv", &impl::or_inv, &impl::_args_reg3, false, 2U },
-                    opcode_t { "xnor", &impl::xnor, &impl::_args_reg3, false, 2U },
-                    opcode_t { "max", &impl::max, &impl::_args_reg3, false, 2U },
-                    opcode_t { "max_u", &impl::max_u, &impl::_args_reg3, false, 2U },
-                    opcode_t { "min", &impl::min, &impl::_args_reg3, false, 2U },
-                    opcode_t { "min_u", &impl::min_u, &impl::_args_reg3, false, 2U },
+                    opcode_t{&impl::and_inv, false, 2U},
+                    opcode_t{&impl::or_inv, false, 2U},
+                    opcode_t{&impl::xnor, false, 2U},
+                    opcode_t{&impl::max, false, 2U},
+                    opcode_t{&impl::max_u, false, 2U},
+                    opcode_t{&impl::min, false, 2U},
+                    opcode_t{&impl::min_u, false, 2U},
                     undef,
                     // 0xE8
                     undef, undef, undef, undef,
@@ -804,7 +801,7 @@ namespace turbo::jam::machine {
             const size_t l_x = std::min(4ULL, b1 % 8ULL);
             _ensure_readable(data, 2U, l_x);
             const size_t base_y = 2U + l_x;
-            const size_t l_y = data.size() > base_y ? std::min(size_t { 4 }, data.size() - base_y) : 0U;
+            const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
             const auto nu_x = _read_signed_imm32_unchecked(ptr + 2U, l_x);
             const auto nu_y = _read_signed_imm32_unchecked(ptr + base_y, l_y);
             return std::make_tuple(r_a, r_b, nu_x, nu_y);
@@ -864,7 +861,7 @@ namespace turbo::jam::machine {
             const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8ULL);
             _ensure_readable(data, 1U, l_x);
             const size_t base_y = 1U + l_x;
-            const size_t l_y = data.size() > base_y ? std::min(size_t { 4 }, data.size() - base_y) : 0U;
+            const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
             const auto nu_x = _read_signed_imm32_unchecked(ptr + 1U, l_x);
             const auto nu_y = _read_signed_imm32_unchecked(ptr + base_y, l_y);
             return std::make_tuple(r_a, nu_x, nu_y);
@@ -878,7 +875,7 @@ namespace turbo::jam::machine {
             const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8ULL);
             _ensure_readable(data, 1U, l_x);
             const size_t base_y = 1U + l_x;
-            const size_t l_y = data.size() > base_y ? std::min(size_t { 4 }, data.size() - base_y) : 0U;
+            const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
             const auto nu_x = _read_signed_imm32_unchecked(ptr + 1U, l_x);
             const auto nu_y_pre = _read_signed_imm32_unchecked(ptr + base_y, l_y);
             const auto nu_y = static_cast<register_val_t>(static_cast<register_val_signed_t>(pc) + static_cast<register_val_signed_t>(nu_y_pre));
@@ -887,7 +884,7 @@ namespace turbo::jam::machine {
 
         static std::tuple<register_val_t> _args_imm1(const buffer data)
         {
-            const size_t l_x = std::min(size_t { 4 }, data.size());
+            const size_t l_x = std::min(size_t{4}, data.size());
             return _read_signed_imm32_unchecked(data.data(), l_x);
         }
 
@@ -897,7 +894,7 @@ namespace turbo::jam::machine {
             const size_t l_x = std::min(4ULL, ptr[0] % 8ULL);
             _ensure_readable(data, 1U, l_x);
             const size_t base_y = 1U + l_x;
-            const size_t l_y = data.size() > base_y ? std::min(size_t { 4 }, data.size() - base_y) : 0U;
+            const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
             const auto nu_x = _read_signed_imm32_unchecked(ptr + 1U, l_x);
             const auto nu_y = _read_signed_imm32_unchecked(ptr + base_y, l_y);
             return std::make_tuple(nu_x, nu_y);
@@ -905,7 +902,7 @@ namespace turbo::jam::machine {
 
         static std::tuple<register_val_t> _args_off1(const register_val_t pc, const buffer data)
         {
-            const size_t l_x = std::min(size_t { 4 }, data.size());
+            const size_t l_x = std::min(size_t{4}, data.size());
             const auto nu_x_pre = _read_signed_imm32_unchecked(data.data(), l_x);
             const auto nu_x = static_cast<register_val_t>(static_cast<register_val_signed_t>(pc) + static_cast<register_val_signed_t>(nu_x_pre));
             return std::make_tuple(nu_x);
@@ -930,7 +927,7 @@ namespace turbo::jam::machine {
             const auto new_pc = program.jump_table.at(ji - 1);
             if (!program.bitmasks.test(new_pc)) [[unlikely]]
                 return exit_panic_t{};
-            return { new_pc };
+                return {new_pc};
         }
 
         static op_res_t branch_base(const program_t &program, const register_val_t new_pc, const bool cond)
@@ -2196,7 +2193,7 @@ namespace turbo::jam::machine {
 
     std::optional<machine_t> configure(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
     {
-        decoder dec { code };
+        decoder dec{code};
         // JAM (9.4)
         const auto meta = codec::from<byte_sequence_t>(dec);
 
@@ -2220,21 +2217,21 @@ namespace turbo::jam::machine {
         if (total_sz > 1ULL << 32U) [[unlikely]]
             return {};
 
-        state_t state {
+        state_t state{
             .pc = pc,
             .gas = numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas_init))
         };
-        pages_t page_map {};
+        pages_t page_map{};
 
         // JAM (A.41)
         struct area_def_t {
             size_t address;
             size_t size;
             bool is_writable = false;
-            std::optional<buffer> data {};
+            std::optional<buffer> data{};
         };
 
-        for (const auto &def: std::initializer_list<area_def_t> {
+        for (const auto &def: std::initializer_list<area_def_t>{
             // read only data
             { config_prod::ZZ_pvm_init_zone_size, o_bytes.size(), false, o_bytes },
             // writable data
@@ -2244,13 +2241,13 @@ namespace turbo::jam::machine {
             // arguments
             { (1ULL << 32U) - config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size, a_bytes.size(), false, a_bytes },
         }) {
-            page_map.emplace_back(page_t {
+            page_map.emplace_back(page_t{
                 .address=numeric_cast<uint32_t>(def.address),
                 .length=numeric_cast<uint32_t>(config_prod::pvm_p_size(def.size)),
                 .is_writable=def.is_writable
             });
             if (def.data) {
-                state.memory.emplace_back(memory_chunk_t {
+                state.memory.emplace_back(memory_chunk_t{
                     .address=numeric_cast<uint32_t>(def.address),
                     .contents=*def.data
                 });
