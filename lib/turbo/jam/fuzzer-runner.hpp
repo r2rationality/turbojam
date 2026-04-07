@@ -17,7 +17,6 @@
 #include <boost/asio/read.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/write.hpp>
-#include <boost/asio/use_future.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #if !defined(BOOST_ASIO_HAS_LOCAL_SOCKETS)
@@ -67,11 +66,45 @@ namespace turbo::jam::fuzzer_runner {
         {
             if (_ioc.stopped())
                 _ioc.restart();
-            auto fut = boost::asio::co_spawn(_ioc, std::move(f), boost::asio::use_future);
-            _ioc.run();
-            return fut.get();
+            auto guard = boost::asio::make_work_guard(_ioc);
+            using result_t = typename std::decay_t<F>::value_type;
+            using normalized_t = std::conditional_t<std::is_void_v<result_t>, std::monostate, result_t>;
+            std::exception_ptr ep{};
+            std::optional<normalized_t> res{};
+            bool done = false;
+
+            boost::asio::co_spawn(_ioc, _normalize_awaitable(std::move(f)), [&](std::exception_ptr cur_ep, normalized_t value) {
+                ep = std::move(cur_ep);
+                if (!ep)
+                    res.emplace(std::move(value));
+                done = true;
+            });
+            while (!done)
+                _ioc.run_one();
+            if (ep)
+                std::rethrow_exception(ep);
+            if constexpr (!std::is_void_v<result_t>)
+                return std::move(*res);
         }
     private:
+        template<typename F>
+        static auto _normalize_awaitable(F f)
+            -> boost::asio::awaitable<std::conditional_t<
+                std::is_void_v<typename std::decay_t<F>::value_type>,
+                std::monostate,
+                typename std::decay_t<F>::value_type>>
+        {
+            using result_t = typename std::decay_t<F>::value_type;
+            using normalized_t = std::conditional_t<std::is_void_v<result_t>, std::monostate, result_t>;
+
+            if constexpr (std::is_void_v<result_t>) {
+                co_await std::move(f);
+                co_return normalized_t{};
+            } else {
+                co_return co_await std::move(f);
+            }
+        }
+
         boost::asio::io_context _ioc {};
     };
 

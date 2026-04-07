@@ -6,17 +6,15 @@
 // An implementation of the Fuzzer API defined here:
 // https://github.com/davxy/jam-stuff/tree/main/fuzz-proto
 
-#include <future>
 #include <turbo/common/cli.hpp>
-#include <turbo/common/mutex.hpp>
 #include <turbo/common/variant.hpp>
 #include <turbo/jam/chain.hpp>
 #include <turbo/jam/fuzzer-runner.hpp>
 
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/signal_set.hpp>
-#include <boost/asio/use_future.hpp>
 
 namespace {
     using namespace std::string_view_literals;
@@ -32,7 +30,7 @@ namespace {
             _chain_id{std::move(chain_id)},
             _sock_path{std::move(sock_path)}
         {
-            _futures.emplace_back(boost::asio::co_spawn(_ioc, _listen(), boost::asio::use_future));
+            boost::asio::co_spawn(_ioc, _listen(), boost::asio::detached);
         }
 
         ~server_t() noexcept
@@ -43,51 +41,54 @@ namespace {
         void run()
         {
             boost::asio::signal_set signals{_ioc, SIGINT, SIGTERM};
-            signals.async_wait([this](auto, auto){ _guard.reset(); _ioc.stop(); });
+            signals.async_wait([this](auto, auto){ _ioc.stop(); });
             _ioc.run();
         }
     private:
         std::string _chain_id;
         std::string _sock_path;
-        file::tmp_directory _tmp_dir{"turbo-jam-fuzzer"};
         boost::asio::io_context _ioc{};
-        decltype(boost::asio::make_work_guard(_ioc)) _guard = boost::asio::make_work_guard(_ioc);
-        std::mutex _futures_mutex alignas(mutex::alignment) {};
-        std::vector<std::future<void>> _futures {};
+        std::atomic<uint64_t> _next_client_id{};
 
-        boost::asio::awaitable<void> _handle_client(stream_protocol::socket conn)
+        boost::asio::awaitable<void> _handle_client(stream_protocol::socket conn, const uint64_t client_id)
         {
-            static const peer_info_t my_peer_info{};
-            {
-                const auto handshake = co_await read_message<CFG>(conn);
-                const peer_info_t &peer_info = variant::get_nice<peer_info_t>(handshake);
-                co_await write_message<CFG>(conn, message_t<CFG>{my_peer_info});
-                my_peer_info.compatible_with(peer_info);
-            }
-            local_processor_t<CFG> processor{_chain_id, _tmp_dir.path()};
-            for (;;) {
-                auto msg_in = co_await read_message<CFG>(conn);
-                auto msg_out = co_await processor.process(std::move(msg_in));
-                co_await write_message(conn, std::move(msg_out));
+            try {
+                static const peer_info_t my_peer_info{};
+                {
+                    const auto handshake = co_await read_message<CFG>(conn);
+                    const peer_info_t &peer_info = variant::get_nice<peer_info_t>(handshake);
+                    co_await write_message<CFG>(conn, message_t<CFG>{my_peer_info});
+                    my_peer_info.compatible_with(peer_info);
+                }
+                file::tmp_directory tmp_dir{fmt::format("turbo-jam-fuzzer-{}", client_id)};
+                local_processor_t<CFG> processor{_chain_id, tmp_dir.path()};
+                for (;;) {
+                    auto msg_in = co_await read_message<CFG>(conn);
+                    auto msg_out = co_await processor.process(std::move(msg_in));
+                    co_await write_message(conn, std::move(msg_out));
+                }
+            } catch (const std::exception &ex) {
+                logger::info("client disconnected: {}", ex.what());
             }
         }
 
         boost::asio::awaitable<void> _listen()
-        {
+        try {
             auto ex = co_await boost::asio::this_coro::executor;
             logger::info("listening on {}", _sock_path);
             std::filesystem::remove(_sock_path);
             const stream_protocol::endpoint ep{_sock_path};
-            stream_protocol::acceptor acceptor{_ioc, ep};
+            stream_protocol::acceptor acceptor{ex, ep};
 #if         defined(__unix__) || defined (__unix)
                 ::chmod(_sock_path.c_str(), 0666);
 #endif
             for (;;) {
                 auto conn = co_await acceptor.async_accept(boost::asio::use_awaitable);
-                std::scoped_lock lock { _futures_mutex };
                 logger::info("accepted a new connection");
-                _futures.emplace_back(co_spawn(ex, _handle_client(std::move(conn)), boost::asio::use_future));
+                co_spawn(ex, _handle_client(std::move(conn), _next_client_id++), boost::asio::detached);
             }
+        } catch (const std::exception &ex) {
+            logger::error("listener failed: {}", ex.what());
         }
     };
 }
