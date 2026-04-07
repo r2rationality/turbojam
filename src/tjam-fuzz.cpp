@@ -1,4 +1,4 @@
-#include <turbo/jam/cli/fuzzer.hpp>
+#include <turbo/jam/fuzzer-runner.hpp>
 
 namespace {
     using namespace turbo;

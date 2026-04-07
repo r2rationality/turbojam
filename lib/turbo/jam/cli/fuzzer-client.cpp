@@ -1,19 +1,17 @@
 /* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
- * Copyright (c) 2025 R2 Rationality OÜ (info at r2rationality dot com)
+ * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <ranges>
 #include <turbo/common/cli.hpp>
 #include <turbo/common/file.hpp>
-#include <turbo/common/variant.hpp>
 #include <turbo/jam/traces.hpp>
 // Must be included the last as it includes boost::asio and windows headers
-#include "fuzzer.hpp"
+#include <turbo/jam/fuzzer-runner.hpp>
 
 namespace {
     using namespace turbo;
-    using namespace turbo::cli::fuzzer;
+    using namespace turbo::jam::fuzzer_runner;
     using namespace turbo::jam::traces;
     using namespace std::string_view_literals;
 }
@@ -35,7 +33,7 @@ namespace turbo::cli::fuzzer_client {
                 _run_tests(impl_vs_trace_client_t<config_tiny, unix_socket_processor_t>{std::make_unique<unix_socket_processor_t<config_tiny>>(*it->second)}, data_dir);
             } else {
                 file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
-                _run_tests(impl_vs_trace_client_t<config_tiny, processor_t>{std::make_unique<processor_t<config_tiny>>("dev", tmp_dir.path())}, data_dir);
+                _run_tests(impl_vs_trace_client_t<config_tiny, local_processor_t>{std::make_unique<local_processor_t<config_tiny>>("dev", tmp_dir.path())}, data_dir);
             }
         }
 

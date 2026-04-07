@@ -24,7 +24,7 @@ namespace turbo::jam::fuzzer {
     template struct initialize_t<config_tiny>;
 
     template<typename CFG>
-    struct processor_t<CFG>::impl_t {
+    struct local_processor_t<CFG>::impl_t {
         impl_t(std::string &&chain_id, std::string_view chain_dir):
             _chain_id{std::move(chain_id)},
             _chain_dir{chain_dir}
@@ -71,20 +71,20 @@ namespace turbo::jam::fuzzer {
     };
 
     template<typename CFG>
-    processor_t<CFG>::processor_t(std::string chain_id, std::string_view chain_dir):
+    local_processor_t<CFG>::local_processor_t(std::string chain_id, std::string_view chain_dir):
         _impl{std::make_unique<impl_t>(std::move(chain_id), std::move(chain_dir))}
     {
     }
 
     template<typename CFG>
-    processor_t<CFG>::~processor_t() =default;
+    local_processor_t<CFG>::~local_processor_t() =default;
 
     template<typename CFG>
-    boost::asio::awaitable<message_t<CFG>> processor_t<CFG>::process(message_t<CFG> msg)
+    boost::asio::awaitable<message_t<CFG>> local_processor_t<CFG>::process(message_t<CFG> msg)
     {
         co_return _impl->process(std::move(msg));
     }
 
-    template struct processor_t<config_prod>;
-    template struct processor_t<config_tiny>;
+    template struct local_processor_t<config_prod>;
+    template struct local_processor_t<config_tiny>;
 }

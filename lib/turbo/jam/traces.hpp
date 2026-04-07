@@ -1,6 +1,6 @@
 #pragma once
 /* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
- * Copyright (c) 2025 R2 Rationality OÜ (info at r2rationality dot com)
+ * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
@@ -21,32 +21,13 @@ namespace turbo::jam::traces {
             archive.process("keyvals"sv, keyvals);
         }
 
-        bool operator==(const raw_state_t &o) const
-        {
-            if (state_root != o.state_root)
-                return false;
-            if (keyvals != o.keyvals)
-                return false;
-            return true;
-        }
-    };
-
-    struct test_genesis_state_t {
-        state_root_t state_root;
-        state_snapshot_t keyvals;
-
-        void serialize(auto &archive)
-        {
-            using namespace std::string_view_literals;
-            archive.process("state_root"sv, state_root);
-            archive.process("keyvals"sv, keyvals);
-        }
+        bool operator==(const raw_state_t &o) const = default;
     };
 
     template<typename CFG>
     struct test_genesis_t {
         header_t<CFG> header;
-        test_genesis_state_t state;
+        raw_state_t state;
 
         void serialize(auto &archive)
         {

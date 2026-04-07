@@ -1,5 +1,5 @@
 /* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
- * Copyright (c) 2025 R2 Rationality OÜ (info at r2rationality dot com)
+ * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
@@ -11,7 +11,7 @@
 #include <turbo/common/mutex.hpp>
 #include <turbo/common/variant.hpp>
 #include <turbo/jam/chain.hpp>
-#include "fuzzer.hpp"
+#include <turbo/jam/fuzzer-runner.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -23,8 +23,8 @@ namespace {
     using namespace boost::asio::experimental::awaitable_operators;
     using namespace boost::asio::local;
     using namespace turbo;
-    using namespace turbo::cli::fuzzer;
     using namespace turbo::jam;
+    using namespace turbo::jam::fuzzer_runner;
 
     template<typename CFG>
     struct server_t {
@@ -64,7 +64,7 @@ namespace {
                 co_await write_message<CFG>(conn, message_t<CFG>{my_peer_info});
                 my_peer_info.compatible_with(peer_info);
             }
-            processor_t<CFG> processor{_chain_id, _tmp_dir.path()};
+            local_processor_t<CFG> processor{_chain_id, _tmp_dir.path()};
             for (;;) {
                 auto msg_in = co_await read_message<CFG>(conn);
                 auto msg_out = co_await processor.process(std::move(msg_in));

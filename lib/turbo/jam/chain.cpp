@@ -7,7 +7,7 @@
 #include <turbo/storage/common.hpp>
 #include "chain.hpp"
 
-#include "cli/fuzzer.hpp"
+#include "fuzzer-runner.hpp"
 
 namespace turbo::jam {
     template<typename CFG>

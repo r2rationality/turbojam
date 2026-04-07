@@ -1,6 +1,6 @@
 #pragma once
 /* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
- * Copyright (c) 2025 R2 Rationality OÜ (info at r2rationality dot com)
+ * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
@@ -24,7 +24,7 @@
 #   error Local sockets not available on this platform.
 #endif
 
-namespace turbo::cli::fuzzer {
+namespace turbo::jam::fuzzer_runner {
     using namespace turbo::jam;
     using namespace turbo::jam::fuzzer;
     using namespace turbo::jam::traces;
@@ -100,7 +100,6 @@ namespace turbo::cli::fuzzer {
         {
             co_await write_message(_conn, std::move(msg));
             co_return co_await read_message<CFG>(_conn);
-            //return _io_worker.sync_call(_process(std::move(msg)));
         }
     private:
         std::string _sock_path;
@@ -352,6 +351,77 @@ namespace turbo::cli::fuzzer {
             }, resp1, resp2);
             logger::debug("testing block slot={} hash={}: {}", block.header.slot, block.header.hash(), ok ? "OK" : "FAILED");
             co_return ok;
+        }
+    };
+
+    template<typename CFG, template<typename ...> typename PROC>
+    struct minifuzz_client_t {
+        using my_processor_ptr_t = std::unique_ptr<PROC<CFG>>;
+
+        explicit minifuzz_client_t(my_processor_ptr_t proc, io_worker_t &io_worker=io_worker_t::get()):
+            _proc{std::move(proc)},
+            _io_worker{io_worker}
+        {
+        }
+
+        bool test_sample(const std::string &in_path, const std::string &exp_path)
+        {
+            try {
+                auto in = jam::load_obj<message_t<CFG>>(in_path);
+                auto exp = jam::load_obj<message_t<CFG>>(exp_path);
+                const auto ok = _io_worker.sync_call(_test_case(std::move(in), std::move(exp)));
+                expect(ok) << in_path;
+                return ok;
+            } catch (const std::exception &ex) {
+                logger::error("sample {}: failed due to an uncaught exception: {}", in_path, ex.what());
+            } catch (...) {
+                logger::error("sample {}: failed due to an uncaught unknown exception", in_path);
+            }
+            return false;
+        }
+
+        void test_dir(const std::filesystem::path &data_dir)
+        {
+            std::vector<std::string> fuzzer_files{};
+            std::vector<std::string> target_files{};
+            for (const auto &path: file::files_with_ext(data_dir.string(), ".bin")) {
+                if (path.contains("00000000_")) [[unlikely]]
+                    continue;
+                if (path.contains("_fuzzer_"))
+                    fuzzer_files.emplace_back(path);
+                if (path.contains("_target_"))
+                    target_files.emplace_back(path);
+            }
+            if (fuzzer_files.size() != target_files.size())
+                throw error(fmt::format("the number of fuzzer files: {} != the number of target files: {}", fuzzer_files.size(), target_files.size()));
+            for (size_t i = 0; i < fuzzer_files.size(); ++i) {
+                test_sample(fuzzer_files[i], target_files[i]);
+            }
+        }
+    private:
+        my_processor_ptr_t _proc;
+        io_worker_t &_io_worker;
+
+        boost::asio::awaitable<state_root_t> _set_state(initialize_t<CFG> init)
+        {
+            co_return variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{std::move(init)}));
+        }
+
+        boost::asio::awaitable<state_snapshot_t> _get_state(const header_hash_t &hh)
+        {
+            co_return variant::get_nice<state_snapshot_t>(_proc->process(message_t<CFG>{get_state_t{hh}}));
+        }
+
+        boost::asio::awaitable<bool> _test_case(message_t<CFG> in, message_t<CFG> exp)
+        {
+            const auto out = co_await _proc->process(std::move(in));
+            if (out.index() != exp.index()
+                || (!std::holds_alternative<fuzzer::error_t>(out) && out != exp)) {
+                logger::error("out: {}", out);
+                logger::error("exp: {}", exp);
+                co_return false;
+            }
+            co_return true;
         }
     };
 }

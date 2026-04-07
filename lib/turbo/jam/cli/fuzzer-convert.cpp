@@ -6,14 +6,13 @@
 #include <ranges>
 #include <turbo/common/cli.hpp>
 #include <turbo/common/file.hpp>
-#include <turbo/common/variant.hpp>
 #include <turbo/jam/traces.hpp>
 // Must be included the last as it includes boost::asio and windows headers
-#include "fuzzer.hpp"
+#include <turbo/jam/fuzzer-runner.hpp>
 
 namespace {
     using namespace turbo;
-    using namespace turbo::cli::fuzzer;
+    using namespace turbo::jam::fuzzer_runner;
     using namespace turbo::jam::traces;
     using namespace std::string_view_literals;
 }
