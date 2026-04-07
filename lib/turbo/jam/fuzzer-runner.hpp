@@ -65,22 +65,11 @@ namespace turbo::jam::fuzzer_runner {
         template<typename F>
         auto sync_call(F f)
         {
-            auto fut = boost::asio::co_spawn(_ioc, std::move(f), boost::asio::use_future);
             if (_ioc.stopped())
                 _ioc.restart();
-            auto guard = boost::asio::make_work_guard(_ioc);
-            using T = std::decay_t<decltype(fut.get())>;
-            for (;;) {
-                if (fut.wait_for(std::chrono::milliseconds{0}) == std::future_status::ready) [[unlikely]] {
-                    if constexpr (std::is_void_v<T>) {
-                        fut.get();
-                        return;
-                    } else {
-                        return fut.get();
-                    }
-                }
-                _ioc.run_for(std::chrono::milliseconds{100});
-            }
+            auto fut = boost::asio::co_spawn(_ioc, std::move(f), boost::asio::use_future);
+            _ioc.run();
+            return fut.get();
         }
     private:
         boost::asio::io_context _ioc {};
