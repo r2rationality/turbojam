@@ -54,8 +54,9 @@ namespace {
         {
             try {
                 static const peer_info_t my_peer_info{};
+                uint8_vector read_buf{};
                 {
-                    const auto handshake = co_await read_message<CFG>(conn);
+                    const auto handshake = co_await read_message<CFG>(conn, read_buf);
                     const peer_info_t &peer_info = variant::get_nice<peer_info_t>(handshake);
                     co_await write_message<CFG>(conn, message_t<CFG>{my_peer_info});
                     my_peer_info.compatible_with(peer_info);
@@ -63,7 +64,7 @@ namespace {
                 file::tmp_directory tmp_dir{fmt::format("turbo-jam-fuzzer-{}", client_id)};
                 local_processor_t<CFG> processor{_chain_id, tmp_dir.path()};
                 for (;;) {
-                    auto msg_in = co_await read_message<CFG>(conn);
+                    auto msg_in = co_await read_message<CFG>(conn, read_buf);
                     auto msg_out = co_await processor.process(std::move(msg_in));
                     co_await write_message(conn, std::move(msg_out));
                 }

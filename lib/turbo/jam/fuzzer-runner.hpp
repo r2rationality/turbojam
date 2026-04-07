@@ -30,13 +30,13 @@ namespace turbo::jam::fuzzer_runner {
     using boost::asio::local::stream_protocol;
     
     template<typename CFG>
-    static boost::asio::awaitable<message_t<CFG>> read_message(stream_protocol::socket &conn)
+    static boost::asio::awaitable<message_t<CFG>> read_message(stream_protocol::socket &conn, uint8_vector &scratch)
     {
         uint32_t msg_len = 0;
         co_await boost::asio::async_read(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
-        uint8_vector msg_buf(msg_len);
-        co_await boost::asio::async_read(conn, boost::asio::buffer(msg_buf.data(), msg_buf.size()), boost::asio::use_awaitable);
-        decoder dec{msg_buf};
+        scratch.resize(msg_len);
+        co_await boost::asio::async_read(conn, boost::asio::buffer(scratch.data(), scratch.size()), boost::asio::use_awaitable);
+        decoder dec{buffer{scratch.data(), scratch.size()}};
         co_return codec::from<message_t<CFG>>(dec);
     }
 
@@ -45,8 +45,11 @@ namespace turbo::jam::fuzzer_runner {
     {
         const encoder enc{msg};
         const uint32_t msg_len = enc.bytes().size();
-        co_await boost::asio::async_write(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
-        co_await boost::asio::async_write(conn, boost::asio::buffer(enc.bytes()), boost::asio::use_awaitable);
+        const std::array<boost::asio::const_buffer, 2> bufs{
+            boost::asio::buffer(&msg_len, sizeof(msg_len)),
+            boost::asio::buffer(enc.bytes())
+        };
+        co_await boost::asio::async_write(conn, bufs, boost::asio::use_awaitable);
     }
 
     struct io_worker_t {
@@ -121,18 +124,19 @@ namespace turbo::jam::fuzzer_runner {
         boost::asio::awaitable<message_t<CFG>> process(message_t<CFG> msg)
         {
             co_await write_message(_conn, std::move(msg));
-            co_return co_await read_message<CFG>(_conn);
+            co_return co_await read_message<CFG>(_conn, _read_buf);
         }
     private:
         std::string _sock_path;
         io_worker_t &_io_worker;
         stream_protocol::socket _conn{_io_worker.io_context()};
+        uint8_vector _read_buf{};
 
         boost::asio::awaitable<void> _send_peer_info()
         {
             static const peer_info_t my_peer_info{"turbojam-fuzzer-client"};
             co_await write_message(_conn, message_t<CFG>{my_peer_info});
-            const auto server_info = co_await read_message<CFG>(_conn);
+            const auto server_info = co_await read_message<CFG>(_conn, _read_buf);
             my_peer_info.compatible_with(variant::get_nice<peer_info_t>(server_info));
         }
 

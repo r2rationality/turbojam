@@ -19,7 +19,7 @@ namespace turbo::storage::lmdb {
             _throw_lmdb(mdb_env_create(&_env), "_env_create");
             _throw_lmdb(mdb_env_set_maxdbs(_env, 1), "_env_set_maxdbs");
             _throw_lmdb(mdb_env_set_mapsize(_env, initial_mapsize), "_env_set_mapsize");
-            _throw_lmdb(mdb_env_open(_env, _dir_path.c_str(), 0, 0664), "_env_open");
+            _throw_lmdb(mdb_env_open(_env, _dir_path.c_str(), MDB_NOMETASYNC, 0664), "_env_open");
             if (const int rc = mdb_txn_begin(_env, nullptr, 0, &_txn); rc != MDB_SUCCESS) [[unlikely]] {
                 _txn = nullptr;
                 _throw_lmdb(rc, "txn_begin(open)");
