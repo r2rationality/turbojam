@@ -299,19 +299,15 @@ namespace turbo::jam {
                 memcpy(val.data(), data.data(), val.size());
             } else if constexpr (codec::byte_sequence_like_c<T>) {
                 const auto sz = uint_varlen<size_t>();
-                val.clear();
-                val.reserve(sz);
                 const auto data = next_bytes(sz);
-                val.insert(val.end(), data.begin(), data.end());
+                val.assign(data.begin(), data.end());
             } else if constexpr (codec::fixed_array_like_c<T>) {
                 for (size_t i = 0; i < val.size(); ++i)
                     process(val[i]);
             } else if constexpr (std::is_same_v<T, std::string>) {
                 const auto sz = uint_varlen<size_t>();
-                val.clear();
-                val.reserve(sz);
                 const auto data = next_bytes(sz);
-                val.insert(val.end(), data.begin(), data.end());
+                val.assign(data.begin(), data.end());
             } else if constexpr (std::is_same_v<uint64_t, T>) {
                 val = uint_fixed<T>(8);
             } else if constexpr (std::is_same_v<uint32_t, T>) {
