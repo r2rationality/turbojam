@@ -134,6 +134,24 @@ namespace turbo::jam::fuzzer_runner {
         }
     };
 
+    struct perf_stats_t {
+        size_t count = 0;
+        double min = 0.0;
+        double max = 0.0;
+        double mean = 0.0;
+        double variance = 0.0;
+
+        void add(const double duration) {
+            ++count;
+            min = std::min(min, duration);
+            max = std::max(max, duration);
+            const auto delta = duration - mean;
+            mean += delta / count;
+            const auto delta2 = duration - mean;
+            variance += delta * delta2;
+        }
+    };
+
     template<typename CFG, template<typename ...> typename PROC>
     struct impl_vs_trace_client_t {
         using test_cases_t = std::vector<test_case_t>;
@@ -212,9 +230,14 @@ namespace turbo::jam::fuzzer_runner {
             }
             return err == 0;
         }
+
+        const perf_stats_t &stats() const {
+            return _stats;
+        }
     private:
         my_processor_ptr_t _proc;
         io_worker_t &_io_worker;
+        perf_stats_t _stats{};
 
         static void _append_test_cases(test_cases_t &test_cases, const buffer tc_data)
         {
@@ -239,7 +262,9 @@ namespace turbo::jam::fuzzer_runner {
             for (size_t i = 0; i < test_cases.size(); ++i) {
                 const auto &tc = test_cases[i];
                 logger::debug("sample {}: testing block {} {}", i, tc.block.header.slot, tc.block.header.hash());
+                timer t{""};
                 const auto resp = co_await _proc->process(message_t<CFG>{import_block_t<CFG>{tc.block}});
+                _stats.add(t.stop(false));
                 const auto ok = std::visit([&](const auto &rv) -> bool {
                     using T = std::decay_t<decltype(rv)>;
                     if constexpr (std::is_same_v<T, turbo::jam::fuzzer::error_t>) {
@@ -354,6 +379,7 @@ namespace turbo::jam::fuzzer_runner {
         }
     };
 
+    // Each same is a Fuzzer protocol message
     template<typename CFG, template<typename ...> typename PROC>
     struct minifuzz_client_t {
         using my_processor_ptr_t = std::unique_ptr<PROC<CFG>>;
