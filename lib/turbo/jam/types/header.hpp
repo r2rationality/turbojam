@@ -133,27 +133,16 @@ namespace turbo::jam {
             uint8_vector unsigned_header{};
         };
 
-
-        // H_p
-        header_hash_t parent{};
-        // H_r - ancestors need to be stored only for previous 24-hours of any block to be validated
-        state_root_t parent_state_root{};
-        // H_x - merkle commitment (H^#) to the block's external data
-        opaque_hash_t extrinsic_hash{};
-        // H_t
-        time_slot_t<CFG> slot{};
-        // H_e
-        optional_t<epoch_mark_t<CFG>> epoch_mark{};
-        // H_w
-        optional_t<tickets_mark_t<CFG>> tickets_mark{};
-        // H_i
-        validator_index_t author_index{};
-        // H_v
-        bandersnatch_vrf_signature_t entropy_source{};
-        // H_o
-        offenders_mark_t offenders_mark{};
-        // H_s
-        bandersnatch_vrf_signature_t seal{};
+        header_hash_t parent{}; // p
+        state_root_t parent_state_root{}; // r
+        opaque_hash_t extrinsic_hash{}; // x
+        time_slot_t<CFG> slot{}; // t
+        optional_t<epoch_mark_t<CFG>> epoch_mark{}; // e
+        optional_t<tickets_mark_t<CFG>> tickets_mark{}; // w
+        validator_index_t author_index{}; // i
+        bandersnatch_vrf_signature_t entropy_source{}; // v
+        offenders_mark_t offenders_mark{}; // o
+        bandersnatch_vrf_signature_t seal{}; // s
 
         [[nodiscard]] prepared_signatures_t prepare_signatures() const;
 
@@ -177,7 +166,7 @@ namespace turbo::jam {
         {
             entropy_t res;
             if (ark_vrf::ietf_vrf_output(res, entropy_source) != 0) [[unlikely]]
-                throw err_bad_signature_t {};
+                throw err_bad_signature_t{};
             return res;
         }
 
