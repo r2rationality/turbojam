@@ -803,6 +803,51 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
+    is_authorized_res_t state_t<CFG>::is_authorized(const work_package_t<CFG> &p, const core_index_t c,
+        const time_slot_t<CFG> &tau, const accounts_t<CFG> &services)
+    {
+        const auto code = services.preimage_get(p.auth_code_host, p.auth_code_hash);
+        if (!code) [[unlikely]]
+            return {work_result_bad_code_t{}};
+        if (code->size() > CFG::WA_max_is_authorized_code_size) [[unlikely]]
+            return {work_result_code_oversize_t{}};
+        const encoder args{c};
+        account_updates_t<CFG> accs{services};
+        std::optional<host_service_is_authorized_t<CFG>> host_service{};
+        auto res = machine::invoke(
+            *code, 0U, CFG::GI_max_is_authorized_gas, args.bytes(),
+            [&](machine::machine_t &m) {
+                host_service.emplace(
+                    host_service_params_t<CFG>{
+                        .m=m,
+                        .services=accs,
+                        .service_id=p.auth_code_host,
+                        .slot=tau,
+                        .fetch={
+                            .package=&p
+                        }
+                    }
+                );
+            },
+            [&](const machine::register_val_t id) -> machine::host_call_res_t {
+                if (!host_service) [[unlikely]]
+                    return machine::exit_panic_t{};
+                return host_service->call(id);
+            }
+        );
+        return std::visit([&](auto &&r) -> is_authorized_res_t {
+            using T = std::decay_t<decltype(r)>;
+            if constexpr (std::is_same_v<T, uint8_vector>) {
+                return {work_result_ok_t{std::move(r)}, res.gas_used};
+            } else if constexpr (std::is_same_v<T, machine::exit_out_of_gas_t>) {
+                return {work_result_out_of_gas_t{}, res.gas_used};
+            } else {
+                return {work_result_panic_t{}, res.gas_used};
+            }
+        }, std::move(res.result));
+    }
+
+    template<typename CFG>
     void state_t<CFG>::tau_prime(time_slot_t<CFG> &tau, const time_slot_t<CFG> &blk_slot)
     {
         if (blk_slot <= tau) [[unlikely]]

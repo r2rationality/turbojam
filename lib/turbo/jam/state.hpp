@@ -861,6 +861,11 @@ namespace turbo::jam {
         }
     };
 
+    struct is_authorized_res_t {
+        work_exec_result_t result{};
+        gas_t::base_type gas_used{};
+    };
+
     // JAM (4.4) - lowercase sigma
     // persistent_value with std::shared_ptr ensures that:
     // 1) the state is cheap to copy
@@ -987,6 +992,9 @@ namespace turbo::jam {
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
             const ed25519_keys_set_t &new_psi_o, const guarantees_extrinsic_t<CFG> &guarantees);
         static void verify_ticket_signatures(const entropy_buffer_t &new_eta, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets);
+
+        static is_authorized_res_t is_authorized(const work_package_t<CFG> &p, core_index_t c,
+            const time_slot_t<CFG> &tau, const accounts_t<CFG> &services);
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
         struct guarantors_t {

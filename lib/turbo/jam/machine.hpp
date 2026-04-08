@@ -342,7 +342,7 @@ namespace turbo::jam::machine {
     };
 
     struct invocation_t {
-        gas_t gas_used {};
+        gas_t gas_used{};
         invocation_result_base_t result;
     };
     extern std::optional<machine_t> configure(buffer blob, uint32_t pc, gas_t gas, buffer args);
