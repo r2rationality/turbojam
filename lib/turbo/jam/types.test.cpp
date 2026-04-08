@@ -77,9 +77,9 @@ suite turbo_jam_types_suite = [] {
         test_all<preimages_extrinsic_t>("full/preimages_extrinsic");
         test_all<work_item_t>("tiny/work_item");
         test_all<work_item_t>("full/work_item");
-        test_all<work_result_t>("tiny/work_result_0");
-        test_all<work_result_t>("full/work_result_0");
-        test_all<work_result_t>("tiny/work_result_1");
-        test_all<work_result_t>("full/work_result_1");
+        test_all<work_digest_t>("tiny/work_result_0");
+        test_all<work_digest_t>("full/work_result_0");
+        test_all<work_digest_t>("tiny/work_result_1");
+        test_all<work_digest_t>("full/work_result_1");
     };
 };

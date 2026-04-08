@@ -585,17 +585,39 @@ namespace turbo::jam {
     };
 
     // JAM (11.6) AKA work digest
-    struct work_result_t {
-        service_id_t service_id; // s
-        opaque_hash_t code_hash; // c
-        opaque_hash_t payload_hash; // y
+    struct work_digest_t {
+        service_id_t service_id{}; // s
+        opaque_hash_t code_hash{}; // c
+        opaque_hash_t payload_hash{}; // y
         // gas_t accumulate_gas; gas_t is variable_length but currently the value is fixed length
-        gas_t::base_type accumulate_gas; // g
-        work_exec_result_t result; // l
-        refine_load_t refine_load;
+        gas_t::base_type accumulate_gas{}; // g
+        work_exec_result_t result{}; // l
+        refine_load_t refine_load{};
 
-        void serialize(auto &archive)
+        work_digest_t() = default;
+
+        // (14.9) C - item-to-digest function
+        explicit work_digest_t(const work_item_t &w, work_exec_result_t l, const gas_t u):
+            service_id{w.service},
+            code_hash{w.code_hash},
+            payload_hash{crypto::blake2b::digest<opaque_hash_t>(w.payload)},
+            accumulate_gas{w.accumulate_gas_limit},
+            result{std::move(l)},
+            refine_load{
+                .gas_used=u,
+                .imports=numeric_cast<typename decltype(refine_load_t::imports)::base_type>(w.import_segments.size()),
+                .extrinsic_count=numeric_cast<typename decltype(refine_load_t::extrinsic_count)::base_type>(w.import_segments.size()),
+                .extrinsic_size=std::ranges::fold_left(
+                    w.extrinsic | std::views::transform([](const auto &e) { return e.len; }),
+                    uint32_t{0},
+                    std::plus<uint32_t>()
+                ),
+                .exports=w.export_count
+            }
         {
+        }
+
+        void serialize(auto &archive) {
             using namespace std::string_view_literals;
             archive.process("service_id"sv, service_id);
             archive.process("code_hash"sv, code_hash);
@@ -605,11 +627,11 @@ namespace turbo::jam {
             archive.process("refine_load"sv, refine_load);
         }
 
-        bool operator==(const work_result_t &o) const = default;
+        bool operator==(const work_digest_t &o) const = default;
     };
 
     template<typename CFG>
-    using work_results_t = sequence_t<work_result_t, 0, CFG::I_max_work_items>;
+    using work_digests_t = sequence_t<work_digest_t, 0, CFG::I_max_work_items>;
 
     // (11.5)
     struct work_package_spec_t {
@@ -658,7 +680,7 @@ namespace turbo::jam {
         gas_t auth_gas_used{}; // g
         byte_sequence_t auth_output{}; // t
         segment_root_lookup_t segment_root_lookup{}; // l
-        work_results_t<CFG> results{}; // d
+        work_digests_t<CFG> results{}; // d
 
         void serialize(auto &archive)
         {
