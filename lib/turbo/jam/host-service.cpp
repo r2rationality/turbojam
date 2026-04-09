@@ -124,7 +124,7 @@ namespace turbo::jam {
 
     template <typename CFG>
     void host_service_refine_t<CFG>::machine() {
-        const auto [po, pz, i] = this->_p.m.pick_regs<7, 8, 9>();
+        const auto [po, pz, i] = this->_p.m.regs(std::index_sequence<7, 8, 9>{});
         auto p = this->_p.m.mem_read(po, pz);
         std::unique_ptr<machine::machine_t> new_machine{};
         try {
@@ -145,7 +145,7 @@ namespace turbo::jam {
 
     template <typename CFG>
     void host_service_refine_t<CFG>::peek() {
-        const auto [n, o, s, z] = this->_p.m.pick_regs<7, 8, 9, 10>();
+        const auto [n, o, s, z] = this->_p.m.regs(std::index_sequence<7, 8, 9, 10>{});
         if (auto ex = this->_p.m.mem_writable(o, z); ex) [[unlikely]]
             throw std::move(*ex);
         auto *m = this->_machines.find(n);
@@ -163,7 +163,7 @@ namespace turbo::jam {
 
     template <typename CFG>
     void host_service_refine_t<CFG>::poke() {
-        const auto [n, s, o, z] = this->_p.m.pick_regs<7, 8, 9, 10>();
+        const auto [n, s, o, z] = this->_p.m.regs(std::index_sequence<7, 8, 9, 10>{});
         if (auto ex = this->_p.m.mem_readable(s, z); ex) [[unlikely]]
             throw std::move(*ex);
         auto *m = this->_machines.find(n);
@@ -181,7 +181,7 @@ namespace turbo::jam {
 
     template <typename CFG>
     void host_service_refine_t<CFG>::pages() {
-        const auto [n, p, c, r] = this->_p.m.pick_regs<7, 8, 9, 10>();
+        const auto [n, p, c, r] = this->_p.m.regs(std::index_sequence<7, 8, 9, 10>{});
         const auto *m = this->_machines.find(n);
         if (!m) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
@@ -197,7 +197,7 @@ namespace turbo::jam {
 
     template <typename CFG>
     void host_service_refine_t<CFG>::expunge() {
-        const auto [n] = this->_p.m.pick_regs<7>();
+        const auto [n] = this->_p.m.regs(std::index_sequence<7>{});
         const auto pc = this->_machines.erase(n);
         if (!pc) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
@@ -215,7 +215,7 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    typename host_service_base_t<CFG>::service_lookup_res_t host_service_base_t<CFG>::_get_service(machine::register_val_t id)
+    host_service_base_t<CFG>::service_lookup_res_t host_service_base_t<CFG>::_get_service(machine::register_val_t id)
     {
         if (id == std::numeric_limits<machine::register_val_t>::max())
             id = _p.service_id;

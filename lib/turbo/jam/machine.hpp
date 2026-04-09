@@ -314,9 +314,9 @@ namespace turbo::jam::machine {
         [[nodiscard]] state_t state() const;
 
         template <std::size_t... Is>
-        constexpr auto pick_regs() {
-            const auto &r = regs();
+        constexpr auto regs(std::index_sequence<Is...>) {
             static_assert(((Is < registers_t::fixed_size) && ...), "invalid register index");
+            const auto &r = regs();
             return std::tuple{r[Is]...};
         }
     private:
