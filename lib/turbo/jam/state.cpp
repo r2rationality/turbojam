@@ -847,7 +847,69 @@ namespace turbo::jam {
         }, std::move(res.result));
     }
 
-    template<typename CFG>
+    template <typename CFG>
+    refine_res_t<CFG> state_t<CFG>::refine(const core_index_t c, const uint16_t i,
+         const work_package_t<CFG> &p, const byte_sequence_t &r, const sequence_t<segments_t<CFG>> &all_imports,
+         const uint16_t export_offset, const accounts_t<CFG> &services)
+    {
+        const auto &w = p.items.at(i);
+        const auto info = services.info_get(w.service);
+        if (!info) [[unlikely]]
+            return {work_result_bad_code_t{}};
+        const auto code = services.historical_lookup(w.service, p.context.lookup_anchor_slot, w.code_hash);
+        if (!code) [[unlikely]]
+            return {work_result_bad_code_t{}};
+        if (code->size() > CFG::WA_max_is_authorized_code_size) [[unlikely]]
+            return {work_result_code_oversize_t{}};
+        encoder args{};
+        args.uint_varlen(c);
+        args.uint_varlen(i);
+        args.uint_varlen(w.service);
+        args.process(w.payload);
+        args.process(crypto::blake2b::digest<opaque_hash_t>(encoder{p}.bytes()));
+        account_updates_t<CFG> accs{services};
+        std::optional<host_service_refine_t<CFG>> host_service{};
+        static opaque_hash_t h0{};
+        segments_t<CFG> exports{};
+        auto res = machine::invoke(
+            *code, 0U, CFG::GI_max_is_authorized_gas, args.bytes(),
+            [&](machine::machine_t &m) {
+                host_service.emplace(
+                    host_service_params_t<CFG>{
+                        .m=m,
+                        .services=accs,
+                        .service_id=p.auth_code_host,
+                        .slot=p.context.lookup_anchor_slot,
+                        .fetch={
+                            .package=&p,
+                            .nonce=&h0,
+                            .auth_output=&r,
+                            .refined_item_index=&i,
+                            .imports=&all_imports,
+                            .exports=&exports
+                        }
+                    }
+                );
+            },
+            [&](const machine::register_val_t id) -> machine::host_call_res_t {
+                if (!host_service) [[unlikely]]
+                    return machine::exit_panic_t{};
+                return host_service->call(id);
+            }
+        );
+        return std::visit([&](auto &&r) -> refine_res_t<CFG> {
+            using T = std::decay_t<decltype(r)>;
+            if constexpr (std::is_same_v<T, uint8_vector>) {
+                return {work_result_ok_t{std::move(r)}, std::move(exports), res.gas_used};
+            } else if constexpr (std::is_same_v<T, machine::exit_out_of_gas_t>) {
+                return {work_result_out_of_gas_t{}, {}, res.gas_used};
+            } else {
+                return {work_result_panic_t{}, {}, res.gas_used};
+            }
+        }, std::move(res.result));
+    }
+
+    template <typename CFG>
     void state_t<CFG>::tau_prime(time_slot_t<CFG> &tau, const time_slot_t<CFG> &blk_slot)
     {
         if (blk_slot <= tau) [[unlikely]]

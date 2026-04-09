@@ -823,4 +823,7 @@ namespace turbo::jam {
 
     template struct host_service_is_authorized_t<config_prod>;
     template struct host_service_is_authorized_t<config_tiny>;
+
+    template struct host_service_refine_t<config_prod>;
+    template struct host_service_refine_t<config_tiny>;
 }

@@ -268,6 +268,12 @@ namespace turbo::jam {
     struct account_updates_t;
 
     template<typename CFG>
+    struct historical_lookup_res_t {
+        lookup_meta_map_val_t<CFG> lookup_state{}; // z_bold
+        buffer code{}; // c_bold
+    };
+
+    template<typename CFG>
     struct accounts_t {
         struct set_res_t {
             std::optional<size_t> prev_size{};
@@ -310,6 +316,31 @@ namespace turbo::jam {
         void info_set(const service_id_t id, service_info_t<CFG> info)
         {
             _set_coded(_info_key(id), std::move(info));
+        }
+
+        std::optional<buffer> historical_lookup(const service_id_t id, const time_slot_t<CFG> &t, const opaque_hash_t &c) const {
+            if (auto code = preimage_get(id, c); code && code->size() <= std::numeric_limits<decltype(lookup_meta_map_key_t::length)>::max()) {
+                if (const auto l = lookup_get(id, lookup_meta_map_key_t{c, static_cast<decltype(lookup_meta_map_key_t::length)>(code->size())}); l) {
+                    switch (l->size()) {
+                        case 1U: {
+                            if ((*l)[0] <= t)
+                                return code;
+                            break;
+                        }
+                        case 2U: {
+                            if (static_cast<int>((*l)[0] <= t) & static_cast<int>(t < (*l)[1]))
+                                return {};
+                            break;
+                        }
+                        case 3U: {
+                            if ((static_cast<int>((*l)[0] <= t) & static_cast<int>(t < (*l)[1])) | static_cast<int>((*l)[2] <= t))
+                                return {};
+                            break;
+                        }
+                    }
+                }
+            }
+            return {};
         }
 
         std::optional<lookup_meta_map_val_t<CFG>> lookup_get(const service_id_t id, const lookup_meta_map_key_t &k) const
@@ -866,6 +897,19 @@ namespace turbo::jam {
         gas_t::base_type gas_used{};
     };
 
+    template<typename CFG>
+    using segment_t = byte_array_t<CFG::WG_segment_size>;
+
+    template<typename CFG>
+    using segments_t = sequence_t<segment_t<CFG>>;
+
+    template<typename CFG>
+    struct refine_res_t {
+        work_exec_result_t result{};
+        segments_t<CFG> exports{};
+        gas_t::base_type gas_used{};
+    };
+
     // JAM (4.4) - lowercase sigma
     // persistent_value with std::shared_ptr ensures that:
     // 1) the state is cheap to copy
@@ -995,6 +1039,9 @@ namespace turbo::jam {
 
         static is_authorized_res_t is_authorized(const work_package_t<CFG> &p, core_index_t c,
             const time_slot_t<CFG> &tau, const accounts_t<CFG> &services);
+        static refine_res_t<CFG> refine(core_index_t c, uint16_t i, const work_package_t<CFG> &p,
+            const byte_sequence_t &r, const sequence_t<segments_t<CFG>> &all_imports, uint16_t export_offset,
+            const accounts_t<CFG> &services);
     private:
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
         struct guarantors_t {

@@ -49,8 +49,8 @@ namespace turbo::jam {
         const opaque_hash_t *nonce = nullptr; // GP n
         const byte_sequence_t *auth_output = nullptr; // GP r-bold
         const uint16_t *refined_item_index = nullptr;
-        const sequence_t<byte_sequence_t> *imports = nullptr; // GP i-bold-dash
-        const sequence_t<byte_sequence_t> *exports = nullptr; // GP x-bold-dash
+        const sequence_t<segments_t<CFG>> *imports = nullptr; // GP i-bold-dash
+        const segments_t<CFG> *exports = nullptr; // GP x-bold-dash
         const accumulate_inputs_t<CFG> *inputs = nullptr; // GP o
         const deferred_transfers_t<CFG> *transfers = nullptr; // GP t
     };
