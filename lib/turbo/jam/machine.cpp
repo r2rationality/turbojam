@@ -128,11 +128,26 @@ namespace turbo::jam::machine {
             return true;
         }
 
+        void set_gas(const gas_t gas)
+        {
+            _gas = gas;
+        }
+
+        void set_regs(const registers_t &regs)
+        {
+            _regs = regs;
+        }
+
         void set_reg(const size_t id, const register_val_t val)
         {
             if (id >= _regs.size()) [[unlikely]]
                 throw exit_panic_t{};
             _set_reg(id, val);
+        }
+
+        bool set_pages(const address_val_t p, const address_val_t sz, const page_init_method_t i)
+        {
+            throw error("not implemented");
         }
 
         [[nodiscard]] gas_remaining_t gas() const
@@ -2150,9 +2165,23 @@ namespace turbo::jam::machine {
             throw exit_out_of_gas_t{};
     }
 
+    void machine_t::set_gas(const gas_t gas)
+    {
+        _impl->set_gas(gas);
+    }
+
     void machine_t::set_reg(const size_t id, const register_val_t val)
     {
         return _impl->set_reg(id, val);
+    }
+
+    void machine_t::set_regs(const registers_t &regs)
+    {
+        return _impl->set_regs(regs);
+    }
+
+    bool machine_t::set_pages(const address_val_t p, const address_val_t sz, const page_init_method_t i) {
+        return _impl->set_pages(p, sz, i);
     }
 
     void machine_t::skip_op()
@@ -2175,15 +2204,15 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl->regs();
     }
 
-    std::optional<exit_page_fault_t> machine_t::mem_writable(size_t offset, size_t sz) const {
+    std::optional<exit_page_fault_t> machine_t::mem_writable(const size_t offset, const size_t sz) const {
         return const_cast<machine_t *>(this)->_impl->mem_writable(offset, sz);
     }
 
-    std::optional<exit_page_fault_t> machine_t::mem_readable(size_t offset, size_t sz) const {
+    std::optional<exit_page_fault_t> machine_t::mem_readable(const size_t offset, const size_t sz) const {
         return const_cast<machine_t *>(this)->_impl->mem_readable(offset, sz);
     }
 
-    void machine_t::mem_copy(const machine_t &src, size_t dst_offset, size_t src_offset, size_t sz) {
+    void machine_t::mem_copy(const machine_t &src, const size_t dst_offset, const size_t src_offset, const size_t sz) {
         return _impl->mem_copy(src, dst_offset, src_offset, sz);
     }
 

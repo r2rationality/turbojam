@@ -182,17 +182,72 @@ namespace turbo::jam {
     template <typename CFG>
     void host_service_refine_t<CFG>::pages() {
         const auto [n, p, c, r] = this->_p.m.regs(std::index_sequence<7, 8, 9, 10>{});
-        const auto *m = this->_machines.find(n);
+        auto *m = this->_machines.find(n);
         if (!m) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
-        throw error("not implemented");
+        if (r > 4U || p < 16U || p + c >= (machine::register_val_t{1} << 32U) / CFG::ZP_pvm_page_size) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
+        if (!m->set_pages(p, c, machine::page_init_method_t::from_code(r))) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
+        this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
     template <typename CFG>
     void host_service_refine_t<CFG>::invoke() {
-        throw error("not implemented");
+        const auto [n, o] = this->_p.m.regs(std::index_sequence<7, 8>{});
+        if (auto ex = this->_p.m.mem_writable(o, 112U); ex) [[unlikely]]
+            throw std::move(*ex);
+        auto *m = this->_machines.find(n);
+        if (!m) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
+        auto raw_args = this->_p.m.mem_read(o, 112U);
+        {
+            decoder dec{raw_args};
+            gas_t::base_type g;
+            dec.process(g);
+            m->set_gas(g);
+            machine::registers_t w;
+            dec.process(w);
+            m->set_regs(w);
+        }
+        const auto res = m->run();
+        {
+            encoder enc{};
+            // reuse the previously allocated buffer
+            raw_args.clear();
+            enc.bytes() = std::move(raw_args);
+            enc.process(m->gas());
+            enc.process(m->regs());
+            this->_p.m.mem_write(o, enc.bytes());
+        }
+        const auto ret = std::visit([&](const auto &rv) -> machine::register_val_t {
+            using T = std::decay_t<decltype(rv)>;
+            if constexpr (std::is_same_v<T, machine::exit_host_call_t>) {
+                m->skip_op();
+                this->_p.m.set_reg(8, rv.id);
+                return machine::inner_pvm_res_t::host;
+            } else if constexpr (std::is_same_v<T, machine::exit_page_fault_t>) {
+                this->_p.m.set_reg(8, rv.addr);
+                return machine::inner_pvm_res_t::fault;
+            } else if constexpr (std::is_same_v<T, machine::exit_out_of_gas_t>) {
+                return machine::inner_pvm_res_t::oog;
+            } else if constexpr (std::is_same_v<T, machine::exit_panic_t>) {
+                return machine::inner_pvm_res_t::panic;
+            } else if constexpr (std::is_same_v<T, machine::exit_halt_t>) {
+                return machine::inner_pvm_res_t::halt;
+            } else {
+                throw error(fmt::format("internal PVM invoke: unsupported result type: {}", typeid(rv).name()));
+            }
+        }, res);
+        this->_p.m.set_reg(7, ret);
     }
 
     template <typename CFG>

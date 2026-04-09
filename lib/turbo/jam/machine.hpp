@@ -43,6 +43,33 @@ namespace turbo::jam::machine {
     };
     using memory_chunks_t = sequence_t<memory_chunk_t>;
 
+    struct page_init_method_t {
+        enum access_t {none, read, write};
+        enum data_t {zero, existing};
+
+        const access_t access = none;
+        const data_t data = zero;
+
+        static page_init_method_t from_code(const register_val_t r) {
+            switch (r) {
+                case 0: return {none, zero};
+                case 1: return {read, zero};
+                case 2: return {write, zero};
+                case 3: return {read, existing};
+                case 4: return {write, existing};
+                default: [[unlikely]]
+                    throw error(fmt::format("invalid page init code: {}", r));
+            }
+        }
+
+        page_init_method_t() = delete;
+
+        page_init_method_t(const access_t a, const data_t d):
+            access{a},
+            data{d}
+        {}
+    };
+
     struct page_t {
         uint32_t address = 0;
         uint32_t length = 0;
@@ -299,7 +326,10 @@ namespace turbo::jam::machine {
         ~machine_t();
         result_t run();
         void consume_gas(gas_t gas);
+        void set_gas(gas_t gas);
         void set_reg(size_t id, register_val_t val);
+        void set_regs(const registers_t &regs);
+        bool set_pages(address_val_t p, address_val_t sz, page_init_method_t i);
         [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(size_t offset, size_t sz) const;
         [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(size_t offset, size_t sz) const;
         void mem_copy(const machine_t &src, size_t dst_offset, size_t src_offset, size_t sz);
@@ -356,14 +386,23 @@ namespace turbo::jam::machine {
         static constexpr register_val_t ok   = 0;
     };
 
+    struct inner_pvm_res_t {
+        static constexpr register_val_t halt = 0;
+        static constexpr register_val_t panic = 1;
+        static constexpr register_val_t fault = 2;
+        static constexpr register_val_t host = 3;
+        static constexpr register_val_t oog = 4;
+    };
+
     struct invocation_t {
         gas_t gas_used{};
         invocation_result_base_t result;
     };
+
     extern std::optional<machine_t> configure(buffer blob, uint32_t pc, gas_t gas, buffer args);
+
     template<typename HostInit, typename HostFn>
-    invocation_t invoke(buffer blob, uint32_t pc, gas_t gas, buffer args,
-        HostInit &&host_init, HostFn &&host_fn)
+    invocation_t invoke(buffer blob, uint32_t pc, gas_t gas, buffer args, HostInit &&host_init, HostFn &&host_fn)
     {
         auto m = configure(blob, pc, gas, args);
         if (!m) [[unlikely]]
