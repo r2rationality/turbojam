@@ -44,8 +44,9 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    host_service_refine_t<CFG>::host_service_refine_t(host_service_params_t<CFG> params):
-        host_service_base_t<CFG>{std::move(params)}
+    host_service_refine_t<CFG>::host_service_refine_t(host_service_params_t<CFG> params, const uint16_t export_offset):
+        host_service_base_t<CFG>{std::move(params)},
+        _export_offset{export_offset}
     {
         logger::trace("host service refine started");
     }
@@ -59,26 +60,17 @@ namespace turbo::jam {
             switch (static_cast<host_call_t>(id)) {
                 // generic
                 case host_call_t::gas: call_func = &host_service_refine_t::gas; break;
-                case host_call_t::lookup: call_func = &host_service_refine_t::lookup; break;
-                case host_call_t::read: call_func = &host_service_refine_t::read; break;
-                case host_call_t::write: call_func = &host_service_refine_t::write; break;
-                case host_call_t::info: call_func = &host_service_refine_t::info; break;
                 case host_call_t::fetch: call_func = &host_service_refine_t::fetch; break;
-                // refine-specific
-                /*case 5: bless(); break;
-                case 6: assign(); break;
-                case 7: designate(); break;
-                case 8: checkpoint(); break;
-                case 9: new_(); break;
-                case 10: upgrade(); break;
-                case 11: transfer(); break;
-                case 12: eject(); break;
-                case 13: query(); break;
-                case 14: solicit(); break;
-                case 15: forget(); break;
-                case 16: yield(); break;*/
-                //case ??: return provide(); break;
                 case host_call_t::log: call_func = &host_service_refine_t::log; break;
+                // refine specific
+                case host_call_t::historical_lookup: call_func = &host_service_refine_t::historical_lookup; break;
+                case host_call_t::export_: call_func = &host_service_refine_t::export_; break;
+                case host_call_t::machine: call_func = &host_service_refine_t::machine; break;
+                case host_call_t::peek: call_func = &host_service_refine_t::peek; break;
+                case host_call_t::poke: call_func = &host_service_refine_t::poke; break;
+                case host_call_t::pages: call_func = &host_service_refine_t::pages; break;
+                case host_call_t::invoke: call_func = &host_service_refine_t::invoke; break;
+                case host_call_t::expunge: call_func = &host_service_refine_t::expunge; break;
                 [[unlikely]] default:
                     logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
@@ -90,7 +82,131 @@ namespace turbo::jam {
         });
     }
 
-    template<typename CFG>
+    template <typename CFG>
+    void host_service_refine_t<CFG>::historical_lookup() {
+        const auto &phi = this->_p.m.regs();
+        const auto [s_id, a] = this->_get_service(phi[7]);
+        const auto h = phi[8];
+        const auto o = phi[9];
+        std::optional<buffer> v{};
+        if (a) {
+            opaque_hash_t preimage_hash;
+            static_assert(sizeof(preimage_hash) == 32U);
+            this->_p.m.mem_read(preimage_hash, h);
+            v = this->_p.services.historical_lookup(s_id, this->_p.slot, preimage_hash);
+        }
+        if (v) {
+            const auto f = std::min(phi[10], v->size());
+            const auto l = std::min(phi[11], v->size() - f);
+            this->_p.m.mem_write(o, v->subbuf(f, l));
+            this->_p.m.set_reg(7, v->size());
+        } else {
+            this->_p.m.set_reg(7, machine::host_call_res_t::none);
+        }
+    }
+
+    template <typename CFG>
+    void host_service_refine_t<CFG>::export_() {
+        const auto &phi = this->_p.m.regs();
+        const auto p = phi[7];
+        const auto z = std::min(phi[8], CFG::WG_segment_size);
+        segment_t<CFG> x{};
+        static_assert(sizeof(x) == CFG::WG_segment_size);
+        this->_p.m.mem_read(std::span{x.begin(), x.begin() + z}, p);
+        const auto new_export_offset = this->_export_offset + x.size();
+        if (new_export_offset >= CFG::WX_max_package_exports) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::full);
+        } else {
+            this->_exports.emplace_back(std::move(x));
+            this->_p.m.set_reg(7, new_export_offset);
+        }
+    }
+
+    template <typename CFG>
+    void host_service_refine_t<CFG>::machine() {
+        const auto [po, pz, i] = this->_p.m.pick_regs<7, 8, 9>();
+        auto p = this->_p.m.mem_read(po, pz);
+        std::unique_ptr<machine::machine_t> new_machine{};
+        try {
+            new_machine = std::make_unique<machine::machine_t>(
+                machine::program_t::from_bytes(std::move(p)),
+                machine::state_t{
+                    .pc=numeric_cast<machine::address_val_t>(i)
+                },
+                machine::pages_t{}
+            );
+        } catch (...) {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
+        const auto n = this->_machines.add(std::move(new_machine));
+        this->_p.m.set_reg(7, n);
+    }
+
+    template <typename CFG>
+    void host_service_refine_t<CFG>::peek() {
+        const auto [n, o, s, z] = this->_p.m.pick_regs<7, 8, 9, 10>();
+        if (auto ex = this->_p.m.mem_writable(o, z); ex) [[unlikely]]
+            throw std::move(*ex);
+        auto *m = this->_machines.find(n);
+        if (!m) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
+        if (const auto ex = m->mem_readable(s, z); ex) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::oob);
+            return;
+        }
+        this->_p.m.mem_copy(*m, o, s, z);
+        this->_p.m.set_reg(7, machine::host_call_res_t::ok);
+    }
+
+    template <typename CFG>
+    void host_service_refine_t<CFG>::poke() {
+        const auto [n, s, o, z] = this->_p.m.pick_regs<7, 8, 9, 10>();
+        if (auto ex = this->_p.m.mem_readable(s, z); ex) [[unlikely]]
+            throw std::move(*ex);
+        auto *m = this->_machines.find(n);
+        if (!m) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
+        if (const auto ex = m->mem_writable(s, z); ex) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::oob);
+            return;
+        }
+        m->mem_copy(this->_p.m, o, s, z);
+        this->_p.m.set_reg(7, machine::host_call_res_t::ok);
+    }
+
+    template <typename CFG>
+    void host_service_refine_t<CFG>::pages() {
+        const auto [n, p, c, r] = this->_p.m.pick_regs<7, 8, 9, 10>();
+        const auto *m = this->_machines.find(n);
+        if (!m) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
+        throw error("not implemented");
+    }
+
+    template <typename CFG>
+    void host_service_refine_t<CFG>::invoke() {
+        throw error("not implemented");
+    }
+
+    template <typename CFG>
+    void host_service_refine_t<CFG>::expunge() {
+        const auto [n] = this->_p.m.pick_regs<7>();
+        const auto pc = this->_machines.erase(n);
+        if (!pc) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::who);
+            return;
+        }
+        this->_p.m.set_reg(7, *pc);
+    }
+
+    template <typename CFG>
     service_info_t<CFG> host_service_base_t<CFG>::_service_info() const {
         auto info = this->_p.services.info_get(this->_p.service_id);
         if (!info) [[unlikely]]
@@ -179,15 +295,15 @@ namespace turbo::jam {
                     v.emplace(*_p.fetch.auth_output);
                 break;
             case 3:
-                if (_p.fetch.exports && phi[11] < _p.fetch.exports->size()
-                        && phi[12] < (*_p.fetch.exports)[phi[11]].size())
-                    v.emplace((*_p.fetch.exports)[phi[11]][phi[12]]);
+                if (_p.fetch.extrinsics && phi[11] < _p.fetch.extrinsics->size()
+                        && phi[12] < (*_p.fetch.extrinsics)[phi[11]].size())
+                    v.emplace((*_p.fetch.extrinsics)[phi[11]][phi[12]]);
                 break;
             case 4:
-                if (_p.fetch.exports && _p.fetch.refined_item_index
-                        && *_p.fetch.refined_item_index < _p.fetch.exports->size()
-                        && phi[11] < (*_p.fetch.exports)[*_p.fetch.refined_item_index].size())
-                    v.emplace((*_p.fetch.exports)[*_p.fetch.refined_item_index][phi[11]]);
+                if (_p.fetch.extrinsics && _p.fetch.refined_item_index
+                        && *_p.fetch.refined_item_index < _p.fetch.extrinsics->size()
+                        && phi[11] < (*_p.fetch.extrinsics)[*_p.fetch.refined_item_index].size())
+                    v.emplace((*_p.fetch.extrinsics)[*_p.fetch.refined_item_index][phi[11]]);
                 break;
             case 5:
                 if (_p.fetch.imports && phi[11] < _p.fetch.imports->size()
@@ -826,4 +942,4 @@ namespace turbo::jam {
 
     template struct host_service_refine_t<config_prod>;
     template struct host_service_refine_t<config_tiny>;
-}
+} // namespace turbo::jam

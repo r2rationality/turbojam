@@ -231,48 +231,53 @@ namespace turbo::jam::machine {
     struct program_t {
         using offset_list_t = std::vector<uint32_t>;
 
-        offset_list_t jump_table;
-        uint8_vector code;
         bit_vector_t bitmasks;
+        uint8_vector code;
+        offset_list_t jump_table;
 
         program_t() =delete;
         program_t(const program_t &o) =delete;
 
-        program_t(offset_list_t &&jt, uint8_vector &&c, bit_vector_t &&b):
-            jump_table { std::move(jt) },
-            code { std::move(c) },
-            bitmasks { std::move(b) }
+        program_t(bit_vector_t &&b, uint8_vector &&c, offset_list_t &&jt):
+            bitmasks{std::move(b)},
+            code{std::move(c)},
+            jump_table{std::move(jt)}
         {
         }
 
         program_t(program_t &&o):
-            jump_table { std::move(o.jump_table) },
-            code { std::move(o.code) },
-            bitmasks { std::move(o.bitmasks) }
+            bitmasks{std::move(o.bitmasks)},
+            code{std::move(o.code)},
+            jump_table{std::move(o.jump_table)}
         {
         }
 
-        static program_t from_bytes(const buffer bytes)
+        static program_t from_bytes(uint8_vector bytes)
         {
-            decoder dec { bytes };
+            decoder dec{bytes};
             const auto jt_sz = dec.uint_varlen();
             const auto jt_offset_sz = dec.uint_fixed<uint8_t>(1);
             const auto code_sz = dec.uint_varlen();
-            offset_list_t jt {};
+            offset_list_t jt{};
             jt.reserve(jt_sz);
             while (jt.size() < jt_sz) {
                 jt.emplace_back(dec.uint_fixed<uint32_t>(jt_offset_sz));
             }
-            const auto code = dec.next_bytes(code_sz);
-            const auto bitmasks = dec.next_bytes((code_sz + 7) / 8);
+            const auto code_offset = numeric_cast<size_t>(dec.skip_bytes(code_sz) - bytes.data());
+            bit_vector_t bitmasks{dec.next_bytes((code_sz + 7) / 8), code_sz};
             if (!dec.empty()) [[unlikely]]
                 throw error("failed to decode all bytes of the program blob");
+            // reuse the pre-allocated buffer for better performance
+            bytes.erase(bytes.begin(), bytes.begin() + code_offset);
+            bytes.resize(code_sz);
             return {
-                std::move(jt),
-                uint8_vector { code },
-                bit_vector_t { bitmasks, code_sz }
+                std::move(bitmasks),
+                std::move(bytes),
+                std::move(jt)
             };
         }
+    private:
+        uint8_vector _raw;
     };
 
     inline register_val_t sign_extend(const size_t num_bytes, const register_val_t value)
@@ -295,6 +300,9 @@ namespace turbo::jam::machine {
         result_t run();
         void consume_gas(gas_t gas);
         void set_reg(size_t id, register_val_t val);
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(size_t offset, size_t sz) const;
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(size_t offset, size_t sz) const;
+        void mem_copy(const machine_t &src, size_t dst_offset, size_t src_offset, size_t sz);
         void mem_write(size_t offset, buffer data);
         void mem_read(std::span<uint8_t> out, size_t offset) const;
         [[nodiscard]] uint8_vector mem_read(size_t offset, size_t sz) const;
@@ -304,6 +312,13 @@ namespace turbo::jam::machine {
         [[nodiscard]] gas_remaining_t gas() const;
         [[nodiscard]] std::optional<uint8_vector> try_mem_read(size_t offset, size_t sz) const noexcept;
         [[nodiscard]] state_t state() const;
+
+        template <std::size_t... Is>
+        constexpr auto pick_regs() {
+            const auto &r = regs();
+            static_assert(((Is < registers_t::fixed_size) && ...), "invalid register index");
+            return std::tuple{r[Is]...};
+        }
     private:
         struct impl;
         std::unique_ptr<impl> _impl;

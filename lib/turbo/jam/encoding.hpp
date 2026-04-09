@@ -336,13 +336,22 @@ namespace turbo::jam {
             return *_ptr++;
         }
 
-        [[nodiscard]] buffer next_bytes(const size_t sz)
-        {
+        const uint8_t *skip_bytes(const size_t sz) {
             if (_ptr + sz > _end) [[unlikely]]
                 throw error("codec: an attempt to read past the end of the byte stream");
             const auto *begin = _ptr;
             _ptr += sz;
-            return { begin, sz };
+            return begin;
+        }
+
+        [[nodiscard]] buffer next_bytes(const size_t sz)
+        {
+            const auto *begin = skip_bytes(sz);
+            return {begin, sz};
+        }
+
+        [[nodiscard]] size_t offset_from(const uint8_t *base) const noexcept {
+            return _ptr - base;
         }
 
         [[nodiscard]] bool empty() const noexcept

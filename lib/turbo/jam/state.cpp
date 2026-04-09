@@ -885,10 +885,10 @@ namespace turbo::jam {
                             .nonce=&h0,
                             .auth_output=&r,
                             .refined_item_index=&i,
-                            .imports=&all_imports,
-                            .exports=&exports
+                            .imports=&all_imports
                         }
-                    }
+                    },
+                    export_offset
                 );
             },
             [&](const machine::register_val_t id) -> machine::host_call_res_t {

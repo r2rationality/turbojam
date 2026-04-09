@@ -150,21 +150,16 @@ namespace turbo::jam::machine {
             return _regs;
         }
 
-        template<typename F>
-        void _mem_read_pages(const size_t offset, const size_t sz, F &&consume) const
-        {
-            size_t p = offset, remaining = sz;
-            while (remaining > 0) {
-                const auto page_id = p / config_prod::ZP_pvm_page_size;
-                const auto page_off = p % config_prod::ZP_pvm_page_size;
-                const auto *page = _page_lookup(page_id);
-                if (!page) [[unlikely]]
-                    throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
-                const auto chunk = std::min(remaining, config_prod::ZP_pvm_page_size - page_off);
-                consume(page->is_materialized() ? page->data() + page_off : nullptr, chunk);
-                p += chunk;
-                remaining -= chunk;
-            }
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(size_t offset, size_t sz) const {
+            throw error("not implemented");
+        }
+
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(size_t offset, size_t sz) const {
+            throw error("not implemented");
+        }
+
+        void mem_copy(const machine_t &src, size_t dst_offset, size_t src_offset, size_t sz) {
+            throw error("not implemented");
         }
 
         void mem_read(std::span<uint8_t> res, const size_t offset) const
@@ -639,6 +634,24 @@ namespace turbo::jam::machine {
                 return res;
             }();
             return ops;
+        }
+
+        //
+        template<typename F>
+        void _mem_read_pages(const size_t offset, const size_t sz, F &&consume) const
+        {
+            size_t p = offset, remaining = sz;
+            while (remaining > 0) {
+                const auto page_id = p / config_prod::ZP_pvm_page_size;
+                const auto page_off = p % config_prod::ZP_pvm_page_size;
+                const auto *page = _page_lookup(page_id);
+                if (!page) [[unlikely]]
+                    throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
+                const auto chunk = std::min(remaining, config_prod::ZP_pvm_page_size - page_off);
+                consume(page->is_materialized() ? page->data() + page_off : nullptr, chunk);
+                p += chunk;
+                remaining -= chunk;
+            }
         }
 
         // opcode helper functions
@@ -2162,6 +2175,18 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl->regs();
     }
 
+    std::optional<exit_page_fault_t> machine_t::mem_writable(size_t offset, size_t sz) const {
+        return const_cast<machine_t *>(this)->_impl->mem_writable(offset, sz);
+    }
+
+    std::optional<exit_page_fault_t> machine_t::mem_readable(size_t offset, size_t sz) const {
+        return const_cast<machine_t *>(this)->_impl->mem_readable(offset, sz);
+    }
+
+    void machine_t::mem_copy(const machine_t &src, size_t dst_offset, size_t src_offset, size_t sz) {
+        return _impl->mem_copy(src, dst_offset, src_offset, sz);
+    }
+
     void machine_t::mem_write(const size_t offset, const buffer data)
     {
         _impl->mem_write(offset, data);
@@ -2264,5 +2289,4 @@ namespace turbo::jam::machine {
         m.emplace(std::move(prg), state, page_map);
         return m;
     }
-
 }
