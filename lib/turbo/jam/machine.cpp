@@ -49,10 +49,11 @@ namespace turbo::jam::machine {
                 _add_pages(page_id, page_id + cnt, page.is_writable);
             }
             for (const auto &mc: init.memory) {
-                size_t addr = mc.address;
-                for (const auto &b: mc.contents) {
-                    _store_unsigned_init(addr++, b);
-                }
+                size_t i = 0;
+                _mem_write_pages<false>(mc.address, mc.contents.size(), [&](uint8_t *dst_ptr, const size_t chunk) {
+                    std::memcpy(dst_ptr, mc.contents.data() + i, chunk);
+                    i += chunk;
+                });
             }
             if (_stack_begin < config_prod::ZZ_pvm_init_zone_size) [[unlikely]]
                 throw exit_panic_t{};
@@ -147,7 +148,20 @@ namespace turbo::jam::machine {
 
         bool set_pages(const address_val_t p, const address_val_t sz, const page_init_method_t i)
         {
-            throw error("not implemented");
+            const bool writable = i.access == page_init_method_t::write;
+            for (address_val_t page_id = p; page_id < p + sz; ++page_id) {
+                auto *page = _page_dir.lookup_mut(page_id);
+                page_info_t next{};
+                if (i.data == page_init_method_t::existing) {
+                    if (!page) [[unlikely]]
+                        return false;
+                    next = page_info_t::rebind(*page, writable);
+                } else if (i.access != page_init_method_t::none) {
+                    next = page_info_t::lazy_zero(writable);
+                }
+                _upsert_page(page_id, page, next);
+            }
+            return true;
         }
 
         [[nodiscard]] gas_remaining_t gas() const
@@ -165,16 +179,27 @@ namespace turbo::jam::machine {
             return _regs;
         }
 
-        [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(size_t offset, size_t sz) const {
-            throw error("not implemented");
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(const size_t offset, const size_t sz) const {
+            return _mem_accessible(offset, sz, true);
         }
 
-        [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(size_t offset, size_t sz) const {
-            throw error("not implemented");
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(const size_t offset, const size_t sz) const {
+            return _mem_accessible(offset, sz, false);
         }
 
-        void mem_copy(const machine_t &src, size_t dst_offset, size_t src_offset, size_t sz) {
-            throw error("not implemented");
+        void mem_copy(const machine_t &src, const size_t dst_offset, const size_t src_offset, const size_t sz) {
+            size_t copied = 0;
+            src._impl->_mem_read_pages(src_offset, sz, [&](const uint8_t *src_ptr, const size_t chunk) {
+                _mem_write_pages(dst_offset + copied, chunk, [&](uint8_t *dst_ptr, const size_t dst_chunk) {
+                    if (src_ptr) {
+                        std::memcpy(dst_ptr, src_ptr, dst_chunk);
+                        src_ptr += dst_chunk;
+                    } else {
+                        std::memset(dst_ptr, 0, dst_chunk);
+                    }
+                });
+                copied += chunk;
+            });
         }
 
         void mem_read(std::span<uint8_t> res, const size_t offset) const
@@ -206,21 +231,11 @@ namespace turbo::jam::machine {
 
         void mem_write(const size_t offset, const buffer data)
         {
-            size_t i = 0, p = offset;
-            while (i < data.size()) {
-                const auto page_id = p / config_prod::ZP_pvm_page_size;
-                const auto page_off = p % config_prod::ZP_pvm_page_size;
-                auto *page = _page_lookup_mut(page_id);
-                if (!page) [[unlikely]]
-                    throw exit_page_fault_t{p};
-                if (!page->is_writable()) [[unlikely]]
-                    throw exit_page_fault_t{p};
-                _materialize_page(page_id, *page);
-                const auto chunk = std::min(data.size() - i, config_prod::ZP_pvm_page_size - page_off);
-                std::memcpy(page->data() + page_off, data.data() + i, chunk);
+            size_t i = 0;
+            _mem_write_pages(offset, data.size(), [&](uint8_t *dst_ptr, const size_t chunk) {
+                std::memcpy(dst_ptr, data.data() + i, chunk);
                 i += chunk;
-                p += chunk;
-            }
+            });
         }
 
         state_t state() const
@@ -261,6 +276,8 @@ namespace turbo::jam::machine {
             };
         }
     private:
+        using vm_page_t = std::array<uint8_t, config_prod::ZP_pvm_page_size>;
+
         struct page_info_t {
             static constexpr uintptr_t flag_present = 0x1;
             static constexpr uintptr_t flag_writable = 0x2;
@@ -270,7 +287,7 @@ namespace turbo::jam::machine {
             uintptr_t _tagged = 0;
 
             page_info_t() = default;
-            page_info_t(uint8_t *ptr, const bool writable) noexcept:
+            page_info_t(vm_page_t *ptr, const bool writable) noexcept:
                 _tagged{reinterpret_cast<uintptr_t>(ptr) | flag_present | flag_materialized | (writable ? flag_writable : 0)}
             {}
 
@@ -281,14 +298,20 @@ namespace turbo::jam::machine {
                 return info;
             }
 
+            static page_info_t rebind(const page_info_t info, const bool writable) noexcept
+            {
+                if (!info.exists())
+                    return {};
+                if (!info.is_materialized())
+                    return lazy_zero(writable);
+                return {info.page(), writable};
+            }
+
             bool exists() const noexcept { return _tagged & flag_present; }
-            uint8_t *data() const noexcept { return reinterpret_cast<uint8_t *>(_tagged & ~flag_mask); }
+            vm_page_t *page() const noexcept { return reinterpret_cast<vm_page_t *>(_tagged & ~flag_mask); }
+            uint8_t *data() const noexcept { return page()->data(); }
             bool is_writable() const noexcept { return _tagged & flag_writable; }
             bool is_materialized() const noexcept { return _tagged & flag_materialized; }
-        };
-
-        struct vm_page_t {
-            std::array<uint8_t, config_prod::ZP_pvm_page_size> bytes;
         };
 
         using page_pool_t = turbo::pool_allocator_t<vm_page_t, 0x20>;
@@ -337,6 +360,16 @@ namespace turbo::jam::machine {
         struct tlb_entry_t {
             address_val_t page_id = ~address_val_t{0};
             const page_info_t *info = nullptr;
+
+            void reset() noexcept {
+                page_id = ~address_val_t{0};
+                info = nullptr;
+            }
+
+            void set(const address_val_t new_page_id, const page_info_t *new_info) noexcept {
+                page_id = new_page_id;
+                info = new_info;
+            }
         };
         static constexpr size_t tlb_size = 8;
 
@@ -345,8 +378,7 @@ namespace turbo::jam::machine {
         address_val_t _heap_end = 0;
         gas_remaining_t _gas = 0;
         registers_t _regs{};
-        mutable address_val_t _last_page_id = ~address_val_t{0};
-        mutable const page_info_t *_last_page_info = nullptr;
+        mutable tlb_entry_t _last_page{};
         mutable std::array<tlb_entry_t, tlb_size> _tlb{};
         // Warm fields - accessed on memory operations / page faults
         page_dir_t _page_dir{};
@@ -655,18 +687,35 @@ namespace turbo::jam::machine {
         template<typename F>
         void _mem_read_pages(const size_t offset, const size_t sz, F &&consume) const
         {
-            size_t p = offset, remaining = sz;
-            while (remaining > 0) {
-                const auto page_id = p / config_prod::ZP_pvm_page_size;
-                const auto page_off = p % config_prod::ZP_pvm_page_size;
-                const auto *page = _page_lookup(page_id);
-                if (!page) [[unlikely]]
-                    throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
-                const auto chunk = std::min(remaining, config_prod::ZP_pvm_page_size - page_off);
-                consume(page->is_materialized() ? page->data() + page_off : nullptr, chunk);
-                p += chunk;
-                remaining -= chunk;
-            }
+            const auto ex = _mem_walk_pages(
+                offset, sz,
+                [&](const size_t, const size_t, const size_t page_off, const size_t chunk, const page_info_t &page) -> std::optional<exit_page_fault_t> {
+                    consume(page.is_materialized() ? page.data() + page_off : nullptr, chunk);
+                    return {};
+                }
+            );
+            if (ex) [[unlikely]]
+                throw *ex;
+        }
+
+        template<bool respect_writable = true, typename F>
+        void _mem_write_pages(const size_t offset, const size_t sz, F &&consume)
+        {
+            const auto ex = _mem_walk_pages(
+                offset, sz,
+                [&](const size_t p, const size_t page_id, const size_t page_off, const size_t chunk, const page_info_t &page) -> std::optional<exit_page_fault_t> {
+                    auto &mut_page = const_cast<page_info_t &>(page);
+                    if constexpr (respect_writable) {
+                        if (!mut_page.is_writable()) [[unlikely]]
+                            return exit_page_fault_t{p};
+                    }
+                    _materialize_page(page_id, mut_page);
+                    consume(mut_page.data() + page_off, chunk);
+                    return {};
+                }
+            );
+            if (ex) [[unlikely]]
+                throw *ex;
         }
 
         // opcode helper functions
@@ -972,26 +1021,33 @@ namespace turbo::jam::machine {
 
         void _add_pages(const size_t start_page, const size_t end_page, const bool is_writable)
         {
+            const auto next = page_info_t::lazy_zero(is_writable);
             for (size_t page_id = start_page; page_id < end_page; ++page_id) {
-                _page_dir.insert(static_cast<uint32_t>(page_id), page_info_t::lazy_zero(is_writable));
+                _insert_page(static_cast<address_val_t>(page_id), next);
             }
+        }
+
+        void _invalidate_page_cache(const address_val_t page_id) const noexcept
+        {
+            if (_last_page.page_id == page_id)
+                _last_page.reset();
+            if (auto &slot = _tlb[page_id & (tlb_size - 1)]; slot.page_id == page_id)
+                slot.reset();
         }
 
         const page_info_t *_page_lookup(const register_val_t page_id) const noexcept
         {
-            if (page_id != _last_page_id) {
+            if (page_id != _last_page.page_id) {
                 auto &tlb_slot = _tlb[page_id & (tlb_size - 1)];
                 if (tlb_slot.page_id != page_id) {
                     const auto *info = _page_dir.lookup(static_cast<uint32_t>(page_id));
                     if (!info) [[unlikely]]
                         return nullptr;
-                    tlb_slot.page_id = page_id;
-                    tlb_slot.info = info;
+                    tlb_slot.set(page_id, info);
                 }
-                _last_page_id = page_id;
-                _last_page_info = tlb_slot.info;
+                _last_page.set(page_id, tlb_slot.info);
             }
-            return _last_page_info;
+            return _last_page.info;
         }
 
         page_info_t *_page_lookup_mut(const register_val_t page_id) noexcept
@@ -1005,7 +1061,61 @@ namespace turbo::jam::machine {
                 return;
             auto *mem_page = _page_pool.allocate();
             std::memset(mem_page, 0, sizeof(*mem_page));
-            page = page_info_t{mem_page->bytes.data(), page.is_writable()};
+            page = page_info_t{mem_page, page.is_writable()};
+        }
+
+        void _insert_page(const address_val_t page_id, const page_info_t next)
+        {
+            _page_dir.insert(page_id, next);
+            _invalidate_page_cache(page_id);
+        }
+
+        void _replace_page(const address_val_t page_id, page_info_t &page, const page_info_t next)
+        {
+            if (page.is_materialized()) {
+                const auto old_page = page.page();
+                if (!next.is_materialized() || next.page() != old_page)
+                    _page_pool.deallocate(old_page);
+            }
+            page = next;
+            _invalidate_page_cache(page_id);
+        }
+
+        void _upsert_page(const address_val_t page_id, page_info_t *page, const page_info_t next)
+        {
+            if (page) {
+                _replace_page(page_id, *page, next);
+            } else if (next.exists()) {
+                _insert_page(page_id, next);
+            }
+        }
+
+        template<typename F>
+        std::optional<exit_page_fault_t> _mem_walk_pages(const size_t offset, const size_t sz, F &&consume) const
+        {
+            size_t p = offset, remaining = sz;
+            while (remaining > 0) {
+                const auto page_id = p / config_prod::ZP_pvm_page_size;
+                const auto page_off = p % config_prod::ZP_pvm_page_size;
+                const auto *page = _page_lookup(page_id);
+                if (!page) [[unlikely]]
+                    return exit_page_fault_t{p};
+                const auto chunk = std::min(remaining, config_prod::ZP_pvm_page_size - page_off);
+                if (const auto ex = consume(p, page_id, page_off, chunk, *page); ex) [[unlikely]]
+                    return ex;
+                p += chunk;
+                remaining -= chunk;
+            }
+            return {};
+        }
+
+        [[nodiscard]] std::optional<exit_page_fault_t> _mem_accessible(const size_t offset, const size_t sz, const bool require_writable) const
+        {
+            return _mem_walk_pages(offset, sz, [&](const size_t p, const size_t, const size_t, const size_t, const page_info_t &page) -> std::optional<exit_page_fault_t> {
+                if (require_writable && !page.is_writable()) [[unlikely]]
+                    return exit_page_fault_t{p};
+                return {};
+            });
         }
 
         template<size_t SZ>
@@ -1060,22 +1170,6 @@ namespace turbo::jam::machine {
             return sign_extend(SZ, _load_unsigned<SZ>(addr));
         }
 
-        // used for the initialization so does not respect the is_writable false
-        void _store_unsigned_init(const register_val_t addr, const uint8_t val)
-        {
-            using T = std::decay_t<decltype(val)>;
-            static constexpr register_val_t page_size  = config_prod::ZP_pvm_page_size;
-            static constexpr register_val_t page_mask  = page_size - 1;
-            static constexpr unsigned page_shift = std::countr_zero(page_size);
-            const auto page_off = addr & page_mask;
-            const auto page_id = addr >> page_shift;
-            auto *page_it = _page_lookup_mut(page_id);
-            if (!page_it) [[unlikely]]
-                throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
-            _materialize_page(page_id, *page_it);
-            *reinterpret_cast<T*>(page_it->data() + page_off) = val;
-        }
-
         template<typename T>
         void _store_unsigned(const register_val_t addr, const T val)
         {
@@ -1086,14 +1180,13 @@ namespace turbo::jam::machine {
             const auto page_id  = addr >> page_shift;
             if (page_off > page_mask - (sizeof(T) - 1)) [[unlikely]]
                 throw exit_page_fault_t{(addr & ~page_mask) + page_size};
-            auto *page_it = _page_lookup_mut(page_id);
-            if (!page_it) [[unlikely]]
+            auto *page = _page_lookup_mut(page_id);
+            if (!page) [[unlikely]]
                 throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
-            if (!page_it->is_writable()) [[unlikely]]
+            if (!page->is_writable()) [[unlikely]]
                 throw exit_page_fault_t{addr};
-            _materialize_page(page_id, *page_it);
-            uint8_t *dst_ptr = page_it->data() + page_off;
-            *reinterpret_cast<T*>(dst_ptr) = val;
+            _materialize_page(page_id, *page);
+            *reinterpret_cast<T*>(page->data() + page_off) = val;
         }
 
         template<typename Pred>

@@ -187,7 +187,7 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
-        if (r > 4U || p < 16U || p + c >= (machine::register_val_t{1} << 32U) / CFG::ZP_pvm_page_size) [[unlikely]] {
+        if (r > 4U || p < 16U || p + c < p || p + c >= (machine::register_val_t{1} << 32U) / CFG::ZP_pvm_page_size) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
