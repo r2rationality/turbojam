@@ -40,6 +40,7 @@ RUN useradd -m -s /bin/bash -d /opt/tjam tjam \
 
 COPY --from=builder /home/dev/turbojam/build/tjam /usr/local/bin/tjam
 COPY --chown=tjam:tjam data /opt/tjam/data
+RUN chmod u+s /usr/local/bin/tjam
 
 USER tjam
 WORKDIR /opt/tjam
