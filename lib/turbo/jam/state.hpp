@@ -88,7 +88,7 @@ namespace turbo::jam {
         }
 
         void rollback() {
-            if (_updated)
+            if (_ptr)
                 reset();
         }
 

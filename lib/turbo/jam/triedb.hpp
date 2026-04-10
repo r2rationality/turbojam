@@ -124,6 +124,11 @@ namespace turbo::jam::triedb {
             _apply(key, val);
         }
 
+        [[nodiscard]] size_t undo_size() const noexcept
+        {
+            return _undo.size();
+        }
+
         storage::update::undo_list_t commit() {
             if (_undo.empty())
                 return {};
@@ -133,7 +138,7 @@ namespace turbo::jam::triedb {
 
         void rollback() {
             if (!_undo.empty()) {
-                for (const auto &[k, v] : _undo) {
+                for (const auto &[k, v] : _undo | std::views::reverse) {
                     _apply(k, v, false);
                 }
                 _undo.clear();

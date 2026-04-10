@@ -1,6 +1,6 @@
 #pragma once
 /* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
- * Copyright (c) 2025 R2 Rationality OÜ (info at r2rationality dot com)
+ * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
@@ -9,7 +9,7 @@
 
 namespace turbo::storage::update {
     using update_map_t = std::map<uint8_vector, value_store_t>;
-    using undo_item_t = typename update_map_t::value_type;
+    using undo_item_t = std::pair<uint8_vector, value_store_t>;
     using undo_list_t = std::vector<undo_item_t>;
 
     struct undo_redo_t {

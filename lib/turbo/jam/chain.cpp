@@ -60,11 +60,10 @@ namespace turbo::jam {
             std::optional<storage::update::undo_list_t> undo{};
             try {
                 if (!_state) [[unlikely]] {
+                    if (blk_hash != _genesis_header.hash()) [[unlikely]]
+                       throw error("the genesis header does not match the genesis state!");
                     _state.emplace(_triedb);
                     *_state = _genesis_state;
-                    const auto genesis_header = _state->make_genesis_header();
-                    if (blk_hash != genesis_header.hash()) [[unlikely]]
-                       throw error("the genesis header does not match the genesis state!");
                     logger::run_log_errors_rethrow([&] {
                         state_t<CFG>::beta_prime(_state->beta.update(), blk.header.hash(), {}, {});
                         _state->beta.commit();
@@ -72,15 +71,18 @@ namespace turbo::jam {
                     _triedb->commit();
                 } else {
                     const auto new_ancestry_end = _ancestry.known(blk.header.parent, blk.header.parent_state_root);
+                    size_t undo_fork_point = 0;
                     if (new_ancestry_end != _ancestry.end()) {
                         for (auto &ancestor: std::views::reverse(std::span{new_ancestry_end, _ancestry.end()})) {
                             if (!ancestor.undo) [[unlikely]]
                                 throw error(fmt::format("can't rollback block {} due to missing undo record", ancestor.header_hash));
                             // in case of an error, the record must be kept, so copy values
-                            for (const auto &[k, v]: *ancestor.undo)
+                            for (const auto &[k, v]: *ancestor.undo | std::views::reverse)
                                 _triedb->apply(k, v);
                         }
                         _state->reset_cache();
+                        // entries before this index are ancestor-rollback writes no the block's modifications
+                        undo_fork_point = _triedb->undo_size();
                     } else {
                         const auto local_state_root = state_root();
                         if (local_state_root != blk.header.parent_state_root) [[unlikely]]
@@ -88,10 +90,14 @@ namespace turbo::jam {
                     }
                     _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
                     undo = _triedb->commit();
+                    if (undo_fork_point > 0 && undo)
+                        undo->erase(undo->begin(), undo->begin() + static_cast<std::ptrdiff_t>(undo_fork_point));
                     _ancestry.erase(new_ancestry_end, _ancestry.end());
                 }
                 _ancestry.add(blk.header.slot, blk_hash, state_root(), std::move(undo));
             } catch (...) {
+                if (_ancestry.empty()) [[unlikely]]
+                    _state.reset();
                 _triedb->rollback();
                 throw;
             }
