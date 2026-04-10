@@ -397,13 +397,13 @@ namespace turbo::jam {
             using T = std::decay_t<decltype(rv)>;
             if constexpr (std::is_same_v<T, machine::exit_panic_t> || std::is_same_v<T, machine::exit_out_of_gas_t>) {
                 logger::trace("accumulate_delta_one {} failed with an error gas used: {}", service_id, gas_used);
-                return {std::move(err_ctx.state), std::move(err_ctx.transfers), std::move(err_ctx.result), gas_used, std::move(err_ctx.provisions), {}};
+                return {std::move(err_ctx.state), std::move(err_ctx.transfers), std::move(err_ctx.result), gas_used, std::move(err_ctx.provisions), {}, {}};
             } else if (rv.size() == sizeof(opaque_hash_t)) {
                 logger::trace("accumulate_delta_one {} returned a hash: {} gas used: {}", service_id, rv, gas_used);
-                return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), static_cast<buffer>(rv), gas_used, std::move(ok_ctx.provisions), std::move(ok_ctx.new_ids)};
+                return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), static_cast<buffer>(rv), gas_used, std::move(ok_ctx.provisions), std::move(ok_ctx.new_ids), std::move(ok_ctx.ejected_ids)};
             } else {
                 logger::trace("accumulate_delta_one {} completed with a non-hash of size: {} gas used: {}", service_id, rv.size(), gas_used);
-                return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), std::move(ok_ctx.result), gas_used, std::move(ok_ctx.provisions), std::move(ok_ctx.new_ids)};
+                return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), std::move(ok_ctx.result), gas_used, std::move(ok_ctx.provisions), std::move(ok_ctx.new_ids), std::move(ok_ctx.ejected_ids)};
             }
         }, std::move(res));
     }
@@ -512,7 +512,7 @@ namespace turbo::jam {
             }
         }
         // B.9
-        return {std::move(ctx_err.state), {}, {}, gas_t{0}, {}};
+        return {std::move(ctx_err.state), {}, {}, gas_t{0}, {}, {}, {}};
     }
 
     // (12.19)
@@ -610,9 +610,17 @@ namespace turbo::jam {
                 }
             }
         }
-        // merge per-service account states, transfers, commitments and gas
+        set_t<service_id_t> all_ejected{};
+        for (const auto &[s_id, s_res]: service_res)
+            for (const auto ej_id: s_res.ejected_ids)
+                all_ejected.emplace(ej_id);
+
         for (auto &&[s_id, s_res]: service_res)
             res.consume_from(s_id, std::move(s_res));
+
+        for (const auto ej_id: all_ejected)
+            res.state.services.info_erase(ej_id);
+
         // integrate preimages only after the final service state is ready
         for (auto &&[s_id, s_res]: service_res)
             res.state.consume_provisions(blk_slot, std::move(s_res.provisions));

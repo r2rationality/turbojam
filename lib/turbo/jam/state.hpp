@@ -667,6 +667,7 @@ namespace turbo::jam {
         optional_t<opaque_hash_t> result{}; // y
         service_provisions_t provisions{}; // p
         set_t<service_id_t> new_ids{}; // ids of newly-created services for the delayed uniqueness check
+        set_t<service_id_t> ejected_ids{}; // ids of services ejected by this accumulation (spec: set m)
 
         accumulate_context_t(const service_id_t s, const entropy_t &eta0, const time_slot_t<CFG> &blk_slot, mutable_state_t<CFG> &&st):
             service_id{s},
@@ -756,7 +757,8 @@ namespace turbo::jam {
         std::optional<opaque_hash_t> commitment{}; // y
         gas_t gas{}; // u
         service_provisions_t provisions{}; // p
-        set_t<service_id_t> new_ids{}; // ids of newly created services for the delayed uniqueness check
+        set_t<service_id_t> new_ids{};
+        set_t<service_id_t> ejected_ids{};
     };
     template<typename CFG>
     using service_results_t = std::map<service_id_t, accumulate_result_t<CFG>>;

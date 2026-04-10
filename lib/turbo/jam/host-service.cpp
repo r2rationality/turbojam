@@ -762,9 +762,9 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::transfer()
     {
-        logger::trace("gas: {} host_service::transfer", this->_p.m.gas());
         const auto &phi = this->_p.m.regs();
         const auto d_raw = phi[7];
+        logger::trace("gas: {} service: {} host_service::transfer to: {}", this->_p.m.gas(), this->_p.service_id, d_raw);
         const auto a = phi[8];
         const auto l = phi[9];
         const auto o = phi[10];
@@ -799,7 +799,7 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::eject()
     {
-        logger::trace("gas: {} host_service::eject", this->_p.m.gas());
+        logger::trace("gas: {} service: {} host_service::eject", this->_p.m.gas(), this->_p.service_id);
         const auto &phi = this->_p.m.regs();
         if (phi[7] > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
@@ -830,6 +830,7 @@ namespace turbo::jam {
             this->_p.services.preimage_erase(d, h);
             this->_p.services.lookup_erase(d, lk);
             this->_p.services.info_erase(d);
+            _ok.ejected_ids.emplace(d);
             this->_p.m.set_reg(7, machine::host_call_res_t::ok);
             return;
         }
