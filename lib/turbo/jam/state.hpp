@@ -612,8 +612,7 @@ namespace turbo::jam {
         }
     };
 
-    template<typename CFG>
-    using service_code_preimages_t = map_t<service_id_t, byte_sequence_t, CFG>;
+    using service_provisions_t = std::multimap<service_id_t, byte_sequence_t>;
 
     // JAM (12.13)
     template<typename CFG>
@@ -630,7 +629,7 @@ namespace turbo::jam {
         }
         
         void consume_from(mutable_state_t &&o);
-        void consume_preimages(const time_slot_t<CFG> &tau_prime, service_code_preimages_t<CFG> &&code);
+        void consume_provisions(const time_slot_t<CFG> &tau_prime, service_provisions_t &&provisions);
     };
 
     template<typename CFG>
@@ -666,7 +665,8 @@ namespace turbo::jam {
         service_id_t new_service_id = 0; // i
         deferred_transfers_t<CFG> transfers{}; // bold t
         optional_t<opaque_hash_t> result{}; // y
-        service_code_preimages_t<CFG> code{}; // p
+        service_provisions_t provisions{}; // p
+        set_t<service_id_t> new_ids{}; // ids of newly-created services for the delayed uniqueness check
 
         accumulate_context_t(const service_id_t s, const entropy_t &eta0, const time_slot_t<CFG> &blk_slot, mutable_state_t<CFG> &&st):
             service_id{s},
@@ -755,7 +755,8 @@ namespace turbo::jam {
         deferred_transfers_t<CFG> transfers{}; // t
         std::optional<opaque_hash_t> commitment{}; // y
         gas_t gas{}; // u
-        service_code_preimages_t<CFG> code{}; // p
+        service_provisions_t provisions{}; // p
+        set_t<service_id_t> new_ids{}; // ids of newly created services for the delayed uniqueness check
     };
     template<typename CFG>
     using service_results_t = std::map<service_id_t, accumulate_result_t<CFG>>;
@@ -772,6 +773,7 @@ namespace turbo::jam {
             archive.process("hash"sv, hash);
         }
 
+        bool operator==(const service_commitment_item_t &) const = default;
         bool operator<(const service_commitment_item_t &o) const noexcept {
             if (service_id != o.service_id)
                 return service_id < o.service_id;

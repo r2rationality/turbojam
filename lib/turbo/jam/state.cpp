@@ -373,8 +373,8 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    void mutable_state_t<CFG>::consume_preimages(const time_slot_t<CFG> &tau_prime, service_code_preimages_t<CFG> &&code) {
-        for (auto &&[s_id, blob]: code) {
+    void mutable_state_t<CFG>::consume_provisions(const time_slot_t<CFG> &tau_prime, service_provisions_t &&provisions) {
+        for (auto &&[s_id, blob]: provisions) {
             if (const auto s_info = services.info_get(s_id); !s_info) [[unlikely]]
                 continue;
             if (blob.size() > std::numeric_limits<decltype(lookup_meta_map_key_t::length)>::max()) [[unlikely]]
@@ -397,16 +397,13 @@ namespace turbo::jam {
             using T = std::decay_t<decltype(rv)>;
             if constexpr (std::is_same_v<T, machine::exit_panic_t> || std::is_same_v<T, machine::exit_out_of_gas_t>) {
                 logger::trace("accumulate_delta_one {} failed with an error gas used: {}", service_id, gas_used);
-                return {std::move(err_ctx.state), std::move(err_ctx.transfers), std::move(err_ctx.result), gas_used, std::move(err_ctx.code)};
+                return {std::move(err_ctx.state), std::move(err_ctx.transfers), std::move(err_ctx.result), gas_used, std::move(err_ctx.provisions), {}};
             } else if (rv.size() == sizeof(opaque_hash_t)) {
                 logger::trace("accumulate_delta_one {} returned a hash: {} gas used: {}", service_id, rv, gas_used);
-                // elements from err_ctx must take precedence, so start with it given the opposite std::map::merge semantics!
-                service_code_preimages_t<CFG> combined_code = std::move(err_ctx.code);
-                combined_code.merge(std::move(ok_ctx.code));
-                return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), static_cast<buffer>(rv), gas_used, std::move(combined_code)};
+                return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), static_cast<buffer>(rv), gas_used, std::move(ok_ctx.provisions), std::move(ok_ctx.new_ids)};
             } else {
                 logger::trace("accumulate_delta_one {} completed with a non-hash of size: {} gas used: {}", service_id, rv.size(), gas_used);
-                return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), std::move(ok_ctx.result), gas_used, std::move(ok_ctx.code)};
+                return {std::move(ok_ctx.state), std::move(ok_ctx.transfers), std::move(ok_ctx.result), gas_used, std::move(ok_ctx.provisions), std::move(ok_ctx.new_ids)};
             }
         }, std::move(res));
     }
@@ -603,12 +600,22 @@ namespace turbo::jam {
                 if (const auto phi_it = a_it->second.state.phi.find(ci); phi_it != a_it->second.state.phi.end())
                     res.state.phi[ci] = std::move(phi_it->second);
 
+        // Check that no duplicate new service ids have been created
+        {
+            set_t<service_id_t> seen{};
+            for (const auto &[s_id, s_res]: service_res) {
+                for (const auto id: s_res.new_ids) {
+                    if (const auto [it, created] = seen.emplace(id); !created) [[unlikely]]
+                        throw error(fmt::format("accumulate_delta_star: cross-service new service ID conflict: {}", id));
+                }
+            }
+        }
         // merge per-service account states, transfers, commitments and gas
         for (auto &&[s_id, s_res]: service_res)
             res.consume_from(s_id, std::move(s_res));
         // integrate preimages only after the final service state is ready
         for (auto &&[s_id, s_res]: service_res)
-            res.state.consume_preimages(blk_slot, std::move(s_res.code));
+            res.state.consume_provisions(blk_slot, std::move(s_res.provisions));
         return res;
     }
 
@@ -617,9 +624,14 @@ namespace turbo::jam {
     void delta_plus_result_t<CFG>::consume_from(delta_star_result_t<CFG> &&o) {
         state = std::move(o.state);
         {
-            const auto old_size = commitments.size();
-            commitments.insert(commitments.end(), o.commitments.begin(), o.commitments.end());
-            std::inplace_merge(commitments.begin(), commitments.begin() + old_size, commitments.end());
+            // deduplicate across rounds: merge-sort two-pointer insert-only pass
+            auto dst_it = commitments.begin();
+            for (const auto &item: o.commitments) {
+                while (dst_it != commitments.end() && *dst_it < item)
+                    ++dst_it;
+                if (dst_it == commitments.end() || item < *dst_it)
+                    dst_it = std::next(commitments.insert(dst_it, item));
+            }
         }
         for (auto &&[s_id, s_gas]: o.gas_used) {
             gas_used[s_id] += s_gas;

@@ -1,5 +1,5 @@
 /* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
- * Copyright (c) 2025 R2 Rationality OÜ (info at r2rationality dot com)
+ * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
@@ -739,6 +739,7 @@ namespace turbo::jam {
         this->_p.services.info_set(this->_p.service_id, std::move(info));
         this->_p.services.info_set(created_id, std::move(a));
         this->_p.services.lookup_set(created_id, lookup_meta_map_key_t{static_cast<buffer>(c), static_cast<uint32_t>(l)}, lookup_meta_map_val_t<CFG>{});
+        _ok.new_ids.emplace(created_id);
         this->_p.m.set_reg(7, created_id);
     }
 
@@ -977,12 +978,14 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        if (const auto p_res = this->_p.services.preimage_get(s_id, h); p_res) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
-            return;
+        const auto [range_begin, range_end] = _ok.provisions.equal_range(s_id);
+        for (auto it = range_begin; it != range_end; ++it) {
+            if (it->second == i) [[unlikely]] {
+                this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+                return;
+            }
         }
-        this->_p.services.preimage_set(s_id, h, std::move(i));
-        this->_p.services.lookup_set(s_id, key, {this->_p.slot});
+        _ok.provisions.emplace(s_id, std::move(i));
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
