@@ -65,7 +65,7 @@ namespace turbo::jam {
                     _state.emplace(_triedb);
                     *_state = _genesis_state;
                     logger::run_log_errors_rethrow([&] {
-                        state_t<CFG>::beta_prime(_state->beta.update(), blk.header.hash(), {}, {});
+                        state_t<CFG>::beta_prime(_state->beta.update(), blk_hash, {}, {});
                         _state->beta.commit();
                     });
                     _triedb->commit();
@@ -90,7 +90,7 @@ namespace turbo::jam {
                     }
                     _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
                     undo = _triedb->commit();
-                    if (undo_fork_point > 0 && undo)
+                    if (undo_fork_point > 0)
                         undo->erase(undo->begin(), undo->begin() + static_cast<std::ptrdiff_t>(undo_fork_point));
                     _ancestry.erase(new_ancestry_end, _ancestry.end());
                 }
@@ -150,7 +150,6 @@ namespace turbo::jam {
         state_snapshot_t _genesis_state;
         header_t<CFG> _genesis_header;
         std::optional<state_t<CFG>> _state{};
-        std::map<header_hash_t, storage::update::update_map_t> _rollback_state{};
         ancestry_t<CFG> _ancestry{};
     };
 
