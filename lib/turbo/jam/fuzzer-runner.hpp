@@ -304,8 +304,11 @@ namespace turbo::jam::fuzzer_runner {
                     }
                 }, resp);
                 logger::debug("sample {}: {}", i, ok ? "OK" : "FAILED");
-                if (!ok)
+                if (!ok) {
+                    const auto post_state = variant::get_nice<state_snapshot_t>(co_await _proc->process(message_t<CFG>{get_state_t{tc.block.header.hash()}}));
+                    logger::debug("sample {}: state diff: {}", i, post_state.diff(tc.post.keyvals));
                     co_return false;
+                }
             }
             co_return true;
         }
