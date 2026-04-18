@@ -1,3 +1,8 @@
+/* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
+ * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
+ * This code is distributed under the license specified in:
+ * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
+
 #include <iostream>
 
 #include <openssl/evp.h>
@@ -10,7 +15,7 @@
 #include "cert.hpp"
 
 namespace turbo::jamnp {
-    std::string cert_name_base32(const buffer bytes)
+    std::string alternative_name_varlen(const buffer bytes)
     {
         static std::array<char, 32> dict {
             'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
@@ -33,10 +38,10 @@ namespace turbo::jamnp {
         return res;
     }
 
-    std::string cert_name_from_vk(const crypto::ed25519::vkey_t &vk)
+    std::string alternative_name(const crypto::ed25519::vkey_t &vk)
     {
         std::string res { 'e' };
-        res += cert_name_base32(vk);
+        res += alternative_name_varlen(vk);
         return res;
     }
 
@@ -78,7 +83,7 @@ namespace turbo::jamnp {
         X509 *x509 = nullptr;
         FILE *f = nullptr;
         X509_NAME *name = nullptr;
-        const auto vk_name = jamnp::cert_name_from_vk(kp.vk);
+        const auto vk_name = jamnp::alternative_name(kp.vk);
 
         // OpenSSL and Sodium's Secret Key sizes do not match
         static_assert(sizeof(kp.sk) >= 32);
