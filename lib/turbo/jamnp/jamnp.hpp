@@ -5,8 +5,13 @@
  * the license specified in: https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/bytes.hpp>
+#include <turbo/crypto/ed25519.hpp>
 
 namespace turbo::jamnp {
+    extern std::string alternative_name_varlen(buffer bytes);
+    extern std::string alternative_name(const crypto::ed25519::vkey_t &vk);
+    extern void write_cert(const std::string &cert_path, const std::string &key_path, const crypto::ed25519::key_pair_t &kp);
+
     struct protocol_id_t {
         static constexpr std::string_view prefix = "jamnp-s";
         static constexpr std::string_view builder_suffix = "builder";

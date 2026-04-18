@@ -11,7 +11,7 @@
 #include <turbo/common/logger.hpp>
 #include <turbo/crypto/ed25519.hpp>
 #include <turbo/jamnp/client.hpp>
-#include <turbo/jamnp/cert.hpp>
+#include <turbo/jamnp/jamnp.hpp>
 #include <turbo/jamnp/server.hpp>
 
 namespace {
