@@ -1178,7 +1178,7 @@ namespace turbo::jam {
 
         bool operator==(const validator_signature_t &o) const = default;
     };
-    using guarantor_signatures_t = sequence_t<validator_signature_t, 2, 3>;
+    using guarantor_signatures_t = sequence_t<validator_signature_t>;
 
     template<typename CFG>
     struct report_guarantee_t {
