@@ -5,8 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <turbo/common/coro.hpp>
-#include <turbo/jam/types/header.hpp>
-#include <turbo/jam/types/state-dict.hpp>
+#include "jamnp.hpp"
 
 namespace turbo::jamnp {
     using namespace jam;
@@ -14,23 +13,6 @@ namespace turbo::jamnp {
     struct address_t {
         std::string host;
         uint16_t port;
-    };
-
-    enum class direction_t: uint8_t {
-        ascending = 0,
-        descending = 1
-    };
-
-    struct state_resp_t {
-        sequence_t<merkle::trie::key_t> boundaries {};
-        state_snapshot_t state {};
-
-        void serialize(auto &archive)
-        {
-            using namespace std::string_view_literals;
-            archive.process("boundaries"sv, boundaries);
-            archive.process("state"sv, state);
-        }
     };
 
     template<typename CFG>

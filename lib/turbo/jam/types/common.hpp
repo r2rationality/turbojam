@@ -220,6 +220,7 @@ namespace turbo::jam {
         uint32_t _val = 0;
     };
 
+    using epoch_index_t = uint32_t;
     using validator_index_t = uint16_t;
     using core_index_t = uint16_t;
 
@@ -230,6 +231,7 @@ namespace turbo::jam {
     using work_report_hash_t = opaque_hash_t;
     using exports_root_t = opaque_hash_t;
     using erasure_root_t = opaque_hash_t;
+    using shard_index_t = uint16_t;
 
     template<typename T>
     struct varlen_uint_t {
@@ -629,6 +631,9 @@ namespace turbo::jam {
 
         bool operator==(const work_digest_t &o) const = default;
     };
+
+    using segment_index_t = uint16_t;
+    using segment_indices_t = sequence_t<segment_index_t>;
 
     template<typename CFG>
     using segment_t = byte_array_t<CFG::WG_segment_size>;
@@ -1135,6 +1140,8 @@ namespace turbo::jam {
         bool operator==(const disputes_extrinsic_t &o) const = default;
     };
 
+    using preimage_length_t = uint32_t;
+
     struct preimage_t {
         service_id_t requester;
         byte_sequence_t blob;
@@ -1171,12 +1178,13 @@ namespace turbo::jam {
 
         bool operator==(const validator_signature_t &o) const = default;
     };
+    using guarantor_signatures_t = sequence_t<validator_signature_t, 2, 3>;
 
     template<typename CFG>
     struct report_guarantee_t {
         work_report_t<CFG> report; // r
         time_slot_t<CFG> slot; // t
-        sequence_t<validator_signature_t> signatures; // a
+        guarantor_signatures_t signatures; // a
 
         void serialize(auto &archive)
         {
@@ -1193,7 +1201,7 @@ namespace turbo::jam {
     struct report_guarantee_info_t {
         opaque_hash_t report_hash;
         time_slot_t<CFG> slot;
-        sequence_t<validator_signature_t> signatures;
+        guarantor_signatures_t signatures;
 
         void serialize(auto &archive)
         {
