@@ -551,7 +551,7 @@ namespace turbo::jam {
         {
             using namespace std::string_view_literals;
             static_assert(std::variant_size_v<base_type> > 0);
-            static codec::variant_names_t<base_type> names {
+            static constexpr codec::variant_names_t<base_type> names {
                 "ok"sv,
                 "out_of_gas"sv,
                 "panic"sv,
@@ -629,6 +629,12 @@ namespace turbo::jam {
 
         bool operator==(const work_digest_t &o) const = default;
     };
+
+    template<typename CFG>
+    using segment_t = byte_array_t<CFG::WG_segment_size>;
+
+    template<typename CFG>
+    using segments_t = sequence_t<segment_t<CFG>>;
 
     template<typename CFG>
     using work_digests_t = sequence_t<work_digest_t, 0, CFG::I_max_work_items>;
@@ -976,7 +982,7 @@ namespace turbo::jam {
         {
             using namespace std::string_view_literals;
             static_assert(std::variant_size_v<base_type> > 0);
-            static codec::variant_names_t<base_type> names {
+            static constexpr codec::variant_names_t<base_type> names {
                 "tickets"sv,
                 "keys"sv
             };

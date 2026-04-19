@@ -45,6 +45,7 @@ namespace turbo::jam {
         static constexpr size_t P_slot_period = 6;
         static constexpr size_t Q_auth_queue_size = 80;
         static constexpr size_t R_core_assignment_rotation_period = 10;
+        static constexpr size_t R_shard_recovery_threshold = 342; // JAMNP-S
         static constexpr size_t S_min_public_service_index = 1U << 16U;
         static constexpr size_t T_max_package_extrinsics = 128;
         static constexpr size_t U_reported_work_timeout = 5;
@@ -100,6 +101,7 @@ namespace turbo::jam {
         static constexpr size_t L_max_lookup_anchor_age = 24;
         static constexpr size_t N_ticket_attempts = 3;
         static constexpr size_t R_core_assignment_rotation_period = 4;
+        static constexpr size_t R_shard_recovery_threshold = 2; // JAMNP-S
         static constexpr size_t V_validator_count = C_core_count * validator_factor;
         static constexpr size_t Y_ticket_submission_end = 10;
         static_assert(Y_ticket_submission_end <=  E_epoch_length * 5 / 6);

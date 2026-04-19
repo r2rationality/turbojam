@@ -113,7 +113,7 @@ namespace turbo::jam::fuzzer {
         {
             using namespace std::string_view_literals;
             static_assert(std::variant_size_v<base_type> > 0);
-            static const codec::variant_names_t<base_type> names {
+            static constexpr codec::variant_names_t<base_type> names {
                 "peer_info"sv,
                 "initialize"sv,
                 "state_root"sv,

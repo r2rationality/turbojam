@@ -103,7 +103,7 @@ namespace {
         {
             using namespace std::string_view_literals;
             static_assert(std::variant_size_v<err_code_base_t> > 0);
-            static codec::variant_names_t<err_code_base_t> names {
+            static constexpr codec::variant_names_t<err_code_base_t> names {
                 "preimage_unneeded"sv,
                 "preimages_not_sorted_unique"sv
             };
@@ -119,7 +119,7 @@ namespace {
         {
             using namespace std::string_view_literals;
             static_assert(std::variant_size_v<base_type> > 0);
-            static codec::variant_names_t<base_type> names {
+            static constexpr codec::variant_names_t<base_type> names {
                 "ok"sv,
                 "err"sv
             };

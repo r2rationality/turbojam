@@ -49,7 +49,7 @@ namespace turbo::jam::merkle {
             void serialize(auto &archive)
             {
                 using namespace std::string_view_literals;
-                static codec::variant_names_t<base_type> names {
+                static constexpr codec::variant_names_t<base_type> names {
                     "inplace_value"sv,
                     "hash"sv
                 };

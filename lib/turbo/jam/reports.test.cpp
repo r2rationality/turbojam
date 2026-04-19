@@ -105,7 +105,7 @@ namespace turbo_jam_reports_test {
         {
             using namespace std::string_view_literals;
             static_assert(std::variant_size_v<err_code_base_t> > 0);
-            static codec::variant_names_t<err_code_base_t> names {
+            static constexpr codec::variant_names_t<err_code_base_t> names {
                 "bad_core_index"sv,
                 "future_report_slot"sv,
                 "report_epoch_before_last"sv,
@@ -146,7 +146,7 @@ namespace turbo_jam_reports_test {
         {
             using namespace std::string_view_literals;
             static_assert(std::variant_size_v<base_type> > 0);
-            static codec::variant_names_t<base_type> names {
+            static constexpr codec::variant_names_t<base_type> names {
                 "ok"sv,
                 "err"sv
             };

@@ -739,7 +739,7 @@ namespace turbo::jam {
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
-            static codec::variant_names_t<base_type> names {
+            static constexpr codec::variant_names_t<base_type> names {
                 "operand"sv,
                 "transfer"sv
             };
@@ -900,12 +900,6 @@ namespace turbo::jam {
         work_exec_result_t result{};
         gas_t::base_type gas_used{};
     };
-
-    template<typename CFG>
-    using segment_t = byte_array_t<CFG::WG_segment_size>;
-
-    template<typename CFG>
-    using segments_t = sequence_t<segment_t<CFG>>;
 
     template<typename CFG>
     struct refine_res_t {

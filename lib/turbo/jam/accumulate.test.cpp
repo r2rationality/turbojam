@@ -107,7 +107,7 @@ namespace turbo_jam_accumulate_test {
 
         void serialize(auto &archive)
         {
-            static codec::variant_names_t<base_type> names {
+            static constexpr codec::variant_names_t<base_type> names {
                 "ok"sv,
                 "err"sv
             };
