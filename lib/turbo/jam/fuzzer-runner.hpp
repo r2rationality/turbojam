@@ -372,7 +372,9 @@ namespace turbo::jam::fuzzer_runner {
         boost::asio::awaitable<bool> _set_state(const initialize_t<CFG> init)
         {
             using namespace boost::asio::experimental::awaitable_operators;
-            const auto[init1_res, init2_res] = co_await (_proc1->process(message_t<CFG>{init}) && _proc2->process(message_t<CFG>{init}));
+            const auto init_res = co_await (_proc1->process(message_t<CFG>{init}) && _proc2->process(message_t<CFG>{init}));
+            // GCC 15.2 complains if the variables are bound directly to the co_await expression.
+            const auto &[init1_res, init2_res] = init_res;
             const auto pre_root1 = ::turbo::variant::get_nice<state_root_t>(init1_res);
             const auto pre_root2 = ::turbo::variant::get_nice<state_root_t>(init2_res);
             logger::trace("pre_root1: {} pre_root2: {}", pre_root1, pre_root2);
@@ -387,8 +389,10 @@ namespace turbo::jam::fuzzer_runner {
         {
             using namespace boost::asio::experimental::awaitable_operators;
             logger::debug("testing block slot={} hash={}", block.header.slot, block.header.hash());
-            const auto [resp1, resp2] = co_await (_proc1->process(message_t<CFG>{import_block_t<CFG>{block}})
+            const auto resp = co_await (_proc1->process(message_t<CFG>{import_block_t<CFG>{block}})
                 && _proc2->process(message_t<CFG>{import_block_t<CFG>{block}}));
+            // GCC 15.2 complains if the variables are bound directly to the co_await expression.
+            const auto &[resp1, resp2] = resp;
             const auto ok = std::visit([&](const auto &rv1, const auto &rv2) -> bool {
                 using T1 = std::decay_t<decltype(rv1)>;
                 using T2 = std::decay_t<decltype(rv2)>;
