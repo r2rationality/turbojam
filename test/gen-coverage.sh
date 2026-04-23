@@ -14,9 +14,12 @@ if [ -z "$BUILD_DIR" ]; then
 fi
 export ASAN_OPTIONS="malloc_context_size=100:fast_unwind_on_malloc=0:fast_unwind_on_fatal=0"
 "$BUILD_DIR/tjam-test" "$TEST_NAME"
-if [ -f /usr/bin/llvm-profdata-19 ]; then
-  PROFDATA_BIN=llvm-profdata-19
-  COV_BIN=llvm-cov-19
+if [ -f /usr/bin/llvm-profdata-22 ]; then
+  PROFDATA_BIN=llvm-profdata-22
+  COV_BIN=llvm-cov-22
+elif [ -f /usr/bin/llvm-profdata-19 ]; then
+    PROFDATA_BIN=llvm-profdata-19
+    COV_BIN=llvm-cov-19
 else
   PROFDATA_BIN=llvm-profdata
   COV_BIN=llvm-cov
