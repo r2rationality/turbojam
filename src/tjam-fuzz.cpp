@@ -2,9 +2,11 @@
 
 namespace {
     using namespace turbo;
+    using namespace turbo::jam::fuzzer;
+    using namespace turbo::jam::fuzzer_runner;
 
     template<typename CLNT>
-    static void run_one(CLNT &client, turbo::buffer input) {
+    void run_one(CLNT &client, turbo::buffer input) {
         const auto input_hash = turbo::crypto::blake2b::digest(input);
         const auto ok = client.test_block(input);
         if (ok) {
@@ -49,11 +51,11 @@ int main(int argc, const char**argv) {
         chain_dir.emplace(tmp_dir->path());
     }
     logger::info("initializing the fuzzer client with init state: {} and socket path: {}", init_state_path, sock_path);
-    cli::fuzzer::impl_vs_impl_client_t<turbo::jam::config_tiny, cli::fuzzer::unix_socket_processor_t, cli::fuzzer::processor_t> client{
-        std::make_unique<cli::fuzzer::unix_socket_processor_t<jam::config_tiny>>(sock_path),
-        std::make_unique<cli::fuzzer::processor_t<turbo::jam::config_tiny>>("dev", *chain_dir)
+    impl_vs_impl_client_t<config_tiny, unix_socket_processor_t, local_processor_t> client{
+        std::make_unique<unix_socket_processor_t<config_tiny>>(sock_path),
+        std::make_unique<local_processor_t<config_tiny>>("dev", *chain_dir)
     };
-    auto init = jam::load_obj<jam::fuzzer::initialize_t<jam::config_tiny>>(init_state_path);
+    auto init = jam::load_obj<initialize_t<config_tiny>>(init_state_path);
     if (!client.set_state(std::move(init))) {
         logger::error("failed to set the initial state for the fuzzer client");
         return 1;
