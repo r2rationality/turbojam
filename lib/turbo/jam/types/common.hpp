@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <array>
+#include <algorithm>
 #include <bitset>
 #include <optional>
 #include <ranges>
@@ -1109,7 +1110,13 @@ namespace turbo::jam {
             return false;
         }
 
-        bool operator==(const disputes_records_t &o) const = default;
+        bool operator==(const disputes_records_t &o) const
+        {
+            return std::ranges::equal(good, o.good)
+                && std::ranges::equal(bad, o.bad)
+                && std::ranges::equal(wonky, o.wonky)
+                && std::ranges::equal(offenders, o.offenders);
+        }
     };
 
     template<typename CFG>

@@ -127,7 +127,10 @@ namespace turbo::storage::update {
 
         void _set(const buffer key, value_t val) {
             const auto parent_val = _base_db->get(key);
-            auto [it, created] = _updates.try_emplace(key, std::move(val));
+            std::optional<uint8_vector> val_copy{};
+            if (val)
+                val_copy.emplace(*val);
+            auto [it, created] = _updates.try_emplace(key, std::move(val_copy));
             if (!created) {
                 if (it->second) {
                     if (!parent_val)
@@ -136,7 +139,7 @@ namespace turbo::storage::update {
                     if (parent_val)
                         --_num_removed;
                 }
-                it->second = std::move(val);
+                it->second = std::move(val_copy);
             }
             if (it->second) {
                 if (!parent_val)

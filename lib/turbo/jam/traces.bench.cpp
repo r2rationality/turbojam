@@ -1,13 +1,20 @@
 /* Copyright (c) 2022-2023 Alex Sierkov (alex dot sierkov at gmail dot com)
-* Copyright (c) 2024-2025 R2 Rationality OÜ (info at r2rationality dot com) */
+* Copyright (c) 2024-2025 R2 Rationality OU (info at r2rationality dot com) */
 
 #include <turbo/common/benchmark.hpp>
 #include "test-vectors.hpp"
-#include "traces-test.hpp"
+#include "fuzzer-runner.hpp"
 
 namespace {
     using namespace turbo;
     using namespace turbo::jam;
+    using namespace turbo::jam::fuzzer_runner;
+
+    bool test_sample(const std::string &sample_dir) {
+        const file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
+        impl_vs_trace_client_t<config_tiny, local_processor_t> client{std::make_unique<local_processor_t<config_tiny>>("dev", tmp_dir.path())};
+        return client.test_sample(sample_dir);
+    }
 }
 
 suite turbo_jam_traces_bench_suite = [] {
@@ -18,21 +25,20 @@ suite turbo_jam_traces_bench_suite = [] {
             .unit("blocks")
             .performanceCounters(true);
         const auto traces_prefix = test_vector_dir("traces/");
-        const auto genesis = jam::load_obj<traces::test_genesis_t<config_tiny>>(traces_prefix + "safrole/genesis.bin");
         b.run("fallback/00000072",[&] {
-            const auto res = traces::test_file(test_vector_dir(traces_prefix + "fallback/00000072"), genesis.state.keyvals);
+            const auto res = test_sample(traces_prefix + "fallback/00000072");
             ankerl::nanobench::doNotOptimizeAway(res);
         });
         b.run("safrole/00000048",[&] {
-            const auto res = traces::test_file(test_vector_dir(traces_prefix + "safrole/00000048"), genesis.state.keyvals);
+            const auto res = test_sample(traces_prefix + "safrole/00000048");
             ankerl::nanobench::doNotOptimizeAway(res);
         });
         b.run("preimages/00000072",[&] {
-            const auto res = traces::test_file(test_vector_dir(traces_prefix + "preimages/00000072"), genesis.state.keyvals);
+            const auto res = test_sample(traces_prefix + "preimages/00000072");
             ankerl::nanobench::doNotOptimizeAway(res);
         });
         b.run("storage/00000084",[&] {
-            const auto res = traces::test_file(test_vector_dir(traces_prefix + "storage/00000084"), genesis.state.keyvals);
+            const auto res = test_sample(traces_prefix + "storage/00000084");
             ankerl::nanobench::doNotOptimizeAway(res);
         });
     };
