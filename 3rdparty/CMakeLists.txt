@@ -12,7 +12,7 @@ function(add_cargo_staticlib TARGET_NAME CRATE_DIR LIB_BASENAME)
 
     add_custom_command(
         OUTPUT "${LIB_PATH}"
-        COMMAND "${CARGO}" build --release --target-dir ${CARGO_OUT_DIR}
+        COMMAND ${CMAKE_COMMAND} -E env "RUSTFLAGS=-Ctarget-cpu=x86-64-v3" "${CARGO}" build  --release --target-dir ${CARGO_OUT_DIR}
         WORKING_DIRECTORY "${CRATE_DIR}"
         DEPENDS "${CRATE_TOML}" "${CRATE_LOCK}" ${CRATE_SRC}
         VERBATIM

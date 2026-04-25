@@ -19,9 +19,9 @@ const suite turbo_jam_encoding_bench_suite = [] {
             .unit("bytes")
             .performanceCounters(true);
         const auto traces_prefix = test_vector_dir("traces/");
-        const auto traces = file::files_with_ext(traces_prefix, ".bin")
-            | std::views::filter([](const auto &p) { return !p.ends_with("genesis.bin"); })
-            | std::ranges::to<std::vector>();
+        auto filtered_traces = file::files_with_ext(traces_prefix, ".bin")
+            | std::views::filter([](const auto &p) { return !p.ends_with("genesis.bin"); });
+        const std::vector<std::string> traces{filtered_traces.begin(), filtered_traces.end()};
         const auto total_size = std::ranges::fold_left(
             traces | std::views::transform([](const auto &p){ return std::filesystem::file_size(p); }),
             size_t{0}, std::plus<size_t>{}
