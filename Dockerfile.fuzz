@@ -45,4 +45,4 @@ RUN chmod u+s /usr/local/bin/tjam
 USER tjam
 WORKDIR /opt/tjam
 ENV TURBO_LOG_PATH=/opt/tjam/log/tjam.log
-ENTRYPOINT ["/usr/local/bin/tjam"]
+ENTRYPOINT ["/usr/local/bin/tjam", "fuzzer-api"]
