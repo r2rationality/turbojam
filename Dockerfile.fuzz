@@ -37,10 +37,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN useradd -m -s /bin/bash -d /opt/tjam tjam \
     && install -d -o tjam -g tjam -m 1777 /opt/tjam/log
-
+RUN chmod 0755 /opt/tjam
 COPY --from=builder /home/dev/turbojam/build/tjam /usr/local/bin/tjam
-COPY --chown=tjam:tjam data /opt/tjam/data
-RUN chmod u+s /usr/local/bin/tjam
+COPY --chown=tjam:tjam --chmod=0755 data /opt/tjam/data
+RUN find /opt/tjam/data -type f -exec chmod 644 {} \;
 
 USER tjam
 WORKDIR /opt/tjam
