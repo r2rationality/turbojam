@@ -55,7 +55,13 @@ namespace {
         try {
             const auto client_data_path = fmt::format("{}/client-{}", _data_path, client_id);
             logger::info("new client connected: {}: client_data_path: {}", client_id, client_data_path);
-            scope_exit{[&]{ std::filesystem::remove_all(client_data_path); }};
+            scope_exit{[&] {
+                logger::info("removing client_data_path: {}", client_data_path);
+                std::error_code ec;
+                std::filesystem::remove_all(client_data_path, ec);
+                if (ec) [[unlikely]]
+                    logger::error("failed to remove client_data_path: {}", ec.message());
+            }};
             static const peer_info_t my_peer_info{};
             uint8_vector read_buf{};
             {
