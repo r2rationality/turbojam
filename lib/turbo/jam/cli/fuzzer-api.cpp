@@ -54,6 +54,7 @@ namespace {
         boost::asio::awaitable<void> _handle_client(stream_protocol::socket conn, const uint64_t client_id)
         try {
             const auto client_data_path = fmt::format("{}/client-{}", _data_path, client_id);
+            logger::info("new client connected: {}: client_data_path: {}", client_id, client_data_path);
             scope_exit{[&]{ std::filesystem::remove_all(client_data_path); }};
             static const peer_info_t my_peer_info{};
             uint8_vector read_buf{};
