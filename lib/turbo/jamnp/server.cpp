@@ -19,12 +19,6 @@ namespace turbo::jamnp {
         impl_t(address_t addr, std::string app_name, std::string alpn_id, const std::string &cert_prefix):
             _addr{std::move(addr)}
         {
-            logger::info("jamnp server requested transport backend: {}", transport::requested_backend_name());
-            if (!transport::backend_selectable(_backend)) [[unlikely]]
-                throw transport_error{fmt::format(
-                    "requested JAMNP transport backend '{}' is not compiled in",
-                    transport::backend_name(_backend)
-                )};
             _ngtcp2.emplace(transport::ngtcp2::transport_config_t{
                 .app_name = std::move(app_name),
                 .alpn_id = std::move(alpn_id),
@@ -43,8 +37,7 @@ namespace turbo::jamnp {
         }
     private:
         address_t _addr;
-        transport::backend_kind_t _backend = transport::requested_backend();
-        std::optional<transport::ngtcp2::server_bootstrap_t> _ngtcp2 {};
+        std::optional<transport::ngtcp2::server_bootstrap_t> _ngtcp2{};
     };
 
     server_t::server_t(address_t addr, std::string app_name, std::string alpn_id, const std::string &cert_prefix):
@@ -59,10 +52,11 @@ namespace turbo::jamnp {
         _impl->run();
     }
 
-    [[nodiscard]] byte_array<32> dev_trivial_seed(uint32_t i)
+    [[nodiscard]] byte_array<32> dev_trivial_seed(const uint32_t i)
     {
         static_assert(std::endian::native == std::endian::little);
         byte_array<32> seed;
+        static_assert(sizeof(seed) % sizeof(i) == 0);
         for (size_t j = 0; j < sizeof(seed) / sizeof(i); ++j) {
             memcpy(seed.data() + j * sizeof(i), &i, sizeof(i));
         }
@@ -71,7 +65,8 @@ namespace turbo::jamnp {
 
     [[nodiscard]] secure_byte_array<32> dev_secret_seed(const buffer prefix, const buffer input_seed)
     {
-        uint8_vector seed {};
+        uint8_vector seed{};
+        seed.reserve(prefix.size() + input_seed.size());
         seed << prefix << input_seed;
         return crypto::blake2b::digest<secure_byte_array<32>>(seed);
     }

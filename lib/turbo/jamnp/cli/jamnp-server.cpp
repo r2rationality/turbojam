@@ -32,27 +32,21 @@ namespace turbo::cli::jamnp_server {
 
         void run(const arguments &, const options &opts) const override
         {
-            std::optional<file::tmp_directory> tmp_dir {};
-            std::optional<std::filesystem::path> data_path {};
+            std::optional<file::tmp_directory> tmp_dir{};
+            std::optional<std::filesystem::path> data_path{};
+            const auto dev_val_idx = from_str<uint32_t>(opts.at("dev-validator").value().c_str());
             if (const auto opt_it = opts.find("data-path"); opt_it != opts.end() && opt_it->second) {
                 data_path.emplace(*opt_it->second);
             } else {
-                tmp_dir.emplace("tjam-jamnp-server");
+                tmp_dir.emplace(fmt::format("tjam-jamnp-server-dev-{}", dev_val_idx));
                 data_path.emplace(static_cast<std::filesystem::path>(*tmp_dir));
             }
-            const auto dev_val_idx = from_str<uint32_t>(opts.at("dev-validator").value().c_str());
             const auto cert_prefix = (*data_path / "client").string();
-            {
-                const auto key_pair = dev_ed25519(dev_trivial_seed(dev_val_idx));
-                write_cert(cert_prefix + ".cert", cert_prefix + ".key", key_pair);
-            }
-            address_t addr {
-                "::1",
-                numeric_cast<uint16_t>(40000U + dev_val_idx)
-            };
+            write_cert(cert_prefix + ".cert", cert_prefix + ".key", dev_ed25519(dev_trivial_seed(dev_val_idx)));
+            address_t addr{"::1", numeric_cast<uint16_t>(40000U + dev_val_idx)};
             logger::info("dev validator index {}", dev_val_idx);
             logger::info("starting a server listening at {}", addr);
-            server_t server { std::move(addr), "turbojam-server", "jamnp-s/0/b5af8eda", cert_prefix };
+            server_t server{std::move(addr), "turbojam-server", "jamnp-s/0/b5af8eda", cert_prefix};
             server.run();
         }
     };

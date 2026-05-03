@@ -14,12 +14,6 @@ namespace turbo::jamnp {
         impl_t(address_t server_addr, std::string app_name, std::string alpn_id, const std::string &cert_prefix):
             _server_addr{std::move(server_addr)}
         {
-            logger::info("jamnp client requested transport backend: {}", transport::requested_backend_name());
-            if (!transport::backend_selectable(_backend)) [[unlikely]]
-                throw transport_error{fmt::format(
-                    "requested JAMNP transport backend '{}' is not compiled in",
-                    transport::backend_name(_backend)
-                )};
             _ngtcp2 = std::make_unique<transport::ngtcp2::client_session_t>(_server_addr, transport::ngtcp2::transport_config_t{
                 .app_name = std::move(app_name),
                 .alpn_id = std::move(alpn_id),
@@ -106,7 +100,6 @@ namespace turbo::jamnp {
         }
 
         address_t _server_addr;
-        transport::backend_kind_t _backend = transport::requested_backend();
         std::unique_ptr<transport::ngtcp2::client_session_t> _ngtcp2;
     };
 
