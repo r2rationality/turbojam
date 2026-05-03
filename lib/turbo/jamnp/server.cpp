@@ -8,6 +8,9 @@
 #include "internal/ngtcp2.hpp"
 #include "internal/transport.hpp"
 #include "server.hpp"
+
+#include "turbo/jam/chain.hpp"
+
 #include <turbo/common/logger.hpp>
 #include <turbo/crypto/blake2b.hpp>
 
@@ -16,12 +19,12 @@ namespace turbo::jamnp {
     using transport::transport_error;
 
     struct server_t::impl_t {
-        impl_t(address_t addr, std::string app_name, std::string alpn_id, const std::string &cert_prefix):
-            _addr{std::move(addr)}
+        impl_t(address_t addr, const std::string &cert_prefix, const std::string &spec_path, const std::string &data_path):
+            _addr{std::move(addr)},
+            _chain{_load_chain(spec_path, data_path)}
         {
             _ngtcp2.emplace(transport::ngtcp2::transport_config_t{
-                .app_name = std::move(app_name),
-                .alpn_id = std::move(alpn_id),
+                .protocol_id = _protocol_id,
                 .private_key_path = cert_prefix + ".key",
                 .certificate_path = cert_prefix + ".cert"
             });
@@ -37,11 +40,19 @@ namespace turbo::jamnp {
         }
     private:
         address_t _addr;
+        chain_t<config_tiny> _chain;
+        protocol_id_t _protocol_id{_chain.genesis_header().hash()};
         std::optional<transport::ngtcp2::server_bootstrap_t> _ngtcp2{};
+
+        static chain_t<config_tiny> _load_chain(const std::string &spec_path, const std::string &data_path) {
+            const auto j_spec = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
+            const auto snap = codec::json::from_json<state_snapshot_t>(j_spec.at("genesis_state"));
+            return chain_t<config_tiny>{"dev", data_path, snap};
+        }
     };
 
-    server_t::server_t(address_t addr, std::string app_name, std::string alpn_id, const std::string &cert_prefix):
-        _impl{std::make_unique<impl_t>(std::move(addr), std::move(app_name), std::move(alpn_id), cert_prefix)}
+    server_t::server_t(address_t addr, const std::string &cert_prefix, const std::string &spec_path, const std::string &data_path):
+        _impl{std::make_unique<impl_t>(std::move(addr), cert_prefix, spec_path, data_path)}
     {
     }
 

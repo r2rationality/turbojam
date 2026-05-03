@@ -226,6 +226,7 @@ namespace turbo::jam {
     using core_index_t = uint16_t;
 
     using header_hash_t = opaque_hash_t;
+    using header_hash_span_t = std::span<const uint8_t, sizeof(header_hash_t)>;
     using state_root_t = opaque_hash_t;
     using beefy_root_t = opaque_hash_t;
     using work_package_hash_t = opaque_hash_t;

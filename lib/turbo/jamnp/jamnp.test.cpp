@@ -15,14 +15,14 @@ const suite turbo_jamnp_jamnp_suite = [] {
     "turbo::jamnp::jamnp"_test = [] {
         "protocol_id_t"_test = [] {
             "formats the canonical ALPN"_test = [] {
-                const protocol_id_t protocol_id { 0, protocol_id_t::hash4_t::from_hex("0123abcd") };
+                const protocol_id_t protocol_id{protocol_id_t::hash4_t::from_hex("0123abcd"), 0};
                 expect_equal(0U, protocol_id.version);
                 expect_equal(false, protocol_id.builder);
                 expect_equal(protocol_id_t::hash4_t::from_hex("0123abcd"), protocol_id.genesis_hash4);
                 expect_equal("jamnp-s/0/0123abcd", static_cast<std::string>(protocol_id));
             };
             "formats the builder ALPN"_test = [] {
-                const protocol_id_t protocol_id { 0, protocol_id_t::hash4_t::from_hex("89abcdef"), true };
+                const protocol_id_t protocol_id{protocol_id_t::hash4_t::from_hex("89abcdef"), 0, true};
                 expect_equal(true, protocol_id.builder);
                 expect_equal("jamnp-s/0/89abcdef/builder", static_cast<std::string>(protocol_id));
             };
@@ -45,8 +45,8 @@ const suite turbo_jamnp_jamnp_suite = [] {
                 expect(peer.compatible(builder));
                 expect(builder.compatible(builder));
                 expect(builder.compatible(peer));
-                expect(!peer.compatible(protocol_id_t {1, protocol_id_t::hash4_t::from_hex("0123abcd")}));
-                expect(!peer.compatible(protocol_id_t{0, protocol_id_t::hash4_t::from_hex("89abcdef")}));
+                expect(!peer.compatible(protocol_id_t{protocol_id_t::hash4_t::from_hex("0123abcd"), 1}));
+                expect(!peer.compatible(protocol_id_t{protocol_id_t::hash4_t::from_hex("89abcdef"), 0}));
             };
             "rejects malformed ALPNs"_test = [] {
                 expect(throws([] { protocol_id_t::from_text("jamnp-s/0"); }));

@@ -182,6 +182,12 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
+    const header_t<CFG> &chain_t<CFG>::genesis_header() const
+    {
+        return _impl->genesis_header();
+    }
+
+    template<typename CFG>
     const std::string &chain_t<CFG>::id() const
     {
         return _impl->id();

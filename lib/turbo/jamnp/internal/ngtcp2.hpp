@@ -9,6 +9,7 @@
 
 #include <turbo/common/bytes.hpp>
 #include <turbo/common/coro.hpp>
+#include <turbo/jamnp/jamnp.hpp>
 
 namespace turbo::jamnp {
     struct address_t;
@@ -16,8 +17,7 @@ namespace turbo::jamnp {
 
 namespace turbo::jamnp::transport::ngtcp2 {
     struct transport_config_t {
-        std::string app_name;
-        std::string alpn_id;
+        protocol_id_t protocol_id;
         std::string private_key_path;
         std::string certificate_path;
     };

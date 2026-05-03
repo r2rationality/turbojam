@@ -15,8 +15,7 @@ namespace turbo::jamnp {
             _server_addr{std::move(server_addr)}
         {
             _ngtcp2 = std::make_unique<transport::ngtcp2::client_session_t>(_server_addr, transport::ngtcp2::transport_config_t{
-                .app_name = std::move(app_name),
-                .alpn_id = std::move(alpn_id),
+                .protocol_id = protocol_id_t::from_local_dev_spec(),
                 .private_key_path = cert_prefix + ".key",
                 .certificate_path = cert_prefix + ".cert"
             });

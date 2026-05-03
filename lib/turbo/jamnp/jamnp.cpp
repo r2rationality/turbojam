@@ -12,7 +12,10 @@
 
 #include <turbo/common/logger.hpp>
 #include <turbo/common/numeric-cast.hpp>
+#include <turbo/jam/types/state-dict.hpp>
 #include "jamnp.hpp"
+
+#include "turbo/jam/chain.hpp"
 
 namespace turbo::jamnp {
     std::string alternative_name_varlen(const buffer bytes)
@@ -134,4 +137,11 @@ namespace turbo::jamnp {
         if (err_msg)
             throw error(err_msg);
     }
-}
+
+    protocol_id_t protocol_id_t::from_local_dev_spec() {
+        const auto j_spec = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
+        const auto snap = codec::json::from_json<jam::state_snapshot_t>(j_spec.at("genesis_state"));
+        const auto genesis_header = jam::state_t<jam::config_tiny>::make_genesis_header(snap);
+        return {genesis_header.hash()};
+    }
+} // namespace turbo::jamnp

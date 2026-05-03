@@ -38,16 +38,25 @@ namespace turbo::jamnp {
             const auto hash = hash4_t::from_hex(parts[2]);
             _validate_hex_case(parts[2]);
             if (parts.size() == 3U)
-                return {ver, hash};
+                return {hash, ver};
             if (parts[3] != builder_suffix) [[unlikely]]
                 throw error(fmt::format("invalid protocol id: {}", text));
-            return {ver, hash, true};
+            return {hash, ver, true};
         }
 
-        protocol_id_t(const uint16_t ver, const hash4_span_t &hash, const bool bld=false):
+        static protocol_id_t from_local_dev_spec();
+
+        protocol_id_t(const hash4_span_t &hash, const uint16_t ver=0, const bool bld=false):
             version{ver},
             builder{bld},
             genesis_hash4{hash}
+        {
+        }
+
+        protocol_id_t(const jam::header_hash_span_t &hash, const uint16_t ver=0, const bool bld=false):
+            version{ver},
+            builder{bld},
+            genesis_hash4{hash.subspan(0, 4)}
         {
         }
 

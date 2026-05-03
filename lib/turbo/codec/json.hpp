@@ -205,9 +205,8 @@ namespace turbo::codec::json {
     };
 
     template<typename T>
-    T load_obj(const std::string &path)
+    T from_json(const value &j)
     {
-        const auto j = load(path);
         if constexpr (from_json_c<T>) {
             return T::from_json(j);
         } else if constexpr (codec::archive_formattable_c<T>) {
@@ -216,5 +215,12 @@ namespace turbo::codec::json {
         } else {
             throw error(fmt::format("JSON serialization not supported for {}", typeid(T).name()));
         }
+    }
+
+    template<typename T>
+    T load_obj(const std::string &path)
+    {
+        const auto j = load(path);
+        return from_json<T>(j);
     }
 }

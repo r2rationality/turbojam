@@ -18,6 +18,7 @@ namespace turbo::jam {
         [[nodiscard]] const std::string &id() const;
         [[nodiscard]] const std::string &path() const;
         [[nodiscard]] const state_snapshot_t &genesis_state() const;
+        [[nodiscard]] const header_t<CFG> &genesis_header() const;
         [[nodiscard]] const state_t<CFG> &state() const;
         [[nodiscard]] state_root_t state_root() const;
         [[nodiscard]] header_hash_t parent() const;

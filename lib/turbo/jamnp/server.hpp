@@ -9,7 +9,7 @@
 
 namespace turbo::jamnp {
     struct server_t {
-        server_t(address_t addr, std::string app_name, std::string alpn_id, const std::string &cert_prefix);
+        server_t(address_t addr, const std::string &cert_prefix, const std::string &spec_path, const std::string &data_path);
         ~server_t();
         void run();
     private:
