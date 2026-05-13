@@ -44,7 +44,7 @@ namespace turbo::cli::jamnp_server {
                 data_path.emplace(static_cast<std::filesystem::path>(*tmp_dir));
             }
             auto cert = make_cert(dev_ed25519(dev_trivial_seed(dev_val_idx)));
-            address_t addr{"::1", numeric_cast<uint16_t>(40000U + dev_val_idx)};
+            address_t addr{"::", numeric_cast<uint16_t>(40000U + dev_val_idx)};
             logger::info("dev validator index {}", dev_val_idx);
             logger::info("starting a server listening at {}", addr);
             server_t server{std::move(addr), std::move(cert), "jamnp-s/0/b5af8eda", data_path->string()};
