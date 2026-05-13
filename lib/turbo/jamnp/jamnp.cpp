@@ -171,7 +171,7 @@ namespace turbo::jamnp {
 
         check_gnutls(gnutls_x509_crt_sign2(x509.value, x509.value, pkey.value, GNUTLS_DIG_SHA512, 0), "gnutls_x509_crt_sign2");
 
-        logger::info("Generated {}", stringify_cert(x509.value));
+        logger::info("Generated X509 certificate for peer {}", vk_name);
         cert_pair_t cert{};
         cert.certificate = x509.release();
         cert.private_key = pkey.release();
