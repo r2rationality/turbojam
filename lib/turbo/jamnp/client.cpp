@@ -1,25 +1,19 @@
-#include <turbo/common/numeric-cast.hpp>
 #include <turbo/common/logger.hpp>
 #include <turbo/jam/encoding.hpp>
-
-#include "client.hpp"
 #include "internal/ngtcp2.hpp"
-#include "internal/transport.hpp"
+#include "client.hpp"
 
 namespace turbo::jamnp {
-    using transport::transport_error;
-
     template<typename CFG>
     struct client_t<CFG>::impl_t {
-        impl_t(address_t server_addr, std::string app_name, std::string alpn_id, const std::string &cert_prefix):
-            _server_addr{std::move(server_addr)}
+        impl_t(address_t server_addr, std::string app_name, std::string alpn_id, cert_pair_t cert):
+            _app_name{std::move(app_name)}
         {
-            _ngtcp2 = std::make_unique<transport::ngtcp2::client_session_t>(_server_addr, transport::ngtcp2::transport_config_t{
-                .protocol_id = protocol_id_t::from_local_dev_spec(),
-                .private_key_path = cert_prefix + ".key",
-                .certificate_path = cert_prefix + ".cert"
+            _ngtcp2 = std::make_unique<transport::ngtcp2::client_t>(std::move(server_addr), transport::ngtcp2::transport_config_t{
+                .protocol_id = protocol_id_t::from_text(alpn_id),
+                .certificate = std::move(cert)
             });
-            logger::info("jamnp client ngtcp2 session: {}", _ngtcp2->summary());
+            logger::info("jamnp client '{}' ngtcp2 session with ALPN {}", _app_name, alpn_id);
         }
 
         [[nodiscard]] coro::task_t<block_list_t> fetch_blocks(const header_hash_t &hh, const uint32_t max_blocks, const direction_t direction)
@@ -42,38 +36,22 @@ namespace turbo::jamnp {
             body << hh;
             body << static_cast<uint8_t>(direction);
             body << buffer::from(max_blocks);
-
-            encoder enc {};
-            enc.uint_fixed(1, 128U);
-            enc.uint_fixed(4, body.size());
-            enc.next_bytes(body);
-            return enc.bytes();
+            return _request_message(128U, body);
         }
 
         static uint8_vector _fetch_state_request(const header_hash_t &hh, const merkle::trie::key_t &key_start, const merkle::trie::key_t &key_end, const uint32_t max_size)
         {
-            encoder enc {};
-            enc.uint_fixed(1, 129U);
-            enc.uint_fixed(4, 0);
-            enc.next_bytes(hh);
-            enc.next_bytes(key_start);
-            enc.next_bytes(key_end);
-            enc.uint_fixed(4, max_size);
-            const auto msg_len = numeric_cast<uint32_t>(enc.bytes().size() - 5U);
-            encoder::uint_fixed(std::span { enc.bytes().data() + 1, 4 }, 4, msg_len);
-            return enc.bytes();
+            uint8_vector body {};
+            body << hh;
+            body << key_start;
+            body << key_end;
+            body << buffer::from(max_size);
+            return _request_message(129U, body);
         }
 
         static block_list_t _decode_blocks_response(const buffer response)
         {
-            decoder dec { response };
-            const auto msg_len = dec.uint_fixed<size_t>(4U);
-            if (dec.size() != msg_len) [[unlikely]]
-                throw transport_error{fmt::format(
-                    "fetch_blocks: invalid response size: expected {} body bytes but received {}",
-                    msg_len,
-                    dec.size()
-                )};
+            decoder dec { _checked_response_body(response, "fetch_blocks") };
 
             block_list_t blocks {};
             while (!dec.empty()) {
@@ -84,27 +62,43 @@ namespace turbo::jamnp {
 
         static state_resp_t _decode_state_response(const buffer response)
         {
-            decoder dec { response };
-            const auto msg_len = dec.uint_fixed<size_t>(4U);
-            if (dec.size() != msg_len) [[unlikely]]
-                throw transport_error{fmt::format(
-                    "fetch_state: invalid response size: expected {} body bytes but received {}",
-                    msg_len,
-                    dec.size()
-                )};
+            decoder dec { _checked_response_body(response, "fetch_state") };
 
             state_resp_t result {};
             dec.process(result);
             return result;
         }
 
-        address_t _server_addr;
-        std::unique_ptr<transport::ngtcp2::client_session_t> _ngtcp2;
+        static uint8_vector _request_message(const uint8_t kind, const buffer body)
+        {
+            encoder enc {};
+            enc.uint_fixed(1, kind);
+            enc.uint_fixed(4, body.size());
+            enc.next_bytes(body);
+            return enc.bytes();
+        }
+
+        static buffer _checked_response_body(const buffer response, const char *context)
+        {
+            decoder dec { response };
+            const auto msg_len = dec.uint_fixed<size_t>(4U);
+            if (dec.size() != msg_len) [[unlikely]]
+                throw jamnp::error{fmt::format(
+                    "{}: invalid response size: expected {} body bytes but received {}",
+                    context,
+                    msg_len,
+                    dec.size()
+                )};
+            return { response.data() + 4, msg_len };
+        }
+
+        std::string _app_name;
+        std::unique_ptr<transport::ngtcp2::client_t> _ngtcp2;
     };
 
     template<typename CFG>
-    client_t<CFG>::client_t(address_t server_addr, const std::string &app_name, const std::string &alpn_id, const std::string &cert_prefix):
-        _impl { std::make_unique<impl_t>(std::move(server_addr), std::move(app_name), std::move(alpn_id), cert_prefix) }
+    client_t<CFG>::client_t(address_t server_addr, const std::string &app_name, const std::string &alpn_id, cert_pair_t cert):
+        _impl { std::make_unique<impl_t>(std::move(server_addr), std::move(app_name), std::move(alpn_id), std::move(cert)) }
     {
     }
 

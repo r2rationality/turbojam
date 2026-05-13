@@ -10,11 +10,44 @@
 #include <turbo/jam/types/header.hpp>
 #include <turbo/jam/types/state-dict.hpp>
 #include <turbo/jam/merkle.hpp>
+#include <gnutls/x509.h>
 
 namespace turbo::jamnp {
     extern std::string alternative_name_varlen(buffer bytes);
     extern std::string alternative_name(const crypto::ed25519::vkey_t &vk);
-    extern void write_cert(const std::string &cert_path, const std::string &key_path, const crypto::ed25519::key_pair_t &kp);
+
+    struct error: turbo::error {
+        using turbo::error::error;
+    };
+
+    struct address_t {
+        std::string host;
+        uint16_t port;
+
+        void serialize(auto &archive) {
+            using namespace std::string_view_literals;
+            archive.process("host"sv, host);
+            archive.process("port"sv, port);
+        }
+    };
+
+    struct cert_pair_t {
+        cert_pair_t() = default;
+        ~cert_pair_t();
+        cert_pair_t(cert_pair_t &&o) noexcept;
+        cert_pair_t &operator=(cert_pair_t &&o) noexcept;
+
+        cert_pair_t(const cert_pair_t &) = delete;
+        cert_pair_t &operator=(const cert_pair_t &) = delete;
+
+        [[nodiscard]] bool empty() const noexcept;
+
+        gnutls_x509_crt_t certificate = nullptr;
+        gnutls_x509_privkey_t private_key = nullptr;
+    };
+
+    [[nodiscard]] extern cert_pair_t make_cert(const crypto::ed25519::key_pair_t &kp);
+    [[nodiscard]] extern jam::state_snapshot_t local_genesis_state();
 
     struct protocol_id_t {
         static constexpr std::string_view prefix = "jamnp-s";

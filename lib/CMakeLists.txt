@@ -9,7 +9,6 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 find_package(fmt REQUIRED)
-find_package(OpenSSL REQUIRED)
 pkg_check_modules(SODIUM REQUIRED libsodium>=1.0.18)
 pkg_check_modules(ZSTD REQUIRED libzstd>=1.4.8)
 
@@ -32,7 +31,6 @@ target_precompile_headers(lib PUBLIC ${LIB_HDRS})
 target_include_directories(lib PUBLIC .)
 
 target_link_libraries(lib PUBLIC
-        OpenSSL::SSL OpenSSL::Crypto
         fmt::fmt
         lmdb::lmdb
         ${SODIUM_LIBRARIES}

@@ -3,23 +3,83 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <iostream>
-
-#include <openssl/evp.h>
-#include <openssl/pem.h>
-#include <openssl/x509.h>
-#include <openssl/x509v3.h>
-
+#include <utility>
 #include <turbo/common/logger.hpp>
 #include <turbo/common/numeric-cast.hpp>
 #include <turbo/jam/types/state-dict.hpp>
+#include <turbo/jam/chain.hpp>
 #include "jamnp.hpp"
-
-#include "turbo/jam/chain.hpp"
+#include "internal/gnutls.hpp"
 
 namespace turbo::jamnp {
-    std::string alternative_name_varlen(const buffer bytes)
+    namespace {
+        void check_gnutls(const int err, const std::string_view what) {
+            if (err < 0) [[unlikely]]
+                throw error(fmt::format("{} failed: {}", what, internal::gnutls_error_text(err)));
+        }
+
+        struct gnutls_crt_scope_t {
+            gnutls_crt_scope_t() {
+                check_gnutls(gnutls_x509_crt_init(&value), "gnutls_x509_crt_init");
+            }
+
+            ~gnutls_crt_scope_t() {
+                if (value)
+                    gnutls_x509_crt_deinit(value);
+            }
+
+            [[nodiscard]] gnutls_x509_crt_t release() noexcept {
+                return std::exchange(value, nullptr);
+            }
+
+            gnutls_x509_crt_t value = nullptr;
+        };
+
+        struct gnutls_privkey_scope_t {
+            gnutls_privkey_scope_t() {
+                check_gnutls(gnutls_x509_privkey_init(&value), "gnutls_x509_privkey_init");
+            }
+
+            ~gnutls_privkey_scope_t() {
+                if (value)
+                    gnutls_x509_privkey_deinit(value);
+            }
+
+            [[nodiscard]] gnutls_x509_privkey_t release() noexcept {
+                return std::exchange(value, nullptr);
+            }
+
+            gnutls_x509_privkey_t value = nullptr;
+        };
+    }
+
+    cert_pair_t::~cert_pair_t() {
+        if (certificate)
+            gnutls_x509_crt_deinit(certificate);
+        if (private_key)
+            gnutls_x509_privkey_deinit(private_key);
+    }
+
+    cert_pair_t::cert_pair_t(cert_pair_t &&o) noexcept:
+        certificate{std::exchange(o.certificate, nullptr)},
+        private_key{std::exchange(o.private_key, nullptr)}
     {
+    }
+
+    cert_pair_t &cert_pair_t::operator=(cert_pair_t &&o) noexcept {
+        if (this != &o) {
+            cert_pair_t tmp{std::move(o)};
+            std::swap(certificate, tmp.certificate);
+            std::swap(private_key, tmp.private_key);
+        }
+        return *this;
+    }
+
+    bool cert_pair_t::empty() const noexcept {
+        return !certificate || !private_key;
+    }
+
+    std::string alternative_name_varlen(const buffer bytes) {
         static std::array<char, 32> dict {
             'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
             'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p',
@@ -41,107 +101,96 @@ namespace turbo::jamnp {
         return res;
     }
 
-    std::string alternative_name(const crypto::ed25519::vkey_t &vk)
-    {
-        std::string res { 'e' };
+    std::string alternative_name(const crypto::ed25519::vkey_t &vk) {
+        std::string res{'e'};
         res += alternative_name_varlen(vk);
         return res;
     }
 
-    static void cert_set_alt_name(X509 *x509, const std::string &name)
-    {
-        // TODO: add error checking
-        GENERAL_NAMES *gens = sk_GENERAL_NAME_new_null();
-        GENERAL_NAME *gen = GENERAL_NAME_new();
-        ASN1_IA5STRING *dns = ASN1_IA5STRING_new();
-        ASN1_STRING_set(dns, name.data(), name.size());
-        GENERAL_NAME_set0_value(gen, GEN_DNS, dns);
-        sk_GENERAL_NAME_push(gens, gen);
-        X509_EXTENSION *ext = X509V3_EXT_i2d(NID_subject_alt_name, 0, gens);
-        X509_add_ext(x509, ext, -1);
-        X509_EXTENSION_free(ext);
-        sk_GENERAL_NAME_pop_free(gens, GENERAL_NAME_free);
+    static void cert_set_alt_name(gnutls_x509_crt_t x509, const std::string &name) {
+        check_gnutls(gnutls_x509_crt_set_subject_alt_name(
+            x509,
+            GNUTLS_SAN_DNSNAME,
+            name.data(),
+            numeric_cast<unsigned int>(name.size()),
+            GNUTLS_FSAN_SET
+        ), "gnutls_x509_crt_set_subject_alt_name");
     }
 
-    static std::string stringify_cert(X509 *x509)
-    {
+    static std::string stringify_cert(gnutls_x509_crt_t x509) {
         if (x509) {
-            BIO *bio = BIO_new(BIO_s_mem());
-            if (bio) {
-                X509_print(bio, x509);
-                char *data;
-                auto data_len = BIO_get_mem_data(bio, &data);
-                std::string res { data, numeric_cast<size_t>(data_len) };
-                BIO_free(bio);
+            gnutls_datum_t out{};
+            const auto err = gnutls_x509_crt_print(x509, GNUTLS_CRT_PRINT_FULL, &out);
+            if (err == GNUTLS_E_SUCCESS) {
+                std::string res{reinterpret_cast<char *>(out.data), out.size};
+                gnutls_free(out.data);
                 return res;
             }
-            return "failed to allocate a BIO for the cert";
+            return fmt::format("failed to print the cert: {}", internal::gnutls_error_text(err));
         }
         return "nullptr";
     }
 
-    void write_cert(const std::string &cert_path, const std::string &key_path, const crypto::ed25519::key_pair_t &kp)
-    {
-        const char *err_msg = nullptr;
-        X509 *x509 = nullptr;
-        FILE *f = nullptr;
-        X509_NAME *name = nullptr;
+    cert_pair_t make_cert(const crypto::ed25519::key_pair_t &kp) {
+        [[maybe_unused]] auto &global = internal::gnutls_global_state();
+        gnutls_privkey_scope_t pkey{};
+        gnutls_crt_scope_t x509{};
         const auto vk_name = jamnp::alternative_name(kp.vk);
 
-        // OpenSSL and Sodium's Secret Key sizes do not match
+        // GnuTLS and Sodium's Secret Key sizes do not match.
         static_assert(sizeof(kp.sk) >= 32);
-        EVP_PKEY *pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, kp.sk.data(), size_t { 32 });
-        if (!pkey) [[unlikely]] {
-            err_msg = "Failed to import a private key!";
-            goto err;
+        gnutls_datum_t public_key{const_cast<uint8_t *>(kp.vk.data()), numeric_cast<unsigned int>(kp.vk.size())};
+        gnutls_datum_t private_key{const_cast<uint8_t *>(kp.sk.data()), 32};
+        check_gnutls(gnutls_x509_privkey_import_ecc_raw(
+            pkey.value,
+            GNUTLS_ECC_CURVE_ED25519,
+            &public_key,
+            nullptr,
+            &private_key
+        ), "gnutls_x509_privkey_import_ecc_raw");
+
+        check_gnutls(gnutls_x509_crt_set_version(x509.value, 3), "gnutls_x509_crt_set_version");
+        const uint8_t serial = 1;
+        check_gnutls(gnutls_x509_crt_set_serial(x509.value, &serial, sizeof(serial)), "gnutls_x509_crt_set_serial");
+        const auto now = std::time(nullptr);
+        constexpr auto cert_validity = static_cast<time_t>(100) * static_cast<time_t>(265) * static_cast<time_t>(24) * static_cast<time_t>(60) * static_cast<time_t>(60);
+        if (now > std::numeric_limits<time_t>::max() - cert_validity) [[unlikely]]
+            throw error("Certificate expiration time is out of range");
+        check_gnutls(gnutls_x509_crt_set_activation_time(x509.value, now), "gnutls_x509_crt_set_activation_time");
+        check_gnutls(gnutls_x509_crt_set_expiration_time(x509.value, now + cert_validity), "gnutls_x509_crt_set_expiration_time");
+        check_gnutls(gnutls_x509_crt_set_key(x509.value, pkey.value), "gnutls_x509_crt_set_key");
+        cert_set_alt_name(x509.value, vk_name);
+
+        check_gnutls(gnutls_x509_crt_set_dn_by_oid(
+            x509.value,
+            GNUTLS_OID_X520_COMMON_NAME,
+            0,
+            vk_name.c_str(),
+            numeric_cast<unsigned int>(vk_name.size())
+        ), "gnutls_x509_crt_set_dn_by_oid");
+
+        check_gnutls(gnutls_x509_crt_sign2(x509.value, x509.value, pkey.value, GNUTLS_DIG_SHA512, 0), "gnutls_x509_crt_sign2");
+
+        logger::info("Generated {}", stringify_cert(x509.value));
+        cert_pair_t cert{};
+        cert.certificate = x509.release();
+        cert.private_key = pkey.release();
+        return cert;
+    }
+
+    jam::state_snapshot_t local_genesis_state() {
+        const auto j_spec = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
+        const auto &j_snap = j_spec.at("genesis_state").as_object();
+        jam::state_snapshot_t snap{};
+        for (const auto &[k, v]: j_snap) {
+            snap.emplace(jam::merkle::trie::key_t::from_hex(k), jam::byte_sequence_t::from_hex(v.as_string()));
         }
-
-        x509 = X509_new();
-        if (!x509) {
-            err_msg = "Failed to create a x509 certificate!";
-            goto err;
-        }
-        X509_set_version(x509, 2);
-        ASN1_INTEGER_set(X509_get_serialNumber(x509), 1);
-        X509_gmtime_adj(X509_get_notBefore(x509), 0);
-        X509_gmtime_adj(X509_get_notAfter(x509), 3600L * 24 * 265 * 100);
-        X509_set_pubkey(x509, pkey);
-        cert_set_alt_name(x509, vk_name);
-
-        name = X509_get_subject_name(x509);
-        X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, reinterpret_cast<const uint8_t *>(vk_name.c_str()), -1, -1, 0);
-        X509_set_issuer_name(x509, name);
-
-        // 4. Self-sign
-        X509_sign(x509, pkey, NULL); // For Ed25519, digest is ignored
-
-        // 5. Output private key and cert
-        f = fopen(key_path.c_str(), "wb");
-        PEM_write_PrivateKey(f, pkey, NULL, NULL, 0, NULL, NULL);
-        fclose(f);
-
-        f = fopen(cert_path.c_str(), "wb");
-        PEM_write_X509(f, x509);
-        // closed in the clean up section
-
-        logger::info("Generated {}", stringify_cert(x509));
-        logger::info("Key path: {}", key_path);
-        logger::info("Cert path: {}", cert_path);
-    err:
-        if (f)
-            fclose(f);
-        if (x509)
-            X509_free(x509);
-        if (pkey)
-            EVP_PKEY_free(pkey);
-        if (err_msg)
-            throw error(err_msg);
+        return snap;
     }
 
     protocol_id_t protocol_id_t::from_local_dev_spec() {
-        const auto j_spec = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
-        const auto snap = codec::json::from_json<jam::state_snapshot_t>(j_spec.at("genesis_state"));
+        const auto snap = local_genesis_state();
         const auto genesis_header = jam::state_t<jam::config_tiny>::make_genesis_header(snap);
         return {genesis_header.hash()};
     }
-} // namespace turbo::jamnp
+}

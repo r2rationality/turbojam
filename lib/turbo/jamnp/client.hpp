@@ -10,16 +10,11 @@
 namespace turbo::jamnp {
     using namespace jam;
 
-    struct address_t {
-        std::string host;
-        uint16_t port;
-    };
-
     template<typename CFG>
     struct client_t {
         using block_list_t = sequence_t<block_t<CFG>>;
 
-        client_t(address_t server_addr, const std::string &app_name, const std::string &alpn_id, const std::string &cert_prefix);
+        client_t(address_t server_addr, const std::string &app_name, const std::string &alpn_id, cert_pair_t cert);
         ~client_t();
 
         [[nodiscard]] coro::task_t<block_list_t> fetch_blocks(const header_hash_t &hh, uint32_t max_blocks, direction_t direction=direction_t::ascending);
