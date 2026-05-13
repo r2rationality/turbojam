@@ -531,7 +531,9 @@ namespace turbo::jamnp::transport::ngtcp2 {
             auto settings = make_settings();
             auto params = make_transport_params();
             params.original_dcid = initial_hd.dcid;
+#if defined(NGTCP2_VERSION_NUM) && NGTCP2_VERSION_NUM >= 0x010c00
             params.original_dcid_present = 1;
+#endif
 
             const auto rv = ngtcp2_conn_server_new(&_conn, &initial_hd.scid, &_scid, &_path.path,
                 initial_hd.version, &callbacks, &settings, &params, nullptr, this);
