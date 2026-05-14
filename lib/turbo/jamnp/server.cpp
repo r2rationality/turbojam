@@ -47,19 +47,24 @@ namespace turbo::jamnp {
 
         coro::task_t<void> _handle_block_announcement(transport::ngtcp2::server_stream_t stream)
         {
-            logger::info("jamnp server received block announcement");
+            logger::info("jamnp stream {}: server received block announcement", stream.id());
             auto handshake = co_await _read_fixed<handshake_t>(stream);
-            logger::info("handshake: {}", handshake);
+            logger::info("jamnp stream {}: handshake: {}", stream.id(), handshake);
             uint8_vector data{};
             while (!stream.done()) {
                 data << co_await stream.read_available();
-                logger::run_log_errors([&] {
-                    decoder dec{data};
-                    const auto announcement = jam::from<block_announcement_t<ICFG>>(dec);
-                    data.erase(data.begin(), data.begin() + dec.consumed());
-                    logger::info("announcement header: {} final: {}", announcement.header.hash(), announcement.final);
-                });
+                if (!data.empty()) {
+                    try {
+                        decoder dec{data};
+                        const auto announcement = jam::from<block_announcement_t<ICFG>>(dec);
+                        data.erase(data.begin(), data.begin() + dec.consumed());
+                        logger::info("jamnp stream {}: announcement header: {} final: {}", stream.id(), announcement.header.hash(), announcement.final);
+                    } catch (...) {
+                        logger::trace("jamnp stream {}: incomplete announcement of size: {}", stream.id(), data.size());
+                    }
+                }
             }
+            logger::info("jamnp stream {}: server received block announcement completed", stream.id());
         }
 
         [[nodiscard]] coro::task_t<void> _handle_stream(const uint8_t first_byte, transport::ngtcp2::server_stream_t stream)
