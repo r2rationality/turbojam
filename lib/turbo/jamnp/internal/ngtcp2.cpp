@@ -36,13 +36,18 @@
 namespace turbo::jamnp::transport::ngtcp2 {
     struct server_stream_t::impl_t {
         using read_fn_t = coro::task_t<uint8_vector> (*)(void *, int64_t, size_t);
+        using read_available_fn_t = coro::task_t<uint8_vector> (*)(void *, int64_t);
         using write_fn_t = coro::task_t<void> (*)(void *, int64_t, buffer);
+        using done_fn_t = bool (*)(void *, int64_t);
 
-        impl_t(void *owner, const int64_t stream_id, read_fn_t read, write_fn_t write):
+        impl_t(void *owner, const int64_t stream_id, read_fn_t read, read_available_fn_t read_available,
+            write_fn_t write, done_fn_t done):
             _owner{owner},
             _stream_id{stream_id},
             _read{read},
-            _write{write}
+            _read_available{read_available},
+            _write{write},
+            _done{done}
         {
         }
 
@@ -50,18 +55,28 @@ namespace turbo::jamnp::transport::ngtcp2 {
             return static_cast<uint64_t>(_stream_id);
         }
 
-        [[nodiscard]] coro::task_t<uint8_vector> read(const size_t max_bytes) {
-            return _read(_owner, _stream_id, max_bytes);
+        [[nodiscard]] coro::task_t<uint8_vector> read(const size_t sz) {
+            return _read(_owner, _stream_id, sz);
+        }
+
+        [[nodiscard]] coro::task_t<uint8_vector> read_available() {
+            return _read_available(_owner, _stream_id);
         }
 
         [[nodiscard]] coro::task_t<void> write(const buffer bytes) {
             return _write(_owner, _stream_id, bytes);
         }
+
+        [[nodiscard]] bool done() const noexcept {
+            return _done(_owner, _stream_id);
+        }
     private:
         void *_owner = nullptr;
         int64_t _stream_id = 0;
         read_fn_t _read;
+        read_available_fn_t _read_available;
         write_fn_t _write;
+        done_fn_t _done;
     };
 
     namespace {
@@ -162,11 +177,20 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 _bytes << buffer{data, sz};
             }
 
-            [[nodiscard]] uint8_vector read(const size_t max_bytes) {
-                const auto n = std::min(max_bytes, _bytes.size());
-                uint8_vector bytes{buffer{_bytes.data(), n}};
-                _bytes.erase(_bytes.begin(), _bytes.begin() + static_cast<std::ptrdiff_t>(n));
-                _base_offset += n;
+            [[nodiscard]] uint8_vector read(const size_t sz) {
+                if (sz > size()) [[unlikely]]
+                    throw jamnp::error{fmt::format("stream buffer read size out of range got: {}, available: {}", sz, size())};
+                uint8_vector bytes{buffer{_bytes.data(), sz}};
+                _bytes.erase(_bytes.begin(), _bytes.begin() + static_cast<std::ptrdiff_t>(sz));
+                _base_offset += sz;
+                return bytes;
+            }
+
+            [[nodiscard]] uint8_vector read_available() {
+                const auto sz = _bytes.size();
+                auto bytes = std::move(_bytes);
+                _bytes.clear();
+                _base_offset += sz;
                 return bytes;
             }
 
@@ -182,9 +206,14 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 return _bytes.empty();
             }
 
-            [[nodiscard]] uint8_vector take() noexcept {
-                return std::move(_bytes);
+            [[nodiscard]] bool done() const noexcept {
+                return finished() && empty();
             }
+
+            [[nodiscard]] size_t size() const noexcept {
+                return _bytes.size();
+            }
+
         private:
             uint64_t _base_offset = 0;
             uint8_vector _bytes{};
@@ -202,7 +231,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             }
 
             [[nodiscard]] uint8_vector take_response() noexcept {
-                return _response.take();
+                return _response.read_available();
             }
 
             void append_response(const uint64_t offset, const uint8_t *data, const size_t sz) {
@@ -365,8 +394,10 @@ namespace turbo::jamnp::transport::ngtcp2 {
             void read_packet(buffer packet);
             void flush();
             void recv_stream_data(uint32_t flags, int64_t stream_id, uint64_t offset, const uint8_t *data, size_t sz);
-            [[nodiscard]] coro::task_t<uint8_vector> read_stream(int64_t stream_id, size_t max_bytes);
+            [[nodiscard]] coro::task_t<uint8_vector> read_stream(int64_t stream_id, size_t sz);
+            [[nodiscard]] coro::task_t<uint8_vector> read_available_stream(int64_t stream_id);
             void write_stream(int64_t stream_id, buffer bytes);
+            [[nodiscard]] bool stream_done(int64_t stream_id) const noexcept;
             [[nodiscard]] server_stream_t make_stream(int64_t stream_id);
 
             [[nodiscard]] const ngtcp2_cid &scid() const noexcept {
@@ -386,8 +417,10 @@ namespace turbo::jamnp::transport::ngtcp2 {
             std::deque<std::shared_ptr<coro::task_t<void>>> _active_handlers{};
 
             static ngtcp2_conn *_get_conn(ngtcp2_crypto_conn_ref *ref);
-            static coro::task_t<uint8_vector> _read_stream_cb(void *owner, int64_t stream_id, size_t max_bytes);
+            static coro::task_t<uint8_vector> _read_stream_cb(void *owner, int64_t stream_id, size_t sz);
+            static coro::task_t<uint8_vector> _read_available_stream_cb(void *owner, int64_t stream_id);
             static coro::task_t<void> _write_stream_cb(void *owner, int64_t stream_id, buffer bytes);
+            static bool _stream_done_cb(void *owner, int64_t stream_id);
         };
 
         struct server_runtime_t {
@@ -578,10 +611,24 @@ namespace turbo::jamnp::transport::ngtcp2 {
             }
         }
 
-        coro::task_t<uint8_vector> server_connection_t::read_stream(const int64_t stream_id, const size_t max_bytes) {
-            if (max_bytes == 0)
+        coro::task_t<uint8_vector> server_connection_t::read_stream(const int64_t stream_id, const size_t sz) {
+            if (sz == 0)
                 co_return {};
 
+            auto &stream_buffer = _stream_buffers[stream_id];
+            while (stream_buffer.size() < sz && !stream_buffer.finished()) {
+                co_await coro::external_task_t{[this, stream_id](auto h) {
+                    if (const auto [_, inserted] = _stream_waiters.emplace(stream_id, h); !inserted) [[unlikely]]
+                        throw jamnp::error{fmt::format("duplicate ngtcp2 read waiter for stream {}", stream_id)};
+                }};
+            }
+
+            if (stream_buffer.size() < sz) [[unlikely]]
+                throw jamnp::error{fmt::format("ngtcp2 stream {} ended before {} bytes were available", stream_id, sz)};
+            co_return stream_buffer.read(sz);
+        }
+
+        coro::task_t<uint8_vector> server_connection_t::read_available_stream(const int64_t stream_id) {
             auto &stream_buffer = _stream_buffers[stream_id];
             while (stream_buffer.empty() && !stream_buffer.finished()) {
                 co_await coro::external_task_t{[this, stream_id](auto h) {
@@ -590,7 +637,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 }};
             }
 
-            co_return stream_buffer.read(max_bytes);
+            co_return stream_buffer.read_available();
         }
 
         void server_connection_t::write_stream(const int64_t stream_id, const buffer bytes) {
@@ -599,23 +646,38 @@ namespace turbo::jamnp::transport::ngtcp2 {
             });
         }
 
+        bool server_connection_t::stream_done(const int64_t stream_id) const noexcept {
+            const auto it = _stream_buffers.find(stream_id);
+            return it != _stream_buffers.end() && it->second.done();
+        }
+
         server_stream_t server_connection_t::make_stream(const int64_t stream_id) {
             auto impl = std::make_unique<server_stream_t::impl_t>(
                 this,
                 stream_id,
                 _read_stream_cb,
-                _write_stream_cb
+                _read_available_stream_cb,
+                _write_stream_cb,
+                _stream_done_cb
             );
             return server_stream_t{std::move(impl)};
         }
 
-        coro::task_t<uint8_vector> server_connection_t::_read_stream_cb(void *owner, int64_t stream_id, size_t max_bytes) {
-            co_return co_await static_cast<server_connection_t *>(owner)->read_stream(stream_id, max_bytes);
+        coro::task_t<uint8_vector> server_connection_t::_read_stream_cb(void *owner, int64_t stream_id, size_t sz) {
+            co_return co_await static_cast<server_connection_t *>(owner)->read_stream(stream_id, sz);
+        }
+
+        coro::task_t<uint8_vector> server_connection_t::_read_available_stream_cb(void *owner, int64_t stream_id) {
+            co_return co_await static_cast<server_connection_t *>(owner)->read_available_stream(stream_id);
         }
 
         coro::task_t<void> server_connection_t::_write_stream_cb(void *owner, int64_t stream_id, buffer bytes) {
             static_cast<server_connection_t *>(owner)->write_stream(stream_id, bytes);
             co_return;
+        }
+
+        bool server_connection_t::_stream_done_cb(void *owner, const int64_t stream_id) {
+            return static_cast<server_connection_t *>(owner)->stream_done(stream_id);
         }
 
         struct client_runtime_t;
@@ -950,8 +1012,12 @@ namespace turbo::jamnp::transport::ngtcp2 {
     server_stream_t::server_stream_t(server_stream_t &&) noexcept = default;
     server_stream_t &server_stream_t::operator=(server_stream_t &&) noexcept = default;
 
-    coro::task_t<uint8_vector> server_stream_t::read(const size_t max_bytes) {
-        return _impl->read(max_bytes);
+    coro::task_t<uint8_vector> server_stream_t::read(const size_t sz) {
+        return _impl->read(sz);
+    }
+
+    coro::task_t<uint8_vector> server_stream_t::read_available() {
+        return _impl->read_available();
     }
 
     coro::task_t<void> server_stream_t::write(const buffer bytes) {
@@ -960,6 +1026,10 @@ namespace turbo::jamnp::transport::ngtcp2 {
 
     uint64_t server_stream_t::id() const noexcept {
         return _impl->id();
+    }
+
+    bool server_stream_t::done() const noexcept {
+        return _impl->done();
     }
 
     server_t::server_t(transport_config_t cfg):

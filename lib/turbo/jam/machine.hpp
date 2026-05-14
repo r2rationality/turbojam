@@ -290,7 +290,8 @@ namespace turbo::jam::machine {
             while (jt.size() < jt_sz) {
                 jt.emplace_back(dec.uint_fixed<uint32_t>(jt_offset_sz));
             }
-            const auto code_offset = numeric_cast<size_t>(dec.skip_bytes(code_sz) - bytes.data());
+            const auto code_offset = numeric_cast<size_t>(dec.consumed());
+            (void)dec.next_bytes(code_sz);
             bit_vector_t bitmasks{dec.next_bytes((code_sz + 7) / 8), code_sz};
             if (!dec.empty()) [[unlikely]]
                 throw error("failed to decode all bytes of the program blob");

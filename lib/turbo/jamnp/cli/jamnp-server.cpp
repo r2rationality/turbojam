@@ -47,7 +47,7 @@ namespace turbo::cli::jamnp_server {
             address_t addr{"::", numeric_cast<uint16_t>(40000U + dev_val_idx)};
             logger::info("dev validator index {}", dev_val_idx);
             logger::info("starting a server listening at {}", addr);
-            server_t server{std::move(addr), std::move(cert), "jamnp-s/0/b5af8eda", data_path->string()};
+            server_t<config_tiny> server{std::move(addr), std::move(cert), "jamnp-s/0/b5af8eda", data_path->string()};
             server.run();
         }
     };

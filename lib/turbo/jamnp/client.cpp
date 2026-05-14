@@ -51,9 +51,8 @@ namespace turbo::jamnp {
 
         static block_list_t _decode_blocks_response(const buffer response)
         {
-            decoder dec { _checked_response_body(response, "fetch_blocks") };
-
-            block_list_t blocks {};
+            decoder dec{_checked_response_body(response, "fetch_blocks")};
+            block_list_t blocks{};
             while (!dec.empty()) {
                 blocks.emplace_back(codec::from<block_t<CFG>>(dec));
             }
@@ -80,16 +79,9 @@ namespace turbo::jamnp {
 
         static buffer _checked_response_body(const buffer response, const char *context)
         {
-            decoder dec { response };
+            decoder dec{response};
             const auto msg_len = dec.uint_fixed<size_t>(4U);
-            if (dec.size() != msg_len) [[unlikely]]
-                throw jamnp::error{fmt::format(
-                    "{}: invalid response size: expected {} body bytes but received {}",
-                    context,
-                    msg_len,
-                    dec.size()
-                )};
-            return { response.data() + 4, msg_len };
+            return dec.next_bytes(msg_len);
         }
 
         std::string _app_name;

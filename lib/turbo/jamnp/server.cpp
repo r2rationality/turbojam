@@ -12,7 +12,9 @@
 namespace turbo::jamnp {
     using namespace std::string_view_literals;
 
-    struct server_t::impl_t {
+    template<typename CFG>
+    template<typename ICFG>
+    struct server_t<CFG>::impl_t {
         explicit impl_t(address_t addr, cert_pair_t cert, const std::string &spec_path, const std::string &data_path):
             _addr{std::move(addr)},
             _chain{_load_chain(spec_path, data_path)},
@@ -32,35 +34,70 @@ namespace turbo::jamnp {
             });
         }
     private:
-        [[nodiscard]] coro::task_t<void> _handle_stream(const uint8_t first_byte, transport::ngtcp2::server_stream_t stream)
-        {
-            logger::info("jamnp server accepted stream {} with first byte {}", stream.id(), first_byte);
-            co_return;
-        }
-
         address_t _addr;
-        chain_t<config_tiny> _chain;
+        chain_t<ICFG> _chain;
         protocol_id_t _protocol_id{_chain.genesis_header().hash()};
         transport::ngtcp2::server_t _ngtcp2;
 
-        static chain_t<config_tiny> _load_chain(const std::string &spec_path, const std::string &data_path) {
+        template<typename T>
+        coro::task_t<T> _read_fixed(transport::ngtcp2::server_stream_t &stream) {
+            const auto data = co_await stream.read(sizeof(T));
+            co_return from_bytes<T>(data);
+        }
+
+        coro::task_t<void> _handle_block_announcement(transport::ngtcp2::server_stream_t stream)
+        {
+            logger::info("jamnp server received block announcement");
+            auto handshake = co_await _read_fixed<handshake_t>(stream);
+            logger::info("handshake: {}", handshake);
+            uint8_vector data{};
+            while (!stream.done()) {
+                data << co_await stream.read_available();
+                logger::run_log_errors([&] {
+                    decoder dec{data};
+                    const auto announcement = jam::from<block_announcement_t<ICFG>>(dec);
+                    data.erase(data.begin(), data.begin() + dec.consumed());
+                    logger::info("announcement header: {} final: {}", announcement.header.hash(), announcement.final);
+                });
+            }
+        }
+
+        [[nodiscard]] coro::task_t<void> _handle_stream(const uint8_t first_byte, transport::ngtcp2::server_stream_t stream)
+        {
+            logger::info("jamnp server accepted stream {} with first byte {}", stream.id(), first_byte);
+            switch (first_byte) {
+            case 0:
+                co_await _handle_block_announcement(std::move(stream));
+                break;
+            default:
+                break;
+            }
+            co_return;
+        }
+
+        static chain_t<ICFG> _load_chain(const std::string &spec_path, const std::string &data_path) {
             (void) spec_path;
             const auto snap = local_genesis_state();
-            return chain_t<config_tiny>{"dev", data_path, snap};
+            return chain_t<ICFG>{"dev", data_path, snap};
         }
     };
 
-    server_t::server_t(address_t addr, cert_pair_t cert, const std::string &spec_path, const std::string &data_path):
-        _impl{std::make_unique<impl_t>(std::move(addr), std::move(cert), spec_path, data_path)}
+    template<typename CFG>
+    server_t<CFG>::server_t(address_t addr, cert_pair_t cert, const std::string &spec_path, const std::string &data_path):
+        _impl{std::make_unique<impl_t<CFG>>(std::move(addr), std::move(cert), spec_path, data_path)}
     {
     }
 
-    server_t::~server_t() = default;
+    template<typename CFG>
+    server_t<CFG>::~server_t() = default;
 
-    void server_t::run()
+    template<typename CFG>
+    void server_t<CFG>::run()
     {
         _impl->run();
     }
+
+    template struct server_t<config_tiny>;
 
     [[nodiscard]] byte_array<32> dev_trivial_seed(const uint32_t i)
     {

@@ -225,7 +225,7 @@ namespace turbo::jam {
 
         static uint32_t len_from_state_key(const state_key_t &k)
         {
-            return decoder::uint_fixed<uint32_t>(byte_array<4> { k[1], k[3], k[5], k[7] });
+            return jam::from_bytes<uint32_t>(byte_array<4>{k[1], k[3], k[5], k[7]});
         }
 
         void serialize(auto &archive)
@@ -679,7 +679,7 @@ namespace turbo::jam {
             enc.next_bytes(eta0);
             enc.uint_varlen(blk_slot.slot());
             const auto h = crypto::blake2b::digest(enc.bytes());
-            const auto prev_id = decoder::uint_fixed<service_id_t>(h);
+            const auto prev_id = jam::from_bytes<service_id_t>(h);
             new_service_id = check(gen_new_service_id(prev_id));
         }
 

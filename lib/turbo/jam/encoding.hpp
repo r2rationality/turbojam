@@ -189,16 +189,9 @@ namespace turbo::jam {
     };
 
     struct decoder: codec::archive_t {
-        template<typename T>
-        static T uint_fixed(const buffer bytes)
-        {
-            decoder dec { bytes };
-            return dec.uint_fixed<T>(sizeof(T));
-        }
-
         explicit decoder(const buffer bytes) noexcept:
-            _ptr { bytes.data() },
-            _end { bytes.data() + bytes.size() }
+            _ptr{bytes.data()},
+            _end{bytes.data() + bytes.size()}
         {
         }
 
@@ -333,43 +326,31 @@ namespace turbo::jam {
         {
             if (_ptr >= _end) [[unlikely]]
                 throw error("codec: an attempt to read past the end of the byte stream");
+            ++_consumed;
             return *_ptr++;
-        }
-
-        const uint8_t *skip_bytes(const size_t sz) {
-            if (_ptr + sz > _end) [[unlikely]]
-                throw error("codec: an attempt to read past the end of the byte stream");
-            const auto *begin = _ptr;
-            _ptr += sz;
-            return begin;
         }
 
         [[nodiscard]] buffer next_bytes(const size_t sz)
         {
-            const auto *begin = skip_bytes(sz);
+            if (_ptr + sz > _end) [[unlikely]]
+                throw error("codec: an attempt to read past the end of the byte stream");
+            const auto *begin = _ptr;
+            _consumed += sz;
+            _ptr += sz;
             return {begin, sz};
         }
 
-        [[nodiscard]] size_t offset_from(const uint8_t *base) const noexcept {
-            return _ptr - base;
+        [[nodiscard]] size_t consumed() const noexcept {
+            return _consumed;
         }
 
         [[nodiscard]] bool empty() const noexcept
         {
             return _ptr >= _end;
         }
-
-        [[nodiscard]] buffer bytes() const noexcept
-        {
-            return {_ptr, size()};
-        }
-
-        [[nodiscard]] size_t size() const
-        {
-            return empty() ? size_t { 0 } : numeric_cast<size_t>(_end - _ptr);
-        }
     private:
         const uint8_t *_ptr, *_end;
+        size_t _consumed = 0;
     };
 
     template<typename T>
@@ -380,14 +361,20 @@ namespace turbo::jam {
     }
 
     template<typename T>
-    T from_bytes(const buffer bytes)
+    T from(decoder &dec)
     {
-        decoder dec { bytes };
         if constexpr (from_bytes_c<T>) {
             return T::from_bytes(dec);
         } else {
             return codec::from<T>(dec);
         }
+    }
+
+    template<typename T>
+    T from_bytes(const buffer bytes)
+    {
+        decoder dec{bytes};
+        return from<T>(dec);
     }
 
     template<typename T>

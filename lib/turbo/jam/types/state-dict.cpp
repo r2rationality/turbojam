@@ -90,11 +90,11 @@ namespace turbo::jam {
         const auto ksum = std::accumulate(key.begin() + 1U, key.end(), size_t{0});
         const auto ssum = key[2] + key[4] + key[6] + std::accumulate(key.begin() + 8U, key.end(), size_t{0});
         if (key[0] == 0xFFU && ssum == 0U) {
-            return key_service_info_t{decoder::uint_fixed<service_id_t>(byte_array<4>{key[1], key[3], key[5], key[7]})};
+            return key_service_info_t{jam::from_bytes<service_id_t>(byte_array<4>{key[1], key[3], key[5], key[7]})};
         }
         if (ksum == 0) {
             return key_state_var_t{key[0]};
         }
-        return key_service_data_t{decoder::uint_fixed<service_id_t>(byte_array<4>{key[0], key[2], key[4], key[6]})};
+        return key_service_data_t{jam::from_bytes<service_id_t>(byte_array<4>{key[0], key[2], key[4], key[6]})};
     }
 }

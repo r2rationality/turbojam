@@ -43,9 +43,11 @@ namespace turbo::jamnp::transport::ngtcp2 {
         server_stream_t(const server_stream_t &) = delete;
         server_stream_t &operator=(const server_stream_t &) = delete;
 
-        [[nodiscard]] coro::task_t<uint8_vector> read(size_t max_bytes);
+        [[nodiscard]] coro::task_t<uint8_vector> read(size_t sz);
+        [[nodiscard]] coro::task_t<uint8_vector> read_available();
         [[nodiscard]] coro::task_t<void> write(buffer bytes);
         [[nodiscard]] uint64_t id() const noexcept;
+        [[nodiscard]] bool done() const noexcept;
     private:
         std::unique_ptr<impl_t> _impl;
     };

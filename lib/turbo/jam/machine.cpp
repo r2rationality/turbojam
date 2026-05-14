@@ -2338,9 +2338,9 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl->state();
     }
 
-    std::optional<machine_t> configure(const buffer code, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
+    std::optional<machine_t> configure(const buffer program_bytes, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
     {
-        decoder dec{code};
+        decoder dec{program_bytes};
         // JAM (9.4)
         const auto meta = codec::from<byte_sequence_t>(dec);
 
@@ -2353,9 +2353,16 @@ namespace turbo::jam::machine {
         const auto o_bytes = dec.next_bytes(o_sz);
         const auto w_bytes = dec.next_bytes(w_sz);
 
-        if (const auto c_sz = dec.uint_fixed<size_t>(4); c_sz != dec.size()) [[unlikely]]
+        buffer code{};
+        try {
+            const auto c_sz = dec.uint_fixed<size_t>(4);
+            code = dec.next_bytes(c_sz);
+            if (!dec.empty()) [[unlikely]]
+                throw std::runtime_error{"JAM: invalid program"};
+        } catch (...) {
             return {};
-        auto prg = program_t::from_bytes(dec.next_bytes(dec.size()));
+        }
+        auto prg = program_t::from_bytes(code);
 
         // JAM (A.40)
         const auto total_sz = 5 * config_prod::ZZ_pvm_init_zone_size
