@@ -40,29 +40,39 @@ namespace turbo::jamnp {
         transport::ngtcp2::server_t _ngtcp2;
 
         template<typename T>
-        coro::task_t<T> _read_fixed(transport::ngtcp2::server_stream_t &stream) {
-            const auto data = co_await stream.read(sizeof(T));
-            co_return from_bytes<T>(data);
+        static bool _try_decode(T &val, uint8_vector &data) {
+            try {
+                decoder dec{data};
+                val = jam::from<T>(dec);
+                data.erase(data.begin(), data.begin() + dec.consumed());
+                return true;
+            } catch (...) {
+                return false;
+            }
         }
 
         coro::task_t<void> _handle_block_announcement(transport::ngtcp2::server_stream_t stream)
         {
             logger::info("jamnp stream {}: server received block announcement", stream.id());
-            auto handshake = co_await _read_fixed<handshake_t>(stream);
-            logger::info("jamnp stream {}: handshake: {}", stream.id(), handshake);
             uint8_vector data{};
-            while (!stream.done()) {
+            handshake_t handshake{};
+            while (!_try_decode(handshake, data)) {
+                if (stream.done())
+                    throw error{fmt::format("jamnp stream {} ended before the handshake was complete", stream.id())};
                 data << co_await stream.read_available();
-                if (!data.empty()) {
-                    try {
-                        decoder dec{data};
-                        const auto announcement = jam::from<block_announcement_t<ICFG>>(dec);
-                        data.erase(data.begin(), data.begin() + dec.consumed());
-                        logger::info("jamnp stream {}: announcement header: {} final: {}", stream.id(), announcement.header.hash(), announcement.final);
-                    } catch (...) {
-                        logger::trace("jamnp stream {}: incomplete announcement of size: {}", stream.id(), data.size());
-                    }
+            }
+            logger::info("jamnp stream {}: handshake: {}", stream.id(), handshake);
+            for (;;) {
+                for (;;) {
+                    block_announcement_t<ICFG> announcement{};
+                    if (!_try_decode(announcement, data))
+                        break;
+                    logger::info("jamnp stream {}: announcement header: {} final: {}", stream.id(), announcement.header.hash(), announcement.final);
                 }
+                if (stream.done())
+                    break;
+                data << co_await stream.read_available();
+                logger::trace("jamnp stream {}: pending announcement data size: {}", stream.id(), data.size());
             }
             logger::info("jamnp stream {}: server received block announcement completed", stream.id());
         }
