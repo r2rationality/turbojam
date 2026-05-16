@@ -14,11 +14,13 @@
 #include <boost/asio/post.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/system/error_code.hpp>
-#include <chrono>
+#include <algorithm>
 #include <array>
+#include <chrono>
 #include <deque>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <random>
 #include <thread>
 #include <unordered_map>
@@ -29,6 +31,7 @@
 #include <ngtcp2/ngtcp2_crypto.h>
 #include <ngtcp2/ngtcp2_crypto_gnutls.h>
 #include <gnutls/gnutls.h>
+#include <gnutls/x509.h>
 #include <turbo/common/logger.hpp>
 #include "gnutls.hpp"
 #include "ngtcp2.hpp"
@@ -130,6 +133,8 @@ namespace turbo::jamnp::transport::ngtcp2 {
                     throw jamnp::error{fmt::format("gnutls_priority_set_direct failed: {}", gnutls_error_text(err))};
                 if (const auto err = gnutls_credentials_set(_session, GNUTLS_CRD_CERTIFICATE, _cred); err != GNUTLS_E_SUCCESS) [[unlikely]]
                     throw jamnp::error{fmt::format("gnutls_credentials_set failed: {}", gnutls_error_text(err))};
+                if (is_server)
+                    gnutls_certificate_server_set_request(_session, GNUTLS_CERT_REQUEST);
 
                 const auto alpn = static_cast<std::string>(cfg.protocol_id);
                 gnutls_datum_t protocols[]{
@@ -167,6 +172,32 @@ namespace turbo::jamnp::transport::ngtcp2 {
         private:
             gnutls_certificate_credentials_t _cred = nullptr;
             gnutls_session_t _session = nullptr;
+        };
+
+        struct gnutls_crt_scope_t {
+            gnutls_crt_scope_t() {
+                if (const auto err = gnutls_x509_crt_init(&value); err != GNUTLS_E_SUCCESS) [[unlikely]]
+                    throw jamnp::error{fmt::format("gnutls_x509_crt_init failed: {}", gnutls_error_text(err))};
+            }
+
+            ~gnutls_crt_scope_t() {
+                if (value)
+                    gnutls_x509_crt_deinit(value);
+            }
+
+            gnutls_crt_scope_t(const gnutls_crt_scope_t &) = delete;
+            gnutls_crt_scope_t &operator=(const gnutls_crt_scope_t &) = delete;
+
+            gnutls_x509_crt_t value = nullptr;
+        };
+
+        struct gnutls_datum_scope_t {
+            ~gnutls_datum_scope_t() {
+                if (value.data)
+                    gnutls_free(value.data);
+            }
+
+            gnutls_datum_t value{};
         };
 
         struct stream_buffer_t {
@@ -399,6 +430,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             void write_stream(int64_t stream_id, buffer bytes, bool fin);
             [[nodiscard]] bool stream_done(int64_t stream_id) const noexcept;
             [[nodiscard]] server_stream_t make_stream(int64_t stream_id);
+            [[nodiscard]] const peer_info_t &peer_info();
 
             [[nodiscard]] const ngtcp2_cid &scid() const noexcept {
                 return _scid;
@@ -415,6 +447,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             std::unordered_map<int64_t, std::coroutine_handle<>> _stream_waiters{};
             std::unordered_set<int64_t> _dispatched_streams{};
             std::deque<std::shared_ptr<coro::task_t<void>>> _active_handlers{};
+            std::optional<peer_info_t> _peer_info{};
 
             static ngtcp2_conn *_get_conn(ngtcp2_crypto_conn_ref *ref);
             static coro::task_t<uint8_vector> _read_stream_cb(void *owner, int64_t stream_id, size_t sz);
@@ -424,12 +457,16 @@ namespace turbo::jamnp::transport::ngtcp2 {
         };
 
         struct server_runtime_t {
-            server_runtime_t(const address_t &bind_addr, const transport_config_t &cfg, server_stream_handler_t default_handler):
+            server_runtime_t(const address_t &bind_addr, const transport_config_t &cfg, server_peer_handler_t peer_handler,
+                server_stream_handler_t default_handler):
                 _config{cfg},
                 _endpoint{make_server_endpoint(bind_addr)},
                 _socket{_io},
+                _peer_handler{std::move(peer_handler)},
                 _handler{std::move(default_handler)}
             {
+                if (!_peer_handler) [[unlikely]]
+                    throw jamnp::error{"ngtcp2 server requires a peer handler"};
                 if (!_handler) [[unlikely]]
                     throw jamnp::error{"ngtcp2 server requires a default stream handler"};
                 _socket.open(udp::v6());
@@ -445,10 +482,10 @@ namespace turbo::jamnp::transport::ngtcp2 {
             using connection_map_t = std::unordered_map<std::string, std::unique_ptr<server_connection_t>>;
             friend struct server_connection_t;
 
-            [[nodiscard]] coro::task_t<void> _dispatch_stream(server_stream_t stream) {
+            [[nodiscard]] coro::task_t<void> _dispatch_stream(const peer_info_t &peer, server_stream_t stream) {
                 const auto first = co_await stream.read(1);
                 if (!first.empty()) [[likely]]
-                    co_await _handler(first[0], std::move(stream));
+                    co_await _handler(first[0], peer, std::move(stream));
             }
 
             void _start_receive() {
@@ -533,6 +570,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             udp::endpoint _endpoint;
             io_context _io{};
             udp::socket _socket;
+            server_peer_handler_t _peer_handler;
             server_stream_handler_t _handler;
             udp::endpoint _remote_endpoint{};
             byte_array<64 * 1024> _recv_buffer{};
@@ -599,7 +637,8 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 stream_buffer.finish();
 
             if (!stream_buffer.empty() && _dispatched_streams.emplace(stream_id).second) {
-                auto &task = _active_handlers.emplace_back(std::make_shared<coro::task_t<void>>(_runtime._dispatch_stream(make_stream(stream_id))));
+                const auto &peer = peer_info();
+                auto &task = _active_handlers.emplace_back(std::make_shared<coro::task_t<void>>(_runtime._dispatch_stream(peer, make_stream(stream_id))));
                 task->resume();
             }
 
@@ -661,6 +700,42 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 _stream_done_cb
             );
             return server_stream_t{std::move(impl)};
+        }
+
+        const peer_info_t &server_connection_t::peer_info() {
+            if (!_peer_info) {
+                unsigned int cert_count = 0;
+                const auto *certs = gnutls_certificate_get_peers(_tls.session(), &cert_count);
+                if (!certs || cert_count != 1) {
+                    throw jamnp::error{fmt::format("ngtcp2 client [{}]:{} supplied {} certificates",
+                        _remote.address().to_string(), _remote.port(), cert_count)};
+                }
+
+                gnutls_crt_scope_t cert{};
+                if (const auto err = gnutls_x509_crt_import(cert.value, &certs[0], GNUTLS_X509_FMT_DER); err != GNUTLS_E_SUCCESS) [[unlikely]]
+                    throw jamnp::error{fmt::format("gnutls_x509_crt_import failed: {}", gnutls_error_text(err))};
+
+                gnutls_ecc_curve_t curve{};
+                gnutls_datum_scope_t x{};
+                gnutls_datum_scope_t y{};
+                if (const auto err = gnutls_x509_crt_get_pk_ecc_raw(cert.value, &curve, &x.value, &y.value); err != GNUTLS_E_SUCCESS) [[unlikely]]
+                    throw jamnp::error{fmt::format("gnutls_x509_crt_get_pk_ecc_raw failed: {}", gnutls_error_text(err))};
+                if (curve != GNUTLS_ECC_CURVE_ED25519 || x.value.size != sizeof(crypto::ed25519::vkey_t)) [[unlikely]]
+                    throw jamnp::error{"ngtcp2 client certificate does not contain an Ed25519 public key"};
+
+                crypto::ed25519::vkey_t public_key{};
+                std::copy_n(x.value.data, public_key.size(), public_key.data());
+                _peer_info = peer_info_t{
+                    .remote_addr = address_t{_remote.address().to_string(), _remote.port()},
+                    .public_key = public_key
+                };
+                logger::info("ngtcp2 server accepted client [{}]:{} with public key {}",
+                    _peer_info->remote_addr.host,
+                    _peer_info->remote_addr.port,
+                    buffer_lowercase{_peer_info->public_key.data(), _peer_info->public_key.size()});
+                _runtime._peer_handler(*_peer_info);
+            }
+            return *_peer_info;
         }
 
         coro::task_t<uint8_vector> server_connection_t::_read_stream_cb(void *owner, int64_t stream_id, size_t sz) {
@@ -973,8 +1048,8 @@ namespace turbo::jamnp::transport::ngtcp2 {
         {
         }
 
-        void run(address_t bind_addr, server_stream_handler_t default_handler) {
-            server_runtime_t runtime{std::move(bind_addr), _cfg, std::move(default_handler)};
+        void run(address_t bind_addr, server_peer_handler_t peer_handler, server_stream_handler_t default_handler) {
+            server_runtime_t runtime{std::move(bind_addr), _cfg, std::move(peer_handler), std::move(default_handler)};
             runtime.run_forever();
         }
     private:
@@ -1043,7 +1118,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
     server_t::server_t(server_t &&) noexcept = default;
     server_t &server_t::operator=(server_t &&) noexcept = default;
 
-    void server_t::run(address_t bind_addr, server_stream_handler_t default_handler) {
-        _impl->run(std::move(bind_addr), std::move(default_handler));
+    void server_t::run(address_t bind_addr, server_peer_handler_t peer_handler, server_stream_handler_t default_handler) {
+        _impl->run(std::move(bind_addr), std::move(peer_handler), std::move(default_handler));
     }
 } // namespace turbo::jamnp::transport::ngtcp2

@@ -29,7 +29,10 @@ namespace turbo::jamnp {
         void run()
         {
             logger::info("jamnp server target bind host: {}:{}", _addr, _addr.port);
-            _ngtcp2.run(_addr, [this](const uint8_t first_byte, transport::ngtcp2::server_stream_t stream) -> coro::task_t<void> {
+            _ngtcp2.run(_addr, [](const transport::ngtcp2::peer_info_t &) {
+            }, [this](const uint8_t first_byte, const transport::ngtcp2::peer_info_t &peer,
+                transport::ngtcp2::server_stream_t stream) -> coro::task_t<void> {
+                (void) peer;
                 co_await _handle_stream(first_byte, std::move(stream));
             });
         }

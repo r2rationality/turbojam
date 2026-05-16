@@ -52,7 +52,13 @@ namespace turbo::jamnp::transport::ngtcp2 {
         std::unique_ptr<impl_t> _impl;
     };
 
-    using server_stream_handler_t = std::function<coro::task_t<void>(uint8_t, server_stream_t)>;
+    struct peer_info_t {
+        address_t remote_addr;
+        crypto::ed25519::vkey_t public_key;
+    };
+
+    using server_peer_handler_t = std::function<void(const peer_info_t &)>;
+    using server_stream_handler_t = std::function<coro::task_t<void>(uint8_t, const peer_info_t &, server_stream_t)>;
 
     struct server_t {
         explicit server_t(transport_config_t cfg);
@@ -63,7 +69,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
         server_t(const server_t &) = delete;
         server_t &operator=(const server_t &) = delete;
 
-        void run(address_t bind_addr, server_stream_handler_t default_handler);
+        void run(address_t bind_addr, server_peer_handler_t peer_handler, server_stream_handler_t default_handler);
     private:
         struct impl_t;
         std::unique_ptr<impl_t> _impl;
