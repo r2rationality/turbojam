@@ -115,21 +115,7 @@ namespace turbo::jamnp {
             numeric_cast<unsigned int>(name.size()),
             GNUTLS_FSAN_SET
         ), "gnutls_x509_crt_set_subject_alt_name");
-    }
-
-    static std::string stringify_cert(gnutls_x509_crt_t x509) {
-        if (x509) {
-            gnutls_datum_t out{};
-            const auto err = gnutls_x509_crt_print(x509, GNUTLS_CRT_PRINT_FULL, &out);
-            if (err == GNUTLS_E_SUCCESS) {
-                std::string res{reinterpret_cast<char *>(out.data), out.size};
-                gnutls_free(out.data);
-                return res;
-            }
-            return fmt::format("failed to print the cert: {}", internal::gnutls_error_text(err));
-        }
-        return "nullptr";
-    }
+    }    
 
     cert_pair_t make_cert(const crypto::ed25519::key_pair_t &kp) {
         [[maybe_unused]] auto &global = internal::gnutls_global_state();
