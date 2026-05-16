@@ -37,7 +37,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
     struct server_stream_t::impl_t {
         using read_fn_t = coro::task_t<uint8_vector> (*)(void *, int64_t, size_t);
         using read_available_fn_t = coro::task_t<uint8_vector> (*)(void *, int64_t);
-        using write_fn_t = coro::task_t<void> (*)(void *, int64_t, buffer);
+        using write_fn_t = coro::task_t<void> (*)(void *, int64_t, buffer, bool);
         using done_fn_t = bool (*)(void *, int64_t);
 
         impl_t(void *owner, const int64_t stream_id, read_fn_t read, read_available_fn_t read_available,
@@ -63,8 +63,8 @@ namespace turbo::jamnp::transport::ngtcp2 {
             return _read_available(_owner, _stream_id);
         }
 
-        [[nodiscard]] coro::task_t<void> write(const buffer bytes) {
-            return _write(_owner, _stream_id, bytes);
+        [[nodiscard]] coro::task_t<void> write(const buffer bytes, const bool fin) {
+            return _write(_owner, _stream_id, bytes, fin);
         }
 
         [[nodiscard]] bool done() const noexcept {
@@ -324,11 +324,11 @@ namespace turbo::jamnp::transport::ngtcp2 {
         }
 
         template<typename SendFn>
-        void write_quic_stream(ngtcp2_conn *conn, const ngtcp2_path &path, const int64_t stream_id, const buffer bytes, SendFn send) {
+        void write_quic_stream(ngtcp2_conn *conn, const ngtcp2_path &path, const int64_t stream_id, const buffer bytes, const bool fin, SendFn send) {
             byte_array<NGTCP2_MAX_UDP_PAYLOAD_SIZE> out{};
             size_t offset = 0;
             bool fin_sent = false;
-            while (!fin_sent) {
+            while (offset < bytes.size() || (fin && !fin_sent)) {
                 const auto remaining = bytes.size() - offset;
                 ngtcp2_vec datav{
                     remaining > 0 ? const_cast<uint8_t *>(bytes.data() + offset) : nullptr,
@@ -337,7 +337,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 ngtcp2_ssize data_written = 0;
                 auto write_path = path;
                 ngtcp2_pkt_info pi{};
-                const auto flags = offset == bytes.size() ? NGTCP2_WRITE_STREAM_FLAG_FIN : NGTCP2_WRITE_STREAM_FLAG_NONE;
+                const auto flags = fin && offset == bytes.size() ? NGTCP2_WRITE_STREAM_FLAG_FIN : NGTCP2_WRITE_STREAM_FLAG_NONE;
                 const auto n = ngtcp2_conn_writev_stream(conn, &write_path, &pi, out.data(), out.size(),
                     &data_written, flags, stream_id, &datav, datav.len > 0 ? 1 : 0, now_ns());
                 if (n < 0) [[unlikely]]
@@ -396,7 +396,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             void recv_stream_data(uint32_t flags, int64_t stream_id, uint64_t offset, const uint8_t *data, size_t sz);
             [[nodiscard]] coro::task_t<uint8_vector> read_stream(int64_t stream_id, size_t sz);
             [[nodiscard]] coro::task_t<uint8_vector> read_available_stream(int64_t stream_id);
-            void write_stream(int64_t stream_id, buffer bytes);
+            void write_stream(int64_t stream_id, buffer bytes, bool fin);
             [[nodiscard]] bool stream_done(int64_t stream_id) const noexcept;
             [[nodiscard]] server_stream_t make_stream(int64_t stream_id);
 
@@ -419,7 +419,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             static ngtcp2_conn *_get_conn(ngtcp2_crypto_conn_ref *ref);
             static coro::task_t<uint8_vector> _read_stream_cb(void *owner, int64_t stream_id, size_t sz);
             static coro::task_t<uint8_vector> _read_available_stream_cb(void *owner, int64_t stream_id);
-            static coro::task_t<void> _write_stream_cb(void *owner, int64_t stream_id, buffer bytes);
+            static coro::task_t<void> _write_stream_cb(void *owner, int64_t stream_id, buffer bytes, bool fin);
             static bool _stream_done_cb(void *owner, int64_t stream_id);
         };
 
@@ -640,8 +640,8 @@ namespace turbo::jamnp::transport::ngtcp2 {
             co_return stream_buffer.read_available();
         }
 
-        void server_connection_t::write_stream(const int64_t stream_id, const buffer bytes) {
-            write_quic_stream(_conn, _path.path, stream_id, bytes, [this](const buffer packet) {
+        void server_connection_t::write_stream(const int64_t stream_id, const buffer bytes, const bool fin) {
+            write_quic_stream(_conn, _path.path, stream_id, bytes, fin, [this](const buffer packet) {
                 _runtime._send_to(_remote, packet);
             });
         }
@@ -671,8 +671,8 @@ namespace turbo::jamnp::transport::ngtcp2 {
             co_return co_await static_cast<server_connection_t *>(owner)->read_available_stream(stream_id);
         }
 
-        coro::task_t<void> server_connection_t::_write_stream_cb(void *owner, int64_t stream_id, buffer bytes) {
-            static_cast<server_connection_t *>(owner)->write_stream(stream_id, bytes);
+        coro::task_t<void> server_connection_t::_write_stream_cb(void *owner, int64_t stream_id, buffer bytes, bool fin) {
+            static_cast<server_connection_t *>(owner)->write_stream(stream_id, bytes, fin);
             co_return;
         }
 
@@ -929,7 +929,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 }
 
                 try {
-                    write_quic_stream(_conn, _path.path, stream_id, req->payload(), [this](const buffer packet) {
+                    write_quic_stream(_conn, _path.path, stream_id, req->payload(), true, [this](const buffer packet) {
                         _runtime.send_to_server(packet);
                     });
                 } catch (...) {
@@ -1020,8 +1020,8 @@ namespace turbo::jamnp::transport::ngtcp2 {
         return _impl->read_available();
     }
 
-    coro::task_t<void> server_stream_t::write(const buffer bytes) {
-        return _impl->write(bytes);
+    coro::task_t<void> server_stream_t::write(const buffer bytes, const bool fin) {
+        return _impl->write(bytes, fin);
     }
 
     uint64_t server_stream_t::id() const noexcept {

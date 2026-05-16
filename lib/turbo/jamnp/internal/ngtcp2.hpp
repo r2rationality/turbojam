@@ -45,7 +45,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
 
         [[nodiscard]] coro::task_t<uint8_vector> read(size_t sz);
         [[nodiscard]] coro::task_t<uint8_vector> read_available();
-        [[nodiscard]] coro::task_t<void> write(buffer bytes);
+        [[nodiscard]] coro::task_t<void> write(buffer bytes, bool fin);
         [[nodiscard]] uint64_t id() const noexcept;
         [[nodiscard]] bool done() const noexcept;
     private:
