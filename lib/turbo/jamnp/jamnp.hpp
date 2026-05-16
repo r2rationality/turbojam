@@ -155,7 +155,7 @@ namespace turbo::jamnp {
 
     struct handshake_t {
         final_t final;
-        jam::sequence_t<leaf_t> leaves;
+        jam::sequence_t<leaf_t> leaves{};
 
         void serialize(auto &archive)
         {

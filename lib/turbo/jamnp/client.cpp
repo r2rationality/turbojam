@@ -51,7 +51,7 @@ namespace turbo::jamnp {
 
         static block_list_t _decode_blocks_response(const buffer response)
         {
-            decoder dec{_checked_response_body(response, "fetch_blocks")};
+            decoder dec{_checked_response_body(response)};
             block_list_t blocks{};
             while (!dec.empty()) {
                 blocks.emplace_back(codec::from<block_t<CFG>>(dec));
@@ -61,8 +61,7 @@ namespace turbo::jamnp {
 
         static state_resp_t _decode_state_response(const buffer response)
         {
-            decoder dec { _checked_response_body(response, "fetch_state") };
-
+            decoder dec { _checked_response_body(response) };
             state_resp_t result {};
             dec.process(result);
             return result;
@@ -77,7 +76,7 @@ namespace turbo::jamnp {
             return enc.bytes();
         }
 
-        static buffer _checked_response_body(const buffer response, const char *context)
+        static buffer _checked_response_body(const buffer response)
         {
             decoder dec{response};
             const auto msg_len = dec.uint_fixed<size_t>(4U);

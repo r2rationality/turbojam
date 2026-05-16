@@ -59,11 +59,31 @@ namespace turbo::jamnp {
             co_return _decode_message<T>(co_await _read_message_body(stream));
         }
 
+        template<typename T>
+        coro::task_t<void> _send_message(transport::ngtcp2::server_stream_t &stream, const T &msg, const bool fin) {
+            encoder enc{};
+            enc.process(msg);
+            const auto body = enc.bytes();
+            uint8_vector data{};
+            data.reserve(sizeof(uint32_t) + body.size());
+            data << buffer::from(static_cast<uint32_t>(body.size()));
+            data << body;
+            co_await stream.write(data, fin);
+        }
+
         coro::task_t<void> _handle_block_announcement(transport::ngtcp2::server_stream_t stream)
         {
             logger::info("jamnp stream {}: server received block announcement", stream.id());
+            {
+                handshake_t handshake{
+                    final_t{_chain.genesis_header().hash(), 0},
+                    {}
+                };
+                co_await _send_message(stream, handshake, false);
+                logger::info("jamnp stream {}: sent handshake:\n{}", stream.id(), handshake);
+            }
             const auto handshake = co_await _read_message<handshake_t>(stream);
-            logger::info("jamnp stream {}: handshake:\n{}", stream.id(), handshake);
+            logger::info("jamnp stream {}: received handshake:\n{}", stream.id(), handshake);
             while (!stream.done()) {
                 const auto announcement = co_await _read_message<block_announcement_t<ICFG>>(stream);
                 logger::info("jamnp stream {}: announcement header: {} final:\n{}", stream.id(), announcement.header.hash(), announcement.final);
