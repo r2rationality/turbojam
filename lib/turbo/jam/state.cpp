@@ -1455,7 +1455,7 @@ namespace turbo::jam {
                 enc.process(a.bitfield);
                 msg << crypto::blake2b::digest(enc.bytes());
             }
-            const auto &vk = validators[a.validator_index].ed25519;
+            const auto &vk = validators.at(a.validator_index).ed25519;
             if (!ed25519_consensus::zip215_verify(a.signature, buffer{msg.data(), msg.size()}, vk)) [[unlikely]]
                 throw err_bad_signature_t{};
         }
