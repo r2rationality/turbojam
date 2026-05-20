@@ -151,6 +151,8 @@ namespace turbo::jam {
     // JAM (4.28)
     template<typename CFG>
     struct time_slot_t {
+        static constexpr bool single_line_serialization = true;
+
         static std::chrono::sys_time<std::chrono::seconds> jam_era_start()
         {
             static std::tm t {};
