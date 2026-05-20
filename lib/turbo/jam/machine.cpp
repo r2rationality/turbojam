@@ -149,6 +149,11 @@ namespace turbo::jam::machine {
         bool set_pages(const address_val_t p, const address_val_t sz, const page_init_method_t i)
         {
             const bool writable = i.access == page_init_method_t::write;
+            const auto end_page_id = p + sz;
+            if (end_page_id < p) [[unlikely]]
+                return false;
+            if (end_page_id > std::numeric_limits<address_val_t>::max() / config_prod::ZP_pvm_page_size) [[unlikely]]
+                return false;
             for (address_val_t page_id = p; page_id < p + sz; ++page_id) {
                 auto *page = _page_dir.lookup_mut(page_id);
                 page_info_t next{};
@@ -179,15 +184,15 @@ namespace turbo::jam::machine {
             return _regs;
         }
 
-        [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(const size_t offset, const size_t sz) const {
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(const address_val_t offset, const address_val_t sz) const {
             return _mem_accessible(offset, sz, true);
         }
 
-        [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(const size_t offset, const size_t sz) const {
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(const address_val_t offset, const address_val_t sz) const {
             return _mem_accessible(offset, sz, false);
         }
 
-        void mem_copy(const machine_t &src, const size_t dst_offset, const size_t src_offset, const size_t sz) {
+        void mem_copy(const machine_t &src, const address_val_t dst_offset, const address_val_t src_offset, const address_val_t sz) {
             size_t copied = 0;
             src._impl->_mem_read_pages(src_offset, sz, [&](const uint8_t *src_ptr, const size_t chunk) {
                 _mem_write_pages(dst_offset + copied, chunk, [&](uint8_t *dst_ptr, const size_t dst_chunk) {
@@ -202,7 +207,7 @@ namespace turbo::jam::machine {
             });
         }
 
-        void mem_read(std::span<uint8_t> res, const size_t offset) const
+        void mem_read(std::span<uint8_t> res, const address_val_t offset) const
         {
             size_t i = 0;
             _mem_read_pages(offset, res.size(), [&](const uint8_t *src, const size_t chunk) {
@@ -215,7 +220,7 @@ namespace turbo::jam::machine {
             });
         }
 
-        uint8_vector mem_read(const size_t offset, const size_t sz) const
+        uint8_vector mem_read(const address_val_t offset, const address_val_t sz) const
         {
             uint8_vector res;
             res.reserve(sz);
@@ -229,7 +234,7 @@ namespace turbo::jam::machine {
             return res;
         }
 
-        void mem_write(const size_t offset, const buffer data)
+        void mem_write(const address_val_t offset, const buffer data)
         {
             size_t i = 0;
             _mem_write_pages(offset, data.size(), [&](uint8_t *dst_ptr, const size_t chunk) {
@@ -322,12 +327,16 @@ namespace turbo::jam::machine {
             static constexpr size_t l2_bits = 10;
             static constexpr size_t l1_size = 1 << l2_bits;  // 1024
             static constexpr size_t l2_size = 1 << l2_bits;  // 1024
+            static constexpr size_t page_size = config_prod::ZP_pvm_page_size;
+            static_assert(std::numeric_limits<address_val_t>::max() == l1_size * l2_size * page_size - 1U);
             using l2_table_t = std::array<page_info_t, l2_size>;
 
             std::array<std::unique_ptr<l2_table_t>, l1_size> l1{};
 
-            [[nodiscard]] const page_info_t *lookup(const uint32_t page_id) const noexcept
+            [[nodiscard]] const page_info_t *lookup(const address_val_t page_id) const noexcept
             {
+                if (page_id > std::numeric_limits<address_val_t>::max() / page_size) [[unlikely]]
+                    return nullptr;
                 const auto &l2 = l1[page_id >> l2_bits];
                 if (!l2) [[unlikely]]
                     return nullptr;
@@ -337,8 +346,10 @@ namespace turbo::jam::machine {
                 return &info;
             }
 
-            page_info_t *lookup_mut(const uint32_t page_id) noexcept
+            page_info_t *lookup_mut(const address_val_t page_id) noexcept
             {
+                if (page_id > std::numeric_limits<address_val_t>::max() / page_size) [[unlikely]]
+                    return nullptr;
                 auto &l2 = l1[page_id >> l2_bits];
                 if (!l2) [[unlikely]]
                     return nullptr;
@@ -350,6 +361,8 @@ namespace turbo::jam::machine {
 
             void insert(const uint32_t page_id, const page_info_t info)
             {
+                if (page_id > std::numeric_limits<address_val_t>::max() / page_size) [[unlikely]]
+                    throw exit_panic_t{};
                 auto &l2 = l1[page_id >> l2_bits];
                 if (!l2)
                     l2 = std::make_unique<l2_table_t>();
@@ -685,11 +698,11 @@ namespace turbo::jam::machine {
 
         //
         template<typename F>
-        void _mem_read_pages(const size_t offset, const size_t sz, F &&consume) const
+        void _mem_read_pages(const address_val_t offset, const address_val_t sz, F &&consume) const
         {
             const auto ex = _mem_walk_pages(
                 offset, sz,
-                [&](const size_t, const size_t, const size_t page_off, const size_t chunk, const page_info_t &page) -> std::optional<exit_page_fault_t> {
+                [&](const address_val_t, const address_val_t, const address_val_t page_off, const address_val_t chunk, const page_info_t &page) -> std::optional<exit_page_fault_t> {
                     consume(page.is_materialized() ? page.data() + page_off : nullptr, chunk);
                     return {};
                 }
@@ -699,17 +712,17 @@ namespace turbo::jam::machine {
         }
 
         template<bool respect_writable = true, typename F>
-        void _mem_write_pages(const size_t offset, const size_t sz, F &&consume)
+        void _mem_write_pages(const address_val_t offset, const address_val_t sz, F &&consume)
         {
             const auto ex = _mem_walk_pages(
                 offset, sz,
-                [&](const size_t p, const size_t page_id, const size_t page_off, const size_t chunk, const page_info_t &page) -> std::optional<exit_page_fault_t> {
+                [&](const address_val_t p, const address_val_t, const address_val_t page_off, const address_val_t chunk, const page_info_t &page) -> std::optional<exit_page_fault_t> {
                     auto &mut_page = const_cast<page_info_t &>(page);
                     if constexpr (respect_writable) {
                         if (!mut_page.is_writable()) [[unlikely]]
-                            return exit_page_fault_t{p};
+                            return exit_page_fault_t{p - page_off};
                     }
-                    _materialize_page(page_id, mut_page);
+                    _materialize_page(mut_page);
                     consume(mut_page.data() + page_off, chunk);
                     return {};
                 }
@@ -1019,11 +1032,13 @@ namespace turbo::jam::machine {
             return {};
         }
 
-        void _add_pages(const size_t start_page, const size_t end_page, const bool is_writable)
+        void _add_pages(const address_val_t start_page, const address_val_t end_page, const bool is_writable)
         {
+            if (end_page < start_page) [[unlikely]]
+                throw exit_panic_t{};
             const auto next = page_info_t::lazy_zero(is_writable);
-            for (size_t page_id = start_page; page_id < end_page; ++page_id) {
-                _insert_page(static_cast<address_val_t>(page_id), next);
+            for (address_val_t page_id = start_page; page_id < end_page; ++page_id) {
+                _insert_page(page_id, next);
             }
         }
 
@@ -1035,12 +1050,12 @@ namespace turbo::jam::machine {
                 slot.reset();
         }
 
-        const page_info_t *_page_lookup(const register_val_t page_id) const noexcept
+        const page_info_t *_page_lookup(const address_val_t page_id) const noexcept
         {
             if (page_id != _last_page.page_id) {
                 auto &tlb_slot = _tlb[page_id & (tlb_size - 1)];
                 if (tlb_slot.page_id != page_id) {
-                    const auto *info = _page_dir.lookup(static_cast<uint32_t>(page_id));
+                    const auto *info = _page_dir.lookup(page_id);
                     if (!info) [[unlikely]]
                         return nullptr;
                     tlb_slot.set(page_id, info);
@@ -1050,18 +1065,13 @@ namespace turbo::jam::machine {
             return _last_page.info;
         }
 
-        page_info_t *_page_lookup_mut(const register_val_t page_id) noexcept
+        void _materialize_page(page_info_t &page)
         {
-            return const_cast<page_info_t *>(_page_lookup(page_id));
-        }
-
-        void _materialize_page(const register_val_t, page_info_t &page)
-        {
-            if (page.is_materialized())
-                return;
-            auto *mem_page = _page_pool.allocate();
-            std::memset(mem_page, 0, sizeof(*mem_page));
-            page = page_info_t{mem_page, page.is_writable()};
+            if (!page.is_materialized()) {
+                auto *mem_page = _page_pool.allocate();
+                std::memset(mem_page, 0, sizeof(*mem_page));
+                page = page_info_t{mem_page, page.is_writable()};
+            }
         }
 
         void _insert_page(const address_val_t page_id, const page_info_t next)
@@ -1091,16 +1101,17 @@ namespace turbo::jam::machine {
         }
 
         template<typename F>
-        std::optional<exit_page_fault_t> _mem_walk_pages(const size_t offset, const size_t sz, F &&consume) const
+        std::optional<exit_page_fault_t> _mem_walk_pages(const address_val_t offset, const address_val_t sz, F &&consume) const
         {
-            size_t p = offset, remaining = sz;
+            static address_val_t page_size = config_prod::ZP_pvm_page_size;
+            address_val_t p = offset, remaining = sz;
             while (remaining > 0) {
-                const auto page_id = p / config_prod::ZP_pvm_page_size;
-                const auto page_off = p % config_prod::ZP_pvm_page_size;
+                const auto page_id = p / page_size;
+                const auto page_off = p % page_size;
                 const auto *page = _page_lookup(page_id);
                 if (!page) [[unlikely]]
-                    return exit_page_fault_t{p};
-                const auto chunk = std::min(remaining, config_prod::ZP_pvm_page_size - page_off);
+                    return exit_page_fault_t{page_id * page_size};
+                const auto chunk = std::min(remaining, page_size - page_off);
                 if (const auto ex = consume(p, page_id, page_off, chunk, *page); ex) [[unlikely]]
                     return ex;
                 p += chunk;
@@ -1109,38 +1120,42 @@ namespace turbo::jam::machine {
             return {};
         }
 
-        [[nodiscard]] std::optional<exit_page_fault_t> _mem_accessible(const size_t offset, const size_t sz, const bool require_writable) const
+        [[nodiscard]] std::optional<exit_page_fault_t> _mem_accessible(const address_val_t offset, const address_val_t sz, const bool require_writable) const
         {
-            return _mem_walk_pages(offset, sz, [&](const size_t p, const size_t, const size_t, const size_t, const page_info_t &page) -> std::optional<exit_page_fault_t> {
+            return _mem_walk_pages(offset, sz, [&](const address_val_t p, const address_val_t, const address_val_t page_off, const address_val_t, const page_info_t &page) -> std::optional<exit_page_fault_t> {
                 if (require_writable && !page.is_writable()) [[unlikely]]
-                    return exit_page_fault_t{p};
+                    return exit_page_fault_t{p - page_off};
                 return {};
             });
         }
 
         template<size_t SZ>
-        std::pair<size_t, const page_info_t *> _addr_check(const register_val_t addr) const
+        std::pair<address_val_t, const page_info_t *> _addr_check(const address_val_t addr) const
         {
-            static constexpr register_val_t page_size  = config_prod::ZP_pvm_page_size;
-            static constexpr register_val_t page_mask  = page_size - 1;
+            static constexpr address_val_t page_size  = config_prod::ZP_pvm_page_size;
+            static constexpr address_val_t page_mask  = page_size - 1;
             static constexpr unsigned page_shift = std::countr_zero(page_size);
             static_assert((page_size & page_mask) == 0, "page size must be power of two");
-            /* GP 0.7.2 seems to require that but not yet supported by the current PVM test cases
-            const auto addr = static_cast<address_val_t>(addr_raw);
             if (addr < config_prod::ZZ_pvm_init_zone_size) [[unlikely]]
-                throw exit_panic_t{};*/
+                throw exit_panic_t{};
             const auto page_off = addr & page_mask;
             const auto page_id  = addr >> page_shift;
             if (page_off > page_mask - (SZ - 1)) [[unlikely]]
                 throw exit_page_fault_t{(addr & ~page_mask) + page_size};
             const auto *page = _page_lookup(page_id);
             if (!page) [[unlikely]]
-                throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
+                throw exit_page_fault_t{page_id * page_size};
             return {page_off, page};
         }
 
         template<size_t SZ>
-        register_val_t _load_unsigned(const register_val_t addr) const
+        std::pair<address_val_t, page_info_t *> _addr_check_mut(const address_val_t addr) const {
+            const auto [page_off, page] = _addr_check<SZ>(addr);
+            return {page_off, const_cast<page_info_t *>(page)};
+        }
+
+        template<size_t SZ>
+        register_val_t _load_unsigned(const address_val_t addr) const
         {
             const auto [page_off, page_it] = _addr_check<SZ>(addr);
             if (!page_it->is_materialized())
@@ -1165,28 +1180,19 @@ namespace turbo::jam::machine {
         }
 
         template<size_t SZ>
-        register_val_t _load_signed(const register_val_t addr)
+        register_val_t _load_signed(const address_val_t addr)
         {
             return sign_extend(SZ, _load_unsigned<SZ>(addr));
         }
 
         template<typename T>
-        void _store_unsigned(const register_val_t addr, const T val)
+        void _store_unsigned(const address_val_t addr, const T val)
         {
-            static constexpr register_val_t page_size  = config_prod::ZP_pvm_page_size;
-            static constexpr register_val_t page_mask  = page_size - 1;
-            static constexpr unsigned page_shift = std::countr_zero(page_size);
-            const auto page_off = addr & page_mask;
-            const auto page_id  = addr >> page_shift;
-            if (page_off > page_mask - (sizeof(T) - 1)) [[unlikely]]
-                throw exit_page_fault_t{(addr & ~page_mask) + page_size};
-            auto *page = _page_lookup_mut(page_id);
-            if (!page) [[unlikely]]
-                throw exit_page_fault_t{page_id * config_prod::ZP_pvm_page_size};
+            auto [page_off, page] = _addr_check_mut<sizeof(T)>(addr);
             if (!page->is_writable()) [[unlikely]]
-                throw exit_page_fault_t{addr};
-            _materialize_page(page_id, *page);
-            *reinterpret_cast<T*>(page->data() + page_off) = val;
+                throw exit_page_fault_t{addr - page_off};
+            _materialize_page(*page);
+            std::memcpy(page->data() + page_off, &val, sizeof(val));
         }
 
         template<typename Pred>
@@ -2273,8 +2279,28 @@ namespace turbo::jam::machine {
         return _impl->set_regs(regs);
     }
 
-    bool machine_t::set_pages(const address_val_t p, const address_val_t sz, const page_init_method_t i) {
-        return _impl->set_pages(p, sz, i);
+    static std::optional<exit_page_fault_t> mem_range_ok(const register_val_t offset, const register_val_t sz) {
+        if (sz > 0) {
+            static constexpr register_val_t addr_max = std::numeric_limits<address_val_t>::max();
+            const int offset_too_big = offset > addr_max;
+            const int size_too_big = sz > addr_max;
+            const auto end_offset = offset + sz;
+            const int end_offset_overflow = end_offset < offset;
+            const int end_offset_too_big = static_cast<int>(sz > 0) & static_cast<int>(end_offset - 1U > addr_max);
+            if (offset_too_big | size_too_big | end_offset_overflow | end_offset_too_big) [[unlikely]]
+                return exit_page_fault_t{addr_max};
+        }
+        return {};
+    }
+
+    bool machine_t::set_pages(const register_val_t p, const register_val_t sz, const page_init_method_t i) {
+        static constexpr register_val_t addr_max = std::numeric_limits<address_val_t>::max();
+        static constexpr address_val_t page_size = config_prod::ZP_pvm_page_size;
+        if (p > addr_max / page_size) [[unlikely]]
+            return false;
+        if (sz > addr_max / page_size) [[unlikely]]
+            return false;
+        return _impl->set_pages(numeric_cast<address_val_t>(p), numeric_cast<address_val_t>(sz), i);
     }
 
     void machine_t::skip_op()
@@ -2287,7 +2313,7 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl->gas();
     }
 
-    uint32_t machine_t::pc() const
+    address_val_t machine_t::pc() const
     {
         return const_cast<machine_t *>(this)->_impl->pc();
     }
@@ -2297,35 +2323,51 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl->regs();
     }
 
-    std::optional<exit_page_fault_t> machine_t::mem_writable(const size_t offset, const size_t sz) const {
+    std::optional<exit_page_fault_t> machine_t::mem_writable(const register_val_t offset, const register_val_t sz) const {
+        if (auto err = mem_range_ok(offset, sz); err) [[unlikely]]
+            return err;
         return const_cast<machine_t *>(this)->_impl->mem_writable(offset, sz);
     }
 
-    std::optional<exit_page_fault_t> machine_t::mem_readable(const size_t offset, const size_t sz) const {
+    std::optional<exit_page_fault_t> machine_t::mem_readable(const register_val_t offset, const register_val_t sz) const {
+        if (auto err = mem_range_ok(offset, sz); err) [[unlikely]]
+            return err;
         return const_cast<machine_t *>(this)->_impl->mem_readable(offset, sz);
     }
 
-    void machine_t::mem_copy(const machine_t &src, const size_t dst_offset, const size_t src_offset, const size_t sz) {
+    void machine_t::mem_copy(const machine_t &src, const register_val_t dst_offset, const register_val_t src_offset, const register_val_t sz) {
+        if (auto err = mem_range_ok(src_offset, sz); err) [[unlikely]]
+            throw std::move(*err);
+        if (auto err = mem_range_ok(dst_offset, sz); err) [[unlikely]]
+            throw std::move(*err);
         return _impl->mem_copy(src, dst_offset, src_offset, sz);
     }
 
-    void machine_t::mem_write(const size_t offset, const buffer data)
+    void machine_t::mem_write(const register_val_t offset, const buffer data)
     {
+        if (auto err = mem_range_ok(offset, data.size()); err) [[unlikely]]
+            throw std::move(*err);
         _impl->mem_write(offset, data);
     }
 
-    void machine_t::mem_read(const std::span<uint8_t> out, const size_t offset) const
+    void machine_t::mem_read(const std::span<uint8_t> out, const register_val_t offset) const
     {
+        if (auto err = mem_range_ok(offset, out.size()); err) [[unlikely]]
+            throw std::move(*err);
         const_cast<machine_t *>(this)->_impl->mem_read(out, offset);
     }
 
-    uint8_vector machine_t::mem_read(const size_t offset, const size_t sz) const
+    uint8_vector machine_t::mem_read(const register_val_t offset, const register_val_t sz) const
     {
+        if (auto err = mem_range_ok(offset, sz); err) [[unlikely]]
+            throw std::move(*err);
         return const_cast<machine_t *>(this)->_impl->mem_read(offset, sz);
     }
 
-    std::optional<uint8_vector> machine_t::try_mem_read(const size_t offset, const size_t sz) const noexcept
+    std::optional<uint8_vector> machine_t::try_mem_read(const register_val_t offset, const register_val_t sz) const noexcept
     {
+        if (auto err = mem_range_ok(offset, sz); err) [[unlikely]]
+            return {};
         try {
             return mem_read(offset, sz);
         } catch (...) {
@@ -2338,7 +2380,7 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl->state();
     }
 
-    std::optional<machine_t> configure(const buffer program_bytes, const uint32_t pc, const gas_t gas_init, const buffer a_bytes)
+    std::optional<machine_t> configure(const buffer program_bytes, const address_val_t pc, const gas_t gas_init, const buffer a_bytes)
     {
         decoder dec{program_bytes};
         // JAM (9.4)

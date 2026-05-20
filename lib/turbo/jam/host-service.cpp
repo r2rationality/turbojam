@@ -171,7 +171,7 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
-        if (const auto ex = m->mem_writable(s, z); ex) [[unlikely]] {
+        if (const auto ex = m->mem_writable(o, z); ex) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::oob);
             return;
         }
@@ -612,9 +612,11 @@ namespace turbo::jam {
         new_chi->assign = jam::from_bytes<assigners_t<CFG>>(a_bytes);
 
         {
-            new_chi->always_acc.reserve(n);
+            if (n >= std::numeric_limits<decltype(n)>::max() / 12U) [[unlikely]]
+                throw machine::exit_page_fault_t{std::numeric_limits<machine::address_val_t>::max()};
             const auto bytes = this->_p.m.mem_read(o, n * 12U);
-            decoder dec {bytes};
+            decoder dec{bytes};
+            new_chi->always_acc.reserve(n);
             for (size_t i = 0; i < n; ++i) {
                 const auto s = dec.uint_fixed<service_id_t>(4);
                 const gas_t g { dec.uint_fixed<gas_t::base_type>(8) };
@@ -963,18 +965,18 @@ namespace turbo::jam {
         const auto o = phi[8];
         const auto z = phi[9];
         auto i = this->_p.m.mem_read(o, z);
-        const auto h = crypto::blake2b::digest<opaque_hash_t>(i);
         auto [s_id, a] = this->_get_service(phi[7]);
-        logger::trace("gas: {} host_service::provide service {}: h: {} l: {}", this->_p.m.gas(), s_id, h, z);
         if (!a) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
-        const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
-        if (phi[9] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
+        if (z > std::numeric_limits<decltype(lookup_meta_map_key_t::length)>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
+        const auto h = crypto::blake2b::digest<opaque_hash_t>(i);
+        logger::trace("gas: {} host_service::provide service {}: h: {} l: {}", this->_p.m.gas(), s_id, h, z);
+        const lookup_meta_map_key_t key{static_cast<buffer>(h), static_cast<uint32_t>(z)};
         if (const auto l_res = this->_p.services.lookup_get(s_id, key); !l_res || !l_res->empty()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;

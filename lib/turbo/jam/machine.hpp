@@ -22,7 +22,7 @@ namespace turbo::jam::machine {
     using gas_remaining_t = gas_t::base_type;
 
     struct memory_chunk_t {
-        uint32_t address = 0;
+        address_val_t address = 0;
         byte_sequence_t contents {};
 
         void serialize(auto &archive)
@@ -71,8 +71,8 @@ namespace turbo::jam::machine {
     };
 
     struct page_t {
-        uint32_t address = 0;
-        uint32_t length = 0;
+        address_val_t address = 0;
+        address_val_t length = 0;
         bool is_writable = false;
 
         void serialize(auto &archive)
@@ -93,7 +93,7 @@ namespace turbo::jam::machine {
 
     struct state_t {
         registers_t regs {};
-        uint32_t pc {};
+        address_val_t pc {};
         gas_remaining_t gas = 0;
         memory_chunks_t memory {};
 
@@ -206,11 +206,11 @@ namespace turbo::jam::machine {
         }
     };
     struct exit_page_fault_t final: error {
-        register_val_t addr;
+        address_val_t addr;
 
-        exit_page_fault_t(const register_val_t a=0):
-            error { "exit_page_fault_t" },
-            addr { a }
+        exit_page_fault_t(const address_val_t a=0):
+            error{"exit_page_fault_t"},
+            addr{a}
         {}
 
         bool operator==(const exit_page_fault_t &o) const
@@ -256,7 +256,7 @@ namespace turbo::jam::machine {
     };
 
     struct program_t {
-        using offset_list_t = std::vector<uint32_t>;
+        using offset_list_t = std::vector<address_val_t>;
 
         bit_vector_t bitmasks;
         uint8_vector code;
@@ -288,7 +288,7 @@ namespace turbo::jam::machine {
             offset_list_t jt{};
             jt.reserve(jt_sz);
             while (jt.size() < jt_sz) {
-                jt.emplace_back(dec.uint_fixed<uint32_t>(jt_offset_sz));
+                jt.emplace_back(dec.uint_fixed<address_val_t>(jt_offset_sz));
             }
             const auto code_offset = numeric_cast<size_t>(dec.consumed());
             (void)dec.next_bytes(code_sz);
@@ -330,18 +330,18 @@ namespace turbo::jam::machine {
         void set_gas(gas_t gas);
         void set_reg(size_t id, register_val_t val);
         void set_regs(const registers_t &regs);
-        bool set_pages(address_val_t p, address_val_t sz, page_init_method_t i);
-        [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(size_t offset, size_t sz) const;
-        [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(size_t offset, size_t sz) const;
-        void mem_copy(const machine_t &src, size_t dst_offset, size_t src_offset, size_t sz);
-        void mem_write(size_t offset, buffer data);
-        void mem_read(std::span<uint8_t> out, size_t offset) const;
-        [[nodiscard]] uint8_vector mem_read(size_t offset, size_t sz) const;
+        bool set_pages(register_val_t p, register_val_t sz, page_init_method_t i);
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(register_val_t offset, register_val_t sz) const;
+        [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(register_val_t offset, register_val_t sz) const;
+        void mem_copy(const machine_t &src, register_val_t dst_offset, register_val_t src_offset, register_val_t sz);
+        void mem_write(register_val_t offset, buffer data);
+        void mem_read(std::span<uint8_t> out, register_val_t offset) const;
+        [[nodiscard]] uint8_vector mem_read(register_val_t offset, register_val_t sz) const;
         void skip_op();
         [[nodiscard]] const registers_t &regs() const;
-        [[nodiscard]] uint32_t pc() const;
+        [[nodiscard]] address_val_t pc() const;
         [[nodiscard]] gas_remaining_t gas() const;
-        [[nodiscard]] std::optional<uint8_vector> try_mem_read(size_t offset, size_t sz) const noexcept;
+        [[nodiscard]] std::optional<uint8_vector> try_mem_read(register_val_t offset, register_val_t sz) const noexcept;
         [[nodiscard]] state_t state() const;
 
         template <std::size_t... Is>
@@ -400,10 +400,10 @@ namespace turbo::jam::machine {
         invocation_result_base_t result;
     };
 
-    extern std::optional<machine_t> configure(buffer blob, uint32_t pc, gas_t gas, buffer args);
+    extern std::optional<machine_t> configure(buffer blob, address_val_t pc, gas_t gas, buffer args);
 
     template<typename HostInit, typename HostFn>
-    invocation_t invoke(buffer blob, uint32_t pc, gas_t gas, buffer args, HostInit &&host_init, HostFn &&host_fn)
+    invocation_t invoke(buffer blob, address_val_t pc, gas_t gas, buffer args, HostInit &&host_init, HostFn &&host_fn)
     {
         auto m = configure(blob, pc, gas, args);
         if (!m) [[unlikely]]
