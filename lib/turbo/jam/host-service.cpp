@@ -799,8 +799,8 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::eject()
     {
-        logger::trace("gas: {} service: {} host_service::eject", this->_p.m.gas(), this->_p.service_id);
         const auto &phi = this->_p.m.regs();
+        logger::trace("gas: {} service: {} host_service::eject {}(0x{:x})", this->_p.m.gas(), this->_p.service_id, phi[7], phi[7]);
         if (phi[7] > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
