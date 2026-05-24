@@ -16,6 +16,7 @@
 #include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/signal_set.hpp>
+#include <boost/system/system_error.hpp>
 
 namespace {
     using namespace std::string_view_literals;
@@ -76,6 +77,8 @@ namespace {
                 auto msg_out = co_await processor.process(std::move(msg_in));
                 co_await write_message(conn, std::move(msg_out));
             }
+        } catch (const boost::system::system_error &ex) {
+            logger::info("client disconnected: {}", ex.code().message());
         } catch (const std::exception &ex) {
             logger::info("client disconnected: {}", ex.what());
         }
