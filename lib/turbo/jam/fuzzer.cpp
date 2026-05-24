@@ -3,8 +3,9 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include "fuzzer.hpp"
+#include <turbo/common/memory.hpp>
 #include <turbo/jam/chain.hpp>
+#include "fuzzer.hpp"
 
 namespace turbo::jam::fuzzer {
     template<typename CFG>
@@ -25,7 +26,7 @@ namespace turbo::jam::fuzzer {
 
     template<typename CFG>
     struct local_processor_t<CFG>::impl_t {
-        impl_t(std::string &&chain_id, std::string_view chain_dir):
+        impl_t(std::string &&chain_id, const std::string_view chain_dir):
             _chain_id{std::move(chain_id)},
             _chain_dir{chain_dir}
         {
@@ -33,6 +34,10 @@ namespace turbo::jam::fuzzer {
 
         message_t<CFG> process(message_t<CFG> &&msg)
         {
+            if (const auto now = std::chrono::steady_clock::now(); now >= _next_info) {
+                _next_info = now + std::chrono::seconds{60};
+                logger::info("Fuzzer API: RAM Used: {} MB Trie size: {}", memory::my_usage_mb(), _chain ? _chain->trie_size() : size_t{0});
+            }
             return std::visit([&](auto &&m) -> message_t<CFG> {
                 using T = std::decay_t<decltype(m)>;
                 if constexpr (std::is_same_v<T, initialize_t<CFG>>) {
@@ -67,7 +72,8 @@ namespace turbo::jam::fuzzer {
     private:
         std::string _chain_id;
         std::string _chain_dir;
-        std::optional<chain_t<CFG>> _chain {};
+        std::optional<chain_t<CFG>> _chain{};
+        std::chrono::steady_clock::time_point _next_info{std::chrono::steady_clock::now() + + std::chrono::seconds{60}};
     };
 
     template<typename CFG>

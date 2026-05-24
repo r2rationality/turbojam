@@ -143,6 +143,11 @@ namespace turbo::jam {
         {
             return _triedb->root();
         }
+
+        [[nodiscard]] size_t trie_size() const
+        {
+            return _triedb->size();
+        }
     private:
         std::string _id;
         std::string _path;
@@ -215,6 +220,12 @@ namespace turbo::jam {
     state_root_t chain_t<CFG>::state_root() const
     {
         return _impl->state_root();
+    }
+
+    template<typename CFG>
+    size_t chain_t<CFG>::trie_size() const
+    {
+        return _impl->trie_size();
     }
 
     template<typename CFG>

@@ -22,6 +22,7 @@ namespace turbo::jam {
         [[nodiscard]] const state_t<CFG> &state() const;
         [[nodiscard]] state_root_t state_root() const;
         [[nodiscard]] header_hash_t parent() const;
+        [[nodiscard]] size_t trie_size() const;
         void reset(const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state={},
             std::optional<ancestry_t<CFG>> ancestry={});
         void apply(const block_t<CFG> &blk);
