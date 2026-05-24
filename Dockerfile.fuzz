@@ -12,6 +12,7 @@ RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clan
 
 FROM ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
+LABEL org.opencontainers.image.source="https://github.com/r2rationality/turbojam"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libboost-json1.83.0 \
