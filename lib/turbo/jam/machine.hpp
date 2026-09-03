@@ -105,8 +105,8 @@ namespace turbo::jam::machine {
                 return false;
             if (memory != o.memory)
                 return false;
-            /*if (gas != o.gas)
-                return false;*/
+            if (gas != o.gas)
+                return false;
             return true;
         }
     };
