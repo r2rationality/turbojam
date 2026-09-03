@@ -168,14 +168,17 @@ namespace turbo::codec::json {
             }
         }
 
-        void process(auto &val)
+        template<typename T>
+            requires (!std::is_const_v<T>)
+        void process(T &val)
         {
             decode(_top(), val);
         }
 
-        void process(const std::string_view name, auto &val)
+        template<typename T>
+            requires (!std::is_const_v<T>)
+        void process(const std::string_view name, T &val)
         {
-            using T = std::decay_t<decltype(val)>;
             const auto &jo = _top().as_object();
             const auto it = jo.find(name);
             if (it != jo.end()) {

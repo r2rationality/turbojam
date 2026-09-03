@@ -40,8 +40,11 @@ namespace turbo::jam {
         }
 
         void serialize(auto &archive) {
-            // TODO: can be optimized for the decoding case, but that happens only in unit tests so not a priority.
-            archive.process(update());
+            if constexpr (codec::encoding_archive_c<decltype(archive), element_type>) {
+                archive.process(get());
+            } else {
+                archive.process(update());
+            }
         }
 
         const element_type &get() const {

@@ -245,6 +245,7 @@ namespace turbo::jam {
         }
 
         template<typename T>
+            requires (!std::is_const_v<T>)
         void process(T &val)
         {
             if constexpr (from_bytes_c<T>) {
@@ -317,6 +318,7 @@ namespace turbo::jam {
         }
 
         template<typename T>
+            requires (!std::is_const_v<T>)
         void process(const std::string_view, T &val)
         {
             process(val);
