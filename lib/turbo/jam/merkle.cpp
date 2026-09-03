@@ -37,6 +37,7 @@ namespace turbo::jam::merkle {
         void clear()
         {
             _root.reset();
+            _nodes.recycle_all();
             _size = 0;
         }
 
@@ -146,6 +147,8 @@ namespace turbo::jam::merkle {
         }
     private:
         struct node_t;
+        // All node state is inline or owned by this same pool, so destroying
+        // the whole trie can release its arenas without walking the node graph.
         using allocator_type = pool_allocator_t<node_t, 0x10000, true>;
         using node_ptr_t = allocator_type::ptr_t;
         struct node_t {
