@@ -4,7 +4,9 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <memory>
 #include <numeric>
+#include <vector>
 #include <turbo/container/update-map.hpp>
 #include <turbo/storage/update.hpp>
 #include <turbo/storage/memory.hpp>
@@ -18,7 +20,11 @@ namespace turbo::jam {
     struct persistent_value_t {
         using element_type = T;
         using ptr_type = std::shared_ptr<element_type>;
-        using serialize_func_t = std::function<void(const element_type &)>;
+
+        persistent_value_t(const persistent_value_t &) = delete;
+        persistent_value_t(persistent_value_t &&) = delete;
+        persistent_value_t & operator=(const persistent_value_t &) = delete;
+        persistent_value_t & operator=(persistent_value_t &&) = delete;
 
         persistent_value_t(storage::db_ptr_t db, const state_key_t &key):
             _db{std::move(db)},
@@ -33,72 +39,47 @@ namespace turbo::jam {
         {
         }
 
-        persistent_value_t(storage::db_ptr_t db, const state_key_t &key, T val):
-            persistent_value_t{std::move(db), key}
-        {
-            set(std::make_shared<element_type>(std::move(val)));
+        [[nodiscard]] const element_type &unmodified() const {
+            if (_updated) [[unlikely]]
+                throw error("the unmodified value is unavailable after the value has been updated");
+            return *_storage();
         }
 
-        void serialize(auto &archive) {
-            if constexpr (codec::encoding_archive_c<decltype(archive), element_type>) {
-                archive.process(get());
-            } else {
-                archive.process(update());
-            }
-        }
-
-        const element_type &get() const {
-            return *storage();
-        }
-
-        void set(ptr_type new_ptr) {
+        void set(ptr_type &&new_ptr) {
             if (!new_ptr) [[unlikely]]
                 throw error("cannot set a persistent value to nullptr");
+            if (_updated) [[unlikely]]
+                throw error("a persistent value can be updated only once per transaction");
+            if (new_ptr.use_count() != 1) [[unlikely]]
+                throw error("a persistent value requires exclusive ownership");
             _updated = true;
             _ptr = std::move(new_ptr);
         }
 
-        const ptr_type &storage() const {
-            if (!_ptr) {
-                const auto bytes = _db->get(_key);
-                if (!bytes) [[unlikely]]
-                    throw error(fmt::format("a required state element is missing: {}", _key));
-                _ptr = std::make_shared<element_type>(jam::from_bytes<element_type>(*bytes));
-            }
-            return _ptr;
+        [[nodiscard]] element_type &update() {
+            if (_updated) [[unlikely]]
+                throw error("a persistent value can be updated only once per transaction");
+            const auto &ptr = _storage();
+            _updated = true;
+            return *ptr;
         }
 
-        element_type &update() {
-            if (!_updated) {
-                if (const auto &act_ptr = storage(); act_ptr.use_count() > 1) {
-                    _ptr = std::make_shared<element_type>(*act_ptr);
-                }
-                _updated = true;
-            }
-            return *_ptr;
+        [[nodiscard]] bool updated() const noexcept {
+            return _updated;
         }
 
-        void reset() {
-            _ptr.reset();
+        void stage() {
+            if (_updated)
+                _db->set(_key, _encode(*_ptr));
+        }
+
+        void accept() noexcept {
             _updated = false;
         }
 
-        void commit() {
-            if (_updated) {
-                _db->set(_key, _encode(*_ptr));
-                _updated = false;
-            }
-        }
-
-        void rollback() {
-            if (_ptr)
-                reset();
-        }
-
-        bool operator==(const persistent_value_t &o) const {
-            const auto &my_ptr = storage();
-            const auto &o_ptr = o.storage();
-            return my_ptr == o_ptr || *my_ptr == *o_ptr;
+        void reset() noexcept {
+            _ptr.reset();
+            _updated = false;
         }
     private:
         storage::db_ptr_t _db;
@@ -106,11 +87,20 @@ namespace turbo::jam {
         mutable ptr_type _ptr{};
         bool _updated = false;
 
-        template<typename V>
-        static uint8_vector _encode(const V &v)
+        static uint8_vector _encode(const element_type &v)
         {
             encoder enc{v};
             return {std::move(enc.bytes())};
+        }
+
+        const ptr_type &_storage() const {
+            if (!_ptr) {
+                const auto bytes = _db->get(_key);
+                if (!bytes) [[unlikely]]
+                    throw error(fmt::format("a required state element is missing: {}", _key));
+                _ptr = std::make_shared<element_type>(jam::from_bytes<element_type>(*bytes));
+            }
+            return _ptr;
         }
     };
 
@@ -912,10 +902,8 @@ namespace turbo::jam {
     };
 
     // JAM (4.4) - lowercase sigma
-    // persistent_value with std::shared_ptr ensures that:
-    // 1) the state is cheap to copy
-    // 2) automatically searialized into the state_dict on updates
-    // TODO: state_dict should use copy_on_write_ptr_t instead of std::shared_ptr
+    // Simple state values are decoded lazily and staged together at the end of
+    // a successful state transition.
     template<typename CFG>
     struct state_t: state_base_t<CFG> {
         using observer_t = storage::observer_t;
@@ -931,9 +919,10 @@ namespace turbo::jam {
         state_t &operator=(const state_snapshot_t &o);
         state_t &operator=(const state_t &o) = delete;
 
-        void commit();
-        void rollback();
-        void reset_cache();
+        void stage();
+        void accept() noexcept;   // after the surrounding database commit
+        void rollback() noexcept; // together with a surrounding database rollback
+        void reset_cache() noexcept;
 
         // (4.1): Kapital upsilon
         void apply(const block_t<CFG> &, const ancestry_span_t<CFG> &);
@@ -993,14 +982,14 @@ namespace turbo::jam {
         // JAM (4.14)
         // JAM (4.15)
         static reports_output_data_t update_reports(
-            availability_assignments_t<CFG> &tmp_rho,
+            availability_assignments_t<CFG> &new_rho,
             cores_statistics_t<CFG> &new_pi_cores,
             services_statistics_t &new_pi_services,
-            const blocks_history_t<CFG> &tmp_beta,
+            const blocks_history_t<CFG> &new_beta,
             const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_psi,
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
             const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
-            const availability_assignments_t<CFG> &prev_rho, const auth_pools_t<CFG> &prev_alpha,
+            const std::vector<work_package_hash_t> &prev_rho_packages, const auth_pools_t<CFG> &prev_alpha,
             const accounts_t<CFG> &prev_delta,
             const ancestry_span_t<CFG> &ancestry,
             const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees);

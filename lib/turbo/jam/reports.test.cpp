@@ -229,6 +229,7 @@ namespace turbo_jam_reports_test {
                 [&] {
                     ancestry_t<CFG> ancestry{};
                     auto delta = tc.pre.accounts.get(std::make_shared<storage::memory::db_t>());
+                    const auto prev_rho_packages = tc.pre.rho.package_hashes();
                     out.emplace(
                         state_t<CFG>::update_reports(
                             new_st.rho, new_st.pi_cores, new_st.pi_services,
@@ -236,7 +237,7 @@ namespace turbo_jam_reports_test {
                             new_st.eta, new_st.offenders,
                             new_st.kappa, new_st.lambda,
                             {}, {},
-                            tc.pre.rho, new_st.alpha,
+                            prev_rho_packages, new_st.alpha,
                             delta, ancestry,
                             tc.in.slot, tc.in.guarantees
                         )

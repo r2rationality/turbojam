@@ -45,7 +45,7 @@ namespace turbo::jam {
     template<typename CFG>
     header_t<CFG> state_t<CFG>::make_genesis_header() const
     {
-        return make_genesis_header(this->eta.get(), this->gamma.get().p);
+        return make_genesis_header(this->eta.unmodified(), this->gamma.unmodified().p);
     }
 
     // Safrole-related state methods
@@ -943,14 +943,14 @@ namespace turbo::jam {
 
     template<typename CFG>
     reports_output_data_t state_t<CFG>::update_reports(
-        availability_assignments_t<CFG> &tmp_rho,
+        availability_assignments_t<CFG> &new_rho,
         cores_statistics_t<CFG> &new_pi_cores,
         services_statistics_t &new_pi_services,
-        const blocks_history_t<CFG> &tmp_beta,
+        const blocks_history_t<CFG> &new_beta,
         const entropy_buffer_t &new_eta, const ed25519_keys_set_t &new_psi,
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
         const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
-        const availability_assignments_t<CFG> &prev_rho, const auth_pools_t<CFG> &prev_alpha,
+        const std::vector<work_package_hash_t> &prev_rho_packages, const auth_pools_t<CFG> &prev_alpha,
         const accounts_t<CFG> &prev_delta, const ancestry_span_t<CFG> &ancestry,
         const time_slot_t<CFG> &blk_slot, const guarantees_extrinsic_t<CFG> &guarantees)
     {
@@ -962,7 +962,7 @@ namespace turbo::jam {
             std::unordered_set<opaque_hash_t> recent_known_packages{};
             recent_known_packages.reserve(CFG::C_core_count * CFG::H_max_blocks_history);
             std::set<opaque_hash_t> known_segment_roots{};
-            for (const auto &blk: tmp_beta) {
+            for (const auto &blk: new_beta) {
                 for (const auto &wr: blk.reported) {
                     recent_known_packages.emplace(wr.hash);
                     all_known_packages.emplace(wr.hash);
@@ -978,11 +978,7 @@ namespace turbo::jam {
             }
 
             // (11.37)
-            for (const auto &r: prev_rho) {
-                if (r) {
-                    all_known_packages.emplace(r->report.package_spec.hash);
-                }
-            }
+            all_known_packages.insert(prev_rho_packages.begin(), prev_rho_packages.end());
 
             // (11.38) Ksi term
             for (const auto &k: prev_ksi) {
@@ -1002,16 +998,16 @@ namespace turbo::jam {
                     throw err_missing_work_results_t{};
 
                 // JAM Paper (11.33)
-                const auto blk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
+                const auto blk_it = std::find_if(new_beta.begin(), new_beta.end(), [&g](const auto &blk) {
                     return blk.header_hash == g.report.context.anchor;
                 });
-                if (blk_it == tmp_beta.end()) [[unlikely]]
+                if (blk_it == new_beta.end()) [[unlikely]]
                     throw err_anchor_not_recent_t{};
                 if (blk_it->state_root != g.report.context.state_root) [[unlikely]]
                     throw err_bad_state_root_t{};
                 if (blk_it->beefy_root != g.report.context.beefy_root) [[unlikely]]
                     throw err_bad_beefy_mmr_root_t{};
-                if (g.report.core_index >= tmp_rho.size()) [[unlikely]]
+                if (g.report.core_index >= new_rho.size()) [[unlikely]]
                     throw err_bad_core_index_t{};
                 // (11.24)
                 if (prev_core && *prev_core >= g.report.core_index) [[unlikely]]
@@ -1036,10 +1032,10 @@ namespace turbo::jam {
                     throw err_segment_root_lookup_invalid_t{};
 
                 // JAM Paper (11.35) - temporarily disabled
-                const auto lblk_it = std::find_if(tmp_beta.begin(), tmp_beta.end(), [&g](const auto &blk) {
+                const auto lblk_it = std::find_if(new_beta.begin(), new_beta.end(), [&g](const auto &blk) {
                     return blk.header_hash == g.report.context.lookup_anchor;
                 });
-                if (lblk_it == tmp_beta.end()) [[unlikely]] {
+                if (lblk_it == new_beta.end()) [[unlikely]] {
                     const auto a_it = std::lower_bound(ancestry.begin(), ancestry.end(), g.report.context.lookup_anchor_slot,
                         [](const auto &a, const auto &v) { return a.slot < v; });
                     if (a_it == ancestry.end() || a_it->slot != g.report.context.lookup_anchor_slot || a_it->header_hash != g.report.context.lookup_anchor) [[unlikely]]
@@ -1069,7 +1065,7 @@ namespace turbo::jam {
 
                 // JAM Paper: (11.29)
                 {
-                    if (tmp_rho[g.report.core_index])
+                    if (new_rho[g.report.core_index])
                         throw err_core_engaged_t{};
                     const auto &auth_pool = prev_alpha[g.report.core_index];
                     const auto auth_it = std::find(auth_pool.begin(), auth_pool.end(), g.report.authorizer_hash);
@@ -1077,7 +1073,7 @@ namespace turbo::jam {
                         throw err_core_unauthorized_t{};
                 }
 
-                tmp_rho[g.report.core_index] = availability_assignment_t<CFG>{g.report, blk_slot.slot()};
+                new_rho[g.report.core_index] = availability_assignment_t<CFG>{g.report, blk_slot.slot()};
                 res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
 
                 const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi, g.slot, blk_slot);
@@ -1324,33 +1320,45 @@ namespace turbo::jam {
         const timer t_apply{"state_t::apply", logger::level::debug};
         try {
             const auto prepared_header_signatures = blk.header.prepare_signatures();
-            const auto prev_tau = this->tau.get();
+            const auto prev_tau = this->tau.unmodified();
 
-            state_t::tau_prime(this->tau.update(), blk.header.slot);
+            auto &new_tau = this->tau.update();
+            state_t::tau_prime(new_tau, blk.header.slot);
 
             auto &new_pi = this->pi.update();
             new_pi.cores = {};
             new_pi.services = {};
 
-            beta_dagger(this->beta.update(), blk.header.parent_state_root);
-            eta_prime(this->eta.update(), prev_tau, blk.header.slot, prepared_header_signatures.entropy_output);
+            auto &new_beta = this->beta.update();
+            beta_dagger(new_beta, blk.header.parent_state_root);
+            auto &new_eta = this->eta.update();
+            eta_prime(new_eta, prev_tau, blk.header.slot, prepared_header_signatures.entropy_output);
 
             // (4.11) -> psi_prime - additional deps: relies on kappa', lambda' and updates_rho
-            const auto prev_rho_ptr = this->rho.storage();
+            // Preserve only the part of the previous rho needed by update_reports
+            // before acquiring rho's in-place mutable reference.
+            std::vector<work_package_hash_t> prev_rho_packages{};
+            if (!blk.extrinsic.guarantees.empty())
+                prev_rho_packages = this->rho.unmodified().package_hashes();
+            auto &new_psi = this->psi.update();
+            auto &new_rho = this->rho.update();
             const auto new_offenders = psi_prime(
-                this->psi.update(), this->rho.update(),
-                this->kappa.get(), this->lambda.get(),
+                new_psi, new_rho,
+                this->kappa.unmodified(), this->lambda.unmodified(),
                 prev_tau, blk.extrinsic.disputes
             );
             if (new_offenders != blk.header.offenders_mark) [[unlikely]]
                 throw err_bad_offenders_mark_t{};
 
             // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime - deps match GP
+            auto &new_gamma = this->gamma.update();
+            auto &new_kappa = this->kappa.update();
+            auto &new_lambda = this->lambda.update();
             {
                 const auto safrole_res = update_safrole(
-                    this->gamma.update(), this->kappa.update(), this->lambda.update(),
-                    this->eta.get(), this->psi.get().offenders,
-                    prev_tau, this->iota.get(),
+                    new_gamma, new_kappa, new_lambda,
+                    new_eta, new_psi.offenders,
+                    prev_tau, this->iota.unmodified(),
                     blk.header.slot, blk.extrinsic.tickets
                 );
                 if (safrole_res.epoch_mark != blk.header.epoch_mark) [[unlikely]]
@@ -1361,41 +1369,48 @@ namespace turbo::jam {
 
             // TODO: to be started in a parallel thread for better performance
             verify_all_signatures(blk, prev_tau,
-                this->eta.get(), this->gamma.get(),
-                this->kappa.get(), this->lambda.get(),
-                this->psi.get(), prepared_header_signatures);
+                new_eta, new_gamma,
+                new_kappa, new_lambda,
+                new_psi, prepared_header_signatures);
 
             // (4.13) (4.14) (4.15) - extra deps:
             // - updates pi';
             // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
             const auto ready_reports = rho_dagger_2(
-                this->rho.update(), new_pi.cores,
+                new_rho, new_pi.cores,
                 blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
 
             account_updates_t<CFG> new_delta{this->delta};
             // JAM (4.12)
             const auto report_res = update_reports(
-                this->rho.update(), new_pi.cores, new_pi.services,
-                this->beta.get().history,
-                this->eta.get(), this->psi.get().offenders,
-                this->kappa.get(), this->lambda.get(),
-                this->omega.get(), this->ksi.get(),
-                *prev_rho_ptr, this->alpha.get(),
+                new_rho, new_pi.cores, new_pi.services,
+                new_beta.history,
+                new_eta, new_psi.offenders,
+                new_kappa, new_lambda,
+                this->omega.unmodified(), this->ksi.unmodified(),
+                prev_rho_packages, this->alpha.unmodified(),
                 new_delta, ancestry,
                 blk.header.slot, blk.extrinsic.guarantees
             );
 
             // (4.16) - extra deps: updates: pi.services
             timer t_accumulate{"state_t::update_reports::accumulate", logger::level::debug};
+            auto &new_omega = this->omega.update();
+            auto &new_ksi = this->ksi.update();
             auto accumulate_res = accumulate(
                 new_delta, new_pi.services,
-                this->omega.update(), this->ksi.update(),
-                this->eta.get()[0],
-                prev_tau, this->chi.get(),
+                new_omega, new_ksi,
+                new_eta[0],
+                prev_tau, this->chi.unmodified(),
                 blk.header.slot, ready_reports
             );
-            if (!accumulate_res.phi.empty())
-                accumulate_res.phi.commit(this->phi.update());
+            const auto &new_phi = [&]() -> const auth_queues_t<CFG> & {
+                if (accumulate_res.phi.empty())
+                    return this->phi.unmodified();
+                auto &updated_phi = this->phi.update();
+                accumulate_res.phi.commit(updated_phi);
+                return updated_phi;
+            }();
             if (accumulate_res.iota)
                 this->iota.set(std::move(accumulate_res.iota));
             if (accumulate_res.chi)
@@ -1409,8 +1424,9 @@ namespace turbo::jam {
                 for (const auto &g: blk.extrinsic.guarantees) {
                     reported_work.emplace_hint(reported_work.end(), g.report.package_spec.hash, g.report.package_spec.exports_root);
                 }
-                state_t::beta_prime(this->beta.update(), blk.header.hash(), accumulate_res.root, reported_work);
-                this->theta.update() = std::move(accumulate_res.theta);
+                state_t::beta_prime(new_beta, blk.header.hash(), accumulate_res.root, reported_work);
+                auto &new_theta = this->theta.update();
+                new_theta = std::move(accumulate_res.theta);
             }
 
             // can be run in parallel (if updates are committed explicitly
@@ -1423,18 +1439,18 @@ namespace turbo::jam {
                 auto cas = blk.extrinsic.guarantees | std::views::transform([](const auto &g) -> core_authorizer_t {
                     return {g.report.core_index, g.report.authorizer_hash};
                 });
-                state_t::alpha_prime(this->alpha.update(), blk.header.slot, std::move(cas), this->phi.get());
+                auto &new_alpha = this->alpha.update();
+                state_t::alpha_prime(new_alpha, blk.header.slot, std::move(cas), new_phi);
             }
 
             // (4.20) can be run in parallel
             {
                 pi_prime(new_pi.current, new_pi.last, report_res,
-                    this->kappa.get(), prev_tau, blk.header.slot, blk.header.author_index, blk.extrinsic);
+                    new_kappa, prev_tau, blk.header.slot, blk.header.author_index, blk.extrinsic);
             }
 
-            const timer t_commit{"state_t::apply::commit", logger::level::debug};
+            const timer t_stage{"state_t::apply::stage_delta", logger::level::debug};
             new_delta.commit();
-            this->commit();
         } catch (...) {
             const timer t_rollback{"state_t::apply::rollback", logger::level::debug};
             this->rollback();
@@ -1622,19 +1638,25 @@ namespace turbo::jam {
     }
 
     template<typename CFG>
-    void state_t<CFG>::commit()
+    void state_t<CFG>::stage()
     {
-        this->visit_simple([](auto &v){ v.commit(); });
+        this->visit_simple([](auto &v){ v.stage(); });
     }
 
     template<typename CFG>
-    void state_t<CFG>::rollback()
+    void state_t<CFG>::accept() noexcept
     {
-        this->visit_simple([](auto &v){ v.rollback(); });
+        this->visit_simple([](auto &v){ v.accept(); });
     }
 
     template<typename CFG>
-    void state_t<CFG>::reset_cache()
+    void state_t<CFG>::rollback() noexcept
+    {
+        reset_cache();
+    }
+
+    template<typename CFG>
+    void state_t<CFG>::reset_cache() noexcept
     {
         this->visit_simple([](auto &v){ v.reset(); });
     }

@@ -831,7 +831,21 @@ namespace turbo::jam {
     };
 
     template<typename CFG>
-    using availability_assignments_t = fixed_sequence_t<availability_assignments_item_t<CFG>, CFG::C_core_count>;
+    struct availability_assignments_t: fixed_sequence_t<availability_assignments_item_t<CFG>, CFG::C_core_count> {
+        using base_type = fixed_sequence_t<availability_assignments_item_t<CFG>, CFG::C_core_count>;
+        using base_type::base_type;
+
+        [[nodiscard]] std::vector<work_package_hash_t> package_hashes() const
+        {
+            std::vector<work_package_hash_t> hashes{};
+            hashes.reserve(this->size());
+            for (const auto &assignment: *this) {
+                if (assignment)
+                    hashes.emplace_back(assignment->report.package_spec.hash);
+            }
+            return hashes;
+        }
+    };
 
     using mmr_peak_t = optional_t<opaque_hash_t>;
 

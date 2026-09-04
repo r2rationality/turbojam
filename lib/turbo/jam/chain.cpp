@@ -25,7 +25,7 @@ namespace turbo::jam {
             if (!prev_state.empty()) {
                 _triedb->replace_with(prev_state);
                 _state.emplace(_triedb);
-                const auto &beta = _state->beta.get();
+                const auto &beta = _state->beta.unmodified();
                 for (const auto &h: beta.history) {
                     _ancestry.add(h.header_hash, h.state_root);
                 }
@@ -48,7 +48,7 @@ namespace turbo::jam {
                 _state.emplace(_triedb);
             else
                 _state->reset_cache();
-            const auto &beta = _state->beta.get();
+            const auto &beta = _state->beta.unmodified();
             for (const auto &h: beta.history) {
                 _ancestry.add(h.header_hash, h.state_root);
             }
@@ -66,9 +66,10 @@ namespace turbo::jam {
                     *_state = _genesis_state;
                     logger::run_log_errors_rethrow([&] {
                         state_t<CFG>::beta_prime(_state->beta.update(), blk_hash, {}, {});
-                        _state->beta.commit();
+                        _state->stage();
                     });
                     _triedb->commit();
+                    _state->accept();
                 } else {
                     const auto new_ancestry_end = _ancestry.known(blk.header.parent, blk.header.parent_state_root);
                     size_t undo_fork_point = 0;
@@ -89,13 +90,17 @@ namespace turbo::jam {
                             throw err_bad_state_root_t{};
                     }
                     _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
+                    _state->stage();
                     undo = _triedb->commit();
+                    _state->accept();
                     if (undo_fork_point > 0)
                         undo->erase(undo->begin(), undo->begin() + static_cast<std::ptrdiff_t>(undo_fork_point));
                     _ancestry.erase(new_ancestry_end, _ancestry.end());
                 }
                 _ancestry.add(blk.header.slot, blk_hash, state_root(), std::move(undo));
             } catch (...) {
+                if (_state)
+                    _state->rollback();
                 if (_ancestry.empty()) [[unlikely]]
                     _state.reset();
                 _triedb->rollback();
@@ -111,7 +116,7 @@ namespace turbo::jam {
         [[nodiscard]] header_hash_t parent() const
         {
             if (_state) {
-                if (const auto &beta = _state->beta.get(); !beta.history.empty())
+                if (const auto &beta = _state->beta.unmodified(); !beta.history.empty())
                     return beta.history.back().header_hash;
             }
             return {};

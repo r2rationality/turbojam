@@ -34,33 +34,44 @@ suite turbo_jam_state_suite = [] {
         };
         "missing_key_throws"_test = [] {
             pv_t pv{make_db(), 1U};
-            expect(throws([&] { pv.get(); }));
+            expect(throws([&] { (void)pv.unmodified(); }));
         };
         "lazy_load"_test = [] {
             const slot_t exp{42U};
             pv_t pv{make_db_with(1U, exp), 1U};
-            expect_equal(exp, pv.get());
+            expect_equal(exp, pv.unmodified());
+            expect_equal(exp, pv.unmodified()); // does not throw
         };
-        "set_and_commit"_test = [] {
+        "set_stages_and_accepts"_test = [] {
             const slot_t orig{1U};
             const slot_t updated{2U};
             const auto db = make_db_with(1U, orig);
             pv_t pv{db, 1U};
-            pv.set(std::make_shared<slot_t>(updated));
-            expect_equal(updated, pv.get());
-            // DB unchanged before commit
-            expect_equal(orig, pv_t{db, 1U}.get());
-            pv.commit();
-            // DB has new value after commit
-            expect_equal(updated, pv_t{db, 1U}.get());
+            auto replacement = std::make_shared<slot_t>(updated);
+            pv.set(std::move(replacement));
+            expect(!replacement);
+            expect(pv.updated());
+            expect(throws([&]{ (void)pv.unmodified(); }));
+            expect(throws([&]{ (void)pv.update(); }));
+            expect_equal(orig, pv_t{db, 1U}.unmodified());
+
+            pv.stage();
+            expect(pv.updated());
+            expect(throws([&]{ (void)pv.unmodified(); }));
+            expect_equal(updated, pv_t{db, 1U}.unmodified());
+
+            pv.accept();
+            expect(!pv.updated());
+            expect_equal(updated, pv.unmodified());
         };
-        "rollback"_test = [] {
+        "reset_discards_update"_test = [] {
             const slot_t orig{1U};
             const auto db = make_db_with(1U, orig);
             pv_t pv{db, 1U};
             pv.set(std::make_shared<slot_t>(slot_t{2U}));
-            pv.rollback();
-            expect_equal(orig, pv.get());
+            pv.reset();
+            expect(!pv.updated());
+            expect_equal(orig, pv.unmodified());
         };
         "reset_reloads_from_db"_test = [] {
             const slot_t v1{10U};
@@ -68,52 +79,46 @@ suite turbo_jam_state_suite = [] {
             const auto key = state_dict_t::make_key(1U);
             const auto db = make_db_with(1U, v1);
             pv_t pv{db, 1U};
-            pv.get(); // populate cache
+            (void)pv.unmodified(); // populate cache
             db->set(key, encoder{v2}.bytes()); // update DB externally
             pv.reset();
-            expect_equal(v2, pv.get());
+            expect_equal(v2, pv.unmodified());
         };
-        "update_modifies_value"_test = [] {
+        "update_stages_and_accepts"_test = [] {
             const slot_t orig{5U};
             const auto db = make_db_with(1U, orig);
             pv_t pv{db, 1U};
-            pv.update() = slot_t{99U};
-            pv.commit();
-            expect_equal(slot_t{99U}, pv_t{db, 1U}.get());
+            auto &updated = pv.update();
+            updated = slot_t{99U};
+            expect(throws([&]{ (void)pv.unmodified(); }));
+            pv.stage();
+            pv.accept();
+            expect_equal(slot_t{99U}, pv.unmodified());
+            expect_equal(slot_t{99U}, pv_t{db, 1U}.unmodified());
         };
-        "update_cow"_test = [] {
-            const slot_t orig{7U};
-            const auto db = make_db_with(1U, orig);
-            pv_t pv1{db, 1U};
-            pv1.get(); // load ptr
-            pv_t pv2{pv1}; // share the same _ptr (use_count == 2)
-            pv1.update() = slot_t{100U}; // triggers deep copy for pv1
-            expect_equal(orig, pv2.get()); // pv2 still sees original
-        };
-        "storage_ptr_cow"_test = [] {
+        "update_can_be_called_only_once"_test = [] {
             const slot_t orig{7U};
             const auto db = make_db_with(1U, orig);
             pv_t pv{db, 1U};
-            const auto ptr = pv.storage(); // external shared ownership raises use_count to 2
-            expect_equal(orig, *ptr);
-            pv.update() = slot_t{100U}; // triggers deep copy since use_count > 1
-            expect_equal(orig, *ptr); // external ptr still holds the original
-            expect_equal(slot_t{100U}, pv.get());
+            auto &updated = pv.update();
+            updated = slot_t{100U};
+            expect(throws([&]{ (void)pv.update(); }));
+            expect(throws([&]{ pv.set(std::make_shared<slot_t>(slot_t{101U})); }));
+            expect_equal(slot_t{100U}, updated);
         };
-        "equality"_test = [] {
-            const slot_t v1{3U};
-            const slot_t v2{4U};
-            const auto db = make_db_with(1U, v1);
-            db->set(state_dict_t::make_key(2U), encoder{v2}.bytes());
-            pv_t pva{db, 1U};
-            pv_t pvb{db, 1U};
-            pv_t pvc{db, 2U};
-            expect(pva == pvb);
-            expect(!(pva == pvc));
+        "set_requires_exclusive_ownership"_test = [] {
+            const slot_t orig{7U};
+            const auto db = make_db_with(1U, orig);
+            pv_t pv{db, 1U};
+            auto shared = std::make_shared<slot_t>(slot_t{100U});
+            const auto alias = shared;
+            expect(throws([&] { pv.set(std::move(shared)); }));
+            expect_equal(orig, pv.unmodified());
+            expect_equal(slot_t{100U}, *alias);
         };
         "set_null_throws"_test = [] {
             pv_t pv{make_db_with(1U, slot_t{1U}), 1U};
-            expect(throws([&] { pv.set(nullptr); }));
+            expect(throws([&] { pv.set(pv_t::ptr_type{}); }));
         };
     };
 };
