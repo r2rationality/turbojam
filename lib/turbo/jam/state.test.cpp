@@ -12,7 +12,8 @@ namespace {
     using namespace turbo::storage;
 
     using slot_t = time_slot_t<config_prod>;
-    using pv_t = persistent_value_t<slot_t>;
+    using staged_slot_t = staged_value_t<slot_t>;
+    using staged_delta_t = staged_accounts_t<config_prod>;
 
     db_ptr_t make_db()
     {
@@ -28,97 +29,141 @@ namespace {
 }
 
 suite turbo_jam_state_suite = [] {
-    "turbo::jam::persistent_value"_test = [] {
+    "turbo::jam::staged_value"_test = [] {
         "null_db_throws"_test = [] {
-            expect(throws([] { pv_t{nullptr, 1U}; }));
+            expect(throws([] { staged_slot_t{nullptr, 1U}; }));
         };
         "missing_key_throws"_test = [] {
-            pv_t pv{make_db(), 1U};
-            expect(throws([&] { (void)pv.unmodified(); }));
+            staged_slot_t sv{make_db(), 1U};
+            expect(throws([&] { (void)sv.unmodified(); }));
         };
         "lazy_load"_test = [] {
             const slot_t exp{42U};
-            pv_t pv{make_db_with(1U, exp), 1U};
-            expect_equal(exp, pv.unmodified());
-            expect_equal(exp, pv.unmodified()); // does not throw
+            staged_slot_t sv{make_db_with(1U, exp), 1U};
+            expect_equal(exp, sv.unmodified());
+            expect_equal(exp, sv.unmodified()); // does not throw
         };
         "set_stages_and_accepts"_test = [] {
             const slot_t orig{1U};
             const slot_t updated{2U};
             const auto db = make_db_with(1U, orig);
-            pv_t pv{db, 1U};
+            staged_slot_t sv{db, 1U};
             auto replacement = std::make_shared<slot_t>(updated);
-            pv.set(std::move(replacement));
+            sv.set(std::move(replacement));
             expect(!replacement);
-            expect(pv.updated());
-            expect(throws([&]{ (void)pv.unmodified(); }));
-            expect(throws([&]{ (void)pv.update(); }));
-            expect_equal(orig, pv_t{db, 1U}.unmodified());
+            expect(throws([&]{ (void)sv.unmodified(); }));
+            expect(throws([&]{ (void)sv.update(); }));
+            expect_equal(orig, staged_slot_t{db, 1U}.unmodified());
 
-            pv.stage();
-            expect(pv.updated());
-            expect(throws([&]{ (void)pv.unmodified(); }));
-            expect_equal(updated, pv_t{db, 1U}.unmodified());
+            sv.stage();
+            expect(throws([&]{ (void)sv.unmodified(); }));
+            expect_equal(updated, staged_slot_t{db, 1U}.unmodified());
 
-            pv.accept();
-            expect(!pv.updated());
-            expect_equal(updated, pv.unmodified());
+            sv.accept();
+            expect_equal(updated, sv.unmodified());
         };
         "reset_discards_update"_test = [] {
             const slot_t orig{1U};
             const auto db = make_db_with(1U, orig);
-            pv_t pv{db, 1U};
-            pv.set(std::make_shared<slot_t>(slot_t{2U}));
-            pv.reset();
-            expect(!pv.updated());
-            expect_equal(orig, pv.unmodified());
+            staged_slot_t sv{db, 1U};
+            sv.set(std::make_shared<slot_t>(slot_t{2U}));
+            sv.reset();
+            expect_equal(orig, sv.unmodified());
         };
         "reset_reloads_from_db"_test = [] {
             const slot_t v1{10U};
             const slot_t v2{20U};
             const auto key = state_dict_t::make_key(1U);
             const auto db = make_db_with(1U, v1);
-            pv_t pv{db, 1U};
-            (void)pv.unmodified(); // populate cache
+            staged_slot_t sv{db, 1U};
+            (void)sv.unmodified(); // populate cache
             db->set(key, encoder{v2}.bytes()); // update DB externally
-            pv.reset();
-            expect_equal(v2, pv.unmodified());
+            sv.reset();
+            expect_equal(v2, sv.unmodified());
         };
         "update_stages_and_accepts"_test = [] {
             const slot_t orig{5U};
             const auto db = make_db_with(1U, orig);
-            pv_t pv{db, 1U};
-            auto &updated = pv.update();
+            staged_slot_t sv{db, 1U};
+            auto &updated = sv.update();
             updated = slot_t{99U};
-            expect(throws([&]{ (void)pv.unmodified(); }));
-            pv.stage();
-            pv.accept();
-            expect_equal(slot_t{99U}, pv.unmodified());
-            expect_equal(slot_t{99U}, pv_t{db, 1U}.unmodified());
+            expect(throws([&]{ (void)sv.unmodified(); }));
+            sv.stage();
+            sv.accept();
+            expect_equal(slot_t{99U}, sv.unmodified());
+            expect_equal(slot_t{99U}, staged_slot_t{db, 1U}.unmodified());
         };
         "update_can_be_called_only_once"_test = [] {
             const slot_t orig{7U};
             const auto db = make_db_with(1U, orig);
-            pv_t pv{db, 1U};
-            auto &updated = pv.update();
+            staged_slot_t sv{db, 1U};
+            auto &updated = sv.update();
             updated = slot_t{100U};
-            expect(throws([&]{ (void)pv.update(); }));
-            expect(throws([&]{ pv.set(std::make_shared<slot_t>(slot_t{101U})); }));
+            expect(throws([&]{ (void)sv.update(); }));
+            expect(throws([&]{ sv.set(std::make_shared<slot_t>(slot_t{101U})); }));
             expect_equal(slot_t{100U}, updated);
         };
         "set_requires_exclusive_ownership"_test = [] {
             const slot_t orig{7U};
             const auto db = make_db_with(1U, orig);
-            pv_t pv{db, 1U};
+            staged_slot_t sv{db, 1U};
             auto shared = std::make_shared<slot_t>(slot_t{100U});
             const auto alias = shared;
-            expect(throws([&] { pv.set(std::move(shared)); }));
-            expect_equal(orig, pv.unmodified());
+            expect(throws([&] { sv.set(std::move(shared)); }));
+            expect_equal(orig, sv.unmodified());
             expect_equal(slot_t{100U}, *alias);
         };
         "set_null_throws"_test = [] {
-            pv_t pv{make_db_with(1U, slot_t{1U}), 1U};
-            expect(throws([&] { pv.set(pv_t::ptr_type{}); }));
+            staged_slot_t sv{make_db_with(1U, slot_t{1U}), 1U};
+            expect(throws([&] { sv.set(staged_slot_t::ptr_type{}); }));
         };
+    };
+
+    "turbo::jam::staged_accounts"_test = [] {
+        constexpr service_id_t service_id = 42U;
+        service_info_t<config_prod> original{};
+        original.balance = 100U;
+        auto changed = original;
+        changed.balance = 200U;
+
+        const auto db = make_db();
+        accounts_t<config_prod>{db}.info_set(service_id, original);
+        staged_delta_t delta{db};
+
+        auto &updates = delta.update();
+        updates.info_set(service_id, changed);
+        expect_equal(original, *delta.info_get(service_id));
+        expect(throws([&] { (void)delta.update(); }));
+
+        delta.stage();
+        expect_equal(changed, *delta.info_get(service_id));
+        expect(throws([&] { (void)delta.update(); }));
+
+        delta.accept();
+        expect_equal(changed, *delta.info_get(service_id));
+        (void)delta.update();
+        delta.reset();
+    };
+
+    "staged_accounts_discards_with_database_rollback"_test = [] {
+        constexpr service_id_t service_id = 42U;
+        service_info_t<config_prod> original{};
+        original.balance = 100U;
+        auto changed = original;
+        changed.balance = 200U;
+
+        const auto base_db = make_db();
+        accounts_t<config_prod>{base_db}.info_set(service_id, original);
+        const auto transaction_db = std::make_shared<update::db_t>(base_db);
+        staged_delta_t delta{transaction_db};
+
+        delta.update().info_set(service_id, changed);
+        delta.stage();
+        expect_equal(changed, *delta.info_get(service_id));
+        expect_equal(original, *accounts_t<config_prod>{base_db}.info_get(service_id));
+
+        delta.reset();
+        transaction_db->rollback();
+        expect_equal(original, *delta.info_get(service_id));
     };
 };

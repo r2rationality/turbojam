@@ -6,6 +6,7 @@
 #include <turbo/common/logger.hpp>
 #include <turbo/storage/common.hpp>
 #include "chain.hpp"
+#include "triedb.hpp"
 
 #include "fuzzer-runner.hpp"
 
@@ -77,12 +78,12 @@ namespace turbo::jam {
                         for (auto &ancestor: std::views::reverse(std::span{new_ancestry_end, _ancestry.end()})) {
                             if (!ancestor.undo) [[unlikely]]
                                 throw error(fmt::format("can't rollback block {} due to missing undo record", ancestor.header_hash));
-                            // in case of an error, the record must be kept, so copy values
+                            // Preserve the undo record if applying it fails.
                             for (const auto &[k, v]: *ancestor.undo | std::views::reverse)
                                 _triedb->apply(k, v);
                         }
                         _state->reset_cache();
-                        // entries before this index are ancestor-rollback writes no the block's modifications
+                        // Earlier writes restore ancestors; later writes belong to the new block.
                         undo_fork_point = _triedb->undo_size();
                     } else {
                         const auto local_state_root = state_root();

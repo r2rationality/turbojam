@@ -4,88 +4,83 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <limits>
 #include <memory>
-#include <numeric>
+#include <optional>
 #include <vector>
-#include <turbo/container/update-map.hpp>
 #include <turbo/storage/update.hpp>
 #include <turbo/storage/memory.hpp>
-#include "triedb.hpp"
 #include "types/header.hpp"
 #include "types/mutable-value.hpp"
 #include "types/state-dict.hpp"
 
 namespace turbo::jam {
     template<typename T>
-    struct persistent_value_t {
+    struct staged_value_t {
         using element_type = T;
         using ptr_type = std::shared_ptr<element_type>;
 
-        persistent_value_t(const persistent_value_t &) = delete;
-        persistent_value_t(persistent_value_t &&) = delete;
-        persistent_value_t & operator=(const persistent_value_t &) = delete;
-        persistent_value_t & operator=(persistent_value_t &&) = delete;
+        staged_value_t(const staged_value_t &) = delete;
+        staged_value_t(staged_value_t &&) = delete;
+        staged_value_t & operator=(const staged_value_t &) = delete;
+        staged_value_t & operator=(staged_value_t &&) = delete;
 
-        persistent_value_t(storage::db_ptr_t db, const state_key_t &key):
+        staged_value_t(storage::db_ptr_t db, const state_key_t &key):
             _db{std::move(db)},
             _key{key}
         {
             if (!_db) [[unlikely]]
-                throw error("a persistent value requires an initialized state_dict!");
+                throw error("a staged value requires an initialized state_dict!");
         }
 
-        persistent_value_t(storage::db_ptr_t db, const uint8_t code):
-            persistent_value_t{std::move(db), state_dict_t::make_key(code)}
+        staged_value_t(storage::db_ptr_t db, const uint8_t code):
+            staged_value_t{std::move(db), state_dict_t::make_key(code)}
         {
         }
 
         [[nodiscard]] const element_type &unmodified() const {
-            if (_updated) [[unlikely]]
+            if (_update_active) [[unlikely]]
                 throw error("the unmodified value is unavailable after the value has been updated");
             return *_storage();
         }
 
         void set(ptr_type &&new_ptr) {
             if (!new_ptr) [[unlikely]]
-                throw error("cannot set a persistent value to nullptr");
-            if (_updated) [[unlikely]]
-                throw error("a persistent value can be updated only once per transaction");
+                throw error("cannot set a staged value to nullptr");
+            if (_update_active) [[unlikely]]
+                throw error("a staged value can be updated only once per transaction");
             if (new_ptr.use_count() != 1) [[unlikely]]
-                throw error("a persistent value requires exclusive ownership");
-            _updated = true;
+                throw error("a staged value requires exclusive ownership");
+            _update_active = true;
             _ptr = std::move(new_ptr);
         }
 
         [[nodiscard]] element_type &update() {
-            if (_updated) [[unlikely]]
-                throw error("a persistent value can be updated only once per transaction");
+            if (_update_active) [[unlikely]]
+                throw error("a staged value can be updated only once per transaction");
             const auto &ptr = _storage();
-            _updated = true;
+            _update_active = true;
             return *ptr;
         }
 
-        [[nodiscard]] bool updated() const noexcept {
-            return _updated;
-        }
-
         void stage() {
-            if (_updated)
+            if (_update_active)
                 _db->set(_key, _encode(*_ptr));
         }
 
         void accept() noexcept {
-            _updated = false;
+            _update_active = false;
         }
 
         void reset() noexcept {
             _ptr.reset();
-            _updated = false;
+            _update_active = false;
         }
     private:
         storage::db_ptr_t _db;
         state_key_t _key;
         mutable ptr_type _ptr{};
-        bool _updated = false;
+        bool _update_active = false;
 
         static uint8_vector _encode(const element_type &v)
         {
@@ -108,7 +103,7 @@ namespace turbo::jam {
     struct service_info_t {
         opaque_hash_t code_hash{}; // c (9.3)
         balance_t balance = 0; // b (9.3)
-        // gas saved in the fixed format form
+        // Gas is stored in its fixed-width representation.
         gas_t::base_type min_item_gas = 0; // g (9.3)
         gas_t::base_type min_memo_gas = 0; // m (9.3)
         uint64_t bytes = 0; // o (9.8)
@@ -200,18 +195,6 @@ namespace turbo::jam {
         bool operator==(const service_info_t<CFG> &o) const noexcept = default;
     };
 
-    struct storage_items_config_t {
-        std::string key_name = "key";
-        std::string val_name = "blob";
-    };
-    using storage_items_t = map_t<byte_sequence_t, byte_sequence_t, storage_items_config_t>;
-
-    struct preimage_items_config_t {
-        std::string key_name = "hash";
-        std::string val_name = "blob";
-    };
-    using preimage_items_t = map_t<opaque_hash_t, byte_sequence_t, preimage_items_config_t>;
-
     struct lookup_meta_map_key_t {
         opaque_hash_t hash;
         uint32_t length;
@@ -242,15 +225,8 @@ namespace turbo::jam {
         }
     };
 
-    struct lookup_metas_config_t {
-        std::string key_name = "key";
-        std::string val_name = "value";
-    };
     template<typename CFG>
     using lookup_meta_map_val_t = sequence_t<time_slot_t<CFG>, 0, 3>;
-
-    template<typename CFG>
-    using lookup_meta_items_t = map_t<lookup_meta_map_key_t, lookup_meta_map_val_t<CFG>, lookup_metas_config_t>;
 
     struct accounts_config_t {
         std::string key_name = "id";
@@ -259,12 +235,6 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct account_updates_t;
-
-    template<typename CFG>
-    struct historical_lookup_res_t {
-        lookup_meta_map_val_t<CFG> lookup_state{}; // z_bold
-        buffer code{}; // c_bold
-    };
 
     template<typename CFG>
     struct accounts_t {
@@ -547,7 +517,7 @@ namespace turbo::jam {
         {
         }
 
-        // base on the previous updates - used in delta_star
+        // Layer speculative writes over the source's pending view.
         account_updates_t(const account_updates_t &o) noexcept:
             accounts_t<CFG>{std::make_shared<storage::update::db_t>(o._db)}
         {
@@ -564,7 +534,7 @@ namespace turbo::jam {
             return *this;
         }
 
-        // clone updates - used from checkpoint
+        // Replace this overlay with an independent snapshot of the source.
         account_updates_t &operator=(const account_updates_t<CFG> &o)
         {
             this->_db = std::make_shared<storage::update::db_t>(o._updatedb());
@@ -576,6 +546,8 @@ namespace turbo::jam {
             _updatedb().consume_from(std::move(o._updatedb()));
         }
 
+        // Merge this overlay into its base database. Durability remains the
+        // responsibility of the outer database transaction.
         void commit()
         {
             _updatedb().commit();
@@ -590,6 +562,43 @@ namespace turbo::jam {
         {
             return dynamic_cast<const storage::update::db_t &>(*this->_db);
         }
+    };
+
+    // Delta spans many trie entries, so stage it through an update overlay
+    // rather than encoding it as one staged_value_t.
+    template<typename CFG>
+    struct staged_accounts_t: accounts_t<CFG> {
+        using base_type = accounts_t<CFG>;
+
+        explicit staged_accounts_t(storage::db_ptr_t db) noexcept:
+            base_type{std::move(db)}
+        {
+        }
+
+        [[nodiscard]] account_updates_t<CFG> &update()
+        {
+            if (_updates) [[unlikely]]
+                throw error("staged accounts can be updated only once per transaction");
+            return _updates.emplace(static_cast<const base_type &>(*this));
+        }
+
+        void stage()
+        {
+            if (_updates)
+                _updates->commit();
+        }
+
+        void accept() noexcept
+        {
+            _updates.reset();
+        }
+
+        void reset() noexcept
+        {
+            _updates.reset();
+        }
+    private:
+        std::optional<account_updates_t<CFG>> _updates{};
     };
 
     template<typename CFG>
@@ -666,7 +675,6 @@ namespace turbo::jam {
             service_id{s},
             state{std::move(st)}
         {
-            //const encoder{s, e[0], blk_slot};
             encoder enc{};
             enc.uint_varlen(s);
             enc.next_bytes(eta0);
@@ -834,26 +842,28 @@ namespace turbo::jam {
         using observer_t = storage::observer_t;
 
         storage::db_ptr_t db;
-        persistent_value_t<auth_pools_t<CFG>> alpha{db, 1U}; // authorizations
-        persistent_value_t<auth_queues_t<CFG>> phi{db, 2U}; // work authorizer queue
-        persistent_value_t<recent_blocks_t<CFG>> beta{db, 3U}; // most recent blocks
-        persistent_value_t<safrole_state_t<CFG>> gamma{db, 4U}; // safrole state
-        persistent_value_t<disputes_records_t> psi{db, 5U}; // judgements
-        persistent_value_t<entropy_buffer_t> eta{db, 6U};
-        persistent_value_t<validators_data_t<CFG>> iota{db, 7U};
-        persistent_value_t<validators_data_t<CFG>> kappa{db, 8U};
-        persistent_value_t<validators_data_t<CFG>> lambda{db, 9U};
-        persistent_value_t<availability_assignments_t<CFG>> rho{db, 10U}; // assigned work reports
-        persistent_value_t<time_slot_t<CFG>> tau{db, 11U};
-        persistent_value_t<privileges_t<CFG>> chi{db, 12U};
-        persistent_value_t<statistics_t<CFG>> pi{db, 13U};
-        persistent_value_t<ready_queue_t<CFG>> omega{db, 14U}; // JAM (12.3): work reports ready to be accumulated
-        persistent_value_t<accumulated_queue_t<CFG>> ksi{db, 15U}; // JAM (12.1): recently accumulated reports
-        persistent_value_t<service_commitments_t> theta{db, 16U}; // JAM (7.4): recent service accumulation commitments
-        accounts_t<CFG> delta{db}; // services
+        staged_value_t<auth_pools_t<CFG>> alpha{db, 1U}; // authorizations
+        staged_value_t<auth_queues_t<CFG>> phi{db, 2U}; // work authorizer queue
+        staged_value_t<recent_blocks_t<CFG>> beta{db, 3U}; // most recent blocks
+        staged_value_t<safrole_state_t<CFG>> gamma{db, 4U}; // safrole state
+        staged_value_t<disputes_records_t> psi{db, 5U}; // judgements
+        staged_value_t<entropy_buffer_t> eta{db, 6U};
+        staged_value_t<validators_data_t<CFG>> iota{db, 7U};
+        staged_value_t<validators_data_t<CFG>> kappa{db, 8U};
+        staged_value_t<validators_data_t<CFG>> lambda{db, 9U};
+        staged_value_t<availability_assignments_t<CFG>> rho{db, 10U}; // assigned work reports
+        staged_value_t<time_slot_t<CFG>> tau{db, 11U};
+        staged_value_t<privileges_t<CFG>> chi{db, 12U};
+        staged_value_t<statistics_t<CFG>> pi{db, 13U};
+        staged_value_t<ready_queue_t<CFG>> omega{db, 14U}; // JAM (12.3): work reports ready to be accumulated
+        staged_value_t<accumulated_queue_t<CFG>> ksi{db, 15U}; // JAM (12.1): recently accumulated reports
+        staged_value_t<service_commitments_t> theta{db, 16U}; // JAM (7.4): recent service accumulation commitments
+        staged_accounts_t<CFG> delta{db}; // services
 
         template<typename F>
-        void visit_simple(F f) {
+        void visit_staged(F f) {
+            // Staging delta first releases its potentially large overlay early.
+            f(delta);
             f(alpha);
             f(phi);
             f(beta);
@@ -902,12 +912,11 @@ namespace turbo::jam {
     };
 
     // JAM (4.4) - lowercase sigma
-    // Simple state values are decoded lazily and staged together at the end of
-    // a successful state transition.
+    // Simple state values are decoded lazily. All state components keep their
+    // updates isolated and are staged together at the end of a successful
+    // state transition.
     template<typename CFG>
     struct state_t: state_base_t<CFG> {
-        using observer_t = storage::observer_t;
-
         state_t(storage::db_ptr_t db);
         state_t() = delete;
         state_t(const state_t &) = delete;
@@ -927,7 +936,7 @@ namespace turbo::jam {
         // (4.1): Kapital upsilon
         void apply(const block_t<CFG> &, const ancestry_span_t<CFG> &);
 
-        // State transition methods: static to not be explicit about their inputs and outputs
+        // Static transition functions expose all state dependencies as parameters.
         // (4.5)
         static void tau_prime(time_slot_t<CFG> &tau, const time_slot_t<CFG> &blk_slot);
         // (4.6)
@@ -936,9 +945,7 @@ namespace turbo::jam {
         static void beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh, const opaque_hash_t &ar, const reported_work_seq_t<CFG> &wp);
         // JAM (4.7)
         static void eta_prime(entropy_buffer_t &eta, const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &blk_slot, const entropy_t &blk_entropy);
-        // JAM (4.8)
-        // JAM (4.9)
-        // JAM (4.10)
+        // JAM (4.8)-(4.10)
         static safrole_output_data_t<CFG> update_safrole(
             safrole_state_t<CFG> &new_gamma,
             validators_data_t<CFG> &new_kappa,
@@ -977,10 +984,7 @@ namespace turbo::jam {
         static void pi_prime(validators_statistics_t<CFG> &new_pi_current, validators_statistics_t<CFG> &new_pi_last,
             const reports_output_data_t &report_res, const validators_data_t<CFG> &new_kappa,
             const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &slot, validator_index_t val_idx, const extrinsic_t<CFG> &extrinsic);
-        // JAM (4.12)
-        // JAM (4.13)
-        // JAM (4.14)
-        // JAM (4.15)
+        // JAM (4.12)-(4.15)
         static reports_output_data_t update_reports(
             availability_assignments_t<CFG> &new_rho,
             cores_statistics_t<CFG> &new_pi_cores,
@@ -1009,12 +1013,9 @@ namespace turbo::jam {
             const time_slot_t<CFG> &prev_tau, const privileges_t<CFG> &prev_chi,
             const time_slot_t<CFG> &blk_slot, const work_reports_t<CFG> &reports);
 
-        // helper functions
-
         static validators_data_t<CFG> capital_phi(const validators_data_t<CFG> &iota, const ed25519_keys_set_t &psi_o);
         bool operator==(const state_t &o) const noexcept;
 
-        // signature verification
         static void verify_all_signatures(const block_t<CFG> &blk, const time_slot_t<CFG> &prev_tau,
             const entropy_buffer_t &new_eta, const safrole_state_t<CFG> &new_gamma,
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda, const disputes_records_t &prev_psi,

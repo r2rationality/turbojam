@@ -18,6 +18,7 @@
 #include <turbo/jam/host-service.hpp>
 #include "types/errors.hpp"
 #include "state.hpp"
+#include "triedb.hpp"
 
 namespace turbo::jam {
     template<typename CFG>
@@ -48,7 +49,6 @@ namespace turbo::jam {
         return make_genesis_header(this->eta.unmodified(), this->gamma.unmodified().p);
     }
 
-    // Safrole-related state methods
     struct ark_vrf_initializer_t {
         explicit ark_vrf_initializer_t() {
             if (ark_vrf::init(file::install_path("data/zcash-srs-2-11-uncompressed.bin")) != 0) [[unlikely]]
@@ -131,7 +131,6 @@ namespace turbo::jam {
 
         safrole_output_data_t<CFG> res{};
 
-        // Epoch transition
         if (blk_slot.epoch() > prev_tau.epoch()) [[unlikely]] {
             // JAM Paper (6.13)
             lambda = kappa;
@@ -200,8 +199,6 @@ namespace turbo::jam {
 
         return res;
     }
-
-    // End of Safrole-related state methods
 
     template<typename CFG>
     void state_t<CFG>::provide_preimages(account_updates_t<CFG> &accs, services_statistics_t &new_pi_services,
@@ -553,10 +550,8 @@ namespace turbo::jam {
             for (const auto &t: transfers)
                 service_ids.emplace(t.destination);
         }
-
-
         delta_star_result_t<CFG> res{std::move(init_state)};
-        // results placeholders - to allow for concurrent execution of accumulation in the future
+        // Each service result is independent; this loop is intended for concurrent execution.
         service_results_t<CFG> service_res{};
         for (const auto &service_id: service_ids)
             service_res.try_emplace(service_id, accumulate_delta_one(res.state, transfers, reports, free_services, service_id, new_eta0, blk_slot));
@@ -600,7 +595,6 @@ namespace turbo::jam {
                 if (const auto phi_it = a_it->second.state.phi.find(ci); phi_it != a_it->second.state.phi.end())
                     res.state.phi[ci] = std::move(phi_it->second);
 
-        // Check that no duplicate new service ids have been created
         {
             set_t<service_id_t> seen{};
             for (const auto &[s_id, s_res]: service_res) {
@@ -691,7 +685,6 @@ namespace turbo::jam {
         return res;
     }
 
-    // produces: accumulate_root, iota', psi' and chi'
     template<typename CFG>
     accumulate_output_t<CFG> state_t<CFG>::accumulate(
         account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services,
@@ -1031,7 +1024,7 @@ namespace turbo::jam {
                 if (g.report.context.lookup_anchor_slot.slot() + CFG::L_max_lookup_anchor_age < blk_slot) [[unlikely]]
                     throw err_segment_root_lookup_invalid_t{};
 
-                // JAM Paper (11.35) - temporarily disabled
+                // JAM Paper (11.35)
                 const auto lblk_it = std::find_if(new_beta.begin(), new_beta.end(), [&g](const auto &blk) {
                     return blk.header_hash == g.report.context.lookup_anchor;
                 });
@@ -1367,7 +1360,7 @@ namespace turbo::jam {
                     throw error("supplied tickets_mark does not match the computed one!");
             }
 
-            // TODO: to be started in a parallel thread for better performance
+            // TODO: Run concurrently with independent transition work.
             verify_all_signatures(blk, prev_tau,
                 new_eta, new_gamma,
                 new_kappa, new_lambda,
@@ -1380,7 +1373,7 @@ namespace turbo::jam {
                 new_rho, new_pi.cores,
                 blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
 
-            account_updates_t<CFG> new_delta{this->delta};
+            auto &new_delta = this->delta.update();
             // JAM (4.12)
             const auto report_res = update_reports(
                 new_rho, new_pi.cores, new_pi.services,
@@ -1429,7 +1422,7 @@ namespace turbo::jam {
                 new_theta = std::move(accumulate_res.theta);
             }
 
-            // can be run in parallel (if updates are committed explicitly
+            // JAM (4.18) - can run in parallel once its updates use an independent overlay
             {
                 provide_preimages(new_delta, new_pi.services, blk.header.slot, this->delta, blk.extrinsic.preimages);
             }
@@ -1443,16 +1436,12 @@ namespace turbo::jam {
                 state_t::alpha_prime(new_alpha, blk.header.slot, std::move(cas), new_phi);
             }
 
-            // (4.20) can be run in parallel
+            // (4.20) - can be run in parallel
             {
                 pi_prime(new_pi.current, new_pi.last, report_res,
                     new_kappa, prev_tau, blk.header.slot, blk.header.author_index, blk.extrinsic);
             }
-
-            const timer t_stage{"state_t::apply::stage_delta", logger::level::debug};
-            new_delta.commit();
         } catch (...) {
-            const timer t_rollback{"state_t::apply::rollback", logger::level::debug};
             this->rollback();
             throw;
         }
@@ -1487,7 +1476,6 @@ namespace turbo::jam {
         boost::container::static_vector<uint8_t, max_msg_size> msg{};
         for (const auto &v: disputes.verdicts) {
             const auto & validators = v.age == cur_epoch ? prev_kappa : prev_lambda;
-            // uniqueness is checked already, so it's ok to rely on access to create a key-value pair
             for (const auto &j: v.judgements) {
                 msg.clear();
                 msg << static_cast<buffer>(j.vote ? CFG::jam_valid : CFG::jam_invalid) << v.report;
@@ -1640,25 +1628,28 @@ namespace turbo::jam {
     template<typename CFG>
     void state_t<CFG>::stage()
     {
-        this->visit_simple([](auto &v){ v.stage(); });
+        const timer t_stage{"state_t::stage", logger::level::debug};
+        this->visit_staged([](auto &v){ v.stage(); });
     }
 
     template<typename CFG>
     void state_t<CFG>::accept() noexcept
     {
-        this->visit_simple([](auto &v){ v.accept(); });
+        const timer t_accept{"state_t::accept", logger::level::debug};
+        this->visit_staged([](auto &v){ v.accept(); });
     }
 
     template<typename CFG>
     void state_t<CFG>::rollback() noexcept
     {
+        const timer t_rollback{"state_t::rollback", logger::level::debug};
         reset_cache();
     }
 
     template<typename CFG>
     void state_t<CFG>::reset_cache() noexcept
     {
-        this->visit_simple([](auto &v){ v.reset(); });
+        this->visit_staged([](auto &v){ v.reset(); });
     }
 
     template<typename CFG>
@@ -1675,7 +1666,7 @@ namespace turbo::jam {
         for (const auto &[key, bytes]: st) {
             this->db->set(key, bytes);
         }
-        this->visit_simple([](auto &v){ v.reset(); });
+        reset_cache();
         return *this;
     }
 
