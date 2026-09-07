@@ -11,7 +11,7 @@
 #include <turbo/storage/update.hpp>
 #include <turbo/storage/memory.hpp>
 #include "types/header.hpp"
-#include "types/mutable-value.hpp"
+#include "types/tracked-cow-value.hpp"
 #include "types/state-dict.hpp"
 
 namespace turbo::jam {
@@ -619,19 +619,34 @@ namespace turbo::jam {
     // JAM (12.13)
     template<typename CFG>
     struct mutable_state_t {
+        using chi_value_t = tracked_cow_value_t<privileges_t<CFG>>;
+
         account_updates_t<CFG> services; // d
         std::shared_ptr<validators_data_t<CFG>> iota{}; // i
         auth_queue_updates_t<CFG> phi{}; // q
-        mutable_value_t<privileges_t<CFG>> chi{}; // m, v, r, a, z
+        chi_value_t chi; // m, v, r, a, z
 
         mutable_state_t(const accounts_t<CFG> &base, const privileges_t<CFG> &c):
             services{base},
             chi{c}
         {
         }
-        
+
+        [[nodiscard]] mutable_state_t fork(const chi_value_t &chi_base) const
+        {
+            return mutable_state_t{*this, chi_base.fork()};
+        }
+
         void consume_from(mutable_state_t &&o);
         void consume_provisions(const time_slot_t<CFG> &tau_prime, service_provisions_t &&provisions);
+    private:
+        mutable_state_t(const mutable_state_t &o, chi_value_t forked_chi):
+            services{o.services},
+            iota{o.iota},
+            phi{o.phi},
+            chi{std::move(forked_chi)}
+        {
+        }
     };
 
     template<typename CFG>

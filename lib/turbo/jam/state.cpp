@@ -551,47 +551,54 @@ namespace turbo::jam {
                 service_ids.emplace(t.destination);
         }
         delta_star_result_t<CFG> res{std::move(init_state)};
+        const auto chi_base = res.state.chi.fork();
+        const auto &init_chi = chi_base.get();
         // Each service result is independent; this loop is intended for concurrent execution.
         service_results_t<CFG> service_res{};
-        for (const auto &service_id: service_ids)
-            service_res.try_emplace(service_id, accumulate_delta_one(res.state, transfers, reports, free_services, service_id, new_eta0, blk_slot));
+        for (const auto &service_id: service_ids) {
+            auto service_result = accumulate_delta_one(
+                res.state.fork(chi_base), transfers, reports, free_services,
+                service_id, new_eta0, blk_slot
+            );
+            service_res.try_emplace(service_id, std::move(service_result));
+        }
 
         // (12.19): apply privilege, iota and phi updates with direct access to each named service's post-state
-        const auto init_chi = res.state.chi.copy();
         // returns the post-state chi for service s, falling back to init_chi if s was not accumulated
         const auto post_chi = [&](service_id_t s) -> const privileges_t<CFG> & {
             if (const auto it = service_res.find(s); it != service_res.end())
                 return it->second.state.chi.get();
-            return *init_chi;
+            return init_chi;
         };
-        const auto &m_chi = post_chi(init_chi->bless); // e*
+        const auto &m_chi = post_chi(init_chi.bless); // e*
         // m', z' — from bless service only
-        if (const auto m_it = service_res.find(init_chi->bless);
+        if (const auto m_it = service_res.find(init_chi.bless);
                 m_it != service_res.end() && m_it->second.state.chi.updated()) {
-            res.state.chi.get_mutable().bless      = m_chi.bless;
-            res.state.chi.get_mutable().always_acc = m_chi.always_acc;
+            auto &new_chi = res.state.chi.update();
+            new_chi.bless = m_chi.bless;
+            new_chi.always_acc = m_chi.always_acc;
         }
         // v'
-        if (const auto new_v = accumulate_capital_r(init_chi->designate, m_chi.designate, post_chi(init_chi->designate).designate);
+        if (const auto new_v = accumulate_capital_r(init_chi.designate, m_chi.designate, post_chi(init_chi.designate).designate);
                 res.state.chi.get().designate != new_v)
-            res.state.chi.get_mutable().designate = new_v;
+            res.state.chi.update().designate = new_v;
         // r'
-        if (const auto new_r = accumulate_capital_r(init_chi->registrar, m_chi.registrar, post_chi(init_chi->registrar).registrar);
+        if (const auto new_r = accumulate_capital_r(init_chi.registrar, m_chi.registrar, post_chi(init_chi.registrar).registrar);
                 res.state.chi.get().registrar != new_r)
-            res.state.chi.get_mutable().registrar = new_r;
+            res.state.chi.update().registrar = new_r;
         // a'
-        for (size_t ci = 0; ci < init_chi->assign.size(); ++ci) {
-            if (const auto new_a = accumulate_capital_r(init_chi->assign[ci], m_chi.assign[ci], post_chi(init_chi->assign[ci]).assign[ci]);
+        for (size_t ci = 0; ci < init_chi.assign.size(); ++ci) {
+            if (const auto new_a = accumulate_capital_r(init_chi.assign[ci], m_chi.assign[ci], post_chi(init_chi.assign[ci]).assign[ci]);
                     res.state.chi.get().assign[ci] != new_a)
-                res.state.chi.get_mutable().assign[ci] = new_a;
+                res.state.chi.update().assign[ci] = new_a;
         }
         // i' — designate service controls iota
-        if (const auto d_it = service_res.find(init_chi->designate); d_it != service_res.end())
+        if (const auto d_it = service_res.find(init_chi.designate); d_it != service_res.end())
             if (d_it->second.state.iota)
                 res.state.iota = std::move(d_it->second.state.iota);
         // q' — per-core assigner services control auth queues
-        for (size_t ci = 0; ci < init_chi->assign.size(); ++ci)
-            if (const auto a_it = service_res.find(init_chi->assign[ci]); a_it != service_res.end())
+        for (size_t ci = 0; ci < init_chi.assign.size(); ++ci)
+            if (const auto a_it = service_res.find(init_chi.assign[ci]); a_it != service_res.end())
                 if (const auto phi_it = a_it->second.state.phi.find(ci); phi_it != a_it->second.state.phi.end())
                     res.state.phi[ci] = std::move(phi_it->second);
 
@@ -752,8 +759,7 @@ namespace turbo::jam {
 
         // (12.23)
         plus_res.state.services.commit();
-        if (plus_res.state.chi.updated())
-            plus_res.state.chi.commit(res.chi);
+        res.chi = plus_res.state.chi.consume();
         if (plus_res.state.iota)
             res.iota = std::move(plus_res.state.iota);
         res.phi = std::move(plus_res.state.phi);

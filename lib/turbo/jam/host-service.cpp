@@ -606,21 +606,21 @@ namespace turbo::jam {
         const auto o = phi[11];
         const auto n = phi[12];
 
-        auto new_chi = std::make_shared<privileges_t<CFG>>();
+        privileges_t<CFG> new_chi{};
 
         const auto a_bytes = this->_p.m.mem_read(a, 4 * CFG::C_core_count);
-        new_chi->assign = jam::from_bytes<assigners_t<CFG>>(a_bytes);
+        new_chi.assign = jam::from_bytes<assigners_t<CFG>>(a_bytes);
 
         {
             if (n >= std::numeric_limits<decltype(n)>::max() / 12U) [[unlikely]]
                 throw machine::exit_page_fault_t{std::numeric_limits<machine::address_val_t>::max()};
             const auto bytes = this->_p.m.mem_read(o, n * 12U);
             decoder dec{bytes};
-            new_chi->always_acc.reserve(n);
+            new_chi.always_acc.reserve(n);
             for (size_t i = 0; i < n; ++i) {
                 const auto s = dec.uint_fixed<service_id_t>(4);
                 const gas_t g { dec.uint_fixed<gas_t::base_type>(8) };
-                new_chi->always_acc.emplace_hint(new_chi->always_acc.end(), s, g);
+                new_chi.always_acc.emplace_hint(new_chi.always_acc.end(), s, g);
             }
         }
 
@@ -628,9 +628,9 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
-        new_chi->bless = static_cast<service_id_t>(m);
-        new_chi->designate = static_cast<service_id_t>(v);
-        new_chi->registrar = static_cast<service_id_t>(r);
+        new_chi.bless = static_cast<service_id_t>(m);
+        new_chi.designate = static_cast<service_id_t>(v);
+        new_chi.registrar = static_cast<service_id_t>(r);
         _ok.state.chi.set(std::move(new_chi));
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
@@ -649,7 +649,7 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::core);
             return;
         }
-        if (this->_p.service_id != _ok.state.chi->assign[c]) [[unlikely]] {
+        if (this->_p.service_id != _ok.state.chi.get().assign[c]) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
@@ -658,7 +658,7 @@ namespace turbo::jam {
             return;
         }
         _ok.state.phi[c] = q;
-        _ok.state.chi.get_mutable().assign[c] = a;
+        _ok.state.chi.update().assign[c] = a;
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 
@@ -670,7 +670,7 @@ namespace turbo::jam {
         const auto o = phi[7];
         static_assert(sizeof(validator_data_t) == 336U);
         const auto bytes = this->_p.m.mem_read(o, sizeof(validator_data_t) * CFG::V_validator_count);
-        if (this->_p.service_id != _ok.state.chi->designate) [[unlikely]] {
+        if (this->_p.service_id != _ok.state.chi.get().designate) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
@@ -714,7 +714,7 @@ namespace turbo::jam {
         };
         a.balance = a.threshold();
 
-        if  (f != 0 && this->_p.service_id != _ok.state.chi->bless) [[unlikely]] {
+        if  (f != 0 && this->_p.service_id != _ok.state.chi.get().bless) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
@@ -727,7 +727,7 @@ namespace turbo::jam {
         }
         info.balance -= a.balance;
         auto created_id = _ok.new_service_id;
-        if (this->_p.service_id == _ok.state.chi->registrar && i < CFG::S_min_public_service_index) {
+        if (this->_p.service_id == _ok.state.chi.get().registrar && i < CFG::S_min_public_service_index) {
             if (this->_p.services.info_get(i)) [[unlikely]] {
                 this->_p.m.set_reg(7, machine::host_call_res_t::full);
                 return;
