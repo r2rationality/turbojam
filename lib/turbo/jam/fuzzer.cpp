@@ -17,8 +17,9 @@ namespace turbo::jam::fuzzer {
             jam::from_bytes<typename decltype(state_t<CFG>::eta)::element_type>(eta_raw),
             jam::from_bytes<typename decltype(state_t<CFG>::gamma)::element_type>(gamma_raw).p
         );
-        const auto hdr_hash = hdr.hash();
-        return {std::move(hdr), snap, {{0, hdr_hash}}};
+        ancestry_t<CFG> ancestry;
+        ancestry.add(0U, hdr.hash());
+        return {std::move(hdr), snap, std::move(ancestry)};
     }
 
     template struct initialize_t<config_prod>;

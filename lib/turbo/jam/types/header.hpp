@@ -5,7 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <ark-vrf.hpp>
-#include <numeric>
+#include <boost/circular_buffer.hpp>
 #include <turbo/storage/update.hpp>
 #include "common.hpp"
 
@@ -17,8 +17,7 @@ namespace turbo::jam {
         std::optional<state_root_t> state_root{};
         std::optional<storage::update::undo_list_t> undo{};
 
-        void serialize(auto &archive)
-        {
+        void serialize(auto &archive) {
             using namespace std::string_view_literals;
             archive.process("slot"sv, slot);
             archive.process("header_hash"sv, header_hash);
@@ -30,62 +29,56 @@ namespace turbo::jam {
     };
 
     template<typename CFG>
-    struct ancestry_t: sequence_t<ancestry_item_t<CFG>> {
+    struct ancestry_t {
         using item_t = ancestry_item_t<CFG>;
-        using iterator = std::vector<item_t>::iterator;
-        using const_iterator = std::vector<item_t>::const_iterator;
+        using value_type = item_t;
+        using storage_t = boost::circular_buffer<item_t>;
+        using const_iterator = typename storage_t::const_iterator;
+        using range_t = std::ranges::subrange<const_iterator>;
+        static constexpr size_t min_size = 0;
+        static constexpr size_t max_size = CFG::L_max_lookup_anchor_age;
+        static constexpr size_t max_undo_history = CFG::H_max_blocks_history * 4U;
+        static_assert(max_size > 0 && max_undo_history > 0, "mac_size and max_undo_history must be greater than zero");
 
-        ancestry_t() = default;
-        ancestry_t(std::initializer_list<item_t> init): _data{std::move(init)} {}
+        const_iterator begin() const { return _data.begin(); }
+        const_iterator end() const { return _data.end(); }
 
-        const_iterator begin() const { return _data.begin() + _start; }
-        const_iterator end()   const { return _data.end(); }
-        iterator       begin()       { return _data.begin() + _start; }
-        iterator       end()         { return _data.end(); }
+        [[nodiscard]] bool empty() const { return size() == 0; }
+        [[nodiscard]] size_t size() const { return _data.size(); }
+        [[nodiscard]] range_t view() const { return {begin(), end()}; }
 
-        bool   empty() const { return size() == 0; }
-        size_t size()  const { return _data.size() - _start; }
-        const item_t &back()  const { return _data.back(); }
+        void clear() { _data.clear(); }
 
-        void add(const time_slot_t<CFG> &slot, const header_hash_t &hash,
-                 std::optional<state_root_t> sr={}, std::optional<storage::update::undo_list_t> undo={})
-        {
-            // a duplicate check for monotonicity to ensure even initialized data comes in sorted to make binary search work
-            // 0 is a special case that is used in testing only
-            // to add blocks to the ancestry from beta state element when doing direct state initialization
-            if (!this->empty() && this->back().slot >= slot && (this->back().slot == 0U && slot != 0U)) [[unlikely]]
-                throw error(fmt::format("out of order ancestry block: {} comes after {}", slot, this->back().slot));
-            _data.emplace_back(slot, hash, std::move(sr), std::move(undo));
-            if (size() > MAX_ANCESTRY) {
-                ++_start;
-                // compact when dead prefix grows large, amortized O(1)
-                if (_start > MAX_ANCESTRY) {
-                    _data.erase(_data.begin(), _data.begin() + _start);
-                    _start = 0;
-                }
-            }
+        // Necessary for compatibility with serialization codecs that expect a vector like API
+        void emplace_back(item_t item) {
+            codec::check_bounds<ancestry_t>(size() + 1);
+            _add(std::move(item));
         }
 
-        void erase(const_iterator first, const_iterator last) { _data.erase(first, last); }
+        void truncate(const size_t retained) {
+            if (retained > size()) [[unlikely]]
+                throw error("ancestry truncation exceeds its size");
+            _data.erase_end(size() - retained);
+        }
 
-        void add(const header_hash_t &blk_hash, const state_root_t &state_root)
-        {
-            const auto sum = std::accumulate(state_root.begin(), state_root.end(), uint64_t{0}, [](const auto &a, const auto &b) {return a + b;});
-            if (sum != 0)
-                add(0U, blk_hash, state_root);
-            else
-                add(0U, blk_hash);
+        bool operator==(const ancestry_t &other) const {
+            return std::ranges::equal(view(), other.view());
+        }
+
+        void add(const time_slot_t<CFG> &slot, const header_hash_t &hash,
+                 std::optional<state_root_t> sr={}, std::optional<storage::update::undo_list_t> undo={}) {
+            _add(item_t{slot, hash, std::move(sr), std::move(undo)});
+        }
+
+        // Snapshot history has no slots; an all-zero root means genesis state.
+        void add(const header_hash_t &blk_hash, const state_root_t &state_root) {
+            static const state_root_t null_root{};
+            add(0U, blk_hash, state_root != null_root ? std::optional{state_root} : std::nullopt);
         }
 
         const_iterator known(const header_hash_t &parent_hash, const state_root_t &parent_state_root) const {
             const auto parent_it = std::find_if(this->begin(), this->end(), [&](const auto &a) {
-                if (a.header_hash != parent_hash)
-                    return false;
-                if (a.state_root) {
-                    if (a.state_root.value() != parent_state_root)
-                        return false;
-                }
-                return true;
+                return a.header_hash == parent_hash && (!a.state_root || *a.state_root == parent_state_root);
             });
             if (parent_it == this->end()) [[unlikely]] {
                 throw err_unknown_parent_t{};
@@ -93,13 +86,17 @@ namespace turbo::jam {
             return std::next(parent_it);
         }
     private:
-        std::vector<item_t> _data{};
-        size_t _start = 0;
-        static constexpr size_t MAX_ANCESTRY = CFG::H_max_blocks_history * 4U;
+        storage_t _data{max_size};
+
+        void _add(item_t item) {
+            _data.push_back(std::move(item));
+            if (_data.size() > max_undo_history)
+                _data[_data.size() - max_undo_history - 1].undo.reset();
+        }
     };
 
     template<typename CFG>
-    using ancestry_span_t = std::span<const ancestry_item_t<CFG>>;
+    using ancestry_range_t = typename ancestry_t<CFG>::range_t;
 
     // JAM (4.3)
     template<typename CFG>

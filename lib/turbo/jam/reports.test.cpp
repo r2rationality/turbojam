@@ -238,7 +238,7 @@ namespace turbo_jam_reports_test {
                             new_st.kappa, new_st.lambda,
                             {}, {},
                             prev_rho_packages, new_st.alpha,
-                            delta, ancestry,
+                            delta, ancestry.view(),
                             tc.in.slot, tc.in.guarantees
                         )
                     );

@@ -73,9 +73,10 @@ namespace turbo::jam {
                     _state->accept();
                 } else {
                     const auto new_ancestry_end = _ancestry.known(blk.header.parent, blk.header.parent_state_root);
+                    const ancestry_range_t<CFG> retained_ancestry{_ancestry.begin(), new_ancestry_end};
                     size_t undo_fork_point = 0;
                     if (new_ancestry_end != _ancestry.end()) {
-                        for (auto &ancestor: std::views::reverse(std::span{new_ancestry_end, _ancestry.end()})) {
+                        for (const auto &ancestor: std::views::reverse(ancestry_range_t<CFG>{new_ancestry_end, _ancestry.end()})) {
                             if (!ancestor.undo) [[unlikely]]
                                 throw error(fmt::format("can't rollback block {} due to missing undo record", ancestor.header_hash));
                             // Preserve the undo record if applying it fails.
@@ -90,13 +91,13 @@ namespace turbo::jam {
                         if (local_state_root != blk.header.parent_state_root) [[unlikely]]
                             throw err_bad_state_root_t{};
                     }
-                    _state->apply(blk, std::span{_ancestry.begin(), new_ancestry_end});
+                    _state->apply(blk, retained_ancestry);
                     _state->stage();
                     undo = _triedb->commit();
                     _state->accept();
                     if (undo_fork_point > 0)
                         undo->erase(undo->begin(), undo->begin() + static_cast<std::ptrdiff_t>(undo_fork_point));
-                    _ancestry.erase(new_ancestry_end, _ancestry.end());
+                    _ancestry.truncate(retained_ancestry.size());
                 }
                 _ancestry.add(blk.header.slot, blk_hash, state_root(), std::move(undo));
             } catch (...) {

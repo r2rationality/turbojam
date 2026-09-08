@@ -950,7 +950,7 @@ namespace turbo::jam {
         const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
         const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
         const std::vector<work_package_hash_t> &prev_rho_packages, const auth_pools_t<CFG> &prev_alpha,
-        const accounts_t<CFG> &prev_delta, const ancestry_span_t<CFG> &ancestry,
+        const accounts_t<CFG> &prev_delta, ancestry_range_t<CFG> ancestry,
         const time_slot_t<CFG> &blk_slot, const guarantees_extrinsic_t<CFG> &guarantees)
     {
         reports_output_data_t res{};
@@ -1314,7 +1314,7 @@ namespace turbo::jam {
 
     // JAM (4.1): Kapital upsilon
     template<typename CFG>
-    void state_t<CFG>::apply(const block_t<CFG> &blk, const ancestry_span_t<CFG> &ancestry)
+    void state_t<CFG>::apply(const block_t<CFG> &blk, ancestry_range_t<CFG> ancestry)
     {
         const timer t_apply{"state_t::apply", logger::level::debug};
         try {

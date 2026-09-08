@@ -949,7 +949,7 @@ namespace turbo::jam {
         void reset_cache() noexcept;
 
         // (4.1): Kapital upsilon
-        void apply(const block_t<CFG> &, const ancestry_span_t<CFG> &);
+        void apply(const block_t<CFG> &, ancestry_range_t<CFG>);
 
         // Static transition functions expose all state dependencies as parameters.
         // (4.5)
@@ -1010,7 +1010,7 @@ namespace turbo::jam {
             const ready_queue_t<CFG> &prev_omega, const accumulated_queue_t<CFG> &prev_ksi,
             const std::vector<work_package_hash_t> &prev_rho_packages, const auth_pools_t<CFG> &prev_alpha,
             const accounts_t<CFG> &prev_delta,
-            const ancestry_span_t<CFG> &ancestry,
+            ancestry_range_t<CFG> ancestry,
             const time_slot_t<CFG> &slot, const guarantees_extrinsic_t<CFG> &guarantees);
 
         static work_reports_t<CFG> rho_dagger_2(
