@@ -131,7 +131,7 @@ suite turbo_jam_ancestry_suite = [] {
         "JSON decoding"_test = [] {
             boost::json::array items{};
             for (uint32_t slot: {2U, 3U})
-                items.emplace_back(boost::json::object{{"slot", slot}, {"header_hash", std::string(64, '0')}});
+                items.emplace_back(boost::json::object{{"slot", slot}, {"header_hash", "0x" + std::string(64, '0')}});
             ancestors_t ancestors{};
             append(ancestors, 99); // must be replaced by the decode operation
             codec::json::decoder::decode(items, ancestors);
