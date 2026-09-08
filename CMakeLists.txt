@@ -137,15 +137,15 @@ add_subdirectory(3rdparty)
 add_subdirectory(lib)
 target_link_libraries(lib PUBLIC 3rdparty)
 
-file(GLOB_RECURSE TEST_SRCS lib/*.test.cpp)
+file(GLOB_RECURSE TEST_SRCS CONFIGURE_DEPENDS lib/*.test.cpp)
 add_executable(tjam-test src/run-test.cpp ${TEST_SRCS})
 target_link_libraries(tjam-test PRIVATE lib 3rdparty)
 
-file(GLOB_RECURSE BENCH_SRCS lib/*.bench.cpp)
+file(GLOB_RECURSE BENCH_SRCS CONFIGURE_DEPENDS lib/*.bench.cpp)
 add_executable(tjam-bench src/run-test.cpp ${BENCH_SRCS})
 target_link_libraries(tjam-bench PRIVATE lib 3rdparty nanobench)
 
-file(GLOB_RECURSE EXE_SRCS src/*.cpp)
+file(GLOB_RECURSE EXE_SRCS CONFIGURE_DEPENDS src/*.cpp)
 list(FILTER EXE_SRCS EXCLUDE REGEX "run-test\\.cpp$")
 foreach(EXE_SRC ${EXE_SRCS})
     cmake_path(GET EXE_SRC STEM EXE_BIN)
