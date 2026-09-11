@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <ark-vrf.hpp>
 #include <boost/container/static_vector.hpp>
+#include <iterator>
 #include <limits>
 #include <numeric>
 #include <ranges>
@@ -313,46 +314,43 @@ namespace turbo::jam {
         return {_guarantor_assignments(e, base_slot), capital_phi(k, psi)};
     }
 
-    // JAM (12.7) - E: remove packages and update dependencies
     template<typename CFG>
     static void accumulate_edit_queue(ready_queue_item_t<CFG> &queue, const set_t<work_package_hash_t> &known_reports)
     {
-        for (auto q_it = queue.begin(); q_it != queue.end();) {
-            if (!known_reports.contains(q_it->report.package_spec.hash)) {
-                for (auto d_it = q_it->dependencies.begin(); d_it != q_it->dependencies.end();) {
-                    if (known_reports.contains(*d_it)) {
-                        d_it = q_it->dependencies.erase(d_it);
-                    } else {
-                        ++d_it;
-                    }
-                }
-                ++q_it;
-            } else {
-                q_it = queue.erase(q_it);
+        if (!known_reports.empty()) {
+            auto out = queue.begin();
+            for (auto it = queue.begin(); it != queue.end(); ++it) {
+                if (known_reports.contains(it->report.package_spec.hash))
+                    continue;
+                const auto removed = std::ranges::remove_if(it->dependencies, [&](const auto &hash) {
+                    return known_reports.contains(hash);
+                });
+                it->dependencies.erase(removed.begin(), removed.end());
+                if (out != it)
+                    *out = std::move(*it);
+                ++out;
             }
+            queue.erase(out, queue.end());
         }
     }
 
     template<typename CFG>
-    static work_reports_t<CFG> accumulate_queue_ready(const ready_queue_item_t<CFG> &queue)
+    static work_reports_t<CFG> accumulate_queue_ready(ready_queue_item_t<CFG> &queue)
     {
-        sequence_t<work_report_t<CFG>> ready{};
+        work_reports_t<CFG> ready{};
+        ready.reserve(queue.size());
         set_t<work_package_hash_t> ready_hashes{};
-        for (auto &[r, deps]: queue) {
-            if (deps.empty()) {
-                ready.emplace_back(r);
-                ready_hashes.emplace(r.package_spec.hash);
+        while (!queue.empty()) {
+            ready_hashes.clear();
+            for (const auto &[report, dependencies]: queue) {
+                if (dependencies.empty()) {
+                    ready.emplace_back(report);
+                    ready_hashes.emplace(report.package_spec.hash);
+                }
             }
-        }
-        if (!ready.empty()) {
-            ready_queue_item_t<CFG> queue_edited{queue};
-            accumulate_edit_queue(queue_edited, ready_hashes);
-            auto sub_ready = accumulate_queue_ready(queue_edited);
-            if (!sub_ready.empty()) {
-                ready.reserve(ready.size() + sub_ready.size());
-                for (auto &&r: sub_ready)
-                    ready.emplace_back(std::move(r));
-            }
+            if (ready_hashes.empty())
+                break;
+            accumulate_edit_queue(queue, ready_hashes);
         }
         return ready;
     }
@@ -719,6 +717,7 @@ namespace turbo::jam {
             if (r.context.prerequisites.empty() && r.segment_root_lookup.empty()) {
                 accumulatable.emplace_back(r);
             } else {
+                // (12.6) D(r): prerequisites union the work-package keys of the segment-root lookup.
                 report_deps_t deps{};
                 for (const auto &h: r.context.prerequisites)
                     deps.emplace_hint(deps.end(), h);
@@ -736,6 +735,7 @@ namespace turbo::jam {
             for (const auto &r: accumulatable)
                 immediate_hashes.emplace(r.package_spec.hash);
 
+            // (12.12) q = E(omega[m:] ++ omega[:m] ++ RQ, P(R!)); Q may consume this copy.
             ready_queue_item_t<CFG> all_queued{};
             for (size_t i = 0; i < omega.size(); ++i) {
                 const auto wi = (m + i) % omega.size();
