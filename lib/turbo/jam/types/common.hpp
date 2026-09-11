@@ -116,11 +116,14 @@ namespace turbo::jam {
     };
 
     template<size_t SZ>
-    struct bitset_t: byte_array_t<SZ / 8> {
-        using base_type = byte_array_t<SZ / 8>;
+    using bitset_base_t = byte_array_t<(SZ + 7) / 8>;
+
+    template<size_t SZ>
+    struct bitset_t: bitset_base_t<SZ> {
+        using base_type = bitset_base_t<SZ>;
         using base_type::base_type;
 
-        bool test(const size_t pos) const
+        [[nodiscard]] bool test(const size_t pos) const
         {
             if (pos >= SZ) [[unlikely]]
                 throw error(fmt::format("the requested bit index: {} is out of range: [0;{})", pos, SZ));
@@ -721,7 +724,7 @@ namespace turbo::jam {
     template<typename CFG>
     struct avail_assurance_t {
         opaque_hash_t anchor; // a
-        bitset_t<CFG::avail_bitfield_bytes * 8> bitfield; // f
+        bitset_t<CFG::C_core_count> bitfield; // f
         validator_index_t validator_index; // v
         ed25519_signature_t signature; // s
 

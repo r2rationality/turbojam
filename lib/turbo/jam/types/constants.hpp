@@ -88,7 +88,6 @@ namespace turbo::jam {
         static constexpr size_t min_guarantors = validator_factor - 1;
         static constexpr size_t validator_super_majority = V_validator_count * 2 / 3 + 1;
         static constexpr size_t validator_wonky_count = V_validator_count * 1 / 3;
-        static constexpr size_t avail_bitfield_bytes = (C_core_count + 7) / 8;
     };
 
     struct config_tiny: config_prod {

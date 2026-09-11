@@ -372,7 +372,7 @@ namespace turbo::jamnp {
     template<typename CFG>
     struct assurance_t {
         jam::opaque_hash_t anchor;
-        jam::bitset_t<CFG::avail_bitfield_bytes * 8> bitfield;
+        jam::bitset_t<CFG::C_core_count> bitfield;
         jam::ed25519_signature_t signature;
     };
 
