@@ -17,6 +17,7 @@ namespace turbo::jam::shuffle {
         static_assert(std::endian::native == std::endian::little);
         static constexpr size_t uint_sz = sizeof(i);
         static constexpr size_t segment_sz = entropy_size / uint_sz;
+        static_assert(segment_sz == 8, "segment size must be 8");
         byte_array<entropy_size + uint_sz> preimage;
         memcpy(preimage.data(), entropy.data(), entropy.size());
         const uint32_t seg_idx = i / segment_sz;

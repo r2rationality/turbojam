@@ -337,7 +337,7 @@ suite turbo_jam_accumulate_suite = [] {
 
             "malformed code keeps transfer credit without using gas"_test = [] {
                 const deferred_transfers_t<cfg> transfers{
-                    {.source=300, .destination=fixture_t::actor, .amount=50, .gas_limit=0}
+                    {.source=300, .destination=fixture_t::actor, .amount=50, .metadata={}, .gas_limit=0}
                 };
                 for (const auto &code: {
                     uint8_vector{}, // Missing metadata
@@ -367,7 +367,7 @@ suite turbo_jam_accumulate_suite = [] {
                 for (const auto amount: {balance_t{0}, balance_t{50}}) {
                     deferred_transfers_t<cfg> transfers{};
                     if (amount)
-                        transfers.push_back({.source=300, .destination=fixture_t::target, .amount=amount, .gas_limit=0});
+                        transfers.push_back({.source=300, .destination=fixture_t::target, .amount=amount, .metadata={}, .gas_limit=0});
                     auto expected = original;
                     expected.balance += amount;
 
@@ -485,7 +485,7 @@ suite turbo_jam_accumulate_suite = [] {
 
             "recipient keeps transfer credit"_test = [] {
                 const deferred_transfers_t<cfg> transfers{
-                    {.source=300, .destination=fixture_t::actor, .amount=50, .gas_limit=0}
+                    {.source=300, .destination=fixture_t::actor, .amount=50, .metadata={}, .gas_limit=0}
                 };
                 for (const auto outcome: {0, 1, 2}) {
                     accumulate_program_t program{};
@@ -537,7 +537,7 @@ suite turbo_jam_accumulate_suite = [] {
 
                 for (const auto amount: {balance_t{0}, balance_t{50}}) {
                     const deferred_transfers_t<cfg> transfers{{
-                        .source=300, .destination=fixture_t::target, .amount=amount, .gas_limit=0
+                        .source=300, .destination=fixture_t::target, .amount=amount, .metadata={}, .gas_limit=0
                     }};
                     // (12.19): the recipient contributes its own account even with no code and zero credit,
                     // when it stages no writes. That contribution conflicts with the registrar's ejection.
