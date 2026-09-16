@@ -96,8 +96,9 @@ elseif(CMAKE_BUILD_TYPE STREQUAL Coverage)
         add_link_options("-fprofile-instr-generate")
         add_link_options("-fcoverage-mapping")
         add_link_options("-g")
-        find_program(LLVM_PROFDATA NAMES llvm-profdata llvm-profdata-19 llvm-profdata-22 REQUIRED)
-        find_program(LLVM_COV NAMES llvm-cov llvm-cov-19 llvm-cov-22 REQUIRED)
+        string(REGEX MATCH "^[0-9]+" CLANG_MAJOR_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
+        find_program(LLVM_PROFDATA NAMES llvm-profdata-${CLANG_MAJOR_VERSION} llvm-profdata REQUIRED)
+        find_program(LLVM_COV NAMES llvm-cov-${CLANG_MAJOR_VERSION} llvm-cov REQUIRED)
         add_custom_target(coverage
             COMMENT "Running test coverage ..."
             COMMAND $<TARGET_FILE:tjam-test> ${COVERAGE_ARGS}
