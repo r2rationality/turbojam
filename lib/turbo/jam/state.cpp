@@ -287,16 +287,16 @@ namespace turbo::jam {
     state_t<CFG>::guarantor_assignments_t state_t<CFG>::_guarantor_assignments(const entropy_t &e, const time_slot_t<CFG> &slot)
     {
         // (11.19) + (11.20)
-        guarantor_assignments_t in;
-        for (size_t vi = 0; vi < in.size(); ++vi) {
-            in[vi] = CFG::C_core_count * vi / CFG::V_validator_count;
+        guarantor_assignments_t ga;
+        for (size_t vi = 0; vi < ga.size(); ++vi) {
+            ga[vi] = CFG::C_core_count * vi / CFG::V_validator_count;
         }
-        auto res = shuffle::with_entropy(in, e);
+        shuffle::with_entropy_inplace(ga, e);
         const auto shift = slot.epoch_slot() / CFG::R_core_assignment_rotation_period;
-        for (size_t vi = 0; vi < res.size(); ++vi) {
-            res[vi] = (res[vi] + shift) % CFG::C_core_count;
+        for (size_t vi = 0; vi < ga.size(); ++vi) {
+            ga[vi] = (ga[vi] + shift) % CFG::C_core_count;
         }
-        return res;
+        return ga;
     }
 
     template<typename CFG>
