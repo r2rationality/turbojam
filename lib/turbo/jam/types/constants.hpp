@@ -8,7 +8,6 @@
 #include <string_view>
 
 namespace turbo::jam {
-    // Constants that are the same in all configurations
     struct config_base {
         // JAM I.4.5 Signing Contexts
         static constexpr std::string_view jam_entropy{"jam_entropy"};
@@ -22,6 +21,7 @@ namespace turbo::jam {
         static constexpr std::string_view jam_announce{"jam_announce"};
         static constexpr std::string_view jam_beefy{"jam_beefy"};
 
+        // JAM I.4.4 Constants
         static constexpr size_t A_audit_period = 8;
         static constexpr size_t BI_min_balance_per_item = 10;
         static constexpr size_t BL_min_balance_per_octet = 1;
@@ -83,13 +83,14 @@ namespace turbo::jam {
         }
     };
 
-    // JAM paper: I.4.4
+    // Overrides for the production/full config
     struct config_prod: config_base {
         static constexpr size_t min_guarantors = validator_factor - 1;
         static constexpr size_t validator_super_majority = V_validator_count * 2 / 3 + 1;
         static constexpr size_t validator_wonky_count = V_validator_count * 1 / 3;
     };
 
+    // Overrides for the tiny/testing config
     struct config_tiny: config_prod {
         static constexpr size_t C_core_count = 2;
         static constexpr size_t D_preimage_expunge_delay = 32;

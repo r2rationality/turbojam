@@ -175,7 +175,7 @@ namespace {
             [&] {
                 account_updates_t<CFG> acc_updates{new_st.delta};
                 state_t<CFG>::provide_preimages(acc_updates, new_st.pi_services, tc.in.slot, new_st.delta, tc.in.preimages);
-                acc_updates.commit();
+                new_st.delta.consume_from(std::move(acc_updates));
                 out.emplace(ok_t{});
             },
             [&](err_code_t err) {

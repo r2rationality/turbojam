@@ -29,6 +29,32 @@ namespace {
 }
 
 suite turbo_jam_state_suite = [] {
+    "turbo::jam::account_updates"_test = [] {
+        "copies and forks apply only to the explicit destination"_test = [] {
+            for (const bool fork: {false, true}) {
+                accounts_t<config_prod> base{make_db()};
+                base.info_set(1, {});
+                account_updates_t<config_prod> pending{base};
+                pending.info_set(2, {});
+                const auto &source = pending;
+                auto updates = fork ? source.fork() : account_updates_t<config_prod>{source};
+                updates.info_erase(1);
+                updates.info_set(3, {});
+
+                accounts_t<config_prod> destination{make_db()};
+                destination.info_set(1, {});
+                destination.consume_from(std::move(updates));
+
+                expect(!destination.contains(1));
+                expect(destination.contains(2) == !fork); // Only a copy includes the source's pending writes.
+                expect(destination.contains(3));
+                expect(source.contains(1));
+                expect(source.contains(2));
+                expect(!source.contains(3));
+            }
+        };
+    };
+
     "turbo::jam::staged_value"_test = [] {
         "null_db_throws"_test = [] {
             expect(throws([] { staged_slot_t{nullptr, 1U}; }));

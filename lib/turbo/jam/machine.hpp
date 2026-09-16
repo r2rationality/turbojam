@@ -18,8 +18,11 @@ namespace turbo::jam::machine {
     using register_val_t = uint64_t;
     using register_val_signed_t = int64_t;
     using address_val_t = uint32_t;
+    typedef uint8_t register_idx_t;
     // in contrast to GP gas_remaining is unsigned, with gas_consume implementing the set to 0 on overuse
     using gas_remaining_t = gas_t::base_type;
+
+    static constexpr size_t max_skip_len = 24U;
 
     struct memory_chunk_t {
         address_val_t address = 0;
@@ -255,49 +258,49 @@ namespace turbo::jam::machine {
         }
     };
 
-    struct program_t {
+    struct code_t {
         using offset_list_t = std::vector<address_val_t>;
 
         bit_vector_t bitmasks;
-        uint8_vector code;
+        uint8_vector instrs;
         offset_list_t jump_table;
 
-        program_t() =delete;
-        program_t(const program_t &o) =delete;
+        code_t() =delete;
+        code_t(const code_t &o) =delete;
 
-        program_t(bit_vector_t &&b, uint8_vector &&c, offset_list_t &&jt):
+        code_t(bit_vector_t &&b, uint8_vector &&c, offset_list_t &&jt):
             bitmasks{std::move(b)},
-            code{std::move(c)},
+            instrs{std::move(c)},
             jump_table{std::move(jt)}
         {
         }
 
-        program_t(program_t &&o):
+        code_t(code_t &&o):
             bitmasks{std::move(o.bitmasks)},
-            code{std::move(o.code)},
+            instrs{std::move(o.instrs)},
             jump_table{std::move(o.jump_table)}
         {
         }
 
-        static program_t from_bytes(uint8_vector bytes)
+        static code_t from_bytes(uint8_vector bytes)
         {
             decoder dec{bytes};
             const auto jt_sz = dec.uint_varlen();
             const auto jt_offset_sz = dec.uint_fixed<uint8_t>(1);
-            const auto code_sz = dec.uint_varlen();
+            const auto instrs_size = dec.uint_varlen();
             offset_list_t jt{};
             jt.reserve(jt_sz);
             while (jt.size() < jt_sz) {
                 jt.emplace_back(dec.uint_fixed<address_val_t>(jt_offset_sz));
             }
-            const auto code_offset = numeric_cast<size_t>(dec.consumed());
-            (void)dec.next_bytes(code_sz);
-            bit_vector_t bitmasks{dec.next_bytes((code_sz + 7) / 8), code_sz};
+            const auto instrs_offset = numeric_cast<size_t>(dec.consumed());
+            (void)dec.next_bytes(instrs_size);
+            bit_vector_t bitmasks{dec.next_bytes((instrs_size + 7) / 8), instrs_size};
             if (!dec.empty()) [[unlikely]]
-                throw error("failed to decode all bytes of the program blob");
+                throw error("failed to decode all bytes of the code blob");
             // reuse the pre-allocated buffer for better performance
-            bytes.erase(bytes.begin(), bytes.begin() + code_offset);
-            bytes.resize(code_sz);
+            bytes.erase(bytes.begin(), bytes.begin() + instrs_offset);
+            bytes.resize(instrs_size);
             return {
                 std::move(bitmasks),
                 std::move(bytes),
@@ -323,7 +326,7 @@ namespace turbo::jam::machine {
         machine_t() =delete;
         machine_t(const machine_t &o) =delete;
         machine_t(machine_t &&o);
-        machine_t(program_t &&program, const state_t &init, const pages_t &page_map);
+        machine_t(code_t &&code, const state_t &init, const pages_t &page_map);
         ~machine_t();
         result_t run();
         void consume_gas(gas_t gas);
@@ -400,12 +403,13 @@ namespace turbo::jam::machine {
         invocation_result_base_t result;
     };
 
-    extern std::optional<machine_t> configure(buffer blob, address_val_t pc, gas_t gas, buffer args);
+    extern std::optional<machine_t> configure(buffer blob, address_val_t pc, gas_t gas, buffer args,
+        size_t max_code_size=std::numeric_limits<size_t>::max());
 
     template<typename HostInit, typename HostFn>
-    invocation_t invoke(buffer blob, address_val_t pc, gas_t gas, buffer args, HostInit &&host_init, HostFn &&host_fn)
+    invocation_t invoke(const buffer blob, const address_val_t pc, const gas_t gas, const buffer args, HostInit &&host_init, HostFn &&host_fn, const size_t max_code_size)
     {
-        auto m = configure(blob, pc, gas, args);
+        auto m = configure(blob, pc, gas, args, max_code_size);
         if (!m) [[unlikely]]
             return { 0, exit_panic_t {} };
         host_init(*m);

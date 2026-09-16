@@ -129,7 +129,7 @@ namespace turbo::jam {
         std::unique_ptr<machine::machine_t> new_machine{};
         try {
             new_machine = std::make_unique<machine::machine_t>(
-                machine::program_t::from_bytes(std::move(p)),
+                machine::code_t::from_bytes(std::move(p)),
                 machine::state_t{
                     .pc=numeric_cast<machine::address_val_t>(i)
                 },
@@ -728,7 +728,8 @@ namespace turbo::jam {
         info.balance -= a.balance;
         auto created_id = _ok.new_service_id;
         if (this->_p.service_id == _ok.state.chi.get().registrar && i < CFG::S_min_public_service_index) {
-            if (this->_p.services.info_get(i)) [[unlikely]] {
+            // The registrar's requested ID is checked against the current invocation state.
+            if (this->_p.services.contains(i)) [[unlikely]] {
                 this->_p.m.set_reg(7, machine::host_call_res_t::full);
                 return;
             }
@@ -814,7 +815,7 @@ namespace turbo::jam {
         auto d_info = this->_p.services.info_get(d);
         opaque_hash_t exp_code_hash{};
         memcpy(exp_code_hash.data(), &this->_p.service_id, sizeof(this->_p.service_id));
-        if (!d_info || d_info->code_hash != exp_code_hash) [[unlikely]] {
+        if (d == this->_p.service_id || !d_info || d_info->code_hash != exp_code_hash) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }

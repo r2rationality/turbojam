@@ -73,6 +73,11 @@ namespace turbo::storage::update {
             return _base_db->get(k);
         }
 
+        // Query the immediate parent, including any updates staged in that parent.
+        [[nodiscard]] bool base_contains(const buffer key) const {
+            return _base_db->get(key).has_value();
+        }
+
         void set(buffer key, buffer val) override {
             _set(key, val);
         }

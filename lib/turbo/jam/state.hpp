@@ -1,18 +1,21 @@
 #pragma once
-/* This file is part of TurboJam project: https://github.com/r2rationality/turbojam/
- * Copyright (c) 2025-2026 R2 Rationality OÜ (info at r2rationality dot com)
- * This code is distributed under the license specified in:
+/* This file is part of TurboJam project:
+ * https://github.com/r2rationality/turbojam/ Copyright (c) 2025-2026 R2
+ * Rationality OÜ (info at r2rationality dot com) This code is distributed under
+ * the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include "turbo/common/mutex.hpp"
+
+#include "types/header.hpp"
+#include "types/state-dict.hpp"
+#include "types/tracked-cow-value.hpp"
 #include <limits>
 #include <memory>
 #include <optional>
-#include <vector>
-#include <turbo/storage/update.hpp>
 #include <turbo/storage/memory.hpp>
-#include "types/header.hpp"
-#include "types/tracked-cow-value.hpp"
-#include "types/state-dict.hpp"
+#include <turbo/storage/update.hpp>
+#include <vector>
 
 namespace turbo::jam {
     template<typename T>
@@ -258,9 +261,17 @@ namespace turbo::jam {
         {
         }
 
+        // Apply pending writes to this explicit destination and clear them from the source.
+        void consume_from(account_updates_t<CFG> &&o);
+
         std::optional<service_info_t<CFG>> info_get(const service_id_t id) const
         {
             return _get_coded<service_info_t<CFG>>(_info_key(id));
+        }
+
+        [[nodiscard]] bool contains(const service_id_t id) const
+        {
+            return _db->get(_info_key(id)).has_value();
         }
 
         service_info_t<CFG> info_get_or_throw(const service_id_t id) const
@@ -517,9 +528,9 @@ namespace turbo::jam {
         {
         }
 
-        // Layer speculative writes over the source's pending view.
-        account_updates_t(const account_updates_t &o) noexcept:
-            accounts_t<CFG>{std::make_shared<storage::update::db_t>(o._db)}
+        // Snapshot the source's pending writes while sharing its base database.
+        account_updates_t(const account_updates_t &o):
+            accounts_t<CFG>{std::make_shared<storage::update::db_t>(o._updatedb())}
         {
         }
 
@@ -534,11 +545,21 @@ namespace turbo::jam {
             return *this;
         }
 
-        // Replace this overlay with an independent snapshot of the source.
+        // Copy pending writes while retaining the source's shared base database.
         account_updates_t &operator=(const account_updates_t<CFG> &o)
         {
             this->_db = std::make_shared<storage::update::db_t>(o._updatedb());
             return *this;
+        }
+
+        [[nodiscard]] account_updates_t fork() const
+        {
+            return account_updates_t{static_cast<const accounts_t<CFG> &>(*this)};
+        }
+
+        [[nodiscard]] bool base_contains(const service_id_t id) const
+        {
+            return _updatedb().base_contains(this->_info_key(id));
         }
 
         void consume_from(account_updates_t &&o)
@@ -546,13 +567,26 @@ namespace turbo::jam {
             _updatedb().consume_from(std::move(o._updatedb()));
         }
 
-        // Merge this overlay into its base database. Durability remains the
-        // responsibility of the outer database transaction.
-        void commit()
+        void consume_from(account_updates_t &&o, auto &&include_service)
         {
-            _updatedb().commit();
+            auto &dst = _updatedb();
+            auto &src = o._updatedb();
+            // Filter pending writes only, including info, storage, preimages, and lookup history.
+            for (const auto &[key, value]: src.updates()) {
+                const bool include = std::visit([&](const auto &info) -> bool {
+                    if constexpr (requires { info.service_id; })
+                        return include_service(info.service_id);
+                    else
+                        throw error("non-account key in account updates");
+                }, state_dict_t::key_info(key));
+                if (include)
+                    dst.apply(key, value);
+            }
+            src.reset();
         }
     private:
+        friend struct accounts_t<CFG>;
+
         storage::update::db_t &_updatedb()
         {
             return const_cast<storage::update::db_t &>(const_cast<const account_updates_t *>(this)->_updatedb());
@@ -563,6 +597,21 @@ namespace turbo::jam {
             return dynamic_cast<const storage::update::db_t &>(*this->_db);
         }
     };
+
+    template<typename CFG>
+    void accounts_t<CFG>::consume_from(account_updates_t<CFG> &&o)
+    {
+        auto &src = o._updatedb();
+        for (const auto &[key, value]: src.updates()) {
+            if (_db->get(key) != value) {
+                if (value)
+                    _db->set(key, *value);
+                else
+                    _db->erase(key);
+            }
+        }
+        src.reset();
+    }
 
     // Delta spans many trie entries, so stage it through an update overlay
     // rather than encoding it as one staged_value_t.
@@ -575,6 +624,12 @@ namespace turbo::jam {
         {
         }
 
+        [[nodiscard]] const accounts_t<CFG> &unmodified() const {
+            if (_updates) [[unlikely]]
+                throw error("access to unmodified staged accounts is impossible after an update!");
+            return *this;
+        }
+
         [[nodiscard]] account_updates_t<CFG> &update()
         {
             if (_updates) [[unlikely]]
@@ -585,7 +640,7 @@ namespace turbo::jam {
         void stage()
         {
             if (_updates)
-                _updates->commit();
+                this->consume_from(std::move(*_updates));
         }
 
         void accept() noexcept
@@ -637,11 +692,10 @@ namespace turbo::jam {
             return mutable_state_t{*this, chi_base.fork()};
         }
 
-        void consume_from(mutable_state_t &&o);
         void consume_provisions(const time_slot_t<CFG> &tau_prime, service_provisions_t &&provisions);
     private:
         mutable_state_t(const mutable_state_t &o, chi_value_t forked_chi):
-            services{o.services},
+            services{o.services.fork()},
             iota{o.iota},
             phi{o.phi},
             chi{std::move(forked_chi)}
@@ -683,9 +737,11 @@ namespace turbo::jam {
         deferred_transfers_t<CFG> transfers{}; // bold t
         optional_t<opaque_hash_t> result{}; // y
         service_provisions_t provisions{}; // p
-        set_t<service_id_t> new_ids{}; // ids of newly-created services for the delayed uniqueness check
-        set_t<service_id_t> ejected_ids{}; // ids of services ejected by this accumulation (spec: set m)
+        // Successful host-call targets; final contributions are derived after context selection.
+        set_t<service_id_t> new_ids{};
+        set_t<service_id_t> ejected_ids{};
 
+        // st.services must be a fresh overlay over the invocation's initial accounts.
         accumulate_context_t(const service_id_t s, const entropy_t &eta0, const time_slot_t<CFG> &blk_slot, mutable_state_t<CFG> &&st):
             service_id{s},
             state{std::move(st)}
@@ -706,9 +762,10 @@ namespace turbo::jam {
 
         [[nodiscard]] service_id_t check(service_id_t i) const
         {
+            // eq:newserviceindex: generated IDs are checked against the invocation's initial accounts.
             // Due to the limited size of RAM the number of services will always be less than 2^32 - 1
             // Thus, this loop will terminate in all cases.
-            while (state.services.info_get(i)) {
+            while (state.services.base_contains(i)) {
                 i = gen_new_service_id(i - CFG::S_min_public_service_index + 1U);
             }
             return i;
@@ -775,9 +832,20 @@ namespace turbo::jam {
         service_provisions_t provisions{}; // p
         set_t<service_id_t> new_ids{};
         set_t<service_id_t> ejected_ids{};
+        set_t<service_id_t> updated_foreign_ids{};
+
+        accumulate_result_t(accumulate_context_t<CFG> &&ctx, gas_t gas_used);
     };
+
     template<typename CFG>
-    using service_results_t = std::map<service_id_t, accumulate_result_t<CFG>>;
+    using service_results_par_t = sequence_t<std::optional<accumulate_result_t<CFG>>>;
+
+    template<typename CFG>
+    using service_result_map_t = std::map<service_id_t, accumulate_result_t<CFG>>;
+
+    struct err_accumulate_conflict_t final: error_t {
+        explicit err_accumulate_conflict_t(): error_t{*this} {}
+    };
 
     // JAM (12.15): B
     struct service_commitment_item_t {
@@ -798,8 +866,8 @@ namespace turbo::jam {
             return hash < o.hash;
         }
     };
-    struct service_commitments_t: sequence_t<service_commitment_item_t> {
-        using base_type = sequence_t<service_commitment_item_t>;
+    struct service_commitments_t: set_t<service_commitment_item_t> {
+        using base_type = set_t<service_commitment_item_t>;
         using base_type::base_type;
 
         [[nodiscard]] accumulate_root_t root() const {
@@ -829,6 +897,7 @@ namespace turbo::jam {
         service_commitments_t commitments{}; // b
         services_gas_used_t gas_used{}; // u
 
+        // Consume each invocation once, in ascending service-ID order, after conflict validation.
         void consume_from(service_id_t service_id, accumulate_result_t<CFG> &&o);
     };
 
@@ -845,11 +914,11 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct accumulate_output_t {
+        account_updates_t<CFG> delta;
         auth_queue_updates_t<CFG> phi{};
         std::shared_ptr<validators_data_t<CFG>> iota{};
         std::shared_ptr<privileges_t<CFG>> chi{};
         service_commitments_t theta{};
-        accumulate_root_t root{};
     };
 
     template<typename CFG=config_prod>
@@ -1022,9 +1091,8 @@ namespace turbo::jam {
         static void provide_preimages(account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services, const time_slot_t<CFG> &slot, const accounts_t<CFG> &prev_delta, const preimages_extrinsic_t &preimages);
         // JAM (4.16)
         static accumulate_output_t<CFG> accumulate(
-            account_updates_t<CFG> &new_delta, services_statistics_t &new_pi_services,
-            ready_queue_t<CFG> &omega, accumulated_queue_t<CFG> &ksi,
-            const entropy_t &new_eta0,
+            services_statistics_t &new_pi_services, ready_queue_t<CFG> &omega, accumulated_queue_t<CFG> &ksi,
+            const entropy_t &new_eta0, const accounts_t<CFG> &prev_delta,
             const time_slot_t<CFG> &prev_tau, const privileges_t<CFG> &prev_chi,
             const time_slot_t<CFG> &blk_slot, const work_reports_t<CFG> &reports);
 
@@ -1049,6 +1117,8 @@ namespace turbo::jam {
             const byte_sequence_t &r, const sequence_t<segments_t<CFG>> &all_imports, uint16_t export_offset,
             const accounts_t<CFG> &services);
     private:
+        friend struct accumulate_test_access_t;
+
         using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
         struct guarantors_t {
             guarantor_assignments_t guarantors;
@@ -1063,24 +1133,24 @@ namespace turbo::jam {
             const ed25519_keys_set_t &psi_o, const time_slot_t<CFG> &g_slot, const time_slot_t<CFG> &blk_slot);
 
         static delta_plus_result_t<CFG> accumulate_delta_plus(
-            const entropy_t &new_eta0,
+            gas_t gas_limit, std::span<const work_report_t<CFG>> reports,
             const accounts_t<CFG> &prev_delta, const privileges_t<CFG> &prev_chi,
-            const time_slot_t<CFG> &slot, gas_t gas_limit,
-            std::span<const work_report_t<CFG>> reports
+            const time_slot_t<CFG> &slot, const entropy_t &new_eta0
         );
         static delta_star_result_t<CFG> accumulate_delta_star(
             mutable_state_t<CFG> init_state,
-            const entropy_t &new_eta0,
             const time_slot_t<CFG> &slot,
+            const entropy_t &new_eta0,
             const std::span<const work_report_t<CFG>> &reports,
             const deferred_transfers_t<CFG> &transfers,
             const free_services_t *free_services);
         static accumulate_result_t<CFG> accumulate_delta_one(
             mutable_state_t<CFG> state, // e
-            const deferred_transfers_t<CFG> &transfers, // t
-            const std::span<const work_report_t<CFG>> &reports, // r
-            const free_services_t *free_services, // f
+            const time_slot_t<CFG> &slot,
+            const entropy_t &new_eta0,
             const service_id_t service_id, // s
-            const entropy_t &new_eta0, const time_slot_t<CFG> &slot);
+            const std::span<const work_report_t<CFG>> &reports, // r
+            const deferred_transfers_t<CFG> &transfers, // t
+            const free_services_t *free_services); // f
     };
 }

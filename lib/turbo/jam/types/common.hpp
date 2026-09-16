@@ -601,7 +601,7 @@ namespace turbo::jam {
         // gas_t accumulate_gas; gas_t is variable_length but currently the value is fixed length
         gas_t::base_type accumulate_gas{}; // g
         work_exec_result_t result{}; // l
-        refine_load_t refine_load{};
+        refine_load_t refine_load{}; // holds: u, i, x, z, e
 
         work_digest_t() = default;
 

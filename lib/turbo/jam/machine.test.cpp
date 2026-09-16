@@ -48,7 +48,7 @@ namespace {
         const auto j = json::load(path);
         json::decoder jdec { j };
         const auto tc = codec::from<test_case_t>(jdec);
-        machine::machine_t m { machine::program_t::from_bytes(buffer { tc.program.data(), tc.program.size() }), tc.pre, tc.page_map };
+        machine::machine_t m { machine::code_t::from_bytes(buffer { tc.program.data(), tc.program.size() }), tc.pre, tc.page_map };
         const auto res = m.run();
         expect(tc.status == res) << "status" << path;
         if (tc.page_fault_addr) {

@@ -43,6 +43,23 @@ suite turbo_storage_update_suite = [] {
             expect_equal(value_t{}, db.get("AB"sv));
         };
 
+        "base membership follows the immediate parent across snapshots"_test = [] {
+            const auto parent = std::make_shared<update::db_t>(make_base_db({{"old", "value"}}));
+            parent->erase("old"sv);
+            parent->set("new"sv, "value"sv);
+            update::db_t db{parent};
+            db.set("old"sv, "replacement"sv);
+            db.erase("new"sv);
+
+            auto snapshot = db;
+            for (const auto *view: {&db, &snapshot}) {
+                expect(!view->base_contains("old"sv));
+                expect(view->base_contains("new"sv));
+                expect(view->get("old"sv).has_value());
+                expect(!view->get("new"sv).has_value());
+            }
+        };
+
         "foreach_only_overlay"_test = [] {
             const auto base_db = make_base_db();  // empty base
             update::db_t db{base_db};

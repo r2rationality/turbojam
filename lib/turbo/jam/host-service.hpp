@@ -6,43 +6,11 @@
 
 #include <utility>
 #include <turbo/common/logger.hpp>
+#include "host-call.hpp"
 #include "machine.hpp"
 #include "state.hpp"
 
 namespace turbo::jam {
-    enum class host_call_t: uint8_t {
-        gas = 0,
-        fetch = 1,
-        lookup = 2,
-        read = 3,
-        write = 4,
-        info = 5,
-
-        historical_lookup = 6,
-        export_ = 7,
-        machine = 8,
-        peek = 9,
-        poke = 10,
-        pages = 11,
-        invoke = 12,
-        expunge = 13,
-
-        bless = 14,
-        assign = 15,
-        designate = 16,
-        checkpoint = 17,
-        new_ = 18,
-        upgrade = 19,
-        transfer = 20,
-        eject = 21,
-        query = 22,
-        solicit = 23,
-        forget = 24,
-        yield = 25,
-        provide = 26,
-        log = 100
-    };
-
     template<typename CFG>
     struct fetch_params_t {
         const work_package_t<CFG> *package = nullptr; // GP p
