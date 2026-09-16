@@ -21,6 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mv /tmp/sudoers.tmp /etc/sudoers \
     && rm -rf /var/lib/apt/lists/*
 
+# Backport fmt's shared-string-view fix for Clang 21 consteval checking.
+# Ubuntu 26.04 ships fmt 10.x: https://github.com/fmtlib/fmt/issues/4807
+# Upstream fix: https://github.com/fmtlib/fmt/commit/6797f0c39a4ef13061cbc3bb850c35af7428fdc4
+RUN sed -i 's/parse_format_string<true>(str_, checker(s))/parse_format_string<true>(str_, checker(str_))/' /usr/include/fmt/core.h \
+    && grep -Fq 'parse_format_string<true>(str_, checker(str_))' /usr/include/fmt/core.h
+
 RUN useradd -m -s /bin/bash -d /home/dev -G sudo dev
 USER dev
 WORKDIR /home/dev
