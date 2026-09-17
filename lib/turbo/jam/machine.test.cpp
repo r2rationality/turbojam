@@ -45,9 +45,11 @@ namespace {
 
     void test_program(const std::string &path)
     {
-        const auto j = json::load(path);
-        json::decoder jdec { j };
-        const auto tc = codec::from<test_case_t>(jdec);
+        auto tc = json::load_obj<test_case_t>(path);
+        // Older vectors retain the exit PC; GP 0.7.2 requires zero on halt/panic.
+        if (std::holds_alternative<machine::exit_halt_t>(tc.status) || std::holds_alternative<machine::exit_panic_t>(tc.status)) {
+            tc.post.pc = 0;
+        }
         machine::machine_t m { machine::code_t::from_bytes(buffer { tc.program.data(), tc.program.size() }), tc.pre, tc.page_map };
         const auto res = m.run();
         expect(tc.status == res) << "status" << path;
