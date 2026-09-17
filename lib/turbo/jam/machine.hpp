@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <bit>
 #include <cstdint>
+#include <cstring>
 #include <exception>
+#include <optional>
 #include <type_traits>
 #include <variant>
 #include "types/common.hpp"
@@ -19,7 +21,7 @@ namespace turbo::jam::machine {
     using register_val_signed_t = int64_t;
     using address_val_t = uint32_t;
     typedef uint8_t register_idx_t;
-    // in contrast to GP gas_remaining is unsigned, with gas_consume implementing the set to 0 on overuse
+    // in contrast to GP gas_remaining is unsigned, with gas_consume implementing the set to 0 on overuse and throws an exception
     using gas_remaining_t = gas_t::base_type;
 
     static constexpr size_t max_skip_len = 24U;
@@ -151,36 +153,44 @@ namespace turbo::jam::machine {
             return ((_bytes[pos >> 3U] >> (pos & 7U)) & 0x1U) != 0U;
         }
 
-        [[nodiscard]] size_t count_zeros(const size_t pos, const size_t max_len) const noexcept
+        template<size_t MAX>
+        [[nodiscard]] size_t count_zeros(const size_t pos) const noexcept
         {
-            if (pos >= _num_bits || max_len == 0U) [[unlikely]]
-                return 0U;
+            static_assert(std::endian::native == std::endian::little);
+            static_assert(MAX + 7U <= 32U, "requested bits must fit in one 32-bit window");
+            if (pos >= _num_bits) [[unlikely]]
+                return 0;
+            // The constructor appends three bytes, making this read safe.
+            const auto *ptr = _bytes.data() + (pos >> 3U);
+            uint32_t bits;
+            static_assert(sizeof(bits) == 4U, "uint32_t must take 4 bytes!");
+            memcpy(&bits, ptr, sizeof(bits));
+            const auto shifted = bits >> (pos & 7U);
+            const auto zeros = static_cast<size_t>(std::countr_zero(shifted));
+            return std::min(zeros, std::min(MAX, _num_bits - pos));
+        }
 
-            auto current = pos;
-            auto remaining = std::min(max_len, _num_bits - pos);
-            size_t zeroes = 0U;
-
-            while (remaining != 0U) {
-                const auto byte_pos = current >> 3U;
-                const auto bit_pos = current & 7U;
-                const auto chunk_bits = std::min(remaining, size_t { 32 } - bit_pos);
-                const auto *ptr = _bytes.data() + byte_pos;
-                auto bits = static_cast<uint32_t>(ptr[0])
-                    | (static_cast<uint32_t>(ptr[1]) << 8U)
-                    | (static_cast<uint32_t>(ptr[2]) << 16U)
-                    | (static_cast<uint32_t>(ptr[3]) << 24U);
-                bits >>= bit_pos;
-                const auto mask = chunk_bits == 32U
-                    ? ~uint32_t { 0 }
-                    : (uint32_t { 1 } << chunk_bits) - 1U;
-                const auto chunk = bits & mask;
-                if (chunk != 0U)
-                    return zeroes + static_cast<size_t>(std::countr_zero(chunk));
-                zeroes += chunk_bits;
-                current += chunk_bits;
-                remaining -= chunk_bits;
-            }
-            return zeroes;
+        // Find the nearest set bit strictly before pos, looking back at most MAX bits.
+        template<size_t MAX>
+        [[nodiscard]] std::optional<size_t> previous_set_bit(const size_t pos) const noexcept
+        {
+            static_assert(std::endian::native == std::endian::little);
+            static_assert(MAX > 0 && MAX <= 25, "requested bits must fit in one 32-bit window");
+            const auto begin = pos > MAX ? pos - MAX : 0U;
+            const auto end = std::min(pos, _num_bits);
+            if (begin >= end)
+                return {};
+            const auto length = end - begin;
+            uint32_t bits;
+            static_assert(sizeof(bits) == 4U, "uint32_t must take 4 bytes!");
+            // Three padding bytes make the read safe even near the logical end.
+            std::memcpy(&bits, _bytes.data() + (begin >> 3U), sizeof(bits));
+            // Align bit end - 1 with the MSB, discarding all bits at or after end.
+            bits <<= 32U - ((begin & 7U) + length);
+            const auto zeros = static_cast<size_t>(std::countl_zero(bits));
+            if (zeros >= length)
+                return {};
+            return end - 1U - zeros;
         }
     private:
         size_t _num_bits;
@@ -262,7 +272,7 @@ namespace turbo::jam::machine {
         using offset_list_t = std::vector<address_val_t>;
 
         bit_vector_t bitmasks;
-        uint8_vector instrs;
+        buffer instrs;
         offset_list_t jump_table;
 
         code_t() =delete;
@@ -270,18 +280,20 @@ namespace turbo::jam::machine {
 
         code_t(bit_vector_t &&b, uint8_vector &&c, offset_list_t &&jt):
             bitmasks{std::move(b)},
-            instrs{std::move(c)},
-            jump_table{std::move(jt)}
+            jump_table{std::move(jt)},
+            _raw{std::move(c)}
         {
+            if (bitmasks.size() != _raw.size()) [[unlikely]]
+                throw error(fmt::format("the code bitmask size must match the number of instructions!"));
+            // GP's zero suffix permits operand reads beyond the logical end of code.
+            _raw.insert(_raw.end(), 16U, uint8_t{0});
+            instrs = buffer{_raw.data(), bitmasks.size()};
         }
 
-        code_t(code_t &&o):
-            bitmasks{std::move(o.bitmasks)},
-            instrs{std::move(o.instrs)},
-            jump_table{std::move(o.jump_table)}
-        {
-        }
+        // Moving _raw preserves the allocation referenced by instrs.
+        code_t(code_t &&) =default;
 
+        // (A.2) deblob
         static code_t from_bytes(uint8_vector bytes)
         {
             decoder dec{bytes};
@@ -295,11 +307,12 @@ namespace turbo::jam::machine {
             }
             const auto instrs_offset = numeric_cast<size_t>(dec.consumed());
             (void)dec.next_bytes(instrs_size);
+            // bitmask.size() equals the instrs_size by construction!
             bit_vector_t bitmasks{dec.next_bytes((instrs_size + 7) / 8), instrs_size};
             if (!dec.empty()) [[unlikely]]
                 throw error("failed to decode all bytes of the code blob");
-            // reuse the pre-allocated buffer for better performance
-            bytes.erase(bytes.begin(), bytes.begin() + instrs_offset);
+            // reuse the pre-allocated buffer
+            bytes.erase(bytes.begin(), bytes.begin() + numeric_cast<ptrdiff_t>(instrs_offset));
             bytes.resize(instrs_size);
             return {
                 std::move(bitmasks),
@@ -406,6 +419,7 @@ namespace turbo::jam::machine {
     extern std::optional<machine_t> configure(buffer blob, address_val_t pc, gas_t gas, buffer args,
         size_t max_code_size=std::numeric_limits<size_t>::max());
 
+    // (A.44) - Psi_M
     template<typename HostInit, typename HostFn>
     invocation_t invoke(const buffer blob, const address_val_t pc, const gas_t gas, const buffer args, HostInit &&host_init, HostFn &&host_fn, const size_t max_code_size)
     {

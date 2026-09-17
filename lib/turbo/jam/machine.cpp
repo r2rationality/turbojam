@@ -62,56 +62,15 @@ namespace turbo::jam::machine {
 
         impl(impl &&) = delete;
 
-        // this must be re-entrant as it can be called again after a host call
+        // (A.1) this must be re-entrant as it can be called again after a host call
         result_t run()
         {
-            try {
-                const auto &ops = _opcode_table();
-                const buffer instrs_view = _code.instrs;
-                for (;;) {
-                    const uint8_t opcode = _pc < instrs_view.size() ? instrs_view[_pc] : 0x00U;
-                    const auto len = _skip_len(_pc, _code.bitmasks);
-                    const auto &op = ops[opcode];
-                    if (!consume_gas(1U)) [[unlikely]]
-                        return exit_out_of_gas_t{};
-                    if (len < op.min_len()) [[unlikely]]
-                        throw exit_panic_t{};
-                    const auto data = _pc < instrs_view.size() ? buffer{instrs_view.data() + _pc + 1U, len} : buffer{};
-                    const auto exec = op.exec();
-                    const auto next_pc = _pc + len + 1;
-                    if (!op.block_end()) [[likely]] {
-                        exec(*this, data);
-                        _pc = next_pc;
-                        continue;
-                    }
-                    auto res = exec(*this, data);
-                    switch (res.index()) {
-                        case 0:
-                            _pc = next_pc;
-                            break;
-                        case 1:
-                            _pc = std::get<1>(res);
-                            break;
-                        case 2: {
-                            return std::get<2>(std::move(res));
-                        }
-                        [[unlikely]] default:
-                            throw error(fmt::format("unsupported op_res_t index: {}", res.index()));
-                    }
-                }
-            } catch (exit_halt_t &ex) {
-                //_pc = 0; GP 0.7.2 seem to require that but breaks the existing PVM test cases
-                return {std::move(ex)};
-            } catch (exit_page_fault_t &ex) {
-                return {std::move(ex)};
-            } catch (exit_out_of_gas_t &ex) {
-                return {std::move(ex)};
-            } catch (exit_host_call_t &ex) {
-                return {std::move(ex)};
-            } catch (...) { // exit_panic_t or anything else
-                //_pc = 0; GP 0.7.2 seem to require that but breaks the existing PVM test cases
-                return {exit_panic_t{}};
+            auto res = _run();
+            // GP 0.7.2 requires the PC after halt or panic to be zero.
+            if (std::holds_alternative<exit_halt_t>(res) || std::holds_alternative<exit_panic_t>(res)) {
+                _pc = 0;
             }
+            return res;
         }
 
         void skip_op()
@@ -119,13 +78,14 @@ namespace turbo::jam::machine {
             _pc += _skip_len(_pc, _code.bitmasks) + 1;
         }
 
-        bool consume_gas(const gas_t gas)
+        bool consume_gas(const gas_remaining_t gas)
         {
-            if (gas > static_cast<gas_t::base_type>(_gas)) [[unlikely]] {
+            static_assert(std::is_same_v<std::remove_cv_t<decltype(gas)>, decltype(_gas)>);
+            if (gas > _gas) [[unlikely]] {
                 _gas = 0;
                 return false;
             }
-            _gas -= static_cast<gas_t::base_type>(gas);
+            _gas -= gas;
             return true;
         }
 
@@ -386,15 +346,15 @@ namespace turbo::jam::machine {
 
         // Hot fields - accessed on every instruction (first ~3 cache lines)
         uint32_t _pc{};
-        address_val_t _heap_end = 0;
         gas_remaining_t _gas = 0;
         registers_t _regs{};
+        // Warm fields - accessed on memory operations / page faults
         mutable tlb_entry_t _last_page{};
         mutable std::array<tlb_entry_t, tlb_size> _tlb{};
-        // Warm fields - accessed on memory operations / page faults
         page_dir_t _page_dir{};
         page_pool_t _page_pool{};
         address_val_t _stack_begin = 0;
+        address_val_t _heap_end = 0;
         // Cold fields - rarely accessed after construction
         code_t _code;
 
@@ -453,7 +413,7 @@ namespace turbo::jam::machine {
                 return _pack_raw(raw, min_len, block_end);
             }
 
-            [[nodiscard]] op_exec_t exec() const noexcept
+            [[nodiscard]] op_exec_t exec_fn() const noexcept
             {
                 return _exec_from_bits(packed & ~flags_mask);
             }
@@ -467,18 +427,26 @@ namespace turbo::jam::machine {
             {
                 return (packed & block_end_mask) != 0;
             }
+
+            bool operator==(const opcode_t &) const = default;
         };
 
         static size_t _skip_len(const register_val_t opcode_pc, const bit_vector_t &bitmasks)
         {
-            return bitmasks.count_zeros(static_cast<size_t>(opcode_pc) + 1U, max_skip_len);
+            return bitmasks.count_zeros<max_skip_len>(static_cast<size_t>(opcode_pc) + 1U);
+        }
+
+        static const opcode_t &_opcode_undef()
+        {
+            static const opcode_t undef{&impl::trap, false};
+            return undef;
         }
 
         static const std::array<opcode_t, 0x100> &_opcode_table()
         {
             static const auto ops = [] {
-                const opcode_t undef{&impl::trap};
-                std::array<opcode_t, 0x100> res {
+                const auto &undef = _opcode_undef();
+                const std::array<opcode_t, 0x100> res {
                     // 0x00
                     opcode_t{&impl::trap, true},
                     opcode_t{&impl::fallthrough, true},
@@ -486,7 +454,7 @@ namespace turbo::jam::machine {
                     undef, undef, undef, undef,
                     // 0x08
                     undef, undef,
-                    opcode_t{&impl::ecalli, true},
+                    opcode_t{&impl::ecalli, false},
                     undef,
                     undef, undef, undef, undef,
                     // 0x10
@@ -694,7 +662,6 @@ namespace turbo::jam::machine {
             return ops;
         }
 
-        //
         template<typename F>
         void _mem_read_pages(const address_val_t offset, const address_val_t sz, F &&consume) const
         {
@@ -729,19 +696,66 @@ namespace turbo::jam::machine {
                 throw *ex;
         }
 
+        [[nodiscard]] bool _is_block_start(const register_val_t pc) const noexcept
+        {
+            if (pc >= _code.instrs.size() || !_code.bitmasks.test_unchecked(pc)) [[unlikely]]
+                return false;
+            const auto &ops = _opcode_table();
+            if (ops[_code.instrs[pc]] == _opcode_undef()) [[unlikely]]
+                return false;
+            if (pc == 0)
+                return true;
+            const auto previous = _code.bitmasks.previous_set_bit<max_skip_len + 1U>(pc);
+            return previous && ops[_code.instrs[*previous]].block_end();
+        }
+
+        result_t _run()
+        {
+            try {
+                const auto &ops = _opcode_table();
+                const buffer instrs_view = _code.instrs;
+                for (;;) {
+                    const uint8_t opcode = _pc < instrs_view.size() && _code.bitmasks.test_unchecked(_pc)
+                        ? instrs_view[_pc]
+                        : 0x00U;
+                    const auto len = _skip_len(_pc, _code.bitmasks);
+                    const auto &op = ops[opcode];
+                    if (!consume_gas(1U)) [[unlikely]]
+                        return exit_out_of_gas_t{};
+                    const auto data = _pc < instrs_view.size()
+                        ? buffer{instrs_view.data() + _pc + 1U, std::max(len, size_t{op.min_len()})}
+                        : buffer{};
+                    const auto exec = op.exec_fn();
+                    const auto next_pc = _pc + len + 1;
+                    // (A.6) - psi_1
+                    switch (auto res = exec(*this, data); res.index()) {
+                        case 0: _pc = next_pc; break;
+                        case 1: {
+                            // (A.17), (A.18): validate every taken jump before changing the PC.
+                            const auto target = std::get<1>(res);
+                            if (!_is_block_start(target)) [[unlikely]]
+                                return exit_panic_t{};
+                            _pc = target;
+                            break;
+                        }
+                        case 2: return std::get<2>(std::move(res));
+                        [[unlikely]] default: throw error(fmt::format("unsupported op_res_t index: {}", res.index()));
+                    }
+                }
+            } catch (exit_page_fault_t &ex) {
+                return {std::move(ex)};
+            } catch (exit_out_of_gas_t &ex) {
+                return {std::move(ex)};
+            } catch (...) { // exit_panic_t or an internal error
+                return {exit_panic_t{}};
+            }
+        }
+
         // opcode helper functions
 
         void _set_reg(const register_idx_t idx, const register_val_t val)
         {
             _regs[idx] = val;
-        }
-
-        static void _ensure_readable(const buffer data, const size_t off, const size_t num_bytes)
-        {
-            if (num_bytes == 0)
-                return;
-            if (off > data.size() || num_bytes > data.size() - off) [[unlikely]]
-                throw error(fmt::format("requested offset: {} and size: {} end over the end of buffer's size: {}!", off, num_bytes, data.size()));
         }
 
         static register_val_t _read_uint_le_unchecked(const uint8_t *ptr, const size_t num_bytes) noexcept
@@ -887,7 +901,6 @@ namespace turbo::jam::machine {
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
             const register_idx_t r_b = std::min(12ULL, b0 / 16ULL);
             const size_t l_x = std::min(4ULL, b1 % 8ULL);
-            _ensure_readable(data, 2U, l_x);
             const size_t base_y = 2U + l_x;
             const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
             const auto nu_x = _read_signed_imm32_unchecked(ptr + 2U, l_x);
@@ -931,11 +944,6 @@ namespace turbo::jam::machine {
             return _args_reg1_imm1(data, 4ULL);
         }
 
-        static std::tuple<register_idx_t, register_val_t> _args_reg1_imm1_s64(const buffer data)
-        {
-            return _args_reg1_imm1(data, 8ULL);
-        }
-
         static std::tuple<register_idx_t, register_val_t> _args_reg1_imm1_u64(const buffer data)
         {
             return _args_reg1_imm1_unsigned(data, 8ULL);
@@ -947,7 +955,6 @@ namespace turbo::jam::machine {
             const auto b0 = ptr[0];
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
             const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8ULL);
-            _ensure_readable(data, 1U, l_x);
             const size_t base_y = 1U + l_x;
             const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
             const auto nu_x = _read_signed_imm32_unchecked(ptr + 1U, l_x);
@@ -961,7 +968,6 @@ namespace turbo::jam::machine {
             const auto b0 = ptr[0];
             const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
             const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8ULL);
-            _ensure_readable(data, 1U, l_x);
             const size_t base_y = 1U + l_x;
             const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
             const auto nu_x = _read_signed_imm32_unchecked(ptr + 1U, l_x);
@@ -980,7 +986,6 @@ namespace turbo::jam::machine {
         {
             const auto *ptr = data.data();
             const size_t l_x = std::min(4ULL, ptr[0] % 8ULL);
-            _ensure_readable(data, 1U, l_x);
             const size_t base_y = 1U + l_x;
             const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
             const auto nu_x = _read_signed_imm32_unchecked(ptr + 1U, l_x);
@@ -1013,20 +1018,13 @@ namespace turbo::jam::machine {
                 return exit_panic_t{};
             const auto ji = addr / config_prod::ZA_pvm_address_alignment_factor;
             const auto new_pc = code.jump_table.at(ji - 1);
-            if (!code.bitmasks.test(new_pc)) [[unlikely]]
-                return exit_panic_t{};
-                return {new_pc};
+            return {new_pc};
         }
 
-        static op_res_t branch_base(const code_t &code, const register_val_t new_pc, const bool cond)
+        static op_res_t branch_base(const register_val_t new_pc, const bool cond)
         {
-            if (cond) {
-                if (new_pc >= code.instrs.size()) [[unlikely]]
-                    return exit_panic_t{};
-                if (!code.bitmasks.test_unchecked(new_pc)) [[unlikely]]
-                    return exit_panic_t{};
+            if (cond)
                 return {new_pc};
-            }
             return {};
         }
 
@@ -1127,6 +1125,7 @@ namespace turbo::jam::machine {
             });
         }
 
+        // (A.8)
         template<size_t SZ>
         std::pair<address_val_t, const page_info_t *> _addr_check(const address_val_t addr) const
         {
@@ -1194,17 +1193,17 @@ namespace turbo::jam::machine {
         }
 
         template<typename Pred>
-        static op_res_t _branch_reg2_off1(const code_t &code, const register_val_t pc, const registers_t &regs, const buffer data, Pred &&pred)
+        static op_res_t _branch_reg2_off1(const register_val_t pc, const registers_t &regs, const buffer data, Pred &&pred)
         {
             const auto [r_a, r_b, new_pc] = _args_reg2_off1(pc, data);
-            return branch_base(code, new_pc, pred(regs[r_a], regs[r_b]));
+            return branch_base(new_pc, pred(regs[r_a], regs[r_b]));
         }
 
         template<typename Pred>
-        static op_res_t _branch_reg1_imm1_off1(const code_t &code, const register_val_t pc, const registers_t &regs, const buffer data, Pred &&pred)
+        static op_res_t _branch_reg1_imm1_off1(const register_val_t pc, const registers_t &regs, const buffer data, Pred &&pred)
         {
             const auto [r_a, nu_x, new_pc] = _args_reg1_imm1_off1(pc, data);
-            return branch_base(code, new_pc, pred(regs[r_a], nu_x));
+            return branch_base(new_pc, pred(regs[r_a], nu_x));
         }
 
         template<size_t SZ, bool Signed>
@@ -1311,18 +1310,15 @@ namespace turbo::jam::machine {
 
         static op_res_t load_imm(impl &self, const buffer data)
         {
-            if (data.size() > 5) [[unlikely]]
-                throw exit_panic_t{};
-            const auto [r_a, nu_x] = self._args_reg1_imm1_s64(data);
+            const auto [r_a, nu_x] = self._args_reg1_imm1_s32(data);
             self._set_reg(r_a, nu_x);
             return {};
         }
 
         static op_res_t load_imm_64(impl &self, const buffer data)
         {
-            if (data.size() != 9) [[unlikely]]
-                throw exit_panic_t{};
-            const auto [r_a, nu_x] = self._args_reg1_imm1_u64(data);
+            // One register byte and eight immediate bytes, independent of the current skip (can read from the extra padded 0s)
+            const auto [r_a, nu_x] = self._args_reg1_imm1_u64(buffer{data.data(), 9U});
             self._set_reg(r_a, nu_x);
             return {};
         }
@@ -1427,34 +1423,34 @@ namespace turbo::jam::machine {
 
         static op_res_t branch_eq(impl &self, const buffer data)
         {
-            return _branch_reg2_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
+            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
         }
 
         static op_res_t branch_ne(impl &self, const buffer data)
         {
-            return _branch_reg2_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
+            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
         }
 
         static op_res_t branch_lt_u(impl &self, const buffer data)
         {
-            return _branch_reg2_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
+            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
         }
 
         static op_res_t branch_lt_s(impl &self, const buffer data)
         {
-            return _branch_reg2_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) < static_cast<register_val_signed_t>(rhs);
             });
         }
 
         static op_res_t branch_ge_u(impl &self, const buffer data)
         {
-            return _branch_reg2_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
+            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
         }
 
         static op_res_t branch_ge_s(impl &self, const buffer data)
         {
-            return _branch_reg2_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) >= static_cast<register_val_signed_t>(rhs);
             });
         }
@@ -1511,21 +1507,21 @@ namespace turbo::jam::machine {
         static op_res_t shlo_l_imm_32(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(self._regs[r_b]) << static_cast<uint32_t>(nu_x)));
+            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(self._regs[r_b]) << (nu_x % 32U)));
             return {};
         }
 
         static op_res_t shlo_r_imm_32(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(self._regs[r_b]) >> static_cast<uint32_t>(nu_x)));
+            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(self._regs[r_b]) >> (nu_x % 32U)));
             return {};
         }
 
         static op_res_t shar_r_imm_32(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_t>(static_cast<int32_t>(self._regs[r_b]) >> static_cast<uint32_t>(nu_x)));
+            self._set_reg(r_a, static_cast<register_val_t>(static_cast<int32_t>(self._regs[r_b]) >> (nu_x % 32U)));
             return {};
         }
 
@@ -1553,21 +1549,21 @@ namespace turbo::jam::machine {
         static op_res_t shlo_l_imm_alt_32(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x) << static_cast<uint32_t>(self._regs[r_b])));
+            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x) << (self._regs[r_b] % 32U)));
             return {};
         }
 
         static op_res_t shlo_r_imm_alt_32(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x) >> static_cast<uint32_t>(self._regs[r_b])));
+            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x) >> (self._regs[r_b] % 32U)));
             return {};
         }
 
         static op_res_t shar_r_imm_alt_32(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_t>(static_cast<int32_t>(nu_x) >> static_cast<uint32_t>(self._regs[r_b])));
+            self._set_reg(r_a, static_cast<register_val_t>(static_cast<int32_t>(nu_x) >> (self._regs[r_b] % 32U)));
             return {};
         }
 
@@ -1602,21 +1598,21 @@ namespace turbo::jam::machine {
         static op_res_t shlo_l_imm_64(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] << nu_x);
+            self._set_reg(r_a, self._regs[r_b] << (nu_x % 64U));
             return {};
         }
 
         static op_res_t shlo_r_imm_64(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] >> nu_x);
+            self._set_reg(r_a, self._regs[r_b] >> (nu_x % 64U));
             return {};
         }
 
         static op_res_t shar_r_imm_64(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_t>(static_cast<register_val_signed_t>(self._regs[r_b]) >> static_cast<register_val_signed_t>(nu_x)));
+            self._set_reg(r_a, static_cast<register_val_t>(static_cast<register_val_signed_t>(self._regs[r_b]) >> (nu_x % 64U)));
             return {};
         }
 
@@ -1630,21 +1626,21 @@ namespace turbo::jam::machine {
         static op_res_t shlo_l_imm_alt_64(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, nu_x << self._regs[r_b]);
+            self._set_reg(r_a, nu_x << (self._regs[r_b] % 64U));
             return {};
         }
 
         static op_res_t shlo_r_imm_alt_64(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, nu_x >> self._regs[r_b]);
+            self._set_reg(r_a, nu_x >> (self._regs[r_b] % 64U));
             return {};
         }
 
         static op_res_t shar_r_imm_alt_64(impl &self, const buffer data)
         {
             const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_t>(static_cast<register_val_signed_t>(nu_x) >> static_cast<register_val_signed_t>(self._regs[r_b])));
+            self._set_reg(r_a, static_cast<register_val_t>(static_cast<register_val_signed_t>(nu_x) >> (self._regs[r_b] % 64U)));
             return {};
         }
 
@@ -1680,7 +1676,7 @@ namespace turbo::jam::machine {
         {
             const auto [r_a, nu_x, nu_y] = _args_reg1_imm1_off1(self._pc, data);
             self._set_reg(r_a, nu_x);
-            return branch_base(self._code, nu_y, true);
+            return branch_base(nu_y, true);
         }
 
         static op_res_t load_imm_jump_ind(impl &self, const buffer data)
@@ -1693,58 +1689,58 @@ namespace turbo::jam::machine {
 
         static op_res_t branch_eq_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
         }
 
         static op_res_t branch_ne_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
         }
 
         static op_res_t branch_lt_u_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
         }
 
         static op_res_t branch_le_u_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs <= rhs; });
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs <= rhs; });
         }
 
         static op_res_t branch_ge_u_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
         }
 
         static op_res_t branch_gt_u_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs > rhs; });
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs > rhs; });
         }
 
         static op_res_t branch_lt_s_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) < static_cast<register_val_signed_t>(rhs);
             });
         }
 
         static op_res_t branch_le_s_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) <= static_cast<register_val_signed_t>(rhs);
             });
         }
 
         static op_res_t branch_ge_s_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) >= static_cast<register_val_signed_t>(rhs);
             });
         }
 
         static op_res_t branch_gt_s_imm(impl &self, const buffer data)
         {
-            return _branch_reg1_imm1_off1(self._code, self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) > static_cast<register_val_signed_t>(rhs);
             });
         }
@@ -1752,7 +1748,7 @@ namespace turbo::jam::machine {
         static op_res_t jump(impl &self, const buffer data)
         {
             const auto [nu_x] = _args_off1(self._pc, data);
-            return branch_base(self._code, nu_x, true);
+            return branch_base(nu_x, true);
         }
 
         static op_res_t jump_ind(impl &self, const buffer data)
@@ -1915,7 +1911,9 @@ namespace turbo::jam::machine {
         static op_res_t div_u_32(impl &self, const buffer data)
         {
             const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_b] != 0 ? sign_extend(4, static_cast<uint32_t>(self._regs[r_a] / self._regs[r_b])) : std::numeric_limits<uint64_t>::max());
+            const auto reg_a_u32 = static_cast<uint32_t>(self._regs[r_a]);
+            const auto reg_b_u32 = static_cast<uint32_t>(self._regs[r_b]);
+            self._set_reg(r_d, reg_b_u32 != 0 ? sign_extend(4, reg_a_u32 / reg_b_u32) : std::numeric_limits<uint64_t>::max());
             return {};
         }
 
@@ -1924,7 +1922,7 @@ namespace turbo::jam::machine {
             const auto [r_a, r_b, r_d] = self._args_reg3(data);
             const auto reg_a_s32 = static_cast<int32_t>(self._regs[r_a]);
             const auto reg_b_s32 = static_cast<int32_t>(self._regs[r_b]);
-            if (self._regs[r_b] != 0) {
+            if (reg_b_s32 != 0) {
                 if (reg_a_s32 != std::numeric_limits<int32_t>::min() || reg_b_s32 != -1) {
                     self._set_reg(r_d, static_cast<register_val_t>(reg_a_s32 / reg_b_s32));
                 } else {
@@ -1961,7 +1959,7 @@ namespace turbo::jam::machine {
         static op_res_t shlo_l_32(impl &self, const buffer data)
         {
             const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, sign_extend(4, static_cast<uint32_t>(self._regs[r_a]) << static_cast<uint32_t>(self._regs[r_b])));
+            self._set_reg(r_d, sign_extend(4, static_cast<uint32_t>(self._regs[r_a]) << (self._regs[r_b] % 32U)));
             return {};
         }
 
@@ -2378,11 +2376,10 @@ namespace turbo::jam::machine {
         return const_cast<machine_t *>(this)->_impl->state();
     }
 
-    std::optional<machine_t> configure(const buffer blob, const address_val_t pc, const gas_t gas,
-        const buffer args, const size_t max_code_size)
+    std::optional<machine_t> configure(const buffer blob, const address_val_t pc, const gas_t gas, const buffer args, const size_t max_code_size)
     try {
         decoder dec{blob};
-        // JAM (9.4)
+        // (9.4)
         const auto meta_size = dec.uint_varlen<size_t>();
         if (meta_size > blob.size() - dec.consumed()) [[unlikely]]
             return {};
@@ -2390,7 +2387,7 @@ namespace turbo::jam::machine {
         if (blob.size() - dec.consumed() > max_code_size) [[unlikely]]
             return {};
 
-        // JAM (A.3)
+        // (A.38)
         const auto o_sz = dec.uint_fixed<size_t>(3);
         const auto w_sz = dec.uint_fixed<size_t>(3);
         const auto z_sz = dec.uint_fixed<size_t>(2);
@@ -2405,9 +2402,9 @@ namespace turbo::jam::machine {
             return {};
         auto prg = code_t::from_bytes(code);
 
-        // JAM (A.40)
+        // JAM (A.41)
         const auto total_sz = 5 * config_prod::ZZ_pvm_init_zone_size
-            + config_prod::pvm_z_size(o_sz) + config_prod::pvm_z_size(w_sz + z_sz * config_prod::ZZ_pvm_init_zone_size)
+            + config_prod::pvm_z_size(o_sz) + config_prod::pvm_z_size(w_sz + z_sz * config_prod::ZP_pvm_page_size)
             + config_prod::pvm_z_size(s_sz) + config_prod::ZI_pvm_input_size;
         if (total_sz > 1ULL << 32U) [[unlikely]]
             return {};
@@ -2418,7 +2415,7 @@ namespace turbo::jam::machine {
         };
         pages_t page_map{};
 
-        // JAM (A.41)
+        // JAM (A.42)
         struct area_def_t {
             size_t address;
             size_t size;
@@ -2449,9 +2446,9 @@ namespace turbo::jam::machine {
             }
         }
 
-        // JAM (A.42)
+        // JAM (A.43)
         state.regs[0] = (1ULL << 32U) - (1ULL << 16U);
-        state.regs[1] = (1ULL << 32U) - 2 * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
+        state.regs[1] = (1ULL << 32U) - 2U * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
         state.regs[7] = (1ULL << 32U) - config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
         state.regs[8] = args.size();
 
