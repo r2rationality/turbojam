@@ -28,7 +28,7 @@ namespace turbo::jam::machine {
 
     struct memory_chunk_t {
         address_val_t address = 0;
-        byte_sequence_t contents {};
+        byte_sequence_t contents{};
 
         void serialize(auto &archive)
         {
@@ -169,8 +169,7 @@ namespace turbo::jam::machine {
             const auto zeros = static_cast<size_t>(std::countr_zero(shifted));
             return std::min(zeros, std::min(MAX, _num_bits - pos));
         }
-
-        // Find the nearest set bit strictly before pos, looking back at most MAX bits.
+        
         template<size_t MAX>
         [[nodiscard]] std::optional<size_t> previous_set_bit(const size_t pos) const noexcept
         {
@@ -198,24 +197,36 @@ namespace turbo::jam::machine {
     };
 
     struct exit_halt_t final: error {
-        exit_halt_t(): error { "exit_halt_t" } {}
-        bool operator==(const exit_halt_t &) const
-        {
+        exit_halt_t(): error{"exit_halt_t"}
+        {}
+
+        bool operator==(const exit_halt_t &) const {
             return true;
+        }
+
+        void serialize(auto &) {
         }
     };
     struct exit_panic_t final: error {
-        exit_panic_t(): error { "exit_panic_t" } {}
-        bool operator==(const exit_panic_t &) const
-        {
+        exit_panic_t(): error{"exit_panic_t"}
+        {}
+
+        bool operator==(const exit_panic_t &) const {
             return true;
+        }
+
+        void serialize(auto &) {
         }
     };
     struct exit_out_of_gas_t final: error {
-        exit_out_of_gas_t(): error { "exit_out_of_gas_t" } {}
-        bool operator==(const exit_out_of_gas_t &) const
-        {
+        exit_out_of_gas_t(): error{"exit_out_of_gas_t"}
+        {}
+
+        bool operator==(const exit_out_of_gas_t &) const {
             return true;
+        }
+
+        void serialize(auto &) {
         }
     };
     struct exit_page_fault_t final: error {
@@ -226,26 +237,38 @@ namespace turbo::jam::machine {
             addr{a}
         {}
 
-        bool operator==(const exit_page_fault_t &o) const
-        {
+        bool operator==(const exit_page_fault_t &o) const {
             if (addr != o.addr)
                 return false;
             return true;
+        }
+
+        void serialize(auto &archive) {
+            using namespace std::string_view_literals;
+            archive.process("addr"sv, addr);
         }
     };
     struct exit_host_call_t final: error {
         register_val_t id;
 
         exit_host_call_t(const register_val_t id):
-            error { "exit_host_call_t" },
-            id { id }
+            error{"exit_host_call_t"},
+            id{id}
         {}
 
-        bool operator==(const exit_host_call_t &o) const
-        {
+        exit_host_call_t():
+            exit_host_call_t{0U}
+        {}
+
+        bool operator==(const exit_host_call_t &o) const {
             if (id != o.id)
                 return false;
             return true;
+        }
+
+        void serialize(auto &archive) {
+            using namespace std::string_view_literals;
+            archive.process("id"sv, id);
         }
     };
 
@@ -259,12 +282,25 @@ namespace turbo::jam::machine {
             using namespace std::string_view_literals;
             const auto val = boost::json::value_to<std::string_view>(j);
             if (val == "panic"sv)
-                return { machine::exit_panic_t {} };
+                return {exit_panic_t{}};
             if (val == "halt"sv)
-                return { machine::exit_halt_t {} };
+                return {exit_halt_t{}};
             if (val == "page-fault"sv)
-                return { machine::exit_page_fault_t {} };
+                return {exit_page_fault_t{}};
+            if (val == "out-of-gas"sv)
+                return {exit_out_of_gas_t{}};
+            if (val == "ecalli"sv)
+                return {exit_host_call_t{}};
             throw error(fmt::format("unsupported machine_status_t value '{}'", val));
+        }
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            static constexpr codec::variant_names_t<base_type> names{
+                "panic"sv, "halt"sv, "page-fault"sv, "out-of-gas"sv, "ecalli"sv
+            };
+            archive.process(codec::as_variant_t<base_type>{*this, names});
         }
     };
 
