@@ -158,7 +158,7 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
-        //test_program(file::install_path("test/pvm-test-vectors/pvm/programs/multistep_ecalli_at_the_start_of_block.json"));
+        test_program(file::install_path("test/pvm-test-vectors/pvm/programs/gas_complex_3.json"));
         "sign_extend"_test = [] {
             static constexpr machine::register_val_t neg1 = -1LL;
             for (size_t num_bytes: { 1, 2, 3, 4, 5, 6, 7, 8 }) {

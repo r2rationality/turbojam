@@ -25,6 +25,10 @@ namespace turbo::jam::machine {
 #endif
 
     struct machine_t::impl {
+        static bool is_opcode(const uint8_t op) {
+            return _opcode_table()[op] != _opcode_undef();
+        }
+
         explicit impl(code_t &&code, const state_t &init, const pages_t &page_map):
             _pc{init.pc},
             _gas{init.gas},
@@ -75,7 +79,7 @@ namespace turbo::jam::machine {
 
         void skip_op()
         {
-            _pc += _skip_len(_pc, _code.bitmasks) + 1;
+            _pc += _code.bitmasks.skip_len(_pc) + 1;
         }
 
         bool consume_gas(const gas_remaining_t gas)
@@ -431,11 +435,6 @@ namespace turbo::jam::machine {
             bool operator==(const opcode_t &) const = default;
         };
 
-        static size_t _skip_len(const register_val_t opcode_pc, const bit_vector_t &bitmasks)
-        {
-            return bitmasks.count_zeros<max_skip_len>(static_cast<size_t>(opcode_pc) + 1U);
-        }
-
         static const opcode_t &_opcode_undef()
         {
             static const opcode_t undef{&impl::trap, false};
@@ -450,7 +449,8 @@ namespace turbo::jam::machine {
                     // 0x00
                     opcode_t{&impl::trap, true},
                     opcode_t{&impl::fallthrough, true},
-                    undef, undef,
+                    opcode_t{&impl::unlikely, false},
+                    undef,
                     undef, undef, undef, undef,
                     // 0x08
                     undef, undef,
@@ -718,7 +718,7 @@ namespace turbo::jam::machine {
                     const uint8_t opcode = _pc < instrs_view.size() && _code.bitmasks.test_unchecked(_pc)
                         ? instrs_view[_pc]
                         : 0x00U;
-                    const auto len = _skip_len(_pc, _code.bitmasks);
+                    const auto len = _code.bitmasks.skip_len(_pc);
                     const auto &op = ops[opcode];
                     if (!consume_gas(1U)) [[unlikely]]
                         return exit_out_of_gas_t{};
@@ -1269,6 +1269,12 @@ namespace turbo::jam::machine {
         }
 
         static op_res_t fallthrough(impl &, const buffer)
+        {
+            // do nothing
+            return {};
+        }
+
+        static op_res_t unlikely(impl &, const buffer)
         {
             // do nothing
             return {};
@@ -2234,6 +2240,10 @@ namespace turbo::jam::machine {
             return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return std::min(lhs, rhs); });
         }
     };
+
+    bool machine_t::is_opcode(const uint8_t op) {
+        return impl::is_opcode(op);
+    }
 
     machine_t::machine_t(code_t &&code, const state_t &init, const pages_t &page_map):
         _impl{std::make_unique<impl>(std::move(code), init, page_map)}
