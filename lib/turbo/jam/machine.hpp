@@ -5,6 +5,7 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <cstring>
@@ -312,32 +313,34 @@ struct result_t: result_base_t {
 struct code_t {
     using offset_list_t = std::vector<address_val_t>;
 
-    [[nodiscard]] static bool is_block_end_opcode(const uint8_t opcode) {
-        static boost::container::flat_set<uint8_t> block_end_opcodes{
-            0x00, // trap
-            0x01, // fallthrough
-            0x28, // jump
-            0x32, // jump_ind
-            0x50, // load_imm_jump
-            0x51, // branch_eq_imm
-            0x52, // branch_ne_imm
-            0x53, // branch_lt_u_imm
-            0x54, // ::branch_le_u_imm
-            0x55, // branch_ge_u_imm
-            0x56, // branch_gt_u_imm
-            0x57, // branch_lt_s_imm
-            0x58, // branch_le_s_imm
-            0x59, // branch_ge_s_imm
-            0x60, // branch_gt_s_imm
-            0xAA, // branch_eq
-            0xAB, // branch_ne
-            0xAC, // branch_lt_u
-            0xAD, // branch_lt_s
-            0xAE, // branch_ge_u
-            0xAF, // branch_ge_s
-            0xB4, // load_imm_jump_ind
-        };
-        return block_end_opcodes.find(opcode) != block_end_opcodes.end();
+    [[nodiscard]] static constexpr bool is_block_end_opcode(const uint8_t opcode) noexcept {
+        static constexpr auto block_end_opcodes = [] {
+            std::array<bool, 0x100> res{};
+            res[0] = true; // trap
+            res[1] = true; // fallthrough
+            res[40] = true; // jump
+            res[50] = true; // jump_ind
+            res[80] = true; // load_imm_jump
+            res[81] = true; // branch_eq_imm
+            res[82] = true; // branch_ne_imm
+            res[83] = true; // branch_lt_u_imm
+            res[84] = true; // branch_le_u_imm
+            res[85] = true; // branch_ge_u_imm
+            res[86] = true; // branch_gt_u_imm
+            res[87] = true; // branch_lt_s_imm
+            res[88] = true; // branch_le_s_imm
+            res[89] = true; // branch_ge_s_imm
+            res[90] = true; // branch_gt_s_imm
+            res[170] = true; // branch_eq
+            res[171] = true; // branch_ne
+            res[172] = true; // branch_lt_u
+            res[173] = true; // branch_lt_s
+            res[174] = true; // branch_ge_u
+            res[175] = true; // branch_ge_s
+            res[180] = true; // load_imm_jump_ind
+            return res;
+        }();
+        return block_end_opcodes[opcode];
     }
 
     [[nodiscard]] static bool is_opcode(uint8_t opcode);
@@ -396,24 +399,29 @@ struct code_t {
     private:
         uint8_vector _raw;
 
-        [[nodiscard]] bool _validate_blob(const register_val_t pc) const {
-            if (pc > 0 && pc == bitmasks.size())
-                return true;
-            const auto skip = bitmasks.skip_len(pc);
-            if (pc > std::numeric_limits<address_val_t>::max() - 1U - skip) [[unlikely]]
-                throw error{"instruction counter is too big: {}", pc};
-            const auto next_pc = pc + 1U + skip;
-            const auto op = instrs.at(pc);
-            if (next_pc == bitmasks.size() && !is_block_end_opcode(op)) [[unlikely]]
-                return false;
-            if (pc < bitmasks.size() && bitmasks.test(pc) && is_opcode(op)) // v_inst
-                return _validate_blob(next_pc);
+        [[nodiscard]] bool _validate_blob(register_val_t pc) const {
+            for (;;) {
+                if (pc > 0 && pc == bitmasks.size())
+                    return true;
+                const auto skip = bitmasks.skip_len(pc);
+                if (pc > std::numeric_limits<address_val_t>::max() - 1U - skip) [[unlikely]]
+                    throw error{"instruction counter is too big: {}", pc};
+                const auto next_pc = pc + 1U + skip;
+                const auto op = instrs.at(pc);
+                if (next_pc == bitmasks.size() && !is_block_end_opcode(op)) [[unlikely]]
+                    return false;
+                if (pc >= bitmasks.size()) [[unlikely]]
+                    return false;
+                if (!bitmasks.test(pc)) [[unlikely]]
+                    return false;
+                if (!is_opcode(op)) [[unlikely]] // v_inst
+                    return false;
+                pc = next_pc;
+            }
             return false;
         }
 
         void _validate() const {
-            if (instrs.size() != bitmasks.size()) [[unlikely]]
-                throw error{"invalid program blob: bitmask size: {} != code size: {}", bitmasks.size(), instrs.size()};
             if (!_validate_blob(0)) [[unlikely]]
                 throw error{"invalid program blob: opcode validation failed"};
         }

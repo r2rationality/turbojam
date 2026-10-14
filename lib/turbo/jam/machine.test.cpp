@@ -3,6 +3,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <turbo/common/cli.hpp>
 #include <turbo/common/test.hpp>
 #include <turbo/codec/json.hpp>
 #include "machine.hpp"
@@ -93,14 +94,32 @@ namespace {
     };
 
     using block_gas_costs_t = sequence_t<block_gas_cost_t>;
+    using steps_t = sequence_t<step_t>;
+
+    using block_gas_map_base_t = boost::container::flat_map<machine::address_val_t, gas_t::base_type>;
+    struct block_gas_map_t: block_gas_map_base_t {
+        using base_type = block_gas_map_base_t;
+        using base_type::base_type;
+
+        static block_gas_map_t from_json(const boost::json::value &j)
+        {
+            block_gas_map_t res{};
+            const auto &m = j.as_object();
+            res.reserve(m.size());
+            for (const auto &[k, v] : m) {
+                res.emplace_hint(res.end(), turbo::cli::from_str<machine::address_val_t>(k), numeric_cast<gas_t::base_type>(v.as_int64()));
+            }
+            return res;
+        }
+    };
 
     struct test_case_t {
         std::string name;
         machine::address_val_t initial_pc;
         machine::gas_remaining_t initial_gas;
         sequence_t<uint8_t> program;
-        block_gas_costs_t block_gas_costs;
-        sequence_t<step_t> steps;
+        block_gas_map_t block_gas_costs;
+        steps_t steps;
 
         void serialize(auto &archive)
         {
@@ -108,48 +127,91 @@ namespace {
             archive.process("initial-pc"sv, initial_pc);
             archive.process("initial-gas"sv, initial_gas);
             archive.process("program"sv, program);
-            archive.process("block-gas-costs"sv, block_gas_costs);
+            {
+                block_gas_costs_t costs{};
+                archive.process("block-gas-costs"sv, costs);
+                block_gas_costs.clear();
+                block_gas_costs.reserve(costs.size());
+                for (const auto &[pc, gas]: costs) {
+                    block_gas_costs.emplace_hint(block_gas_costs.end(), pc, gas);
+                }
+            }
             archive.process("steps"sv, steps);
         }
     };
 
+    struct test_case_gas_t {
+        std::string name;
+        sequence_t<uint8_t> program;
+        block_gas_map_t block_gas_costs;
+
+        void serialize(auto &archive)
+        {
+            archive.process("name"sv, name);
+            archive.process("program"sv, program);
+            archive.process("block-gas-costs"sv, block_gas_costs);
+        }
+    };
+
     template<typename CFG=config_prod>
+    void test_case(const std::string &path, const test_case_t &tc)
+    {
+        const machine::state_t init_state{.pc=tc.initial_pc, .gas = tc.initial_gas};
+        const machine::pages_t init_pages{};
+        machine::machine_t m{machine::code_t::from_bytes(buffer{tc.program.data(), tc.program.size()}), init_state, init_pages};
+        std::optional<machine::result_t> run_res{};
+        for (const auto &step: tc.steps) {
+            std::visit([&](const auto &s) {
+                using T = std::decay_t<decltype(s)>;
+                if constexpr (std::is_same_v<run_step_t, T>) {
+                    run_res.emplace(m.run());
+                } else if constexpr (std::is_same_v<assert_step_t, T>) {
+                    if (expect(run_res.has_value())) {
+                        expect_equal(s.status, *run_res, path);
+                    }
+                } else if constexpr (std::is_same_v<assert_step_t, T>) {
+                    if (expect(run_res.has_value())) {
+                        expect_equal(s.status, *run_res, path);
+                    }
+                } else if constexpr (std::is_same_v<map_step_t, T>) {
+                    if (s.address % CFG::ZP_pvm_page_size) [[unlikely]]
+                        throw error{"map addresses must be at page boundary but got: {}", s.address};
+                    if (s.length % CFG::ZP_pvm_page_size) [[unlikely]]
+                        throw error{"map lengths must be in increments of page size but got: {}", s.length};
+                    m.set_pages(s.address / CFG::ZP_pvm_page_size, s.length / CFG::ZP_pvm_page_size, machine::page_init_method_t::from_code(s.is_writable ? 2 : 1));
+                } else if constexpr (std::is_same_v<write_step_t, T>) {
+                    m.mem_write(s.address, s.contents);
+                } else if constexpr (std::is_same_v<set_reg_step_t, T>) {
+                    m.set_reg(s.reg, s.value);
+                } else {
+                    throw error{"unsupported type: {}", typeid(T).name()};
+                }
+            }, step);
+        }
+    }
+
     void test_program(const std::string &path)
     {
         try {
             const auto tc = json::load_obj<test_case_t>(path);
-            const machine::state_t init_state{.pc=tc.initial_pc, .gas = tc.initial_gas};
-            const machine::pages_t init_pages{};
-            machine::machine_t m{machine::code_t::from_bytes(buffer{tc.program.data(), tc.program.size()}), init_state, init_pages};
-            std::optional<machine::result_t> run_res{};
-            for (const auto &step: tc.steps) {
-                std::visit([&](const auto &s) {
-                    using T = std::decay_t<decltype(s)>;
-                    if constexpr (std::is_same_v<run_step_t, T>) {
-                        run_res.emplace(m.run());
-                    } else if constexpr (std::is_same_v<assert_step_t, T>) {
-                        if (expect(run_res.has_value())) {
-                            expect_equal(s.status, *run_res, path);
-                        }
-                    } else if constexpr (std::is_same_v<assert_step_t, T>) {
-                        if (expect(run_res.has_value())) {
-                            expect_equal(s.status, *run_res, path);
-                        }
-                    } else if constexpr (std::is_same_v<map_step_t, T>) {
-                        if (s.address % CFG::ZP_pvm_page_size) [[unlikely]]
-                            throw error{"map addresses must be at page boundary but got: {}", s.address};
-                        if (s.length % CFG::ZP_pvm_page_size) [[unlikely]]
-                            throw error{"map lengths must be in increments of page size but got: {}", s.length};
-                        m.set_pages(s.address / CFG::ZP_pvm_page_size, s.length / CFG::ZP_pvm_page_size, machine::page_init_method_t::from_code(s.is_writable ? 2 : 1));
-                    } else if constexpr (std::is_same_v<write_step_t, T>) {
-                        m.mem_write(s.address, s.contents);
-                    } else if constexpr (std::is_same_v<set_reg_step_t, T>) {
-                        m.set_reg(s.reg, s.value);
-                    } else {
-                        throw error{"unsupported type: {}", typeid(T).name()};
-                    }
-                }, step);
-            }
+            test_case(path, tc);
+        } catch (const std::exception &ex) {
+            expect(false) << path << ": exception: " << ex.what();
+        }
+    }
+
+    void test_gas(const std::string &path)
+    {
+        try {
+            const auto t = json::load_obj<test_case_gas_t>(path);
+            test_case(path, test_case_t{
+                .name = std::move(t.name),
+                .initial_pc = 0U,
+                .initial_gas = 0U,
+                .program = std::move(t.program),
+                .block_gas_costs = std::move(t.block_gas_costs),
+                .steps = steps_t{run_step_t{}}
+            });
         } catch (const std::exception &ex) {
             expect(false) << path << ": exception: " << ex.what();
         }
@@ -158,7 +220,12 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
-        test_program(file::install_path("test/pvm-test-vectors/pvm/programs/gas_complex_3.json"));
+        //test_gas(file::install_path("test/pvm-test-vectors/pvm/gas-tests/pinky.json"));
+        "conformance gas tests"_test = [] {
+            for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/gas-tests"), ".json")) {
+                test_gas(path);
+            }
+        };
         "sign_extend"_test = [] {
             static constexpr machine::register_val_t neg1 = -1LL;
             for (size_t num_bytes: { 1, 2, 3, 4, 5, 6, 7, 8 }) {
@@ -172,7 +239,7 @@ suite turbo_jam_machine_suite = [] {
             const auto blob = file::read(file::install_path("test/pvm-my/jam-cardano.jam"));
             const auto m = machine::configure(blob, 0U, 1000U, buffer{});
         };
-        "conformance tests"_test = [] {
+        "conformance program tests"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/programs"), ".json")) {
                 test_program(path);
             }
