@@ -86,7 +86,7 @@ suite turbo_jam_machine_program_builder_suite = [] {
             for (const int32_t id: {std::numeric_limits<int32_t>::min(), int32_t{-1}, int32_t{0}, std::numeric_limits<int32_t>::max()}) {
                 machine::program_builder_t program{};
                 program.ecalli(id);
-                machine::machine_t m{program.build_code(), machine::state_t{.gas=10}, {}};
+                machine::machine_t m{program.build_code(), machine::state_t{.gas=1000}, {}};
                 const auto result = m.run();
                 expect(std::holds_alternative<machine::exit_host_call_t>(result)) << fatal;
                 expect_equal(static_cast<machine::register_val_t>(id), std::get<machine::exit_host_call_t>(result).id);
@@ -99,7 +99,7 @@ suite turbo_jam_machine_program_builder_suite = [] {
             program.host_call(host_call_t::fetch, {large, 2, 3, 4, 5, 6});
             program.host_call(host_call_t::gas); // preserve the previous result in r7
 
-            machine::machine_t m{program.build_code(), machine::state_t{.gas=100}, {}};
+            machine::machine_t m{program.build_code(), machine::state_t{.gas=1000}, {}};
             for (const auto id: {host_call_t::fetch, host_call_t::gas}) {
                 const auto result = m.run();
                 expect(std::holds_alternative<machine::exit_host_call_t>(result)) << fatal;

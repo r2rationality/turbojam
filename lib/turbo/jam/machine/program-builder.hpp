@@ -43,7 +43,7 @@ namespace turbo::jam::machine {
         void load(const size_t reg, const register_val_t value) {
             _check_reg(reg);
             const auto low = static_cast<uint32_t>(value);
-            const bool short_form = sign_extend(4, low) == value;
+            const bool short_form = code_t::sign_extend(4, low) == value;
             encoder enc{};
             enc.uint_fixed(1, short_form ? 51 : 20); // load_imm / load_imm_64
             enc.uint_fixed(1, reg);

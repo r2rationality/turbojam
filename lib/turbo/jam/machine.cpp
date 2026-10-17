@@ -26,7 +26,7 @@ namespace turbo::jam::machine {
 
     struct machine_t::impl {
         static bool is_opcode(const uint8_t op) {
-            return _opcode_table()[op] != _opcode_undef();
+            return _opcode_table()[op].defined();
         }
 
         explicit impl(code_t &&code, const state_t &init, const pages_t &page_map):
@@ -52,13 +52,8 @@ namespace turbo::jam::machine {
                 }
                 _add_pages(page_id, page_id + cnt, page.is_writable);
             }
-            for (const auto &mc: init.memory) {
-                size_t i = 0;
-                _mem_write_pages<false>(mc.address, mc.contents.size(), [&](uint8_t *dst_ptr, const size_t chunk) {
-                    std::memcpy(dst_ptr, mc.contents.data() + i, chunk);
-                    i += chunk;
-                });
-            }
+            for (const auto &mc: init.memory)
+                mem_write<false>(mc.address, mc.contents);
             if (_stack_begin < config_prod::ZZ_pvm_init_zone_size) [[unlikely]]
                 throw exit_panic_t{};
             _stack_begin = ((_stack_begin - config_prod::ZZ_pvm_init_zone_size) / config_prod::ZZ_pvm_init_zone_size) * config_prod::ZZ_pvm_init_zone_size;
@@ -133,6 +128,11 @@ namespace turbo::jam::machine {
             return true;
         }
 
+        [[nodiscard]] const code_t &code() const
+        {
+            return _code;
+        }
+
         [[nodiscard]] gas_remaining_t gas() const
         {
             return _gas;
@@ -198,10 +198,11 @@ namespace turbo::jam::machine {
             return res;
         }
 
+        template<bool respect_writable = true>
         void mem_write(const address_val_t offset, const buffer data)
         {
             size_t i = 0;
-            _mem_write_pages(offset, data.size(), [&](uint8_t *dst_ptr, const size_t chunk) {
+            _mem_write_pages<respect_writable>(offset, data.size(), [&](uint8_t *dst_ptr, const size_t chunk) {
                 std::memcpy(dst_ptr, data.data() + i, chunk);
                 i += chunk;
             });
@@ -349,7 +350,8 @@ namespace turbo::jam::machine {
         static constexpr size_t tlb_size = 8;
 
         // Hot fields - accessed on every instruction (first ~3 cache lines)
-        uint32_t _pc{};
+        address_val_t _pc{};
+        bool _gas_charged = false;
         gas_remaining_t _gas = 0;
         registers_t _regs{};
         // Warm fields - accessed on memory operations / page faults
@@ -363,35 +365,30 @@ namespace turbo::jam::machine {
         code_t _code;
 
         using op_res_t = std::variant<std::monostate, register_val_t, result_t>;
-        using op_exec_t = op_res_t(*)(impl &, buffer);
+        using op_exec_t = op_res_t(*)(impl &, const code_t::opcode_t &);
         static_assert(sizeof(op_exec_t) == sizeof(uintptr_t), "opcode dispatch pointer must fit in exactly one uintptr_t");
 
         struct opcode_t
         {
-            static constexpr uintptr_t packed_bits = sizeof(uintptr_t) * 8U;
-            static constexpr uintptr_t block_end_shift = packed_bits - 1U;
-            static constexpr uintptr_t min_len_shift = packed_bits - 3U;
-            static constexpr uintptr_t block_end_mask = uintptr_t{1} << block_end_shift;
-            static constexpr uint8_t max_min_len = 2U;
-            static constexpr uintptr_t min_len_value_mask = 0x3U;
-            static constexpr uintptr_t min_len_mask = min_len_value_mask << min_len_shift;
-            static constexpr uintptr_t flags_mask = block_end_mask | min_len_mask;
-
-            uintptr_t packed = 0;
-
             constexpr opcode_t() noexcept = default;
 
-            opcode_t(const op_exec_t e, const bool block_end_ = false, const uint8_t min_len_ = 0U):
-                packed(_pack_checked(e, min_len_, block_end_))
+            opcode_t(const op_exec_t e):
+                _packed{_exec_bits_checked(e)}
             {
             }
 
-            [[nodiscard]] static constexpr uintptr_t _pack_raw(const uintptr_t exec_bits, const uint8_t min_len, const bool block_end) noexcept
+            [[nodiscard]] op_exec_t exec_fn() const noexcept
             {
-                return exec_bits
-                    | (static_cast<uintptr_t>(min_len) << min_len_shift)
-                    | (block_end ? block_end_mask : 0U);
+                return _exec_from_bits(_packed);
             }
+
+            [[nodiscard]] bool defined() const noexcept {
+                return _packed != 0;
+            }
+
+            bool operator==(const opcode_t &) const = default;
+        private:
+            uintptr_t _packed = 0;
 
             [[nodiscard]] static uintptr_t _exec_bits_checked(const op_exec_t exec)
             {
@@ -406,40 +403,7 @@ namespace turbo::jam::machine {
                 std::memcpy(&exec, &raw, sizeof(exec));
                 return exec;
             }
-
-            [[nodiscard]] static uintptr_t _pack_checked(const op_exec_t exec, const uint8_t min_len, const bool block_end)
-            {
-                const auto raw = _exec_bits_checked(exec);
-                if ((raw & flags_mask) != 0U) [[unlikely]]
-                    throw error(fmt::format("opcode exec pointer {:x} overlaps packed flag bits {:x}", raw, flags_mask));
-                if (min_len > max_min_len) [[unlikely]]
-                    throw error(fmt::format("opcode min_len {} exceeds packed max {}", min_len, max_min_len));
-                return _pack_raw(raw, min_len, block_end);
-            }
-
-            [[nodiscard]] op_exec_t exec_fn() const noexcept
-            {
-                return _exec_from_bits(packed & ~flags_mask);
-            }
-
-            [[nodiscard]] constexpr uint8_t min_len() const noexcept
-            {
-                return static_cast<uint8_t>((packed & min_len_mask) >> min_len_shift);
-            }
-
-            [[nodiscard]] constexpr bool block_end() const noexcept
-            {
-                return (packed & block_end_mask) != 0;
-            }
-
-            bool operator==(const opcode_t &) const = default;
         };
-
-        static const opcode_t &_opcode_undef()
-        {
-            static const opcode_t undef{&impl::trap, false};
-            return undef;
-        }
 
         static const std::array<opcode_t, 0x100> &_opcode_table()
         {
@@ -447,154 +411,152 @@ namespace turbo::jam::machine {
                 struct opcode_spec_t {
                     uint8_t opcode;
                     op_exec_t exec;
-                    // Minimum operand-buffer length supplied to the handler, not the full instruction length.
-                    uint8_t min_operand_bytes;
                 };
                 constexpr auto specs = std::to_array<opcode_spec_t>({
-                    {0, &impl::trap, 0U},
-                    {1, &impl::fallthrough, 0U},
-                    {2, &impl::unlikely, 0U},
-                    {10, &impl::ecalli, 0U},
-                    {20, &impl::load_imm_64, 1U},
-                    {30, &impl::store_imm_u8, 1U},
-                    {31, &impl::store_imm_u16, 1U},
-                    {32, &impl::store_imm_u32, 1U},
-                    {33, &impl::store_imm_u64, 1U},
-                    {40, &impl::jump, 0U},
-                    {50, &impl::jump_ind, 1U},
-                    {51, &impl::load_imm, 1U},
-                    {52, &impl::load_u8, 1U},
-                    {53, &impl::load_i8, 1U},
-                    {54, &impl::load_u16, 1U},
-                    {55, &impl::load_i16, 1U},
-                    {56, &impl::load_u32, 1U},
-                    {57, &impl::load_i32, 1U},
-                    {58, &impl::load_u64, 1U},
-                    {59, &impl::store_u8, 1U},
-                    {60, &impl::store_u16, 1U},
-                    {61, &impl::store_u32, 1U},
-                    {62, &impl::store_u64, 1U},
-                    {70, &impl::store_imm_ind_u8, 1U},
-                    {71, &impl::store_imm_ind_u16, 1U},
-                    {72, &impl::store_imm_ind_u32, 1U},
-                    {73, &impl::store_imm_ind_u64, 1U},
-                    {80, &impl::load_imm_jump, 1U},
-                    {81, &impl::branch_eq_imm, 1U},
-                    {82, &impl::branch_ne_imm, 1U},
-                    {83, &impl::branch_lt_u_imm, 1U},
-                    {84, &impl::branch_le_u_imm, 1U},
-                    {85, &impl::branch_ge_u_imm, 1U},
-                    {86, &impl::branch_gt_u_imm, 1U},
-                    {87, &impl::branch_lt_s_imm, 1U},
-                    {88, &impl::branch_le_s_imm, 1U},
-                    {89, &impl::branch_ge_s_imm, 1U},
-                    {90, &impl::branch_gt_s_imm, 1U},
-                    {100, &impl::move_reg, 1U},
-                    {101, &impl::count_set_bits_64, 1U},
-                    {102, &impl::count_set_bits_32, 1U},
-                    {103, &impl::leading_zero_bits_64, 1U},
-                    {104, &impl::leading_zero_bits_32, 1U},
-                    {105, &impl::trailing_zero_bits_64, 1U},
-                    {106, &impl::trailing_zero_bits_32, 1U},
-                    {107, &impl::sign_extend_8, 1U},
-                    {108, &impl::sign_extend_16, 1U},
-                    {109, &impl::zero_extend_16, 1U},
-                    {110, &impl::reverse_bytes, 1U},
-                    {120, &impl::store_ind_u8, 1U},
-                    {121, &impl::store_ind_u16, 1U},
-                    {122, &impl::store_ind_u32, 1U},
-                    {123, &impl::store_ind_u64, 1U},
-                    {124, &impl::load_ind_u8, 1U},
-                    {125, &impl::load_ind_i8, 1U},
-                    {126, &impl::load_ind_u16, 1U},
-                    {127, &impl::load_ind_i16, 1U},
-                    {128, &impl::load_ind_u32, 1U},
-                    {129, &impl::load_ind_i32, 1U},
-                    {130, &impl::load_ind_u64, 1U},
-                    {131, &impl::add_imm_32, 1U},
-                    {132, &impl::and_imm, 1U},
-                    {133, &impl::xor_imm, 1U},
-                    {134, &impl::or_imm, 1U},
-                    {135, &impl::mul_imm_32, 1U},
-                    {136, &impl::set_lt_u_imm, 1U},
-                    {137, &impl::set_lt_s_imm, 1U},
-                    {138, &impl::shlo_l_imm_32, 1U},
-                    {139, &impl::shlo_r_imm_32, 1U},
-                    {140, &impl::shar_r_imm_32, 1U},
-                    {141, &impl::neg_add_imm_32, 1U},
-                    {142, &impl::set_gt_u_imm, 1U},
-                    {143, &impl::set_gt_s_imm, 1U},
-                    {144, &impl::shlo_l_imm_alt_32, 1U},
-                    {145, &impl::shlo_r_imm_alt_32, 1U},
-                    {146, &impl::shar_r_imm_alt_32, 1U},
-                    {147, &impl::cmov_iz_imm, 1U},
-                    {148, &impl::cmov_nz_imm, 1U},
-                    {149, &impl::add_imm_64, 1U},
-                    {150, &impl::mul_imm_64, 1U},
-                    {151, &impl::shlo_l_imm_64, 1U},
-                    {152, &impl::shlo_r_imm_64, 1U},
-                    {153, &impl::shar_r_imm_64, 1U},
-                    {154, &impl::neg_add_imm_64, 1U},
-                    {155, &impl::shlo_l_imm_alt_64, 1U},
-                    {156, &impl::shlo_r_imm_alt_64, 1U},
-                    {157, &impl::shar_r_imm_alt_64, 1U},
-                    {158, &impl::rot_r_64_imm, 1U},
-                    {159, &impl::rot_r_64_imm_alt, 1U},
-                    {160, &impl::rot_r_32_imm, 1U},
-                    {161, &impl::rot_r_32_imm_alt, 1U},
-                    {170, &impl::branch_eq, 1U},
-                    {171, &impl::branch_ne, 1U},
-                    {172, &impl::branch_lt_u, 1U},
-                    {173, &impl::branch_lt_s, 1U},
-                    {174, &impl::branch_ge_u, 1U},
-                    {175, &impl::branch_ge_s, 1U},
-                    {180, &impl::load_imm_jump_ind, 2U},
-                    {190, &impl::add_32, 2U},
-                    {191, &impl::sub_32, 2U},
-                    {192, &impl::mul_32, 2U},
-                    {193, &impl::div_u_32, 2U},
-                    {194, &impl::div_s_32, 2U},
-                    {195, &impl::rem_u_32, 2U},
-                    {196, &impl::rem_s_32, 2U},
-                    {197, &impl::shlo_l_32, 2U},
-                    {198, &impl::shlo_r_32, 2U},
-                    {199, &impl::shar_r_32, 2U},
-                    {200, &impl::add_64, 2U},
-                    {201, &impl::sub_64, 2U},
-                    {202, &impl::mul_64, 2U},
-                    {203, &impl::div_u_64, 2U},
-                    {204, &impl::div_s_64, 2U},
-                    {205, &impl::rem_u_64, 2U},
-                    {206, &impl::rem_s_64, 2U},
-                    {207, &impl::shlo_l_64, 2U},
-                    {208, &impl::shlo_r_64, 2U},
-                    {209, &impl::shar_r_64, 2U},
-                    {210, &impl::and_, 2U},
-                    {211, &impl::xor_, 2U},
-                    {212, &impl::or_, 2U},
-                    {213, &impl::mul_upper_s_s, 2U},
-                    {214, &impl::mul_upper_u_u, 2U},
-                    {215, &impl::mul_upper_s_u, 2U},
-                    {216, &impl::set_lt_u, 2U},
-                    {217, &impl::set_lt_s, 2U},
-                    {218, &impl::cmov_iz, 2U},
-                    {219, &impl::cmov_nz, 2U},
-                    {220, &impl::rot_l_64, 2U},
-                    {221, &impl::rot_l_32, 2U},
-                    {222, &impl::rot_r_64, 2U},
-                    {223, &impl::rot_r_32, 2U},
-                    {224, &impl::and_inv, 2U},
-                    {225, &impl::or_inv, 2U},
-                    {226, &impl::xnor, 2U},
-                    {227, &impl::max, 2U},
-                    {228, &impl::max_u, 2U},
-                    {229, &impl::min, 2U},
-                    {230, &impl::min_u, 2U},
+                    {0, &impl::trap},
+                    {1, &impl::fallthrough},
+                    {2, &impl::unlikely},
+                    {10, &impl::ecalli},
+                    {20, &impl::load_imm_64},
+                    {30, &impl::store_imm_u8},
+                    {31, &impl::store_imm_u16},
+                    {32, &impl::store_imm_u32},
+                    {33, &impl::store_imm_u64},
+                    {40, &impl::jump},
+                    {50, &impl::jump_ind},
+                    {51, &impl::load_imm},
+                    {52, &impl::load_u8},
+                    {53, &impl::load_i8},
+                    {54, &impl::load_u16},
+                    {55, &impl::load_i16},
+                    {56, &impl::load_u32},
+                    {57, &impl::load_i32},
+                    {58, &impl::load_u64},
+                    {59, &impl::store_u8},
+                    {60, &impl::store_u16},
+                    {61, &impl::store_u32},
+                    {62, &impl::store_u64},
+                    {70, &impl::store_imm_ind_u8},
+                    {71, &impl::store_imm_ind_u16},
+                    {72, &impl::store_imm_ind_u32},
+                    {73, &impl::store_imm_ind_u64},
+                    {80, &impl::load_imm_jump},
+                    {81, &impl::branch_eq_imm},
+                    {82, &impl::branch_ne_imm},
+                    {83, &impl::branch_lt_u_imm},
+                    {84, &impl::branch_le_u_imm},
+                    {85, &impl::branch_ge_u_imm},
+                    {86, &impl::branch_gt_u_imm},
+                    {87, &impl::branch_lt_s_imm},
+                    {88, &impl::branch_le_s_imm},
+                    {89, &impl::branch_ge_s_imm},
+                    {90, &impl::branch_gt_s_imm},
+                    {100, &impl::move_reg},
+                    {101, &impl::count_set_bits_64},
+                    {102, &impl::count_set_bits_32},
+                    {103, &impl::leading_zero_bits_64},
+                    {104, &impl::leading_zero_bits_32},
+                    {105, &impl::trailing_zero_bits_64},
+                    {106, &impl::trailing_zero_bits_32},
+                    {107, &impl::sign_extend_8},
+                    {108, &impl::sign_extend_16},
+                    {109, &impl::zero_extend_16},
+                    {110, &impl::reverse_bytes},
+                    {120, &impl::store_ind_u8},
+                    {121, &impl::store_ind_u16},
+                    {122, &impl::store_ind_u32},
+                    {123, &impl::store_ind_u64},
+                    {124, &impl::load_ind_u8},
+                    {125, &impl::load_ind_i8},
+                    {126, &impl::load_ind_u16},
+                    {127, &impl::load_ind_i16},
+                    {128, &impl::load_ind_u32},
+                    {129, &impl::load_ind_i32},
+                    {130, &impl::load_ind_u64},
+                    {131, &impl::add_imm_32},
+                    {132, &impl::and_imm},
+                    {133, &impl::xor_imm},
+                    {134, &impl::or_imm},
+                    {135, &impl::mul_imm_32},
+                    {136, &impl::set_lt_u_imm},
+                    {137, &impl::set_lt_s_imm},
+                    {138, &impl::shlo_l_imm_32},
+                    {139, &impl::shlo_r_imm_32},
+                    {140, &impl::shar_r_imm_32},
+                    {141, &impl::neg_add_imm_32},
+                    {142, &impl::set_gt_u_imm},
+                    {143, &impl::set_gt_s_imm},
+                    {144, &impl::shlo_l_imm_alt_32},
+                    {145, &impl::shlo_r_imm_alt_32},
+                    {146, &impl::shar_r_imm_alt_32},
+                    {147, &impl::cmov_iz_imm},
+                    {148, &impl::cmov_nz_imm},
+                    {149, &impl::add_imm_64},
+                    {150, &impl::mul_imm_64},
+                    {151, &impl::shlo_l_imm_64},
+                    {152, &impl::shlo_r_imm_64},
+                    {153, &impl::shar_r_imm_64},
+                    {154, &impl::neg_add_imm_64},
+                    {155, &impl::shlo_l_imm_alt_64},
+                    {156, &impl::shlo_r_imm_alt_64},
+                    {157, &impl::shar_r_imm_alt_64},
+                    {158, &impl::rot_r_64_imm},
+                    {159, &impl::rot_r_64_imm_alt},
+                    {160, &impl::rot_r_32_imm},
+                    {161, &impl::rot_r_32_imm_alt},
+                    {170, &impl::branch_eq},
+                    {171, &impl::branch_ne},
+                    {172, &impl::branch_lt_u},
+                    {173, &impl::branch_lt_s},
+                    {174, &impl::branch_ge_u},
+                    {175, &impl::branch_ge_s},
+                    {180, &impl::load_imm_jump_ind},
+                    {190, &impl::add_32},
+                    {191, &impl::sub_32},
+                    {192, &impl::mul_32},
+                    {193, &impl::div_u_32},
+                    {194, &impl::div_s_32},
+                    {195, &impl::rem_u_32},
+                    {196, &impl::rem_s_32},
+                    {197, &impl::shlo_l_32},
+                    {198, &impl::shlo_r_32},
+                    {199, &impl::shar_r_32},
+                    {200, &impl::add_64},
+                    {201, &impl::sub_64},
+                    {202, &impl::mul_64},
+                    {203, &impl::div_u_64},
+                    {204, &impl::div_s_64},
+                    {205, &impl::rem_u_64},
+                    {206, &impl::rem_s_64},
+                    {207, &impl::shlo_l_64},
+                    {208, &impl::shlo_r_64},
+                    {209, &impl::shar_r_64},
+                    {210, &impl::and_},
+                    {211, &impl::xor_},
+                    {212, &impl::or_},
+                    {213, &impl::mul_upper_s_s},
+                    {214, &impl::mul_upper_u_u},
+                    {215, &impl::mul_upper_s_u},
+                    {216, &impl::set_lt_u},
+                    {217, &impl::set_lt_s},
+                    {218, &impl::cmov_iz},
+                    {219, &impl::cmov_nz},
+                    {220, &impl::rot_l_64},
+                    {221, &impl::rot_l_32},
+                    {222, &impl::rot_r_64},
+                    {223, &impl::rot_r_32},
+                    {224, &impl::and_inv},
+                    {225, &impl::or_inv},
+                    {226, &impl::xnor},
+                    {227, &impl::max},
+                    {228, &impl::max_u},
+                    {229, &impl::min},
+                    {230, &impl::min_u}
                 });
                 static_assert([](const auto &definitions) {
                     int previous_opcode = -1;
                     for (const auto &spec: definitions) {
-                        if (spec.opcode <= previous_opcode || !spec.exec || spec.min_operand_bytes > opcode_t::max_min_len)
+                        if (spec.opcode <= previous_opcode || !spec.exec)
                             return false;
                         previous_opcode = spec.opcode;
                     }
@@ -611,14 +573,9 @@ namespace turbo::jam::machine {
                     return true;
                 }(specs), "every block-end opcode must have a handler");
 
-                std::array<opcode_t, 0x100> res;
-                res.fill(_opcode_undef());
+                std::array<opcode_t, 0x100> res{};
                 for (const auto &spec: specs) {
-                    res[spec.opcode] = opcode_t{
-                        spec.exec,
-                        code_t::is_block_end_opcode(spec.opcode),
-                        spec.min_operand_bytes
-                    };
+                    res[spec.opcode] = opcode_t{spec.exec};
                 }
                 return res;
             }();
@@ -659,47 +616,55 @@ namespace turbo::jam::machine {
                 throw *ex;
         }
 
-        [[nodiscard]] bool _is_block_start(const register_val_t pc, const std::array<opcode_t, 0x100> &ops) const noexcept
-        {
-            if (pc >= _code.instrs.size() || !_code.bitmasks.test_unchecked(pc)) [[unlikely]]
-                return false;
-            if (ops[_code.instrs[pc]] == _opcode_undef()) [[unlikely]]
-                return false;
-            if (pc == 0)
-                return true;
-            const auto previous = _code.bitmasks.previous_set_bit<max_skip_len + 1U>(pc);
-            return previous && ops[_code.instrs[*previous]].block_end();
-        }
-
         result_t _run()
         {
             try {
                 const auto &ops = _opcode_table();
-                const buffer instrs_view = _code.instrs;
+                const auto &blks = _code.blocks();
                 for (;;) {
-                    const uint8_t opcode = _pc < instrs_view.size() && _code.bitmasks.test_unchecked(_pc)
-                        ? instrs_view[_pc]
-                        : 0x00U;
-                    const auto len = _code.bitmasks.skip_len(_pc);
-                    const auto &op = ops[opcode];
-                    if (!consume_gas(1U)) [[unlikely]]
-                        return exit_out_of_gas_t{};
-                    const auto data = _pc < instrs_view.size()
-                        ? buffer{instrs_view.data() + _pc + 1U, std::max(len, size_t{op.min_len()})}
-                        : buffer{};
-                    const auto exec = op.exec_fn();
-                    const auto next_pc = _pc + len + 1;
-                    // (A.6) - psi_1
-                    switch (auto res = exec(*this, data); res.index()) {
-                        case 0: _pc = next_pc; break;
-                        case 1: {
-                            // (A.17), (A.18): validate every taken jump before changing the PC.
-                            const auto target = std::get<1>(res);
-                            if (!_is_block_start(target, ops)) [[unlikely]]
-                                return exit_panic_t{};
-                            _pc = target;
-                            break;
+                    auto blk_it = blks.upper_bound(_pc);
+                    if (blk_it == blks.begin())
+                        throw exit_panic_t{};
+                    --blk_it;
+                    const auto &blk_ops = blk_it->second.opcodes;
+                    const auto num_ops = blk_ops.size();
+                    size_t next_op = 0;
+
+                    // allow continuation of a block after an out-of-gas, page-fault or host call
+                    if (!_gas_charged) {
+                        if (!consume_gas(blk_it->second.cost)) [[unlikely]]
+                            return exit_out_of_gas_t{};
+                        _gas_charged = true;
+                    } else if (_pc != blk_it->first) [[unlikely]] {
+                        auto next_pc = blk_it->first;
+                        while (next_op < num_ops && next_pc < _pc) {
+                            next_pc += 1U + blk_ops[next_op].skip_len;
+                            ++next_op;
                         }
+                        if (next_op == blk_ops.size() || next_pc != _pc)
+                            throw exit_panic_t{};
+                    }
+
+                    // guaranteed to be >= 1 by construction
+                    for (size_t i = next_op; i < num_ops - 1U; ++i) {
+                        const auto op = blk_ops[i];
+                        const auto res = ops[op.id].exec_fn()(*this, op);
+                        if (std::holds_alternative<result_t>(res)) [[unlikely]]
+                            return std::get<result_t>(res);
+                        _pc += op.skip_len + 1U;
+                    }
+                    const auto &last_op = blk_ops.back();
+                    const auto last_exec = ops[last_op.id].exec_fn();
+                    // (A.6) - psi_1
+                    switch (auto res = last_exec(*this, last_op); res.index()) {
+                        case 0:
+                            _pc += last_op.skip_len + 1U;
+                            _gas_charged = false;
+                            break;
+                        case 1:
+                            _pc = std::get<1>(res);
+                            _gas_charged = false;
+                            break;
                         case 2: return std::get<2>(std::move(res));
                         [[unlikely]] default: throw error(fmt::format("unsupported op_res_t index: {}", res.index()));
                     }
@@ -718,105 +683,6 @@ namespace turbo::jam::machine {
         void _set_reg(const register_idx_t idx, const register_val_t val)
         {
             _regs[idx] = val;
-        }
-
-        static register_val_t _read_uint_le_unchecked(const uint8_t *ptr, const size_t num_bytes) noexcept
-        {
-            switch (num_bytes) {
-                case 0:
-                    return 0;
-                case 1:
-                    return static_cast<register_val_t>(ptr[0]);
-                case 2:
-                    return static_cast<register_val_t>(ptr[0])
-                        | (static_cast<register_val_t>(ptr[1]) << 8U);
-                case 3:
-                    return static_cast<register_val_t>(ptr[0])
-                        | (static_cast<register_val_t>(ptr[1]) << 8U)
-                        | (static_cast<register_val_t>(ptr[2]) << 16U);
-                case 4:
-                    return static_cast<register_val_t>(ptr[0])
-                        | (static_cast<register_val_t>(ptr[1]) << 8U)
-                        | (static_cast<register_val_t>(ptr[2]) << 16U)
-                        | (static_cast<register_val_t>(ptr[3]) << 24U);
-                default: {
-                    register_val_t x = 0;
-                    for (size_t i = 0; i < num_bytes; ++i)
-                        x |= static_cast<register_val_t>(ptr[i]) << (i * 8U);
-                    return x;
-                }
-            }
-        }
-
-        static uint32_t _read_u32_prefix_le_unchecked(const uint8_t *ptr, const size_t num_bytes) noexcept
-        {
-            switch (num_bytes) {
-                case 0:
-                    return 0;
-                case 1:
-                    return static_cast<uint32_t>(ptr[0]);
-                case 2:
-                    return static_cast<uint32_t>(static_cast<uint16_t>(ptr[0]) | (static_cast<uint16_t>(ptr[1]) << 8U));
-                case 3:
-                    return static_cast<uint32_t>(ptr[0])
-                        | (static_cast<uint32_t>(ptr[1]) << 8U)
-                        | (static_cast<uint32_t>(ptr[2]) << 16U);
-                default:
-                    return static_cast<uint32_t>(ptr[0])
-                        | (static_cast<uint32_t>(ptr[1]) << 8U)
-                        | (static_cast<uint32_t>(ptr[2]) << 16U)
-                        | (static_cast<uint32_t>(ptr[3]) << 24U);
-            }
-        }
-
-        static register_val_t _sign_extend_imm32_unchecked(const uint32_t x, const size_t num_bytes) noexcept
-        {
-            switch (num_bytes) {
-                case 0:
-                    return 0;
-                case 1:
-                    return static_cast<register_val_t>(static_cast<register_val_signed_t>(static_cast<int8_t>(x)));
-                case 2:
-                    return static_cast<register_val_t>(static_cast<register_val_signed_t>(static_cast<int16_t>(x)));
-                case 3: {
-                    auto extended = x;
-                    if (extended & 0x00800000U)
-                        extended |= 0xFF000000U;
-                    return static_cast<register_val_t>(static_cast<register_val_signed_t>(static_cast<int32_t>(extended)));
-                }
-                default:
-                    return static_cast<register_val_t>(static_cast<register_val_signed_t>(static_cast<int32_t>(x)));
-            }
-        }
-
-        static register_val_t _read_uint32_le_unchecked(const uint8_t *ptr, const size_t num_bytes) noexcept
-        {
-            return static_cast<register_val_t>(_read_u32_prefix_le_unchecked(ptr, num_bytes));
-        }
-
-        static register_val_t _read_signed_imm32_unchecked(const uint8_t *ptr, const size_t num_bytes) noexcept
-        {
-            return _sign_extend_imm32_unchecked(_read_u32_prefix_le_unchecked(ptr, num_bytes), num_bytes);
-        }
-
-        static std::tuple<register_idx_t, register_idx_t> _args_reg2(const buffer data)
-        {
-            const auto *ptr = data.data();
-            const auto b0 = ptr[0];
-            const register_idx_t r_d = std::min(12ULL, b0 & 0xFULL);
-            const register_idx_t r_a = std::min(12ULL, b0 / 16ULL);
-            return std::make_tuple(r_d, r_a);
-        }
-
-        static std::tuple<register_idx_t, register_idx_t, register_idx_t> _args_reg3(const buffer data)
-        {
-            const auto *ptr = data.data();
-            const auto b0 = ptr[0];
-            const auto b1 = ptr[1];
-            const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const register_idx_t r_b = std::min(12ULL, b0 / 16ULL);
-            const register_idx_t r_d = std::min(12ULL, b1 & 0xFULL);
-            return std::make_tuple(r_a, r_b, r_d);
         }
 
         static std::tuple<register_idx_t, register_idx_t, register_val_t> _args_reg2_imm1(const buffer data)
@@ -853,119 +719,6 @@ namespace turbo::jam::machine {
                 }
             }();
             return std::make_tuple(r_a, r_b, nu_x);
-        }
-
-        static std::tuple<register_idx_t, register_idx_t, register_val_t, register_val_t> _args_reg2_imm2(const buffer data)
-        {
-            const auto *ptr = data.data();
-            const auto b0 = ptr[0];
-            const auto b1 = ptr[1];
-            const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const register_idx_t r_b = std::min(12ULL, b0 / 16ULL);
-            const size_t l_x = std::min(4ULL, b1 % 8ULL);
-            const size_t base_y = 2U + l_x;
-            const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
-            const auto nu_x = _read_signed_imm32_unchecked(ptr + 2U, l_x);
-            const auto nu_y = _read_signed_imm32_unchecked(ptr + base_y, l_y);
-            return std::make_tuple(r_a, r_b, nu_x, nu_y);
-        }
-
-        static std::tuple<register_idx_t, register_idx_t, register_val_t> _args_reg2_off1(const register_val_t pc, const buffer data)
-        {
-            const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            const auto new_pc = static_cast<register_val_t>(static_cast<register_val_signed_t>(pc) + static_cast<register_val_signed_t>(nu_x));
-            return std::make_tuple(r_a, r_b, new_pc);
-        }
-
-        static std::tuple<register_idx_t, register_val_t> _args_reg1_imm1(const buffer data, const size_t max_size)
-        {
-            const auto *ptr = data.data();
-            const auto b0 = ptr[0];
-            const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const size_t l_x = std::min(max_size, data.size() - 1U);
-            const auto nu_x = max_size <= 4U
-                ? _read_signed_imm32_unchecked(ptr + 1U, l_x)
-                : sign_extend(l_x, _read_uint_le_unchecked(ptr + 1U, l_x));
-            return std::make_tuple(r_a, nu_x);
-        }
-
-        static std::tuple<register_idx_t, register_val_t> _args_reg1_imm1_unsigned(const buffer data, const size_t max_size)
-        {
-            const auto *ptr = data.data();
-            const auto b0 = ptr[0];
-            const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const size_t l_x = std::min(max_size, data.size() - 1U);
-            const auto nu_x = max_size <= 4U
-                ? _read_uint32_le_unchecked(ptr + 1U, l_x)
-                : _read_uint_le_unchecked(ptr + 1U, l_x);
-            return std::make_tuple(r_a, nu_x);
-        }
-
-        static std::tuple<register_idx_t, register_val_t> _args_reg1_imm1_s32(const buffer data)
-        {
-            return _args_reg1_imm1(data, 4ULL);
-        }
-
-        static std::tuple<register_idx_t, register_val_t> _args_reg1_imm1_u64(const buffer data)
-        {
-            return _args_reg1_imm1_unsigned(data, 8ULL);
-        }
-
-        static std::tuple<register_idx_t, register_val_t, register_val_t> _args_reg1_imm2(const buffer data)
-        {
-            const auto *ptr = data.data();
-            const auto b0 = ptr[0];
-            const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8ULL);
-            const size_t base_y = 1U + l_x;
-            const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
-            const auto nu_x = _read_signed_imm32_unchecked(ptr + 1U, l_x);
-            const auto nu_y = _read_signed_imm32_unchecked(ptr + base_y, l_y);
-            return std::make_tuple(r_a, nu_x, nu_y);
-        }
-
-        static std::tuple<register_idx_t, register_val_t, register_val_t> _args_reg1_imm1_off1(const register_val_t pc, const buffer data)
-        {
-            const auto *ptr = data.data();
-            const auto b0 = ptr[0];
-            const register_idx_t r_a = std::min(12ULL, b0 & 0xFULL);
-            const size_t l_x = std::min(4ULL, (b0 / 16ULL) % 8ULL);
-            const size_t base_y = 1U + l_x;
-            const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
-            const auto nu_x = _read_signed_imm32_unchecked(ptr + 1U, l_x);
-            const auto nu_y_pre = _read_signed_imm32_unchecked(ptr + base_y, l_y);
-            const auto nu_y = static_cast<register_val_t>(static_cast<register_val_signed_t>(pc) + static_cast<register_val_signed_t>(nu_y_pre));
-            return std::make_tuple(r_a, nu_x, nu_y);
-        }
-
-        static std::tuple<register_val_t> _args_imm1(const buffer data)
-        {
-            const size_t l_x = std::min(size_t{4}, data.size());
-            return _read_signed_imm32_unchecked(data.data(), l_x);
-        }
-
-        static std::tuple<register_val_t, register_val_t> _args_imm2(const buffer data)
-        {
-            const auto *ptr = data.data();
-            const size_t l_x = std::min(4ULL, ptr[0] % 8ULL);
-            const size_t base_y = 1U + l_x;
-            const size_t l_y = data.size() > base_y ? std::min(size_t{4}, data.size() - base_y) : 0U;
-            const auto nu_x = _read_signed_imm32_unchecked(ptr + 1U, l_x);
-            const auto nu_y = _read_signed_imm32_unchecked(ptr + base_y, l_y);
-            return std::make_tuple(nu_x, nu_y);
-        }
-
-        static std::tuple<register_val_t> _args_off1(const register_val_t pc, const buffer data)
-        {
-            const size_t l_x = std::min(size_t{4}, data.size());
-            const auto nu_x_pre = _read_signed_imm32_unchecked(data.data(), l_x);
-            const auto nu_x = static_cast<register_val_t>(static_cast<register_val_signed_t>(pc) + static_cast<register_val_signed_t>(nu_x_pre));
-            return std::make_tuple(nu_x);
-        }
-
-        static std::tuple<> _args_none(const buffer)
-        {
-            return {};
         }
 
         static op_res_t djump(const code_t &code, const register_val_t addr)
@@ -1146,7 +899,7 @@ namespace turbo::jam::machine {
         template<size_t SZ>
         register_val_t _load_signed(const address_val_t addr)
         {
-            return sign_extend(SZ, _load_unsigned<SZ>(addr));
+            return code_t::sign_extend(SZ, _load_unsigned<SZ>(addr));
         }
 
         template<typename T>
@@ -1160,1054 +913,942 @@ namespace turbo::jam::machine {
         }
 
         template<typename Pred>
-        static op_res_t _branch_reg2_off1(const register_val_t pc, const registers_t &regs, const buffer data, Pred &&pred)
+        static op_res_t _branch_reg2_off1(const registers_t &regs, const code_t::opcode_t &op, Pred &&pred)
         {
-            const auto [r_a, r_b, new_pc] = _args_reg2_off1(pc, data);
-            return branch_base(new_pc, pred(regs[r_a], regs[r_b]));
+            return branch_base(op.imm_1, pred(regs[op.reg_1], regs[op.reg_2]));
         }
 
         template<typename Pred>
-        static op_res_t _branch_reg1_imm1_off1(const register_val_t pc, const registers_t &regs, const buffer data, Pred &&pred)
+        static op_res_t _branch_reg1_imm1_off1(const registers_t &regs, const code_t::opcode_t &op, Pred &&pred)
         {
-            const auto [r_a, nu_x, new_pc] = _args_reg1_imm1_off1(pc, data);
-            return branch_base(new_pc, pred(regs[r_a], nu_x));
+            return branch_base(op.imm_2, pred(regs[op.reg_1], op.imm_1));
         }
 
         template<size_t SZ, bool Signed>
-        static op_res_t _load_direct(impl &self, registers_t &regs, const buffer data)
+        static op_res_t _load_direct(impl &self, registers_t &regs, const code_t::opcode_t &op)
         {
-            const auto [r_a, addr] = _args_reg1_imm1_s32(data);
             if constexpr (Signed)
-                regs[r_a] = self._load_signed<SZ>(addr);
+                regs[op.reg_1] = self._load_signed<SZ>(op.imm_1);
             else
-                regs[r_a] = self._load_unsigned<SZ>(addr);
+                regs[op.reg_1] = self._load_unsigned<SZ>(op.imm_1);
             return {};
         }
 
         template<typename T>
-        static op_res_t _store_direct(impl &self, const registers_t &regs, const buffer data)
+        static op_res_t _store_direct(impl &self, const registers_t &regs, const code_t::opcode_t &op)
         {
-            const auto [r_a, addr] = _args_reg1_imm1_s32(data);
-            self._store_unsigned(addr, static_cast<T>(regs[r_a]));
+            self._store_unsigned(op.imm_1, static_cast<T>(regs[op.reg_1]));
             return {};
         }
 
         template<typename T>
-        static op_res_t _store_imm_indirect(impl &self, const registers_t &regs, const buffer data)
+        static op_res_t _store_imm_indirect(impl &self, const registers_t &regs, const code_t::opcode_t &op)
         {
-            const auto [r_a, nu_x, nu_y] = _args_reg1_imm2(data);
-            self._store_unsigned(regs[r_a] + nu_x, static_cast<T>(nu_y));
+            self._store_unsigned(regs[op.reg_1] + op.imm_1, static_cast<T>(op.imm_2));
             return {};
         }
 
         template<typename T>
-        static op_res_t _store_indirect(impl &self, const registers_t &regs, const buffer data)
+        static op_res_t _store_indirect(impl &self, const registers_t &regs, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            self._store_unsigned(regs[r_b] + nu_x, static_cast<T>(regs[r_a]));
+            self._store_unsigned(regs[op.reg_2] + op.imm_1, static_cast<T>(regs[op.reg_1]));
             return {};
         }
 
         template<size_t SZ, bool Signed>
-        static op_res_t _load_indirect(impl &self, registers_t &regs, const buffer data)
+        static op_res_t _load_indirect(impl &self, registers_t &regs, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = _args_reg2_imm1(data);
-            const auto addr = regs[r_b] + nu_x;
+            const auto addr = regs[op.reg_2] + op.imm_1;
             if constexpr (Signed)
-                regs[r_a] = self._load_signed<SZ>(addr);
+                regs[op.reg_1] = self._load_signed<SZ>(addr);
             else
-                regs[r_a] = self._load_unsigned<SZ>(addr);
+                regs[op.reg_1] = self._load_unsigned<SZ>(addr);
             return {};
         }
 
         template<typename Op>
-        static op_res_t _reg3_apply(registers_t &regs, const buffer data, Op &&op)
+        static op_res_t _reg3_apply(registers_t &regs, const code_t::opcode_t &op, Op &&fn)
         {
-            const auto [r_a, r_b, r_d] = _args_reg3(data);
-            regs[r_d] = op(regs[r_a], regs[r_b]);
+            regs[op.reg_3] = fn(regs[op.reg_1], regs[op.reg_2]);
             return {};
         }
 
         // opcode implementations
 
-        static op_res_t trap(impl &, const buffer)
+        static op_res_t trap(impl &, const code_t::opcode_t &)
         {
             return exit_panic_t{};
         }
 
-        static op_res_t fallthrough(impl &self, const buffer)
+        static op_res_t fallthrough(impl &self, const code_t::opcode_t &op)
         {
-            const auto skip = self._code.bitmasks.skip_len(self._pc);
-            if (self._pc > std::numeric_limits<register_val_t>::max() - 1U - skip) [[unlikely]]
-                return exit_panic_t{};
-            // trigger a basic-block-start check
-            return register_val_t{self._pc + 1U + skip};
+            return register_val_t{self._pc + 1U + op.skip_len};
         }
 
-        static op_res_t unlikely(impl &, const buffer)
+        static op_res_t unlikely(impl &, const code_t::opcode_t &op)
         {
-            // do nothing
             return {};
         }
 
-        static op_res_t ecalli(impl &self, const buffer data)
+        static op_res_t ecalli(impl &self, const code_t::opcode_t &op)
         {
-            const auto [nu_x] = self._args_imm1(data);
-            return exit_host_call_t{nu_x};
+            return exit_host_call_t{op.imm_1};
         }
 
-        static op_res_t store_imm_u8(impl &self, const buffer data)
+        static op_res_t store_imm_u8(impl &self, const code_t::opcode_t &op)
         {
-            const auto [nu_x, nu_y] = self._args_imm2(data);
-            self._store_unsigned(nu_x, static_cast<uint8_t>(nu_y));
+            self._store_unsigned(op.imm_1, static_cast<uint8_t>(op.imm_2));
             return {};
         }
 
-        static op_res_t store_imm_u16(impl &self, const buffer data)
+        static op_res_t store_imm_u16(impl &self, const code_t::opcode_t &op)
         {
-            const auto [nu_x, nu_y] = self._args_imm2(data);
-            self._store_unsigned(nu_x, static_cast<uint16_t>(nu_y));
+            self._store_unsigned(op.imm_1, static_cast<uint16_t>(op.imm_2));
             return {};
         }
 
-        static op_res_t store_imm_u32(impl &self, const buffer data)
+        static op_res_t store_imm_u32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [nu_x, nu_y] = self._args_imm2(data);
-            self._store_unsigned(nu_x, static_cast<uint32_t>(nu_y));
+            self._store_unsigned(op.imm_1, static_cast<uint32_t>(op.imm_2));
             return {};
         }
 
-        static op_res_t store_imm_u64(impl &self, const buffer data)
+        static op_res_t store_imm_u64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [nu_x, nu_y] = self._args_imm2(data);
-            self._store_unsigned(nu_x, nu_y);
+            self._store_unsigned(op.imm_1, op.imm_2);
             return {};
         }
 
-        static op_res_t load_imm(impl &self, const buffer data)
+        static op_res_t load_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, nu_x] = self._args_reg1_imm1_s32(data);
-            self._set_reg(r_a, nu_x);
+            self._set_reg(op.reg_1, op.imm_1);
             return {};
         }
 
-        static op_res_t load_imm_64(impl &self, const buffer data)
+        static op_res_t load_imm_64(impl &self, const code_t::opcode_t &op)
         {
-            // One register byte and eight immediate bytes, independent of the current skip (can read from the extra padded 0s)
-            const auto [r_a, nu_x] = self._args_reg1_imm1_u64(buffer{data.data(), 9U});
-            self._set_reg(r_a, nu_x);
+            // Todo: check that one register byte and eight immediate bytes, independent of the current skip (can read from the extra padded 0s)
+            self._set_reg(op.reg_1, op.imm_1);
             return {};
         }
 
-        static op_res_t move_reg(impl &self, const buffer data)
+        static op_res_t move_reg(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, self._regs[r_a]);
+            self._set_reg(op.reg_1, self._regs[op.reg_2]);
             return {};
         }
 
-        static op_res_t sbrk(impl &self, const buffer data)
+        static op_res_t count_set_bits_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            const auto size = self._regs[r_a];
-            if (size > 0) {
-                const auto new_heap_end = self._heap_end + size;
-                // check for an arithmetic overflow and getting into the stack area
-                if (new_heap_end < self._heap_end || new_heap_end >= self._stack_begin) [[unlikely]] {
-                    self._set_reg(r_d, 0);
-                    return {};
-                }
-                const auto begin_page_id = (self._heap_end + config_prod::ZP_pvm_page_size - 1) / config_prod::ZP_pvm_page_size;
-                const auto end_page_id = (new_heap_end + config_prod::ZP_pvm_page_size - 1) / config_prod::ZP_pvm_page_size;
-                if (begin_page_id < end_page_id)
-                    self._add_pages(begin_page_id, end_page_id, true);
-                self._heap_end = new_heap_end;
-            }
-            self._set_reg(r_d, self._heap_end);
+            self._set_reg(op.reg_1, std::popcount(self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t count_set_bits_64(impl &self, const buffer data)
+        static op_res_t count_set_bits_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, std::popcount(self._regs[r_a]));
+            self._set_reg(op.reg_1, std::popcount(static_cast<uint32_t>(self._regs[op.reg_2])));
             return {};
         }
 
-        static op_res_t count_set_bits_32(impl &self, const buffer data)
+        static op_res_t leading_zero_bits_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, std::popcount(static_cast<uint32_t>(self._regs[r_a])));
+            self._set_reg(op.reg_1, std::countl_zero(self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t leading_zero_bits_64(impl &self, const buffer data)
+        static op_res_t leading_zero_bits_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, std::countl_zero(self._regs[r_a]));
+            self._set_reg(op.reg_1, std::countl_zero(static_cast<uint32_t>(self._regs[op.reg_2])));
             return {};
         }
 
-        static op_res_t leading_zero_bits_32(impl &self, const buffer data)
+        static op_res_t trailing_zero_bits_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, std::countl_zero(static_cast<uint32_t>(self._regs[r_a])));
+            self._set_reg(op.reg_1, std::countr_zero(self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t trailing_zero_bits_64(impl &self, const buffer data)
+        static op_res_t trailing_zero_bits_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, std::countr_zero(self._regs[r_a]));
+            self._set_reg(op.reg_1, std::countr_zero(static_cast<uint32_t>(self._regs[op.reg_2])));
             return {};
         }
 
-        static op_res_t trailing_zero_bits_32(impl &self, const buffer data)
+        static op_res_t sign_extend_8(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, std::countr_zero(static_cast<uint32_t>(self._regs[r_a])));
+            self._set_reg(op.reg_1, code_t::sign_extend(1, self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t sign_extend_8(impl &self, const buffer data)
+        static op_res_t sign_extend_16(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, sign_extend(1, self._regs[r_a]));
+            self._set_reg(op.reg_1, code_t::sign_extend(2, self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t sign_extend_16(impl &self, const buffer data)
+        static op_res_t zero_extend_16(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, sign_extend(2, self._regs[r_a]));
+            self._set_reg(op.reg_1, self._regs[op.reg_2] & 0xFFFF);
             return {};
         }
 
-        static op_res_t zero_extend_16(impl &self, const buffer data)
+        static op_res_t reverse_bytes(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, self._regs[r_a] & 0xFFFF);
+            self._set_reg(op.reg_1, std::byteswap(self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t reverse_bytes(impl &self, const buffer data)
+        static op_res_t branch_eq(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_d, r_a] = self._args_reg2(data);
-            self._set_reg(r_d, std::byteswap(self._regs[r_a]));
-            return {};
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
         }
 
-        static op_res_t branch_eq(impl &self, const buffer data)
+        static op_res_t branch_ne(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
         }
 
-        static op_res_t branch_ne(impl &self, const buffer data)
+        static op_res_t branch_lt_u(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
         }
 
-        static op_res_t branch_lt_u(impl &self, const buffer data)
+        static op_res_t branch_lt_s(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
-        }
-
-        static op_res_t branch_lt_s(impl &self, const buffer data)
-        {
-            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) < static_cast<register_val_signed_t>(rhs);
             });
         }
 
-        static op_res_t branch_ge_u(impl &self, const buffer data)
+        static op_res_t branch_ge_u(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
         }
 
-        static op_res_t branch_ge_s(impl &self, const buffer data)
+        static op_res_t branch_ge_s(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) >= static_cast<register_val_signed_t>(rhs);
             });
         }
 
-        static op_res_t add_imm_32(impl &self, const buffer data)
+        static op_res_t add_imm_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(self._regs[r_b] + nu_x)));
+            self._set_reg(op.reg_1, code_t::sign_extend(4, static_cast<uint32_t>(self._regs[op.reg_2] + op.imm_1)));
             return {};
         }
 
-        static op_res_t and_imm(impl &self, const buffer data)
+        static op_res_t and_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] & nu_x);
+            self._set_reg(op.reg_1, self._regs[op.reg_2] & op.imm_1);
             return {};
         }
 
-        static op_res_t xor_imm(impl &self, const buffer data)
+        static op_res_t xor_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] ^ nu_x);
+            self._set_reg(op.reg_1, self._regs[op.reg_2] ^ op.imm_1);
             return {};
         }
 
-        static op_res_t or_imm(impl &self, const buffer data)
+        static op_res_t or_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] | nu_x);
+            self._set_reg(op.reg_1, self._regs[op.reg_2] | op.imm_1);
             return {};
         }
 
-        static op_res_t mul_imm_32(impl &self, const buffer data)
+        static op_res_t mul_imm_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, self._regs[r_b] * nu_x));
+            self._set_reg(op.reg_1, code_t::sign_extend(4, self._regs[op.reg_2] * op.imm_1));
             return {};
         }
 
-        static op_res_t set_lt_u_imm(impl &self, const buffer data)
+        static op_res_t set_lt_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] < nu_x);
+            self._set_reg(op.reg_1, self._regs[op.reg_2] < op.imm_1);
             return {};
         }
 
-        static op_res_t set_lt_s_imm(impl &self, const buffer data)
+        static op_res_t set_lt_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_signed_t>(self._regs[r_b]) < static_cast<register_val_signed_t>(nu_x));
+            self._set_reg(op.reg_1, static_cast<register_val_signed_t>(self._regs[op.reg_2]) < static_cast<register_val_signed_t>(op.imm_1));
             return {};
         }
 
-        static op_res_t shlo_l_imm_32(impl &self, const buffer data)
+        static op_res_t shlo_l_imm_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(self._regs[r_b]) << (nu_x % 32U)));
+            self._set_reg(op.reg_1, code_t::sign_extend(4, static_cast<uint32_t>(self._regs[op.reg_2]) << (op.imm_1 % 32U)));
             return {};
         }
 
-        static op_res_t shlo_r_imm_32(impl &self, const buffer data)
+        static op_res_t shlo_r_imm_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(self._regs[r_b]) >> (nu_x % 32U)));
+            self._set_reg(op.reg_1, code_t::sign_extend(4, static_cast<uint32_t>(self._regs[op.reg_2]) >> (op.imm_1 % 32U)));
             return {};
         }
 
-        static op_res_t shar_r_imm_32(impl &self, const buffer data)
+        static op_res_t shar_r_imm_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_t>(static_cast<int32_t>(self._regs[r_b]) >> (nu_x % 32U)));
+            self._set_reg(op.reg_1, static_cast<register_val_t>(static_cast<int32_t>(self._regs[op.reg_2]) >> (op.imm_1 % 32U)));
             return {};
         }
 
-        static op_res_t neg_add_imm_32(impl &self, const buffer data)
+        static op_res_t neg_add_imm_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x + (1ULL << 32ULL) - self._regs[r_b])));
+            self._set_reg(op.reg_1, code_t::sign_extend(4, static_cast<uint32_t>(op.imm_1 + (1ULL << 32ULL) - self._regs[op.reg_2])));
             return {};
         }
 
-        static op_res_t set_gt_u_imm(impl &self, const buffer data)
+        static op_res_t set_gt_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] > nu_x);
+            self._set_reg(op.reg_1, self._regs[op.reg_2] > op.imm_1);
             return {};
         }
 
-        static op_res_t set_gt_s_imm(impl &self, const buffer data)
+        static op_res_t set_gt_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_signed_t>(self._regs[r_b]) > static_cast<register_val_signed_t>(nu_x));
+            self._set_reg(op.reg_1, static_cast<register_val_signed_t>(self._regs[op.reg_2]) > static_cast<register_val_signed_t>(op.imm_1));
             return {};
         }
 
-        static op_res_t shlo_l_imm_alt_32(impl &self, const buffer data)
+        static op_res_t shlo_l_imm_alt_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x) << (self._regs[r_b] % 32U)));
+            self._set_reg(op.reg_1, code_t::sign_extend(4, static_cast<uint32_t>(op.imm_1) << (self._regs[op.reg_2] % 32U)));
             return {};
         }
 
-        static op_res_t shlo_r_imm_alt_32(impl &self, const buffer data)
+        static op_res_t shlo_r_imm_alt_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, static_cast<uint32_t>(nu_x) >> (self._regs[r_b] % 32U)));
+            self._set_reg(op.reg_1, code_t::sign_extend(4, static_cast<uint32_t>(op.imm_1) >> (self._regs[op.reg_2] % 32U)));
             return {};
         }
 
-        static op_res_t shar_r_imm_alt_32(impl &self, const buffer data)
+        static op_res_t shar_r_imm_alt_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_t>(static_cast<int32_t>(nu_x) >> (self._regs[r_b] % 32U)));
+            self._set_reg(op.reg_1, static_cast<register_val_t>(static_cast<int32_t>(op.imm_1) >> (self._regs[op.reg_2] % 32U)));
             return {};
         }
 
-        static op_res_t cmov_iz_imm(impl &self, const buffer data)
+        static op_res_t cmov_iz_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] == 0 ?  nu_x : self._regs[r_a]);
+            if (self._regs[op.reg_2] == 0)
+                self._set_reg(op.reg_1, op.imm_1);
             return {};
         }
 
-        static op_res_t cmov_nz_imm(impl &self, const buffer data)
+        static op_res_t cmov_nz_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] != 0 ?  nu_x : self._regs[r_a]);
+            if (self._regs[op.reg_2] != 0)
+                self._set_reg(op.reg_1, op.imm_1);
             return {};
         }
 
-        static op_res_t add_imm_64(impl &self, const buffer data)
+        static op_res_t add_imm_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] + nu_x);
+            self._set_reg(op.reg_1, self._regs[op.reg_2] + op.imm_1);
             return {};
         }
 
-        static op_res_t mul_imm_64(impl &self, const buffer data)
+        static op_res_t mul_imm_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] * nu_x);
+            self._set_reg(op.reg_1, self._regs[op.reg_2] * op.imm_1);
             return {};
         }
 
-        static op_res_t shlo_l_imm_64(impl &self, const buffer data)
+        static op_res_t shlo_l_imm_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] << (nu_x % 64U));
+            self._set_reg(op.reg_1, self._regs[op.reg_2] << (op.imm_1 % 64U));
             return {};
         }
 
-        static op_res_t shlo_r_imm_64(impl &self, const buffer data)
+        static op_res_t shlo_r_imm_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, self._regs[r_b] >> (nu_x % 64U));
+            self._set_reg(op.reg_1, self._regs[op.reg_2] >> (op.imm_1 % 64U));
             return {};
         }
 
-        static op_res_t shar_r_imm_64(impl &self, const buffer data)
+        static op_res_t shar_r_imm_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_t>(static_cast<register_val_signed_t>(self._regs[r_b]) >> (nu_x % 64U)));
+            self._set_reg(op.reg_1, static_cast<register_val_t>(static_cast<register_val_signed_t>(self._regs[op.reg_2]) >> (op.imm_1 % 64U)));
             return {};
         }
 
-        static op_res_t neg_add_imm_64(impl &self, const buffer data)
+        static op_res_t neg_add_imm_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, nu_x - self._regs[r_b]);
+            self._set_reg(op.reg_1, op.imm_1 - self._regs[op.reg_2]);
             return {};
         }
 
-        static op_res_t shlo_l_imm_alt_64(impl &self, const buffer data)
+        static op_res_t shlo_l_imm_alt_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, nu_x << (self._regs[r_b] % 64U));
+            self._set_reg(op.reg_1, op.imm_1 << (self._regs[op.reg_2] % 64U));
             return {};
         }
 
-        static op_res_t shlo_r_imm_alt_64(impl &self, const buffer data)
+        static op_res_t shlo_r_imm_alt_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, nu_x >> (self._regs[r_b] % 64U));
+            self._set_reg(op.reg_1, op.imm_1 >> (self._regs[op.reg_2] % 64U));
             return {};
         }
 
-        static op_res_t shar_r_imm_alt_64(impl &self, const buffer data)
+        static op_res_t shar_r_imm_alt_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, static_cast<register_val_t>(static_cast<register_val_signed_t>(nu_x) >> (self._regs[r_b] % 64U)));
+            self._set_reg(op.reg_1, static_cast<register_val_t>(static_cast<register_val_signed_t>(op.imm_1) >> (self._regs[op.reg_2] % 64U)));
             return {};
         }
 
-        static op_res_t rot_r_64_imm(impl &self, const buffer data)
+        static op_res_t rot_r_64_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, std::rotr(self._regs[r_b], nu_x));
+            self._set_reg(op.reg_1, std::rotr(self._regs[op.reg_2], op.imm_1));
             return {};
         }
 
-        static op_res_t rot_r_64_imm_alt(impl &self, const buffer data)
+        static op_res_t rot_r_64_imm_alt(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, std::rotr(nu_x, self._regs[r_b]));
+            self._set_reg(op.reg_1, std::rotr(op.imm_1, self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t rot_r_32_imm(impl &self, const buffer data)
+        static op_res_t rot_r_32_imm(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, std::rotr(static_cast<uint32_t>(self._regs[r_b]), static_cast<uint32_t>(nu_x))));
+            self._set_reg(op.reg_1, code_t::sign_extend(4, std::rotr(static_cast<uint32_t>(self._regs[op.reg_2]), static_cast<uint32_t>(op.imm_1))));
             return {};
         }
 
-        static op_res_t rot_r_32_imm_alt(impl &self, const buffer data)
+        static op_res_t rot_r_32_imm_alt(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x] = self._args_reg2_imm1(data);
-            self._set_reg(r_a, sign_extend(4, std::rotr(static_cast<uint32_t>(nu_x), static_cast<uint32_t>(self._regs[r_b]))));
+            self._set_reg(op.reg_1, code_t::sign_extend(4, std::rotr(static_cast<uint32_t>(op.imm_1), static_cast<uint32_t>(self._regs[op.reg_2]))));
             return {};
         }
 
-        static op_res_t load_imm_jump(impl &self, const buffer data)
+        static op_res_t load_imm_jump(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, nu_x, nu_y] = _args_reg1_imm1_off1(self._pc, data);
-            self._set_reg(r_a, nu_x);
-            return branch_base(nu_y, true);
+            self._set_reg(op.reg_1, op.imm_1);
+            return sjump(op.imm_2);
         }
 
-        static op_res_t load_imm_jump_ind(impl &self, const buffer data)
+        static op_res_t load_imm_jump_ind(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, nu_x, nu_y] = self._args_reg2_imm2(data);
-            const auto jt_idx = (self._regs[r_b] + nu_y) % (1ULL << 32ULL);
-            self._set_reg(r_a, nu_x);
+            const auto jt_idx = (self._regs[op.reg_2] + op.imm_2) % (1ULL << 32ULL);
+            self._set_reg(op.reg_1, op.imm_1);
             return djump(self._code, jt_idx);
         }
 
-        static op_res_t branch_eq_imm(impl &self, const buffer data)
+        static op_res_t branch_eq_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
         }
 
-        static op_res_t branch_ne_imm(impl &self, const buffer data)
+        static op_res_t branch_ne_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
         }
 
-        static op_res_t branch_lt_u_imm(impl &self, const buffer data)
+        static op_res_t branch_lt_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
         }
 
-        static op_res_t branch_le_u_imm(impl &self, const buffer data)
+        static op_res_t branch_le_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs <= rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs <= rhs; });
         }
 
-        static op_res_t branch_ge_u_imm(impl &self, const buffer data)
+        static op_res_t branch_ge_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
         }
 
-        static op_res_t branch_gt_u_imm(impl &self, const buffer data)
+        static op_res_t branch_gt_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs > rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs > rhs; });
         }
 
-        static op_res_t branch_lt_s_imm(impl &self, const buffer data)
+        static op_res_t branch_lt_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) < static_cast<register_val_signed_t>(rhs);
             });
         }
 
-        static op_res_t branch_le_s_imm(impl &self, const buffer data)
+        static op_res_t branch_le_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) <= static_cast<register_val_signed_t>(rhs);
             });
         }
 
-        static op_res_t branch_ge_s_imm(impl &self, const buffer data)
+        static op_res_t branch_ge_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) >= static_cast<register_val_signed_t>(rhs);
             });
         }
 
-        static op_res_t branch_gt_s_imm(impl &self, const buffer data)
+        static op_res_t branch_gt_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._pc, self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_signed_t>(lhs) > static_cast<register_val_signed_t>(rhs);
             });
         }
 
-        static op_res_t jump(impl &self, const buffer data)
+        static op_res_t jump(impl &self, const code_t::opcode_t &op)
         {
-            const auto [nu_x] = _args_off1(self._pc, data);
-            return sjump(nu_x);
+            return sjump(op.imm_1);
         }
 
-        static op_res_t jump_ind(impl &self, const buffer data)
+        static op_res_t jump_ind(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, nu_x] = self._args_reg1_imm1_s32(data);
-            return djump(self._code, (self._regs[r_a] + nu_x) % (1ULL << 32ULL));
+            return djump(self._code, (self._regs[op.reg_1] + op.imm_1) % (1ULL << 32ULL));
         }
 
-        static op_res_t load_u8(impl &self, const buffer data)
+        static op_res_t load_u8(impl &self, const code_t::opcode_t &op)
         {
-            return _load_direct<1, false>(self, self._regs, data);
+            return _load_direct<1, false>(self, self._regs, op);
         }
 
-        static op_res_t load_u16(impl &self, const buffer data)
+        static op_res_t load_u16(impl &self, const code_t::opcode_t &op)
         {
-            return _load_direct<2, false>(self, self._regs, data);
+            return _load_direct<2, false>(self, self._regs, op);
         }
 
-        static op_res_t load_u32(impl &self, const buffer data)
+        static op_res_t load_u32(impl &self, const code_t::opcode_t &op)
         {
-            return _load_direct<4, false>(self, self._regs, data);
+            return _load_direct<4, false>(self, self._regs, op);
         }
 
-        static op_res_t load_u64(impl &self, const buffer data)
+        static op_res_t load_u64(impl &self, const code_t::opcode_t &op)
         {
-            return _load_direct<8, false>(self, self._regs, data);
+            return _load_direct<8, false>(self, self._regs, op);
         }
 
-        static op_res_t load_i8(impl &self, const buffer data)
+        static op_res_t load_i8(impl &self, const code_t::opcode_t &op)
         {
-            return _load_direct<1, true>(self, self._regs, data);
+            return _load_direct<1, true>(self, self._regs, op);
         }
 
-        static op_res_t load_i16(impl &self, const buffer data)
+        static op_res_t load_i16(impl &self, const code_t::opcode_t &op)
         {
-            return _load_direct<2, true>(self, self._regs, data);
+            return _load_direct<2, true>(self, self._regs, op);
         }
 
-        static op_res_t load_i32(impl &self, const buffer data)
+        static op_res_t load_i32(impl &self, const code_t::opcode_t &op)
         {
-            return _load_direct<4, true>(self, self._regs, data);
+            return _load_direct<4, true>(self, self._regs, op);
         }
 
-        static op_res_t store_u8(impl &self, const buffer data)
+        static op_res_t store_u8(impl &self, const code_t::opcode_t &op)
         {
-            return _store_direct<uint8_t>(self, self._regs, data);
+            return _store_direct<uint8_t>(self, self._regs, op);
         }
 
-        static op_res_t store_u16(impl &self, const buffer data)
+        static op_res_t store_u16(impl &self, const code_t::opcode_t &op)
         {
-            return _store_direct<uint16_t>(self, self._regs, data);
+            return _store_direct<uint16_t>(self, self._regs, op);
         }
 
-        static op_res_t store_u32(impl &self, const buffer data)
+        static op_res_t store_u32(impl &self, const code_t::opcode_t &op)
         {
-            return _store_direct<uint32_t>(self, self._regs, data);
+            return _store_direct<uint32_t>(self, self._regs, op);
         }
 
-        static op_res_t store_u64(impl &self, const buffer data)
+        static op_res_t store_u64(impl &self, const code_t::opcode_t &op)
         {
-            return _store_direct<register_val_t>(self, self._regs, data);
+            return _store_direct<register_val_t>(self, self._regs, op);
         }
 
-        static op_res_t store_imm_ind_u8(impl &self, const buffer data)
+        static op_res_t store_imm_ind_u8(impl &self, const code_t::opcode_t &op)
         {
-            return _store_imm_indirect<uint8_t>(self, self._regs, data);
+            return _store_imm_indirect<uint8_t>(self, self._regs, op);
         }
 
-        static op_res_t store_imm_ind_u16(impl &self, const buffer data)
+        static op_res_t store_imm_ind_u16(impl &self, const code_t::opcode_t &op)
         {
-            return _store_imm_indirect<uint16_t>(self, self._regs, data);
+            return _store_imm_indirect<uint16_t>(self, self._regs, op);
         }
 
-        static op_res_t store_imm_ind_u32(impl &self, const buffer data)
+        static op_res_t store_imm_ind_u32(impl &self, const code_t::opcode_t &op)
         {
-            return _store_imm_indirect<uint32_t>(self, self._regs, data);
+            return _store_imm_indirect<uint32_t>(self, self._regs, op);
         }
 
-        static op_res_t store_imm_ind_u64(impl &self, const buffer data)
+        static op_res_t store_imm_ind_u64(impl &self, const code_t::opcode_t &op)
         {
-            return _store_imm_indirect<register_val_t>(self, self._regs, data);
+            return _store_imm_indirect<register_val_t>(self, self._regs, op);
         }
 
-        static op_res_t store_ind_u8(impl &self, const buffer data)
+        static op_res_t store_ind_u8(impl &self, const code_t::opcode_t &op)
         {
-            return _store_indirect<uint8_t>(self, self._regs, data);
+            return _store_indirect<uint8_t>(self, self._regs, op);
         }
 
-        static op_res_t store_ind_u16(impl &self, const buffer data)
+        static op_res_t store_ind_u16(impl &self, const code_t::opcode_t &op)
         {
-            return _store_indirect<uint16_t>(self, self._regs, data);
+            return _store_indirect<uint16_t>(self, self._regs, op);
         }
 
-        static op_res_t store_ind_u32(impl &self, const buffer data)
+        static op_res_t store_ind_u32(impl &self, const code_t::opcode_t &op)
         {
-            return _store_indirect<uint32_t>(self, self._regs, data);
+            return _store_indirect<uint32_t>(self, self._regs, op);
         }
 
-        static op_res_t store_ind_u64(impl &self, const buffer data)
+        static op_res_t store_ind_u64(impl &self, const code_t::opcode_t &op)
         {
-            return _store_indirect<register_val_t>(self, self._regs, data);
+            return _store_indirect<register_val_t>(self, self._regs, op);
         }
 
-        static op_res_t load_ind_u8(impl &self, const buffer data)
+        static op_res_t load_ind_u8(impl &self, const code_t::opcode_t &op)
         {
-            return _load_indirect<1, false>(self, self._regs, data);
+            return _load_indirect<1, false>(self, self._regs, op);
         }
 
-        static op_res_t load_ind_u16(impl &self, const buffer data)
+        static op_res_t load_ind_u16(impl &self, const code_t::opcode_t &op)
         {
-            return _load_indirect<2, false>(self, self._regs, data);
+            return _load_indirect<2, false>(self, self._regs, op);
         }
 
-        static op_res_t load_ind_u32(impl &self, const buffer data)
+        static op_res_t load_ind_u32(impl &self, const code_t::opcode_t &op)
         {
-            return _load_indirect<4, false>(self, self._regs, data);
+            return _load_indirect<4, false>(self, self._regs, op);
         }
 
-        static op_res_t load_ind_u64(impl &self, const buffer data)
+        static op_res_t load_ind_u64(impl &self, const code_t::opcode_t &op)
         {
-            return _load_indirect<8, false>(self, self._regs, data);
+            return _load_indirect<8, false>(self, self._regs, op);
         }
 
-        static op_res_t load_ind_i8(impl &self, const buffer data)
+        static op_res_t load_ind_i8(impl &self, const code_t::opcode_t &op)
         {
-            return _load_indirect<1, true>(self, self._regs, data);
+            return _load_indirect<1, true>(self, self._regs, op);
         }
 
-        static op_res_t load_ind_i16(impl &self, const buffer data)
+        static op_res_t load_ind_i16(impl &self, const code_t::opcode_t &op)
         {
-            return _load_indirect<2, true>(self, self._regs, data);
+            return _load_indirect<2, true>(self, self._regs, op);
         }
 
-        static op_res_t load_ind_i32(impl &self, const buffer data)
+        static op_res_t load_ind_i32(impl &self, const code_t::opcode_t &op)
         {
-            return _load_indirect<4, true>(self, self._regs, data);
+            return _load_indirect<4, true>(self, self._regs, op);
         }
 
-        static op_res_t add_32(impl &self, const buffer data)
+        static op_res_t add_32(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
-                return sign_extend(4, static_cast<uint32_t>(lhs + rhs));
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+                return code_t::sign_extend(4, static_cast<uint32_t>(lhs + rhs));
             });
         }
 
-        static op_res_t sub_32(impl &self, const buffer data)
+        static op_res_t sub_32(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
-                return sign_extend(4, static_cast<uint32_t>(lhs - rhs));
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+                return code_t::sign_extend(4, static_cast<uint32_t>(lhs - rhs));
             });
         }
 
-        static op_res_t mul_32(impl &self, const buffer data)
+        static op_res_t mul_32(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
-                return sign_extend(4, static_cast<uint32_t>(lhs * rhs));
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+                return code_t::sign_extend(4, static_cast<uint32_t>(lhs * rhs));
             });
         }
 
-        static op_res_t div_u_32(impl &self, const buffer data)
+        static op_res_t div_u_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            const auto reg_a_u32 = static_cast<uint32_t>(self._regs[r_a]);
-            const auto reg_b_u32 = static_cast<uint32_t>(self._regs[r_b]);
-            self._set_reg(r_d, reg_b_u32 != 0 ? sign_extend(4, reg_a_u32 / reg_b_u32) : std::numeric_limits<uint64_t>::max());
+            const auto reg_a_u32 = static_cast<uint32_t>(self._regs[op.reg_1]);
+            const auto reg_b_u32 = static_cast<uint32_t>(self._regs[op.reg_2]);
+            self._set_reg(op.reg_3, reg_b_u32 != 0 ? code_t::sign_extend(4, reg_a_u32 / reg_b_u32) : std::numeric_limits<uint64_t>::max());
             return {};
         }
 
-        static op_res_t div_s_32(impl &self, const buffer data)
+        static op_res_t div_s_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            const auto reg_a_s32 = static_cast<int32_t>(self._regs[r_a]);
-            const auto reg_b_s32 = static_cast<int32_t>(self._regs[r_b]);
+            const auto reg_a_s32 = static_cast<int32_t>(self._regs[op.reg_1]);
+            const auto reg_b_s32 = static_cast<int32_t>(self._regs[op.reg_2]);
             if (reg_b_s32 != 0) {
                 if (reg_a_s32 != std::numeric_limits<int32_t>::min() || reg_b_s32 != -1) {
-                    self._set_reg(r_d, static_cast<register_val_t>(reg_a_s32 / reg_b_s32));
+                    self._set_reg(op.reg_3, static_cast<register_val_t>(reg_a_s32 / reg_b_s32));
                 } else {
-                    self._set_reg(r_d, static_cast<register_val_t>(reg_a_s32));
+                    self._set_reg(op.reg_3, static_cast<register_val_t>(reg_a_s32));
                 }
             } else {
-                self._set_reg(r_d, std::numeric_limits<uint64_t>::max());
+                self._set_reg(op.reg_3, std::numeric_limits<uint64_t>::max());
             }
             return {};
         }
 
-        static op_res_t rem_u_32(impl &self, const buffer data)
+        static op_res_t rem_u_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            const auto reg_a_u32 = static_cast<uint32_t>(self._regs[r_a]);
-            const auto reg_b_u32 = static_cast<uint32_t>(self._regs[r_b]);
-            self._set_reg(r_d, sign_extend(4, reg_b_u32 != 0 ? reg_a_u32 % reg_b_u32 : reg_a_u32));
+            const auto reg_a_u32 = static_cast<uint32_t>(self._regs[op.reg_1]);
+            const auto reg_b_u32 = static_cast<uint32_t>(self._regs[op.reg_2]);
+            self._set_reg(op.reg_3, code_t::sign_extend(4, reg_b_u32 != 0 ? reg_a_u32 % reg_b_u32 : reg_a_u32));
             return {};
         }
 
-        static op_res_t rem_s_32(impl &self, const buffer data)
+        static op_res_t rem_s_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            const auto reg_a_s32 = static_cast<int32_t>(self._regs[r_a]);
-            const auto reg_b_s32 = static_cast<int32_t>(self._regs[r_b]);
+            const auto reg_a_s32 = static_cast<int32_t>(self._regs[op.reg_1]);
+            const auto reg_b_s32 = static_cast<int32_t>(self._regs[op.reg_2]);
             if (reg_a_s32 != std::numeric_limits<int32_t>::min() || reg_b_s32 != -1)
-                self._set_reg(r_d, reg_b_s32 != 0 ? static_cast<register_val_t>(reg_a_s32 % reg_b_s32) : reg_a_s32);
+                self._set_reg(op.reg_3, reg_b_s32 != 0 ? static_cast<register_val_t>(reg_a_s32 % reg_b_s32) : reg_a_s32);
             else {
-                self._set_reg(r_d, 0);
+                self._set_reg(op.reg_3, 0);
             }
             return {};
         }
 
-        static op_res_t shlo_l_32(impl &self, const buffer data)
+        static op_res_t shlo_l_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, sign_extend(4, static_cast<uint32_t>(self._regs[r_a]) << (self._regs[r_b] % 32U)));
+            self._set_reg(op.reg_3, code_t::sign_extend(4, static_cast<uint32_t>(self._regs[op.reg_1]) << (self._regs[op.reg_2] % 32U)));
             return {};
         }
 
-        static op_res_t shlo_r_32(impl &self, const buffer data)
+        static op_res_t shlo_r_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, sign_extend(4, static_cast<uint32_t>(self._regs[r_a]) >> static_cast<uint32_t>(self._regs[r_b] % 32U)));
+            self._set_reg(op.reg_3, code_t::sign_extend(4, static_cast<uint32_t>(self._regs[op.reg_1]) >> static_cast<uint32_t>(self._regs[op.reg_2] % 32U)));
             return {};
         }
 
-        static op_res_t shar_r_32(impl &self, const buffer data)
+        static op_res_t shar_r_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            const auto reg_a_s32 = static_cast<int32_t>(self._regs[r_a]);
-            const auto reg_b_s32 = static_cast<int32_t>(self._regs[r_b] % 32U);
-            self._set_reg(r_d, sign_extend(4, reg_a_s32 >> reg_b_s32));
+            const auto reg_a_s32 = static_cast<int32_t>(self._regs[op.reg_1]);
+            const auto reg_b_s32 = static_cast<int32_t>(self._regs[op.reg_2] % 32U);
+            self._set_reg(op.reg_3, code_t::sign_extend(4, reg_a_s32 >> reg_b_s32));
             return {};
         }
 
-        static op_res_t add_64(impl &self, const buffer data)
+        static op_res_t add_64(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs + rhs; });
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs + rhs; });
         }
 
-        static op_res_t sub_64(impl &self, const buffer data)
+        static op_res_t sub_64(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs - rhs; });
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs - rhs; });
         }
 
-        static op_res_t mul_64(impl &self, const buffer data)
+        static op_res_t mul_64(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs * rhs; });
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs * rhs; });
         }
 
-        static op_res_t div_u_64(impl &self, const buffer data)
+        static op_res_t div_u_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_b] != 0 ? self._regs[r_a] / self._regs[r_b] : std::numeric_limits<uint64_t>::max());
+            self._set_reg(op.reg_3, self._regs[op.reg_2] != 0 ? self._regs[op.reg_1] / self._regs[op.reg_2] : std::numeric_limits<uint64_t>::max());
             return {};
         }
 
-        static op_res_t div_s_64(impl &self, const buffer data)
+        static op_res_t div_s_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            const auto reg_a_s64 = static_cast<register_val_signed_t>(self._regs[r_a]);
-            const auto reg_b_s64 = static_cast<register_val_signed_t>(self._regs[r_b]);
-            if (self._regs[r_b] != 0) {
+            const auto reg_a_s64 = static_cast<register_val_signed_t>(self._regs[op.reg_1]);
+            const auto reg_b_s64 = static_cast<register_val_signed_t>(self._regs[op.reg_2]);
+            if (self._regs[op.reg_2] != 0) {
                 if (reg_a_s64 != std::numeric_limits<register_val_signed_t>::min() || reg_b_s64 != -1) {
-                    self._set_reg(r_d, static_cast<register_val_t>(reg_a_s64 / reg_b_s64));
+                    self._set_reg(op.reg_3, static_cast<register_val_t>(reg_a_s64 / reg_b_s64));
                 } else {
-                    self._set_reg(r_d, self._regs[r_a]);
+                    self._set_reg(op.reg_3, self._regs[op.reg_1]);
                 }
             } else {
-                self._set_reg(r_d, std::numeric_limits<uint64_t>::max());
+                self._set_reg(op.reg_3, std::numeric_limits<uint64_t>::max());
             }
             return {};
         }
 
-        static op_res_t rem_u_64(impl &self, const buffer data)
+        static op_res_t rem_u_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_b] != 0 ? self._regs[r_a] % self._regs[r_b] : self._regs[r_a]);
+            self._set_reg(op.reg_3, self._regs[op.reg_2] != 0 ? self._regs[op.reg_1] % self._regs[op.reg_2] : self._regs[op.reg_1]);
             return {};
         }
 
-        static op_res_t rem_s_64(impl &self, const buffer data)
+        static op_res_t rem_s_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            const auto reg_a_s64 = static_cast<register_val_signed_t>(self._regs[r_a]);
-            const auto reg_b_s64 = static_cast<register_val_signed_t>(self._regs[r_b]);
+            const auto reg_a_s64 = static_cast<register_val_signed_t>(self._regs[op.reg_1]);
+            const auto reg_b_s64 = static_cast<register_val_signed_t>(self._regs[op.reg_2]);
             if (reg_a_s64 != std::numeric_limits<register_val_signed_t>::min() || reg_b_s64 != -1)
-                self._set_reg(r_d, reg_b_s64 != 0 ? static_cast<register_val_t>(reg_a_s64 % reg_b_s64) : reg_a_s64);
+                self._set_reg(op.reg_3, reg_b_s64 != 0 ? static_cast<register_val_t>(reg_a_s64 % reg_b_s64) : reg_a_s64);
             else {
-                self._set_reg(r_d, 0);
+                self._set_reg(op.reg_3, 0);
             }
             return {};
         }
 
-        static op_res_t shlo_l_64(impl &self, const buffer data)
+        static op_res_t shlo_l_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_a] << (self._regs[r_b] % 64U));
+            self._set_reg(op.reg_3, self._regs[op.reg_1] << (self._regs[op.reg_2] % 64U));
             return {};
         }
 
-        static op_res_t shlo_r_64(impl &self, const buffer data)
+        static op_res_t shlo_r_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_a] >> (self._regs[r_b] % 64U));
+            self._set_reg(op.reg_3, self._regs[op.reg_1] >> (self._regs[op.reg_2] % 64U));
             return {};
         }
 
-        static op_res_t shar_r_64(impl &self, const buffer data)
+        static op_res_t shar_r_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, static_cast<register_val_t>(static_cast<register_val_signed_t>(self._regs[r_a]) >> (static_cast<register_val_signed_t>(self._regs[r_b] % 64U))));
+            self._set_reg(op.reg_3, static_cast<register_val_t>(static_cast<register_val_signed_t>(self._regs[op.reg_1]) >> (static_cast<register_val_signed_t>(self._regs[op.reg_2] % 64U))));
             return {};
         }
 
-        static op_res_t and_(impl &self, const buffer data)
+        static op_res_t and_(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs & rhs; });
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs & rhs; });
         }
 
-        static op_res_t xor_(impl &self, const buffer data)
+        static op_res_t xor_(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs ^ rhs; });
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs ^ rhs; });
         }
 
-        static op_res_t or_(impl &self, const buffer data)
+        static op_res_t or_(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs | rhs; });
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs | rhs; });
         }
 
-        static op_res_t mul_upper_s_s(impl &self, const buffer data)
+        static op_res_t mul_upper_s_s(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
 #if defined(_MSC_VER)
-            _mul128(static_cast<register_val_signed_t>(self._regs[r_a]), static_cast<register_val_signed_t>(self._regs[r_b]), reinterpret_cast<register_val_signed_t *>(&self._regs[r_d]));
+            _mul128(static_cast<register_val_signed_t>(self._regs[op.reg_1]), static_cast<register_val_signed_t>(self._regs[op.reg_2]), reinterpret_cast<register_val_signed_t *>(&self._regs[op.reg_3]));
 #elif defined(__GNUC__) || defined(__clang__)
             auto sign_extend_u64_to_i128 = [](uint64_t x) -> int128_t {
                 return (x & (1ULL << 63)) ? static_cast<int128_t>(x) - (int128_t(1) << 64) : static_cast<int128_t>(x);
             };
 
-            int128_t lhs = sign_extend_u64_to_i128(self._regs[r_a]);
-            int128_t rhs = sign_extend_u64_to_i128(self._regs[r_b]);
+            int128_t lhs = sign_extend_u64_to_i128(self._regs[op.reg_1]);
+            int128_t rhs = sign_extend_u64_to_i128(self._regs[op.reg_2]);
             int128_t product = lhs * rhs;
 
-            self._set_reg(r_d, static_cast<register_val_t>(product >> 64));
-            //self._set_reg(r_d, static_cast<register_val_t>((static_cast<int128_t>(self._regs[r_a]) * static_cast<int128_t>(self._regs[r_b])) >> 64U));
+            self._set_reg(op.reg_3, static_cast<register_val_t>(product >> 64));
 #else
 #   error "MULH operation implemented only for Visual C++, GCC, and Clang compilers"
 #endif
             return {};
         }
 
-        static op_res_t mul_upper_u_u(impl &self, const buffer data)
+        static op_res_t mul_upper_u_u(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
 #if defined(_MSC_VER)
-            _umul128(self._regs[r_a], self._regs[r_b], &self._regs[r_d]);
+            _umul128(self._regs[op.reg_1], self._regs[op.reg_2], &self._regs[op.reg_3]);
 #elif defined(__GNUC__) || defined(__clang__)
-            self._set_reg(r_d, static_cast<register_val_t>((static_cast<uint128_t>(self._regs[r_a]) * static_cast<uint128_t>(self._regs[r_b])) >> 64U));
+            self._set_reg(op.reg_3, static_cast<register_val_t>((static_cast<uint128_t>(self._regs[op.reg_1]) * static_cast<uint128_t>(self._regs[op.reg_2])) >> 64U));
 #else
 #   error "MULH operation implemented only for Visual C++, GCC, and Clang compilers"
 #endif
             return {};
         }
 
-        static op_res_t mul_upper_s_u(impl &self, const buffer data)
+        static op_res_t mul_upper_s_u(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            const auto reg_a_s64 = static_cast<register_val_signed_t>(self._regs[r_a]);
+            const auto reg_a_s64 = static_cast<register_val_signed_t>(self._regs[op.reg_1]);
             const bool reg_a_neg = reg_a_s64 < 0;
             const uint64_t reg_a_u64 = static_cast<uint64_t>(reg_a_neg ? -reg_a_s64 : reg_a_s64);
 #if defined(_MSC_VER)            
-            const uint64_t lo = _umul128(reg_a_u64, self._regs[r_b], &self._regs[r_d]);
+            const uint64_t lo = _umul128(reg_a_u64, self._regs[op.reg_2], &self._regs[op.reg_3]);
 #elif defined(__GNUC__) || defined(__clang__)
-            const auto res = static_cast<int128_t>(reg_a_u64) * static_cast<uint128_t>(self._regs[r_b]);
+            const auto res = static_cast<int128_t>(reg_a_u64) * static_cast<uint128_t>(self._regs[op.reg_2]);
             const auto lo = static_cast<uint64_t>(res);
-            self._set_reg(r_d, res >> 64U);
+            self._set_reg(op.reg_3, res >> 64U);
 #else
 #   error "MULH operation implemented only for Visual C++, GCC, and Clang compilers"
 #endif
             if (reg_a_neg) {
-                self._set_reg(r_d, ~self._regs[r_d]);
+                self._set_reg(op.reg_3, ~self._regs[op.reg_3]);
                 if (lo == 0) {
-                    self._regs[r_d] += 1;
+                    self._regs[op.reg_3] += 1;
                 }
             }
             return {};
         }
 
-        static op_res_t set_lt_u(impl &self, const buffer data)
+        static op_res_t set_lt_u(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_a] < self._regs[r_b]);
+            self._set_reg(op.reg_3, self._regs[op.reg_1] < self._regs[op.reg_2]);
             return {};
         }
 
-        static op_res_t set_lt_s(impl &self, const buffer data)
+        static op_res_t set_lt_s(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, static_cast<register_val_signed_t>(self._regs[r_a]) < static_cast<register_val_signed_t>(self._regs[r_b]));
+            self._set_reg(op.reg_3, static_cast<register_val_signed_t>(self._regs[op.reg_1]) < static_cast<register_val_signed_t>(self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t cmov_iz(impl &self, const buffer data)
+        static op_res_t cmov_iz(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_b] == 0 ? self._regs[r_a] : self._regs[r_d]);
+            if (self._regs[op.reg_2] == 0)
+                self._set_reg(op.reg_3, self._regs[op.reg_1]);
             return {};
         }
 
-        static op_res_t cmov_nz(impl &self, const buffer data)
+        static op_res_t cmov_nz(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_b] != 0 ? self._regs[r_a] : self._regs[r_d]);
+            if (self._regs[op.reg_2] != 0)
+                self._set_reg(op.reg_3, self._regs[op.reg_1]);
             return {};
         }
 
-        static op_res_t rot_l_64(impl &self, const buffer data)
+        static op_res_t rot_l_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, std::rotl(self._regs[r_a], self._regs[r_b]));
+            self._set_reg(op.reg_3, std::rotl(self._regs[op.reg_1], self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t rot_l_32(impl &self, const buffer data)
+        static op_res_t rot_l_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, sign_extend(4, std::rotl(static_cast<uint32_t>(self._regs[r_a]), static_cast<uint32_t>(self._regs[r_b]))));
+            self._set_reg(op.reg_3, code_t::sign_extend(4, std::rotl(static_cast<uint32_t>(self._regs[op.reg_1]), static_cast<uint32_t>(self._regs[op.reg_2]))));
             return {};
         }
 
-        static op_res_t rot_r_64(impl &self, const buffer data)
+        static op_res_t rot_r_64(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, std::rotr(self._regs[r_a], self._regs[r_b]));
+            self._set_reg(op.reg_3, std::rotr(self._regs[op.reg_1], self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t rot_r_32(impl &self, const buffer data)
+        static op_res_t rot_r_32(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, sign_extend(4, std::rotr(static_cast<uint32_t>(self._regs[r_a]), static_cast<uint32_t>(self._regs[r_b]))));
+            self._set_reg(op.reg_3, code_t::sign_extend(4, std::rotr(static_cast<uint32_t>(self._regs[op.reg_1]), static_cast<uint32_t>(self._regs[op.reg_2]))));
             return {};
         }
 
-        static op_res_t and_inv(impl &self, const buffer data)
+        static op_res_t and_inv(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_a] & (~self._regs[r_b]));
+            self._set_reg(op.reg_3, self._regs[op.reg_1] & (~self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t or_inv(impl &self, const buffer data)
+        static op_res_t or_inv(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, self._regs[r_a] | (~self._regs[r_b]));
+            self._set_reg(op.reg_3, self._regs[op.reg_1] | (~self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t xnor(impl &self, const buffer data)
+        static op_res_t xnor(impl &self, const code_t::opcode_t &op)
         {
-            const auto [r_a, r_b, r_d] = self._args_reg3(data);
-            self._set_reg(r_d, ~(self._regs[r_a] ^ self._regs[r_b]));
+            self._set_reg(op.reg_3, ~(self._regs[op.reg_1] ^ self._regs[op.reg_2]));
             return {};
         }
 
-        static op_res_t max(impl &self, const buffer data)
+        static op_res_t max(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_t>(std::max(static_cast<register_val_signed_t>(lhs), static_cast<register_val_signed_t>(rhs)));
             });
         }
 
-        static op_res_t max_u(impl &self, const buffer data)
+        static op_res_t max_u(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return std::max(lhs, rhs); });
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return std::max(lhs, rhs); });
         }
 
-        static op_res_t min(impl &self, const buffer data)
+        static op_res_t min(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept {
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
                 return static_cast<register_val_t>(std::min(static_cast<register_val_signed_t>(lhs), static_cast<register_val_signed_t>(rhs)));
             });
         }
 
-        static op_res_t min_u(impl &self, const buffer data)
+        static op_res_t min_u(impl &self, const code_t::opcode_t &op)
         {
-            return _reg3_apply(self._regs, data, [](const register_val_t lhs, const register_val_t rhs) noexcept { return std::min(lhs, rhs); });
+            return _reg3_apply(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return std::min(lhs, rhs); });
         }
     };
 
@@ -2326,6 +1967,13 @@ namespace turbo::jam::machine {
         _impl->mem_write(offset, data);
     }
 
+    void machine_t::mem_initialize(const register_val_t offset, const buffer data)
+    {
+        if (auto err = mem_range_ok(offset, data.size()); err) [[unlikely]]
+            throw std::move(*err);
+        _impl->mem_write<false>(offset, data);
+    }
+
     void machine_t::mem_read(const std::span<uint8_t> out, const register_val_t offset) const
     {
         if (auto err = mem_range_ok(offset, out.size()); err) [[unlikely]]
@@ -2354,6 +2002,11 @@ namespace turbo::jam::machine {
     state_t machine_t::state() const
     {
         return const_cast<machine_t *>(this)->_impl->state();
+    }
+
+    const code_t &machine_t::code() const
+    {
+        return _impl->code();
     }
 
     std::optional<machine_t> configure(const buffer blob, const address_val_t pc, const gas_t gas, const buffer args, const size_t max_code_size)

@@ -8,435 +8,137 @@
 #include <array>
 #include <bit>
 #include <cstdint>
-#include <cstring>
 #include <exception>
 #include <optional>
 #include <type_traits>
 #include <variant>
-#include "types/common.hpp"
-#include "types/constants.hpp"
-#include "encoding.hpp"
+#include <turbo/jam/types/constants.hpp>
+#include <turbo/jam/encoding.hpp>
+#include <turbo/jam/machine/common.hpp>
+#include <turbo/jam/machine/program.hpp>
 
 namespace turbo::jam::machine {
-using register_val_t = uint64_t;
-using register_val_signed_t = int64_t;
-using address_val_t = uint32_t;
-typedef uint8_t register_idx_t;
-// in contrast to GP gas_remaining is unsigned, with gas_consume implementing the set to 0 on overuse and throws an exception
-using gas_remaining_t = gas_t::base_type;
+    struct memory_chunk_t {
+        address_val_t address = 0;
+        byte_sequence_t contents{};
 
-static constexpr size_t max_skip_len = 24U;
-
-struct memory_chunk_t {
-    address_val_t address = 0;
-    byte_sequence_t contents{};
-
-    void serialize(auto &archive)
-    {
-        using namespace std::string_view_literals;
-        archive.process("address"sv, address);
-        archive.process("contents"sv, contents);
-    }
-
-    bool operator==(const memory_chunk_t &o) const noexcept
-    {
-        if (address != o.address)
-            return false;
-        if (contents != o.contents)
-            return false;
-        return true;
-    }
-};
-using memory_chunks_t = sequence_t<memory_chunk_t>;
-
-struct page_init_method_t {
-    enum access_t {none, read, write};
-    enum data_t {zero, existing};
-
-    const access_t access = none;
-    const data_t data = zero;
-
-    static page_init_method_t from_code(const register_val_t r) {
-        switch (r) {
-        case 0: return {none, zero};
-        case 1: return {read, zero};
-        case 2: return {write, zero};
-        case 3: return {read, existing};
-        case 4: return {write, existing};
-        default: [[unlikely]]
-            throw error(fmt::format("invalid page init code: {}", r));
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("address"sv, address);
+            archive.process("contents"sv, contents);
         }
-    }
 
-    page_init_method_t() = delete;
-
-    page_init_method_t(const access_t a, const data_t d):
-        access{a},
-        data{d}
-    {}
-};
-
-struct page_t {
-    address_val_t address = 0;
-    address_val_t length = 0;
-    bool is_writable = false;
-
-    void serialize(auto &archive)
-    {
-        using namespace std::string_view_literals;
-        archive.process("address"sv, address);
-        if (address % config_prod::ZP_pvm_page_size != 0) [[unlikely]]
-            throw error(fmt::format("an invalid page address: {}", address));
-        archive.process("length"sv, length);
-        if (length % config_prod::ZP_pvm_page_size != 0) [[unlikely]]
-            throw error(fmt::format("an invalid page length: {}", length));
-        archive.process("is-writable"sv, is_writable);
-    }
-};
-using pages_t = sequence_t<page_t>;
-
-using registers_t = fixed_sequence_t<register_val_t, 13>;
-
-struct state_t {
-    registers_t regs {};
-    address_val_t pc {};
-    gas_remaining_t gas = 0;
-    memory_chunks_t memory {};
-
-    bool operator==(const state_t &o) const noexcept
-    {
-        if (regs != o.regs)
-            return false;
-        if (pc != o.pc)
-            return false;
-        if (memory != o.memory)
-            return false;
-        if (gas != o.gas)
-            return false;
-        return true;
-    }
-};
-
-struct bit_vector_t {
-    bit_vector_t() =delete;
-    bit_vector_t(const bit_vector_t &o) =delete;
-
-    bit_vector_t(const buffer bytes, const size_t num_bits):
-        _num_bits{num_bits}
-    {
-        if (_num_bits > bytes.size() * 8U) [[unlikely]]
-            throw error(fmt::format("too many bits for bit vector of {} bytes: {}", bytes.size(), _num_bits));
-        _bytes.reserve(bytes.size() + 3U);
-        _bytes.insert(_bytes.end(), bytes.begin(), bytes.end());
-        _bytes.insert(_bytes.end(), 3U, uint8_t{0});
-    }
-
-    bit_vector_t(bit_vector_t &&o) noexcept:
-        _num_bits { o._num_bits },
-        _bytes { std::move(o._bytes) }
-    {
-    }
-
-    [[nodiscard]] size_t size() const noexcept
-    {
-        return _num_bits;
-    }
-
-    [[nodiscard]] bool test(const size_t pos) const noexcept
-    {
-        if (pos >= _num_bits) [[unlikely]]
+        bool operator==(const memory_chunk_t &o) const noexcept
+        {
+            if (address != o.address)
+                return false;
+            if (contents != o.contents)
+                return false;
             return true;
-        return test_unchecked(pos);
-    }
-
-    [[nodiscard]] bool test_unchecked(const size_t pos) const noexcept
-    {
-        return ((_bytes[pos >> 3U] >> (pos & 7U)) & 0x1U) != 0U;
-    }
-
-    template<size_t MAX>
-    [[nodiscard]] size_t count_zeros(const size_t pos) const noexcept
-    {
-        static_assert(std::endian::native == std::endian::little);
-        static_assert(MAX + 7U <= 32U, "requested bits must fit in one 32-bit window");
-        if (pos >= _num_bits) [[unlikely]]
-            return 0;
-        // The constructor appends three bytes, making this read safe.
-        const auto *ptr = _bytes.data() + (pos >> 3U);
-        uint32_t bits;
-        static_assert(sizeof(bits) == 4U, "uint32_t must take 4 bytes!");
-        memcpy(&bits, ptr, sizeof(bits));
-        const auto shifted = bits >> (pos & 7U);
-        const auto zeros = static_cast<size_t>(std::countr_zero(shifted));
-        return std::min(zeros, std::min(MAX, _num_bits - pos));
-    }
-
-    template<size_t MAX>
-    [[nodiscard]] std::optional<size_t> previous_set_bit(const size_t pos) const noexcept
-    {
-        static_assert(std::endian::native == std::endian::little);
-        static_assert(MAX > 0 && MAX <= 25, "requested bits must fit in one 32-bit window");
-        const auto begin = pos > MAX ? pos - MAX : 0U;
-        const auto end = std::min(pos, _num_bits);
-        if (begin >= end)
-            return {};
-        const auto length = end - begin;
-        uint32_t bits;
-        static_assert(sizeof(bits) == 4U, "uint32_t must take 4 bytes!");
-        // Three padding bytes make the read safe even near the logical end.
-        std::memcpy(&bits, _bytes.data() + (begin >> 3U), sizeof(bits));
-        // Align bit end - 1 with the MSB, discarding all bits at or after end.
-        bits <<= 32U - ((begin & 7U) + length);
-        const auto zeros = static_cast<size_t>(std::countl_zero(bits));
-        if (zeros >= length)
-            return {};
-        return end - 1U - zeros;
-    }
-
-    [[nodiscard]] size_t skip_len(const register_val_t opcode_pc) const noexcept
-    {
-        return count_zeros<max_skip_len>(static_cast<size_t>(opcode_pc) + 1U);
-    }
-private:
-    size_t _num_bits;
-    uint8_vector _bytes;
-};
-
-struct exit_halt_t final: error {
-    exit_halt_t(): error{"exit_halt_t"}
-    {}
-
-    bool operator==(const exit_halt_t &) const {
-        return true;
-    }
-
-    void serialize(auto &) {
-    }
-};
-struct exit_panic_t final: error {
-    exit_panic_t(): error{"exit_panic_t"}
-    {}
-
-    bool operator==(const exit_panic_t &) const {
-        return true;
-    }
-
-    void serialize(auto &) {
-    }
-};
-struct exit_out_of_gas_t final: error {
-    exit_out_of_gas_t(): error{"exit_out_of_gas_t"}
-    {}
-
-    bool operator==(const exit_out_of_gas_t &) const {
-        return true;
-    }
-
-    void serialize(auto &) {
-    }
-};
-struct exit_page_fault_t final: error {
-    address_val_t addr;
-
-    exit_page_fault_t(const address_val_t a=0):
-        error{"exit_page_fault_t"},
-        addr{a}
-    {}
-
-    bool operator==(const exit_page_fault_t &o) const {
-        if (addr != o.addr)
-            return false;
-        return true;
-    }
-
-    void serialize(auto &archive) {
-        using namespace std::string_view_literals;
-        archive.process("addr"sv, addr);
-    }
-};
-struct exit_host_call_t final: error {
-    register_val_t id;
-
-    exit_host_call_t(const register_val_t id):
-        error{"exit_host_call_t"},
-        id{id}
-    {}
-
-    exit_host_call_t():
-        exit_host_call_t{0U}
-    {}
-
-    bool operator==(const exit_host_call_t &o) const {
-        if (id != o.id)
-            return false;
-        return true;
-    }
-
-    void serialize(auto &archive) {
-        using namespace std::string_view_literals;
-        archive.process("id"sv, id);
-    }
-};
-
-using result_base_t = std::variant<exit_halt_t, exit_panic_t, exit_page_fault_t, exit_host_call_t, exit_out_of_gas_t>;
-struct result_t: result_base_t {
-    using base_type = result_base_t;
-    using base_type::base_type;
-
-    static result_t from_json(const boost::json::value &j)
-    {
-        using namespace std::string_view_literals;
-        const auto val = boost::json::value_to<std::string_view>(j);
-        if (val == "panic"sv)
-            return {exit_panic_t{}};
-        if (val == "halt"sv)
-            return {exit_halt_t{}};
-        if (val == "page-fault"sv)
-            return {exit_page_fault_t{}};
-        if (val == "out-of-gas"sv)
-            return {exit_out_of_gas_t{}};
-        if (val == "ecalli"sv)
-            return {exit_host_call_t{}};
-        throw error(fmt::format("unsupported machine_status_t value '{}'", val));
-    }
-
-    void serialize(auto &archive)
-    {
-        using namespace std::string_view_literals;
-        static constexpr codec::variant_names_t<base_type> names{
-            "panic"sv, "halt"sv, "page-fault"sv, "out-of-gas"sv, "ecalli"sv
-        };
-        archive.process(codec::as_variant_t<base_type>{*this, names});
-    }
-};
-
-struct code_t {
-    using offset_list_t = std::vector<address_val_t>;
-
-    [[nodiscard]] static constexpr bool is_block_end_opcode(const uint8_t opcode) noexcept {
-        static constexpr auto block_end_opcodes = [] {
-            std::array<bool, 0x100> res{};
-            res[0] = true; // trap
-            res[1] = true; // fallthrough
-            res[40] = true; // jump
-            res[50] = true; // jump_ind
-            res[80] = true; // load_imm_jump
-            res[81] = true; // branch_eq_imm
-            res[82] = true; // branch_ne_imm
-            res[83] = true; // branch_lt_u_imm
-            res[84] = true; // branch_le_u_imm
-            res[85] = true; // branch_ge_u_imm
-            res[86] = true; // branch_gt_u_imm
-            res[87] = true; // branch_lt_s_imm
-            res[88] = true; // branch_le_s_imm
-            res[89] = true; // branch_ge_s_imm
-            res[90] = true; // branch_gt_s_imm
-            res[170] = true; // branch_eq
-            res[171] = true; // branch_ne
-            res[172] = true; // branch_lt_u
-            res[173] = true; // branch_lt_s
-            res[174] = true; // branch_ge_u
-            res[175] = true; // branch_ge_s
-            res[180] = true; // load_imm_jump_ind
-            return res;
-        }();
-        return block_end_opcodes[opcode];
-    }
-
-    [[nodiscard]] static bool is_opcode(uint8_t opcode);
-
-        bit_vector_t bitmasks;
-        buffer instrs;
-        offset_list_t jump_table;
-
-        code_t() =delete;
-        code_t(const code_t &o) =delete;
-
-        code_t(bit_vector_t &&b, uint8_vector &&c, offset_list_t &&jt):
-            bitmasks{std::move(b)},
-            jump_table{std::move(jt)},
-            _raw{std::move(c)}
-        {
-            if (bitmasks.size() != _raw.size()) [[unlikely]]
-                throw error(fmt::format("the code bitmask size must match the number of instructions!"));
-            // GP's zero suffix permits operand reads beyond the logical end of code.
-            _raw.insert(_raw.end(), 16U, uint8_t{0});
-            instrs = buffer{_raw.data(), bitmasks.size()};
-            _validate();
         }
+    };
+    using memory_chunks_t = sequence_t<memory_chunk_t>;
 
-        // Moving _raw preserves the allocation referenced by instrs.
-        code_t(code_t &&) =default;
+    struct page_init_method_t {
+        enum access_t {none, read, write};
+        enum data_t {zero, existing};
 
-        // (A.2) deblob
-        static code_t from_bytes(uint8_vector bytes)
-        {
-            decoder dec{bytes};
-            const auto jt_sz = dec.uint_varlen();
-            const auto jt_offset_sz = dec.uint_fixed<uint8_t>(1);
-            const auto instrs_size = dec.uint_varlen();
-            offset_list_t jt{};
-            jt.reserve(jt_sz);
-            while (jt.size() < jt_sz) {
-                jt.emplace_back(dec.uint_fixed<address_val_t>(jt_offset_sz));
+        const access_t access = none;
+        const data_t data = zero;
+
+        static page_init_method_t from_code(const register_val_t r) {
+            switch (r) {
+            case 0: return {none, zero};
+            case 1: return {read, zero};
+            case 2: return {write, zero};
+            case 3: return {read, existing};
+            case 4: return {write, existing};
+            default: [[unlikely]]
+                throw error(fmt::format("invalid page init code: {}", r));
             }
-            const auto instrs_offset = numeric_cast<size_t>(dec.consumed());
-
-            (void)dec.next_bytes(instrs_size);
-            // bitmask.size() equals the instrs_size by construction!
-            bit_vector_t bitmasks{dec.next_bytes((instrs_size + 7) / 8), instrs_size};
-            if (!dec.empty()) [[unlikely]]
-                throw error("failed to decode all bytes of the code blob");
-            // reuse the pre-allocated buffer
-            bytes.erase(bytes.begin(), bytes.begin() + numeric_cast<ptrdiff_t>(instrs_offset));
-            bytes.resize(instrs_size);
-            return {
-                std::move(bitmasks),
-                std::move(bytes),
-                std::move(jt)
-            };
-        }
-    private:
-        uint8_vector _raw;
-
-        [[nodiscard]] bool _validate_blob(register_val_t pc) const {
-            for (;;) {
-                if (pc > 0 && pc == bitmasks.size())
-                    return true;
-                const auto skip = bitmasks.skip_len(pc);
-                if (pc > std::numeric_limits<address_val_t>::max() - 1U - skip) [[unlikely]]
-                    throw error{"instruction counter is too big: {}", pc};
-                const auto next_pc = pc + 1U + skip;
-                const auto op = instrs.at(pc);
-                if (next_pc == bitmasks.size() && !is_block_end_opcode(op)) [[unlikely]]
-                    return false;
-                if (pc >= bitmasks.size()) [[unlikely]]
-                    return false;
-                if (!bitmasks.test(pc)) [[unlikely]]
-                    return false;
-                if (!is_opcode(op)) [[unlikely]] // v_inst
-                    return false;
-                pc = next_pc;
-            }
-            return false;
         }
 
-        void _validate() const {
-            if (!_validate_blob(0)) [[unlikely]]
-                throw error{"invalid program blob: opcode validation failed"};
+        page_init_method_t() = delete;
+
+        page_init_method_t(const access_t a, const data_t d):
+            access{a},
+            data{d}
+        {}
+    };
+
+    struct page_t {
+        address_val_t address = 0;
+        address_val_t length = 0;
+        bool is_writable = false;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("address"sv, address);
+            if (address % config_prod::ZP_pvm_page_size != 0) [[unlikely]]
+                throw error(fmt::format("an invalid page address: {}", address));
+            archive.process("length"sv, length);
+            if (length % config_prod::ZP_pvm_page_size != 0) [[unlikely]]
+                throw error(fmt::format("an invalid page length: {}", length));
+            archive.process("is-writable"sv, is_writable);
+        }
+    };
+    using pages_t = sequence_t<page_t>;
+
+    using registers_t = fixed_sequence_t<register_val_t, 13>;
+
+    struct state_t {
+        registers_t regs {};
+        address_val_t pc {};
+        gas_remaining_t gas = 0;
+        memory_chunks_t memory {};
+
+        bool operator==(const state_t &o) const noexcept
+        {
+            if (regs != o.regs)
+                return false;
+            if (pc != o.pc)
+                return false;
+            if (memory != o.memory)
+                return false;
+            if (gas != o.gas)
+                return false;
+            return true;
         }
     };
 
-    inline register_val_t sign_extend(const size_t num_bytes, const register_val_t value)
-    {
-        if (num_bytes > 8) [[unlikely]]
-            throw exit_panic_t{};
-        if (num_bytes == 0) [[unlikely]]
-            return 0;
-        const size_t bit_count = num_bytes << 3U;
-        const size_t extend_bits = 64U - bit_count;
-        return static_cast<register_val_t>(static_cast<register_val_signed_t>(value << extend_bits) >> extend_bits);
-    }
+    using result_base_t = std::variant<exit_halt_t, exit_panic_t, exit_out_of_gas_t, exit_page_fault_t, exit_host_call_t>;
+    struct result_t: result_base_t {
+        using base_type = result_base_t;
+        using base_type::base_type;
+
+        static result_t from_json(const boost::json::value &j)
+        {
+            using namespace std::string_view_literals;
+            const auto val = boost::json::value_to<std::string_view>(j);
+            if (val == "panic"sv)
+                return {exit_panic_t{}};
+            if (val == "halt"sv)
+                return {exit_halt_t{}};
+            if (val == "page-fault"sv)
+                return {exit_page_fault_t{}};
+            if (val == "out-of-gas"sv)
+                return {exit_out_of_gas_t{}};
+            if (val == "ecalli"sv)
+                return {exit_host_call_t{}};
+            throw error(fmt::format("unsupported machine_status_t value '{}'", val));
+        }
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            static constexpr codec::variant_names_t<base_type> names{
+                "halt"sv, "panic"sv, "out-of-gas"sv, "page-fault"sv, "ecalli"sv
+            };
+            archive.process(codec::as_variant_t<base_type>{*this, names});
+        }
+    };
 
     struct machine_t {
         [[nodiscard]] static bool is_opcode(uint8_t);
@@ -456,10 +158,13 @@ struct code_t {
         [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(register_val_t offset, register_val_t sz) const;
         void mem_copy(const machine_t &src, register_val_t dst_offset, register_val_t src_offset, register_val_t sz);
         void mem_write(register_val_t offset, buffer data);
+        // Populate mapped memory without changing its page permissions.
+        void mem_initialize(register_val_t offset, buffer data);
         void mem_read(std::span<uint8_t> out, register_val_t offset) const;
         [[nodiscard]] uint8_vector mem_read(register_val_t offset, register_val_t sz) const;
         void skip_op();
         [[nodiscard]] const registers_t &regs() const;
+        [[nodiscard]] const code_t &code() const;
         [[nodiscard]] address_val_t pc() const;
         [[nodiscard]] gas_remaining_t gas() const;
         [[nodiscard]] std::optional<uint8_vector> try_mem_read(register_val_t offset, register_val_t sz) const noexcept;
@@ -578,4 +283,4 @@ struct code_t {
     inline bool code_t::is_opcode(uint8_t opcode) {
         return machine_t::is_opcode(opcode);
     }
-    } // namespace turbo::jam::machine
+} // namespace turbo::jam::machine

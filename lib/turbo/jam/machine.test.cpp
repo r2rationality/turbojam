@@ -96,7 +96,7 @@ namespace {
     using block_gas_costs_t = sequence_t<block_gas_cost_t>;
     using steps_t = sequence_t<step_t>;
 
-    using block_gas_map_base_t = boost::container::flat_map<machine::address_val_t, gas_t::base_type>;
+    using block_gas_map_base_t = machine::code_t::block_costs_t;
     struct block_gas_map_t: block_gas_map_base_t {
         using base_type = block_gas_map_base_t;
         using base_type::base_type;
@@ -158,12 +158,29 @@ namespace {
     {
         const machine::state_t init_state{.pc=tc.initial_pc, .gas = tc.initial_gas};
         const machine::pages_t init_pages{};
-        machine::machine_t m{machine::code_t::from_bytes(buffer{tc.program.data(), tc.program.size()}), init_state, init_pages};
+        auto code = machine::code_t::from_bytes(buffer{tc.program.data(), tc.program.size()});
+        {
+            const auto &blocks = code.blocks();
+            if (blocks.size() != tc.block_gas_costs.size()) [[unlikely]]
+                throw error{"expected block counts differ from the simulated ones: {} != {}", tc.block_gas_costs.size(), blocks.size()};
+            for (const auto &[i, exp_blk]: tc.block_gas_costs | std::views::enumerate) {
+                const auto &sim_blk = *blocks.nth(i);
+                if (sim_blk.first != exp_blk.first)
+                    throw error{"block #{} does not match address: {} != {}", i, sim_blk.first, exp_blk.first};
+                if (sim_blk.second.cost != exp_blk.second)
+                    throw error{"block #{} does not match gas: {} != {}", i, sim_blk.second.cost, exp_blk.second};
+            }
+        }
+        machine::machine_t m{std::move(code), init_state, init_pages};
         std::optional<machine::result_t> run_res{};
         for (const auto &step: tc.steps) {
             std::visit([&](const auto &s) {
                 using T = std::decay_t<decltype(s)>;
                 if constexpr (std::is_same_v<run_step_t, T>) {
+                    if (run_res && std::holds_alternative<machine::exit_host_call_t>(*run_res)) {
+                        // Resume after the suspended ecalli.
+                        m.skip_op();
+                    }
                     run_res.emplace(m.run());
                 } else if constexpr (std::is_same_v<assert_step_t, T>) {
                     if (expect(run_res.has_value())) {
@@ -180,7 +197,7 @@ namespace {
                         throw error{"map lengths must be in increments of page size but got: {}", s.length};
                     m.set_pages(s.address / CFG::ZP_pvm_page_size, s.length / CFG::ZP_pvm_page_size, machine::page_init_method_t::from_code(s.is_writable ? 2 : 1));
                 } else if constexpr (std::is_same_v<write_step_t, T>) {
-                    m.mem_write(s.address, s.contents);
+                    m.mem_initialize(s.address, s.contents);
                 } else if constexpr (std::is_same_v<set_reg_step_t, T>) {
                     m.set_reg(s.reg, s.value);
                 } else {
@@ -221,19 +238,15 @@ namespace {
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
         //test_gas(file::install_path("test/pvm-test-vectors/pvm/gas-tests/pinky.json"));
-        "conformance gas tests"_test = [] {
-            for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/gas-tests"), ".json")) {
-                test_gas(path);
-            }
-        };
+        //test_program(file::install_path("test/pvm-test-vectors/pvm/programs/riscv_rv64ua_amoadd_d.json"));
         "sign_extend"_test = [] {
             static constexpr machine::register_val_t neg1 = -1LL;
             for (size_t num_bytes: { 1, 2, 3, 4, 5, 6, 7, 8 }) {
-                expect_equal(0x00ULL, machine::sign_extend(num_bytes, 0x00ULL));
-                expect_equal(0x01ULL, machine::sign_extend(num_bytes, 0x01ULL));
-                expect_equal(0xFFFFFFFFFFFFFFFFULL, machine::sign_extend(num_bytes, neg1 >> ((8U - num_bytes) << 3U)));
+                expect_equal(0x00ULL, machine::code_t::sign_extend(num_bytes, 0x00ULL));
+                expect_equal(0x01ULL, machine::code_t::sign_extend(num_bytes, 0x01ULL));
+                expect_equal(0xFFFFFFFFFFFFFFFFULL, machine::code_t::sign_extend(num_bytes, neg1 >> ((8U - num_bytes) << 3U)));
             }
-            expect_equal(0xFFFFFFFFFF800000ULL, machine::sign_extend(3, 0x800000ULL));
+            expect_equal(0xFFFFFFFFFF800000ULL, machine::code_t::sign_extend(3, 0x800000ULL));
         };
         "configure"_test = [] {
             const auto blob = file::read(file::install_path("test/pvm-my/jam-cardano.jam"));
@@ -242,6 +255,11 @@ suite turbo_jam_machine_suite = [] {
         "conformance program tests"_test = [] {
             for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/programs"), ".json")) {
                 test_program(path);
+            }
+        };
+        "conformance gas tests"_test = [] {
+            for (const auto &path: file::files_with_ext(file::install_path("test/pvm-test-vectors/pvm/gas-tests"), ".json")) {
+                test_gas(path);
             }
         };
     };
