@@ -10,6 +10,8 @@
 #include "machine.hpp"
 #include "state.hpp"
 
+#include <boost/thread/future.hpp>
+
 namespace turbo::jam {
     template<typename CFG>
     struct fetch_params_t {
@@ -68,8 +70,39 @@ namespace turbo::jam {
             return std::monostate {};
         }
 
+        void _consume_octet_rated_gas(const uint32_t rate, const uint64_t octets, const gas_t base_cost=0ULL)
+        {
+            if (rate != 0) [[likely]] {
+                const uint64_t whole = octets / 1024ULL;
+                const uint64_t tail = ((octets % 1024ULL) * uint64_t{rate} + 1023ULL) / 1024ULL;
+                const auto max_rated = std::numeric_limits<gas_t>::max() - base_cost;
+                if (tail > max_rated || whole > (max_rated - tail) / rate) {
+                    this->_p.m.set_gas(0);
+                    throw machine::exit_out_of_gas_t{};
+                }
+                this->_p.m.consume_gas(base_cost + whole * rate + tail);
+            } else {
+                this->_p.m.consume_gas(base_cost);
+            }
+        }
+
+        void _consume_count_rated_gas(const uint32_t rate, const uint64_t count, const gas_t base_cost=0ULL)
+        {
+            if (rate != 0) [[likely]] {
+                const auto max_rated = std::numeric_limits<gas_t>::max() - base_cost;
+                if (rate != 0 && count > max_rated / rate) {
+                    this->_p.m.set_gas(0);
+                    throw machine::exit_out_of_gas_t{};
+                }
+                this->_p.m.consume_gas(base_cost + count * rate);
+            } else {
+                this->_p.m.consume_gas(base_cost);
+            }
+        }
+
         // General functions
         void gas();
+        void grow_heap();
         void fetch();
         void lookup();
         void read();

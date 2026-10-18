@@ -140,6 +140,11 @@ namespace turbo::jam::machine {
         }
     };
 
+    struct heap_bounds_t {
+        register_val_t current;
+        register_val_t maximum;
+    };
+
     struct machine_t {
         [[nodiscard]] static bool is_opcode(uint8_t);
 
@@ -154,6 +159,8 @@ namespace turbo::jam::machine {
         void set_reg(size_t id, register_val_t val);
         void set_regs(const registers_t &regs);
         bool set_pages(register_val_t p, register_val_t sz, page_init_method_t i);
+        [[nodiscard]] heap_bounds_t heap_bounds() const;
+        [[nodiscard]] bool grow_heap(register_val_t end_page);
         [[nodiscard]] std::optional<exit_page_fault_t> mem_writable(register_val_t offset, register_val_t sz) const;
         [[nodiscard]] std::optional<exit_page_fault_t> mem_readable(register_val_t offset, register_val_t sz) const;
         void mem_copy(const machine_t &src, register_val_t dst_offset, register_val_t src_offset, register_val_t sz);

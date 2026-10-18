@@ -56,7 +56,8 @@ namespace turbo::jam::machine {
                 mem_write<false>(mc.address, mc.contents);
             if (_stack_begin < config_prod::ZZ_pvm_init_zone_size) [[unlikely]]
                 throw exit_panic_t{};
-            _stack_begin = ((_stack_begin - config_prod::ZZ_pvm_init_zone_size) / config_prod::ZZ_pvm_init_zone_size) * config_prod::ZZ_pvm_init_zone_size;
+            // Keep one guard zone below the stack without rounding away valid heap pages.
+            _stack_begin -= config_prod::ZZ_pvm_init_zone_size;
         }
 
         impl(impl &&) = delete;
@@ -125,6 +126,24 @@ namespace turbo::jam::machine {
                 }
                 _upsert_page(page_id, page, next);
             }
+            return true;
+        }
+
+        [[nodiscard]] heap_bounds_t heap_bounds() const
+        {
+            return {
+                _heap_end / config_prod::ZP_pvm_page_size,
+                _stack_begin / config_prod::ZP_pvm_page_size
+            };
+        }
+
+        bool grow_heap(const register_val_t end_page)
+        {
+            const auto bounds = heap_bounds();
+            if (end_page <= bounds.current || end_page > bounds.maximum)
+                return false;
+            _add_pages(static_cast<address_val_t>(bounds.current), static_cast<address_val_t>(end_page), true);
+            _heap_end = static_cast<address_val_t>(end_page * config_prod::ZP_pvm_page_size);
             return true;
         }
 
@@ -359,7 +378,7 @@ namespace turbo::jam::machine {
         mutable std::array<tlb_entry_t, tlb_size> _tlb{};
         page_dir_t _page_dir{};
         page_pool_t _page_pool{};
-        address_val_t _stack_begin = 0;
+        address_val_t _stack_begin = 0; // After construction: maximum exclusive heap end, below the stack guard zone.
         address_val_t _heap_end = 0;
         // Cold fields - rarely accessed after construction
         code_t _code;
@@ -1944,6 +1963,16 @@ namespace turbo::jam::machine {
         if (sz > addr_max / page_size) [[unlikely]]
             return false;
         return _impl->set_pages(numeric_cast<address_val_t>(p), numeric_cast<address_val_t>(sz), i);
+    }
+
+    heap_bounds_t machine_t::heap_bounds() const
+    {
+        return _impl->heap_bounds();
+    }
+
+    bool machine_t::grow_heap(const register_val_t end_page)
+    {
+        return _impl->grow_heap(end_page);
     }
 
     void machine_t::skip_op()

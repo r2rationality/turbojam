@@ -26,20 +26,17 @@ namespace turbo::jam {
     machine::host_call_res_t host_service_is_authorized_t<CFG>::call(const machine::register_val_t id) noexcept
     {
         return this->_safe_call([&] {
-            void (host_service_is_authorized_t<CFG>::*call_func)() = nullptr;
-            gas_t gas_used = 10;
             switch (static_cast<host_call_t>(id)) {
-                case host_call_t::gas: call_func = &host_service_is_authorized_t::gas; break;
-                case host_call_t::fetch: call_func = &host_service_is_authorized_t::fetch; break;
-                case host_call_t::log: call_func = &host_service_is_authorized_t::log; break;
+                case host_call_t::gas: return this->gas();
+                case host_call_t::grow_heap: return this->grow_heap();
+                case host_call_t::fetch: return this->fetch();
+                case host_call_t::log: return this->log();
                 [[unlikely]] default:
                     logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
+                    this->_p.m.consume_gas(1000U);
                     break;
             }
-            this->_p.m.consume_gas(gas_used);
-            if (call_func) [[likely]]
-                (*this.*call_func)();
         });
     }
 
@@ -55,36 +52,34 @@ namespace turbo::jam {
     [[nodiscard]] machine::host_call_res_t host_service_refine_t<CFG>::call(const machine::register_val_t id) noexcept
     {
         return this->_safe_call([&] {
-            void (host_service_refine_t<CFG>::*call_func)() = nullptr;
-            gas_t gas_used = 10;
             switch (static_cast<host_call_t>(id)) {
                 // generic
-                case host_call_t::gas: call_func = &host_service_refine_t::gas; break;
-                case host_call_t::fetch: call_func = &host_service_refine_t::fetch; break;
-                case host_call_t::log: call_func = &host_service_refine_t::log; break;
+                case host_call_t::gas: return this->gas();
+                case host_call_t::grow_heap: return this->grow_heap();
+                case host_call_t::fetch: return this->fetch();
+                case host_call_t::log: return this->log();
                 // refine specific
-                case host_call_t::historical_lookup: call_func = &host_service_refine_t::historical_lookup; break;
-                case host_call_t::export_: call_func = &host_service_refine_t::export_; break;
-                case host_call_t::machine: call_func = &host_service_refine_t::machine; break;
-                case host_call_t::peek: call_func = &host_service_refine_t::peek; break;
-                case host_call_t::poke: call_func = &host_service_refine_t::poke; break;
-                case host_call_t::pages: call_func = &host_service_refine_t::pages; break;
-                case host_call_t::invoke: call_func = &host_service_refine_t::invoke; break;
-                case host_call_t::expunge: call_func = &host_service_refine_t::expunge; break;
+                case host_call_t::historical_lookup: return this->historical_lookup();
+                case host_call_t::export_: return this->export_();
+                case host_call_t::machine: return this->machine();
+                case host_call_t::peek: return this->peek();
+                case host_call_t::poke: return this->poke();
+                case host_call_t::pages: return this->pages();
+                case host_call_t::invoke: return this->invoke();
+                case host_call_t::expunge: return this->expunge();
                 [[unlikely]] default:
                     logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
+                    this->_p.m.consume_gas(1000U);
                     break;
             }
-            this->_p.m.consume_gas(gas_used);
-            if (call_func) [[likely]]
-                (*this.*call_func)();
         });
     }
 
     template <typename CFG>
     void host_service_refine_t<CFG>::historical_lookup() {
         const auto &phi = this->_p.m.regs();
+        this->_consume_octet_rated_gas(264U, phi[11], 1125U);
         const auto [s_id, a] = this->_get_service(phi[7]);
         const auto h = phi[8];
         const auto o = phi[9];
@@ -107,6 +102,7 @@ namespace turbo::jam {
 
     template <typename CFG>
     void host_service_refine_t<CFG>::export_() {
+        this->_p.m.consume_gas(3521U);
         const auto &phi = this->_p.m.regs();
         const auto p = phi[7];
         const auto z = std::min(phi[8], CFG::WG_segment_size);
@@ -125,6 +121,7 @@ namespace turbo::jam {
     template <typename CFG>
     void host_service_refine_t<CFG>::machine() {
         const auto [po, pz, i] = this->_p.m.regs(std::index_sequence<7, 8, 9>{});
+        this->_consume_octet_rated_gas(112U, pz, 1862U);
         auto p = this->_p.m.mem_read(po, pz);
         std::unique_ptr<machine::machine_t> new_machine{};
         try {
@@ -146,6 +143,7 @@ namespace turbo::jam {
     template <typename CFG>
     void host_service_refine_t<CFG>::peek() {
         const auto [n, o, s, z] = this->_p.m.regs(std::index_sequence<7, 8, 9, 10>{});
+        this->_consume_octet_rated_gas(336U, z, 377U);
         if (auto ex = this->_p.m.mem_writable(o, z); ex) [[unlikely]]
             throw std::move(*ex);
         auto *m = this->_machines.find(n);
@@ -164,6 +162,7 @@ namespace turbo::jam {
     template <typename CFG>
     void host_service_refine_t<CFG>::poke() {
         const auto [n, s, o, z] = this->_p.m.regs(std::index_sequence<7, 8, 9, 10>{});
+        this->_consume_octet_rated_gas(224U, z, 297U);
         if (auto ex = this->_p.m.mem_readable(s, z); ex) [[unlikely]]
             throw std::move(*ex);
         auto *m = this->_machines.find(n);
@@ -182,12 +181,30 @@ namespace turbo::jam {
     template <typename CFG>
     void host_service_refine_t<CFG>::pages() {
         const auto [n, p, c, r] = this->_p.m.regs(std::index_sequence<7, 8, 9, 10>{});
+        switch (r) {
+            case 0: // free
+                this->_consume_count_rated_gas(118ULL, c, 212ULL);
+                break;
+            // alloc
+            case 1:
+            case 2:
+                this->_consume_count_rated_gas(121ULL, c, 275ULL);
+                break;
+            case 3:
+            case 4:
+                this->_consume_count_rated_gas(29ULL, c, 130ULL);
+                break;
+            [[unlikely]] default:
+                this->_p.m.consume_gas(80ULL);
+                this->_p.m.set_reg(7, machine::host_call_res_t::who);
+                return;
+        }
         auto *m = this->_machines.find(n);
         if (!m) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
-        if (r > 4U || p < 16U || p + c < p || p + c >= (machine::register_val_t{1} << 32U) / CFG::ZP_pvm_page_size) [[unlikely]] {
+        if (p < 16U || p + c < p || p + c >= (machine::register_val_t{1} << 32U) / CFG::ZP_pvm_page_size) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
@@ -200,6 +217,7 @@ namespace turbo::jam {
 
     template <typename CFG>
     void host_service_refine_t<CFG>::invoke() {
+        this->_p.m.consume_gas(968U);
         const auto [n, o] = this->_p.m.regs(std::index_sequence<7, 8>{});
         if (auto ex = this->_p.m.mem_writable(o, 112U); ex) [[unlikely]]
             throw std::move(*ex);
@@ -213,6 +231,7 @@ namespace turbo::jam {
             decoder dec{raw_args};
             gas_t g;
             dec.process(g);
+            this->_p.m.consume_gas(g);
             m->set_gas(g);
             machine::registers_t w;
             dec.process(w);
@@ -252,6 +271,7 @@ namespace turbo::jam {
 
     template <typename CFG>
     void host_service_refine_t<CFG>::expunge() {
+        this->_p.m.consume_gas(335ULL);
         const auto [n] = this->_p.m.regs(std::index_sequence<7>{});
         const auto pc = this->_machines.erase(n);
         if (!pc) [[unlikely]] {
@@ -283,7 +303,26 @@ namespace turbo::jam {
     void host_service_base_t<CFG>::gas()
     {
         logger::trace("gas: {} host_service::gas", this->_p.m.gas());
+        _p.m.consume_gas(48U);
         _p.m.set_reg(7, _p.m.gas());
+    }
+
+    template<typename CFG>
+    void host_service_base_t<CFG>::grow_heap()
+    {
+        const auto [new_heap_end] = this->_p.m.regs(std::index_sequence<7>{});
+        const auto bounds = this->_p.m.heap_bounds();
+        if (new_heap_end <= bounds.current || new_heap_end > bounds.maximum) [[unlikely]] {
+            this->_p.m.consume_gas(275ULL);
+            this->_p.m.set_reg(7, bounds.current);
+            return;
+        }
+        if (this->_p.m.gas() < 275ULL + (new_heap_end - bounds.current) * 121ULL) [[unlikely]] {
+            this->_p.m.set_reg(7, bounds.current);
+            throw machine::exit_out_of_gas_t{};
+        }
+        this->_p.m.consume_gas(275ULL + (new_heap_end - bounds.current) * 121ULL);
+        static_cast<void>(this->_p.m.grow_heap(new_heap_end));
     }
 
     template<typename CFG>
@@ -304,6 +343,7 @@ namespace turbo::jam {
         std::optional<uint8_vector> v {};
         switch (phi[10]) {
             case 0: {
+                this->_p.m.consume_gas(390ULL);
                 encoder enc {};
                 enc.uint_fixed(8, CFG::BI_min_balance_per_item);
                 enc.uint_fixed(8, CFG::BL_min_balance_per_octet);
@@ -342,59 +382,72 @@ namespace turbo::jam {
                 break;
             }
             case 1:
+                this->_p.m.consume_gas(103ULL);
                 if (_p.fetch.nonce)
                     v.emplace(*_p.fetch.nonce);
                 break;
             case 2:
-                if (_p.fetch.auth_output)
+                this->_consume_octet_rated_gas(96U, phi[9], 80U);
+                if (_p.fetch.auth_output) {
                     v.emplace(*_p.fetch.auth_output);
+                }
                 break;
             case 3:
-                if (_p.fetch.extrinsics && phi[11] < _p.fetch.extrinsics->size()
-                        && phi[12] < (*_p.fetch.extrinsics)[phi[11]].size())
+                this->_consume_octet_rated_gas(96U, phi[9], 85U);
+                if (_p.fetch.extrinsics && phi[11] < _p.fetch.extrinsics->size() && phi[12] < (*_p.fetch.extrinsics)[phi[11]].size()) {
                     v.emplace((*_p.fetch.extrinsics)[phi[11]][phi[12]]);
+                }
                 break;
             case 4:
+                this->_consume_octet_rated_gas(96U, phi[9], 85U);
                 if (_p.fetch.extrinsics && _p.fetch.refined_item_index
                         && *_p.fetch.refined_item_index < _p.fetch.extrinsics->size()
-                        && phi[11] < (*_p.fetch.extrinsics)[*_p.fetch.refined_item_index].size())
+                        && phi[11] < (*_p.fetch.extrinsics)[*_p.fetch.refined_item_index].size()) {
                     v.emplace((*_p.fetch.extrinsics)[*_p.fetch.refined_item_index][phi[11]]);
+                }
                 break;
             case 5:
+                this->_p.m.consume_gas(171ULL);
                 if (_p.fetch.imports && phi[11] < _p.fetch.imports->size()
                         && phi[12] < (*_p.fetch.imports)[phi[11]].size())
                     v.emplace((*_p.fetch.imports)[phi[11]][phi[12]]);
                 break;
             case 6:
+                this->_p.m.consume_gas(171ULL);
                 if (_p.fetch.imports && _p.fetch.refined_item_index
                         && *_p.fetch.refined_item_index < _p.fetch.imports->size()
                         && phi[11] < (*_p.fetch.imports)[*_p.fetch.refined_item_index].size())
                     v.emplace((*_p.fetch.imports)[*_p.fetch.refined_item_index][phi[11]]);
                 break;
             case 7:
+                this->_consume_octet_rated_gas(96U, phi[9], 85U);
                 if (_p.fetch.package) {
                     encoder enc { *_p.fetch.package };
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
             case 8:
+                this->_p.m.consume_gas(84ULL);
                 if (_p.fetch.package) {
                     v.emplace(_p.fetch.package->authorizer_config);
                 }
                 break;
             case 9:
+                this->_p.m.consume_gas(88ULL);
                 if (_p.fetch.package) {
                     const encoder enc{_p.fetch.package->authorization};
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
             case 10:
+                this->_p.m.consume_gas(111ULL);
                 if (_p.fetch.package) {
                     encoder enc { _p.fetch.package->context };
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
             case 11:
+                this->_p.m.consume_gas(317ULL);
                 if (_p.fetch.package) {
                     encoder enc {};
                     enc.uint_varlen(_p.fetch.package->items.size());
@@ -404,6 +457,7 @@ namespace turbo::jam {
                 }
                 break;
             case 12:
+                this->_p.m.consume_gas(250ULL);
                 if (_p.fetch.package && phi[11] < _p.fetch.package->items.size()) {
                     encoder enc {};
                     s_func(enc, _p.fetch.package->items[phi[11]]);
@@ -411,24 +465,28 @@ namespace turbo::jam {
                 }
                 break;
             case 13:
+                this->_consume_octet_rated_gas(96U, phi[9], 95U);
                 if (_p.fetch.package && _p.fetch.package->items.size() > phi[11]) {
                     encoder enc { _p.fetch.package->items[phi[11]].payload };
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
             case 14:
+                this->_consume_octet_rated_gas(400U, phi[9], 287U);
                 if (_p.fetch.inputs) {
                     encoder enc {*_p.fetch.inputs};
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
             case 15:
+                this->_consume_octet_rated_gas(344U, phi[9], 355U);
                 if (_p.fetch.inputs && phi[11] < _p.fetch.inputs->size()) {
                     encoder enc{(*_p.fetch.inputs)[phi[11]]};
                     v.emplace(std::move(enc.bytes()));
                 }
                 break;
             default:
+                this->_p.m.consume_gas(80ULL);
                 break;
         }
         if (v) {
@@ -447,6 +505,7 @@ namespace turbo::jam {
     {
         logger::trace("gas: {} host_service::lookup", this->_p.m.gas());
         const auto &phi = _p.m.regs();
+        this->_consume_octet_rated_gas(248U, phi[11], 600U);
         const auto [s_id, a] = _get_service(phi[7]);
         const auto h = phi[8];
         const auto o = phi[9];
@@ -468,6 +527,8 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::read() {
         const auto &phi = _p.m.regs();
+        this->_consume_octet_rated_gas(1736U, phi[9], 2407U);
+        this->_consume_octet_rated_gas(248U, phi[12]);
         const auto [s_id, a] = _get_service(phi[7]);
         const auto ko = phi[8];
         const auto kz = phi[9];
@@ -490,6 +551,8 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::write() {
         const auto &phi = _p.m.regs();
+        this->_consume_octet_rated_gas(3358U, phi[8], 2442U);
+        this->_consume_octet_rated_gas(216U, phi[10]);
         const auto key = _p.m.mem_read(phi[7], phi[8]);
         const auto val_data = _p.m.mem_read(phi[9], phi[10]);
         const auto set_res = _p.services.storage_set(_p.service_id, key, std::move(val_data));
@@ -503,6 +566,7 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::info()
     {
+        _p.m.consume_gas(703U);
         const auto &phi = _p.m.regs();
         logger::trace("gas: {} host_service::info {}", this->_p.m.gas(), phi[7]);
         const auto [a_id, a] = _get_service(phi[7]);
@@ -558,39 +622,36 @@ namespace turbo::jam {
     [[nodiscard]] machine::host_call_res_t host_service_accumulate_t<CFG>::call(const machine::register_val_t id) noexcept
     {
         return this->_safe_call([&] {
-            void (host_service_accumulate_t<CFG>::*call_func)() = nullptr;
-            gas_t gas_used = 10;
             switch (static_cast<host_call_t>(id)) {
                 // generic
-                case host_call_t::gas: call_func = &host_service_accumulate_t::gas; break;
-                case host_call_t::fetch: call_func = &host_service_accumulate_t::fetch; break;
-                case host_call_t::read: call_func = &host_service_accumulate_t::read; break;
-                case host_call_t::write: call_func = &host_service_accumulate_t::write; break;
-                case host_call_t::lookup: call_func = &host_service_accumulate_t::lookup; break;
-                case host_call_t::info: call_func = &host_service_accumulate_t::info; break;
+                case host_call_t::gas: return this->gas();
+                case host_call_t::grow_heap: return this->grow_heap();
+                case host_call_t::fetch: return this->fetch();
+                case host_call_t::read: return this->read();
+                case host_call_t::write: return this->write();
+                case host_call_t::lookup: return this->lookup();
+                case host_call_t::info: return this->info();
                 // accumulate-specific
-                case host_call_t::bless: call_func = &host_service_accumulate_t::bless; break;
-                case host_call_t::assign: call_func = &host_service_accumulate_t::assign; break;
-                case host_call_t::designate: call_func = &host_service_accumulate_t::designate; break;
-                case host_call_t::checkpoint: call_func = &host_service_accumulate_t::checkpoint; break;
-                case host_call_t::new_: call_func = &host_service_accumulate_t::new_; break;
-                case host_call_t::upgrade: call_func = &host_service_accumulate_t::upgrade; break;
-                case host_call_t::transfer: call_func = &host_service_accumulate_t::transfer; break;
-                case host_call_t::eject: call_func = &host_service_accumulate_t::eject; break;
-                case host_call_t::query: call_func = &host_service_accumulate_t::query; break;
-                case host_call_t::solicit: call_func = &host_service_accumulate_t::solicit; break;
-                case host_call_t::forget: call_func = &host_service_accumulate_t::forget; break;
-                case host_call_t::yield: call_func = &host_service_accumulate_t::yield; break;
-                case host_call_t::provide: call_func = &host_service_accumulate_t::provide; break;
-                case host_call_t::log: call_func = &host_service_accumulate_t::log; break;
+                case host_call_t::bless: return this->bless();
+                case host_call_t::assign: return this->assign();
+                case host_call_t::designate: return this->designate();
+                case host_call_t::checkpoint: return this->checkpoint();
+                case host_call_t::new_: return this->new_();
+                case host_call_t::upgrade: return this->upgrade();
+                case host_call_t::transfer: return this->transfer();
+                case host_call_t::eject: return this->eject();
+                case host_call_t::query: return this->query();
+                case host_call_t::solicit: return this->solicit();
+                case host_call_t::forget: return this->forget();
+                case host_call_t::yield: return this->yield();
+                case host_call_t::provide: return this->provide();
+                case host_call_t::log: return this->log();
                 [[unlikely]] default:
                     logger::trace("host_service::unknown");
                     this->_p.m.set_reg(7, machine::host_call_res_t::what);
+                    this->_p.m.consume_gas(1000U);
                     break;
             }
-            this->_p.m.consume_gas(gas_used);
-            if (call_func) [[likely]]
-                (*this.*call_func)();
         });
     }
 
@@ -606,9 +667,11 @@ namespace turbo::jam {
         const auto o = phi[11];
         const auto n = phi[12];
 
-        privileges_t<CFG> new_chi{};
+        const auto num_octets = 4 * CFG::C_core_count;
+        this->_consume_count_rated_gas(20ULL, n, 422ULL);
 
-        const auto a_bytes = this->_p.m.mem_read(a, 4 * CFG::C_core_count);
+        const auto a_bytes = this->_p.m.mem_read(a, num_octets);
+        privileges_t<CFG> new_chi{};
         new_chi.assign = jam::from_bytes<assigners_t<CFG>>(a_bytes);
 
         {
@@ -643,6 +706,7 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::assign()
     {
         logger::trace("gas: {} host_service::assign", this->_p.m.gas());
+        this->_p.m.consume_gas(1818U);
         const auto &phi = this->_p.m.regs();
         const auto c = phi[7];
         const auto o = phi[8];
@@ -669,10 +733,11 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::designate()
     {
+        static_assert(sizeof(validator_data_t) == 336U);
         logger::trace("gas: {} host_service::designate", this->_p.m.gas());
         const auto &phi = this->_p.m.regs();
         const auto o = phi[7];
-        static_assert(sizeof(validator_data_t) == 336U);
+        this->_p.m.consume_gas(1100U + CFG::V_validator_count * 302);
         const auto bytes = this->_p.m.mem_read(o, sizeof(validator_data_t) * CFG::V_validator_count);
         if (this->_p.service_id != _ok.state.chi.get().designate) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
@@ -686,6 +751,7 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::checkpoint()
     {
         logger::trace("gas: {} host_service::checkpoint", this->_p.m.gas());
+        this->_p.m.consume_gas(103U);
         _err = _ok;
         this->_p.m.set_reg(7, this->_p.m.gas());
     }
@@ -694,6 +760,7 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::new_()
     {
         logger::trace("gas: {} host_service::new", this->_p.m.gas());
+        this->_p.m.consume_gas(3855U);
         const auto &phi = this->_p.m.regs();
         const auto o = phi[7];
         const auto l = phi[8];
@@ -753,6 +820,7 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::upgrade()
     {
+        this->_p.m.consume_gas(1028ULL);
         logger::trace("gas: {} host_service::upgrade", this->_p.m.gas());
         const auto &phi = this->_p.m.regs();
         const auto o = phi[7];
@@ -775,6 +843,7 @@ namespace turbo::jam {
         const auto a = phi[8];
         const auto l = phi[9];
         const auto o = phi[10];
+        this->_p.m.consume_gas(575ULL);
         const auto m = this->_p.m.mem_read(o, sizeof(deferred_transfer_metadata_t<CFG>));
         if (d_raw > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
@@ -796,16 +865,17 @@ namespace turbo::jam {
             this->_p.m.set_reg(7, machine::host_call_res_t::cash);
             return;
         }
+        this->_p.m.consume_gas(l);
         info.balance -= a;
         this->_p.services.info_set(this->_p.service_id, std::move(info));
         _ok.transfers.emplace_back(this->_p.service_id, d, a, static_cast<buffer>(m), l);
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
-        this->_p.m.consume_gas(l); // consume the variable amount of memo-gas only on success
     }
 
     template<typename CFG>
     void host_service_accumulate_t<CFG>::eject()
     {
+        this->_p.m.consume_gas(458U);
         const auto &phi = this->_p.m.regs();
         logger::trace("gas: {} service: {} host_service::eject {}(0x{:x})", this->_p.m.gas(), this->_p.service_id, phi[7], phi[7]);
         if (phi[7] > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
@@ -847,6 +917,7 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::query()
     {
+        this->_p.m.consume_gas(643ULL);
         const auto &phi = this->_p.m.regs();
         lookup_meta_map_key_t key;
         this->_p.m.mem_read(key.hash, phi[7]);
@@ -887,6 +958,7 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::solicit()
     {
+        this->_p.m.consume_gas(2193ULL);
         const auto &phi = this->_p.m.regs();
         lookup_meta_map_key_t key;
         this->_p.m.mem_read(key.hash, phi[7]);
@@ -919,6 +991,7 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_accumulate_t<CFG>::forget()
     {
+        this->_p.m.consume_gas(3250U);
         const auto &phi = this->_p.m.regs();
         lookup_meta_map_key_t key;
         this->_p.m.mem_read(key.hash, phi[7]);
@@ -955,6 +1028,7 @@ namespace turbo::jam {
     void host_service_accumulate_t<CFG>::yield()
     {
         logger::trace("gas: {} host_service::yield", this->_p.m.gas());
+        this->_p.m.consume_gas(98ULL);
         const auto &phi = this->_p.m.regs();
         const auto o = phi[7];
         _ok.result.emplace();
@@ -968,6 +1042,7 @@ namespace turbo::jam {
         const auto &phi = this->_p.m.regs();
         const auto o = phi[8];
         const auto z = phi[9];
+        this->_consume_octet_rated_gas(2264U, z, 3980U);
         if (z > std::numeric_limits<decltype(lookup_meta_map_key_t::length)>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
