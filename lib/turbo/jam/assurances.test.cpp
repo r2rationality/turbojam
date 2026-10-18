@@ -10,7 +10,9 @@
 namespace {
     using namespace turbo;
     using namespace turbo::jam;
+}
 
+namespace turbo::jam::assurances_test {
     template<typename CFG>
     struct test_input_t {
         assurances_extrinsic_t<CFG> assurances;
@@ -152,6 +154,7 @@ namespace {
 }
 
 suite turbo_jam_assurances_suite = [] {
+    using namespace turbo::jam::assurances_test;
     "turbo::jam::assurances"_test = [] {
         //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/assurances/tiny/assurances_for_stale_report-1"));
         "tiny"_test = [] {

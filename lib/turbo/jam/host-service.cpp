@@ -27,7 +27,7 @@ namespace turbo::jam {
     {
         return this->_safe_call([&] {
             void (host_service_is_authorized_t<CFG>::*call_func)() = nullptr;
-            gas_t::base_type gas_used = 10;
+            gas_t gas_used = 10;
             switch (static_cast<host_call_t>(id)) {
                 case host_call_t::gas: call_func = &host_service_is_authorized_t::gas; break;
                 case host_call_t::fetch: call_func = &host_service_is_authorized_t::fetch; break;
@@ -56,7 +56,7 @@ namespace turbo::jam {
     {
         return this->_safe_call([&] {
             void (host_service_refine_t<CFG>::*call_func)() = nullptr;
-            gas_t::base_type gas_used = 10;
+            gas_t gas_used = 10;
             switch (static_cast<host_call_t>(id)) {
                 // generic
                 case host_call_t::gas: call_func = &host_service_refine_t::gas; break;
@@ -211,7 +211,7 @@ namespace turbo::jam {
         auto raw_args = this->_p.m.mem_read(o, 112U);
         {
             decoder dec{raw_args};
-            gas_t::base_type g;
+            gas_t g;
             dec.process(g);
             m->set_gas(g);
             machine::registers_t w;
@@ -559,7 +559,7 @@ namespace turbo::jam {
     {
         return this->_safe_call([&] {
             void (host_service_accumulate_t<CFG>::*call_func)() = nullptr;
-            gas_t::base_type gas_used = 10;
+            gas_t gas_used = 10;
             switch (static_cast<host_call_t>(id)) {
                 // generic
                 case host_call_t::gas: call_func = &host_service_accumulate_t::gas; break;
@@ -619,11 +619,15 @@ namespace turbo::jam {
             new_chi.always_acc.reserve(n);
             for (size_t i = 0; i < n; ++i) {
                 const auto s = dec.uint_fixed<service_id_t>(4);
-                const gas_t g { dec.uint_fixed<gas_t::base_type>(8) };
+                const gas_t g { dec.uint_fixed<gas_t>(8) };
                 new_chi.always_acc.emplace_hint(new_chi.always_acc.end(), s, g);
             }
         }
 
+        if (this->_ok.service_id != this->_ok.state.chi.get().bless) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
         if (std::max(std::max(m, v), r) > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
@@ -847,8 +851,7 @@ namespace turbo::jam {
         lookup_meta_map_key_t key;
         this->_p.m.mem_read(key.hash, phi[7]);
         if (phi[8] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::none);
-            this->_p.m.set_reg(8, 0ULL);
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
         key.length = static_cast<uint32_t>(phi[8]);
@@ -888,7 +891,7 @@ namespace turbo::jam {
         lookup_meta_map_key_t key;
         this->_p.m.mem_read(key.hash, phi[7]);
         if (phi[8] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::full);
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
         key.length = static_cast<uint32_t>(phi[8]);
@@ -965,14 +968,14 @@ namespace turbo::jam {
         const auto &phi = this->_p.m.regs();
         const auto o = phi[8];
         const auto z = phi[9];
+        if (z > std::numeric_limits<decltype(lookup_meta_map_key_t::length)>::max()) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
         auto i = this->_p.m.mem_read(o, z);
         auto [s_id, a] = this->_get_service(phi[7]);
         if (!a) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
-            return;
-        }
-        if (z > std::numeric_limits<decltype(lookup_meta_map_key_t::length)>::max()) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
         const auto h = crypto::blake2b::digest<opaque_hash_t>(i);

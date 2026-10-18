@@ -194,6 +194,19 @@ namespace turbo::jam {
         bool operator==(const header_t &o) const = default;
     };
 
+    struct preimage_proof_t {
+        service_id_t service_id;
+        opaque_hash_t hash;
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("service_id"sv, service_id);
+            archive.process("hash"sv, hash);
+        }
+    };
+    using preimage_proofs_t = sequence_t<preimage_proof_t>;
+
     // JAM (4.2)
     template<typename CFG>
     struct block_t {
@@ -208,7 +221,12 @@ namespace turbo::jam {
                 leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
             }
             {
-                encoder enc{extrinsic.preimages};
+                preimage_proofs_t proofs{};
+                proofs.reserve(extrinsic.preimages.size());
+                for (const auto &p: extrinsic.preimages) {
+                    proofs.emplace_back(p.requester, crypto::blake2b::digest<opaque_hash_t>(p.blob));
+                }
+                encoder enc{proofs};
                 leafs << crypto::blake2b::digest<opaque_hash_t>(enc.bytes());
             }
             {

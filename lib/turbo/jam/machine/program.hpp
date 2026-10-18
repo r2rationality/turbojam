@@ -171,7 +171,6 @@ namespace turbo::jam::machine {
 
     struct code_t {
         using offset_list_t = std::vector<address_val_t>;
-        using block_costs_t = boost::container::flat_map<address_val_t, gas_t::base_type>;
 
         struct opcode_t {
             uint64_t id       : 8 = 0;
@@ -571,7 +570,7 @@ namespace turbo::jam::machine {
         static_assert(sizeof(opcode_t) == 24, "opcode_t must be 24 bytes!");
 
         struct block_t {
-            gas_t::base_type cost = 0;
+            gas_t cost = 0;
             sequence_t<opcode_t> opcodes{};
         };
 
@@ -708,7 +707,7 @@ namespace turbo::jam::machine {
             const code_t &_code;
             address_val_t _pc; // i
             address_val_t _pc_end;
-            gas_t::base_type _cycles = 0; // c
+            gas_t _cycles = 0; // c
             size_t _decode_slots = 4; // d
             size_t _max_instructions = 5; // e
             execution_units_t _exec_units{4, 4, 4, 1, 1}; // t

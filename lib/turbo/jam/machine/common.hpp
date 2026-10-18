@@ -12,7 +12,7 @@ namespace turbo::jam::machine {
     using address_val_t = uint32_t;
     typedef uint8_t register_idx_t;
     // in contrast to GP gas_remaining is unsigned, with gas_consume implementing the set to 0 on overuse and throws an exception
-    using gas_remaining_t = gas_t::base_type;
+    using gas_remaining_t = gas_t;
 
     static constexpr size_t max_skip_len = 24U;
 }

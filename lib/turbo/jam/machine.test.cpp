@@ -96,7 +96,7 @@ namespace {
     using block_gas_costs_t = sequence_t<block_gas_cost_t>;
     using steps_t = sequence_t<step_t>;
 
-    using block_gas_map_base_t = machine::code_t::block_costs_t;
+    using block_gas_map_base_t = boost::container::flat_map<machine::address_val_t, gas_t>;
     struct block_gas_map_t: block_gas_map_base_t {
         using base_type = block_gas_map_base_t;
         using base_type::base_type;
@@ -107,7 +107,7 @@ namespace {
             const auto &m = j.as_object();
             res.reserve(m.size());
             for (const auto &[k, v] : m) {
-                res.emplace_hint(res.end(), turbo::cli::from_str<machine::address_val_t>(k), numeric_cast<gas_t::base_type>(v.as_int64()));
+                res.emplace_hint(res.end(), turbo::cli::from_str<machine::address_val_t>(k), numeric_cast<gas_t>(v.as_int64()));
             }
             return res;
         }

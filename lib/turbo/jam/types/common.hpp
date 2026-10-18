@@ -295,7 +295,7 @@ namespace turbo::jam {
         T _val = 0;
     };
 
-    using gas_t = varlen_uint_t<uint64_t>;
+    typedef uint64_t gas_t;
 
     using entropy_t = opaque_hash_t;
     using entropy_buffer_t = fixed_sequence_t<entropy_t, 4>;
@@ -334,20 +334,24 @@ namespace turbo::jam {
     template<typename CFG>
     struct refine_context_t {
 	    header_hash_t anchor; // a
+        time_slot_t<CFG> anchor_slot; // n
 	    state_root_t state_root; // S
 	    beefy_root_t beefy_root; // b
 	    header_hash_t lookup_anchor; // l
 	    time_slot_t<CFG> lookup_anchor_slot; // t
+        state_root_t lookup_anchor_state_root; // r
 	    prerequisites_t prerequisites; // p_bold
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("anchor"sv, anchor);
+            archive.process("anchor_slot"sv, anchor_slot);
             archive.process("state_root"sv, state_root);
             archive.process("beefy_root"sv, beefy_root);
             archive.process("lookup_anchor"sv, lookup_anchor);
             archive.process("lookup_anchor_slot"sv, lookup_anchor_slot);
+            archive.process("lookup_anchor_state_root"sv, lookup_anchor_state_root);
             archive.process("prerequisites"sv, prerequisites);
         }
 
@@ -414,8 +418,8 @@ namespace turbo::jam {
     struct work_item_t {
         service_id_t service; // s
         opaque_hash_t code_hash; // c
-        gas_t::base_type refine_gas_limit; // g
-        gas_t::base_type accumulate_gas_limit; // a
+        gas_t refine_gas_limit; // g
+        gas_t accumulate_gas_limit; // a
         uint16_t export_count; // e
         byte_sequence_t payload; // y
         sequence_t<import_spec_t> import_segments; // i_bold
@@ -574,7 +578,7 @@ namespace turbo::jam {
     };
 
     struct refine_load_t {
-        gas_t gas_used; // u
+        varlen_uint_t<gas_t> gas_used; // u
         varlen_uint_t<uint16_t> imports; // i
         varlen_uint_t<uint16_t> extrinsic_count; // x
         varlen_uint_t<uint32_t> extrinsic_size; // z
@@ -599,7 +603,7 @@ namespace turbo::jam {
         opaque_hash_t code_hash{}; // c
         opaque_hash_t payload_hash{}; // y
         // gas_t accumulate_gas; gas_t is variable_length but currently the value is fixed length
-        gas_t::base_type accumulate_gas{}; // g
+        gas_t accumulate_gas{}; // g
         work_exec_result_t result{}; // l
         refine_load_t refine_load{}; // holds: u, i, x, z, e
 
@@ -656,6 +660,7 @@ namespace turbo::jam {
         work_package_hash_t hash; // p
         uint32_t length; // l
         erasure_root_t erasure_root; // u
+        uint16_t erasure_shards; // v
         erasure_root_t exports_root; // e
         uint16_t exports_count; // n
 
@@ -665,6 +670,7 @@ namespace turbo::jam {
             archive.process("hash"sv, hash);
             archive.process("length"sv, length);
             archive.process("erasure_root"sv, erasure_root);
+            archive.process("erasure_shards"sv, erasure_shards);
             archive.process("exports_root"sv, exports_root);
             archive.process("exports_count"sv, exports_count);
         }
@@ -695,7 +701,7 @@ namespace turbo::jam {
         refine_context_t<CFG> context{}; // c_bold
         varlen_uint_t<core_index_t> core_index{}; // c
         opaque_hash_t authorizer_hash{}; // a
-        gas_t auth_gas_used{}; // g
+        varlen_uint_t<gas_t> auth_gas_used{}; // g
         byte_sequence_t auth_output{}; // t
         segment_root_lookup_t segment_root_lookup{}; // l
         work_digests_t<CFG> results{}; // d
@@ -889,6 +895,7 @@ namespace turbo::jam {
         header_hash_t header_hash{}; // h
         state_root_t state_root{}; // s
         opaque_hash_t beefy_root{}; // b - MMR root
+        time_slot_t<CFG> slot{}; // t
         reported_work_seq_t<CFG> reported{}; // p
 
         void serialize(auto &archive)
@@ -898,6 +905,7 @@ namespace turbo::jam {
             // Fuzzer currently uses GP 0.6.7-based order of fields not GP 0.7.2!
             archive.process("beefy_root"sv, beefy_root);
             archive.process("state_root"sv, state_root);
+            archive.process("slot"sv, slot);
             archive.process("reported"sv, reported);
         }
 
@@ -1141,9 +1149,9 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct disputes_extrinsic_t {
-        sequence_t<verdict_t<CFG>> verdicts{};
-        sequence_t<culprit_t> culprits{};
-        sequence_t<fault_t> faults{};
+        sequence_t<verdict_t<CFG>, 0, CFG::NV_max_verdicts> verdicts{};
+        sequence_t<culprit_t, 0, CFG::NO_max_culprits> culprits{};
+        sequence_t<fault_t, 0, CFG::NO_max_culprits> faults{};
 
         void serialize(auto &archive)
         {
@@ -1409,13 +1417,14 @@ namespace turbo::jam {
         varlen_uint_t<uint16_t> provided_count{}; // p.1
         varlen_uint_t<uint32_t> provided_size{}; // p.2
         varlen_uint_t<uint32_t> refinement_count{}; // r.1
-        gas_t refinement_gas_used{}; // r.2
+        varlen_uint_t<gas_t> refinement_gas_used{}; // r.2
         varlen_uint_t<uint32_t> imports{}; // i
         varlen_uint_t<uint32_t> extrinsic_count{}; // x
         varlen_uint_t<uint32_t> extrinsic_size{}; // z
         varlen_uint_t<uint32_t> exports{}; // e
         varlen_uint_t<uint32_t> accumulate_count{}; // a.1
-        gas_t accumulate_gas_used{}; // a.2
+        varlen_uint_t<uint32_t> accumulate_transfer_count{}; // a.2
+        varlen_uint_t<gas_t> accumulate_gas_used{}; // a.3
 
         void serialize(auto &archive)
         {
@@ -1429,6 +1438,7 @@ namespace turbo::jam {
             archive.process("extrinsic_size"sv, extrinsic_size);
             archive.process("exports"sv, exports);
             archive.process("accumulate_count"sv, accumulate_count);
+            archive.process("accumulate_transfer_count"sv, accumulate_transfer_count);
             archive.process("accumulate_gas_used"sv, accumulate_gas_used);
         }
 

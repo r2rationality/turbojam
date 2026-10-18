@@ -15,6 +15,7 @@ namespace {
         header_hash_t header_hash;
         state_root_t parent_state_root;
         opaque_hash_t accumulate_root;
+        time_slot_t<CFG> slot;
         reported_work_seq_t<CFG> work_packages;
 
         void serialize(auto &archive)
@@ -23,6 +24,7 @@ namespace {
             archive.process("header_hash"sv, header_hash);
             archive.process("parent_state_root"sv, parent_state_root);
             archive.process("accumulate_root"sv, accumulate_root);
+            archive.process("slot"sv, slot);
             archive.process("work_packages"sv, work_packages);
         }
 

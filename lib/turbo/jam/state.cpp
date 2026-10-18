@@ -442,7 +442,7 @@ namespace turbo::jam {
 
         accumulate_inputs_t<CFG> inputs{};
         balance_t transfer_sum = 0;
-        gas_t::base_type gas_limit = 0;
+        gas_t gas_limit = 0;
         {
             for (const auto &t: transfers) {
                 if (service_id == t.destination) {
@@ -685,6 +685,7 @@ namespace turbo::jam {
         for (auto &&[s_id, s_gas]: o.gas_used) {
             gas_used[s_id] += s_gas;
         }
+        transfers.insert_range(transfers.end(), std::move(o.transfers));
     }
 
     // (12.18)
@@ -700,11 +701,26 @@ namespace turbo::jam {
         for (;;) {
             size_t num_reports = 0; // i
             {
+                gas_t adjusted_gas_limit = gas_limit;
+                for (const auto &t: transfers) {
+                    if (t.gas_limit > adjusted_gas_limit) [[unlikely]]
+                        throw error{"accumulate_delta_plus: insufficient gas for pending transfers: {}", gas_limit};
+                    adjusted_gas_limit -= t.gas_limit;
+                }
+
+                if (free_services) {
+                    for (const auto &[id, gas]: *free_services) {
+                        if (gas > adjusted_gas_limit) [[unlikely]]
+                            throw error{"accumulate_delta_plus: insufficient gas for free services: {}", gas_limit};
+                        adjusted_gas_limit -= gas;
+                    }
+                }
+
                 gas_t report_gas_limit = 0;
                 for (const auto &r: reports) {
                     for (const auto &rr: r.results)
                         report_gas_limit += rr.accumulate_gas;
-                    if (report_gas_limit > gas_limit)
+                    if (report_gas_limit > adjusted_gas_limit)
                         break;
                     ++num_reports;
                 }
@@ -788,7 +804,7 @@ namespace turbo::jam {
         }
 
         // (12.25-pre)
-        gas_t::base_type gas_limit = CFG::GA_max_accumulate_gas * CFG::C_core_count;
+        gas_t gas_limit = CFG::GA_max_accumulate_gas * CFG::C_core_count;
         for (const auto &[fs_id, fs_gas]: prev_chi.always_acc)
             gas_limit += fs_gas;
         gas_limit = std::max(gas_limit, CFG::GT_max_total_accumulation_gas);
@@ -804,6 +820,11 @@ namespace turbo::jam {
                 auto &s_stats = new_pi_services[r.service_id];
                 ++s_stats.accumulate_count;
             }
+        }
+
+        for (const auto &t: plus_res.transfers) {
+            auto &s_stats = new_pi_services[t.destination];
+            ++s_stats.accumulate_transfer_count;
         }
 
         // (12.29) + (12.31)
@@ -1035,7 +1056,15 @@ namespace turbo::jam {
 
                 // JAM Paper (11.33)
                 const auto blk_it = std::find_if(new_beta.begin(), new_beta.end(), [&g](const auto &blk) {
-                    return blk.header_hash == g.report.context.anchor;
+                    if (blk.header_hash != g.report.context.anchor)
+                        return false;
+                    if (blk.state_root != g.report.context.state_root)
+                        return false;
+                    if (blk.beefy_root != g.report.context.beefy_root)
+                        return false;
+                    if (blk.slot != g.report.context.anchor_slot)
+                        return false;
+                    return true;
                 });
                 if (blk_it == new_beta.end()) [[unlikely]]
                     throw err_anchor_not_recent_t{};

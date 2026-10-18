@@ -107,8 +107,8 @@ namespace turbo::jam {
         opaque_hash_t code_hash{}; // c (9.3)
         balance_t balance = 0; // b (9.3)
         // Gas is stored in its fixed-width representation.
-        gas_t::base_type min_item_gas = 0; // g (9.3)
-        gas_t::base_type min_memo_gas = 0; // m (9.3)
+        gas_t min_item_gas = 0; // g (9.3)
+        gas_t min_memo_gas = 0; // m (9.3)
         uint64_t bytes = 0; // o (9.8)
         uint64_t deposit_offset = 0; // f (9.3)
         uint32_t items = 0; // i (9.8)
@@ -713,7 +713,7 @@ namespace turbo::jam {
         service_id_t destination; // d
         balance_t amount; // a
         deferred_transfer_metadata_t<CFG> metadata; // m
-        gas_t::base_type gas_limit; // g
+        gas_t gas_limit; // g
 
         void serialize(auto &archive)
         {
@@ -907,6 +907,7 @@ namespace turbo::jam {
         mutable_state_t<CFG> state; // e
         service_commitments_t commitments{}; // b
         services_gas_used_t gas_used{}; // u
+        deferred_transfers_t<CFG> transfers{}; // t
         size_t num_accumulated = 0; // j
 
         void consume_from(delta_star_result_t<CFG> &&o);
@@ -985,14 +986,14 @@ namespace turbo::jam {
 
     struct is_authorized_res_t {
         work_exec_result_t result{};
-        gas_t::base_type gas_used{};
+        gas_t gas_used{};
     };
 
     template<typename CFG>
     struct refine_res_t {
         work_exec_result_t result{};
         segments_t<CFG> exports{};
-        gas_t::base_type gas_used{};
+        gas_t gas_used{};
     };
 
     // JAM (4.4) - lowercase sigma

@@ -41,6 +41,8 @@ namespace turbo::jam {
         static constexpr size_t K_max_tickets_per_block = 16;
         static constexpr size_t L_max_lookup_anchor_age = 14'400;
         static constexpr size_t N_ticket_attempts = 2;
+        static constexpr size_t NV_max_verdicts = 16;
+        static constexpr size_t NO_max_culprits = 16;
         static constexpr size_t O_auth_pool_max_size = 8;
         static constexpr size_t P_slot_period = 6;
         static constexpr size_t Q_auth_queue_size = 80;

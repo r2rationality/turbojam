@@ -275,7 +275,7 @@ namespace turbo::jam::machine {
             status = exit_panic_t {};
         }
         return {
-            numeric_cast<gas_t::base_type>(gas_begin - m->gas()),
+            numeric_cast<gas_t>(gas_begin - m->gas()),
             std::get<invocation_result_base_t>(std::move(status))
         };
     }

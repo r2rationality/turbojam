@@ -44,7 +44,7 @@ namespace turbo_jam_accumulate_test {
         static constexpr service_id_t actor = 100;
         static constexpr service_id_t target = 200;
         static constexpr balance_t initial_balance = 10'000;
-        static constexpr gas_t::base_type gas_budget = 1'000;
+        static constexpr gas_t gas_budget = 1'000;
 
         accounts_t<cfg> accounts{std::make_shared<storage::memory::db_t>()};
         privileges_t<cfg> chi{};
@@ -307,7 +307,7 @@ suite turbo_jam_accumulate_suite = [] {
         "test vectors"_test = [] {
             static const auto test_prefix = test_vector_dir("stf/accumulate/");
             static std::optional<std::string> override_test{};
-            //override_test.emplace("tiny/work_for_ejected_service-3");
+            //override_test.emplace("tiny/always_accumulate-1");
             if (!override_test) {
                 for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                     test_file<config_tiny>(path.substr(0, path.size() - 4));

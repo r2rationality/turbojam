@@ -741,10 +741,14 @@ namespace turbo::jam::machine {
             return {new_pc};
         }
 
-        static op_res_t branch_base(const register_val_t new_pc, const bool cond)
+        static op_res_t branch_base(const register_val_t new_pc, const bool cond, const code_t::blocks_t &blocks)
         {
             if (cond)
                 return sjump(new_pc);
+            // even though the branch is not take we need still to check that it refererred to the start of a basic block
+            // we check only on the negative branch because an sjump will do that anyway as part of the transition
+            if (const auto blk_it = blocks.find(new_pc); blk_it == blocks.end()) [[unlikely]]
+                return exit_panic_t{};
             return {};
         }
 
@@ -913,15 +917,15 @@ namespace turbo::jam::machine {
         }
 
         template<typename Pred>
-        static op_res_t _branch_reg2_off1(const registers_t &regs, const code_t::opcode_t &op, Pred &&pred)
+        static op_res_t _branch_reg2_off1(const registers_t &regs, const code_t::opcode_t &op, Pred &&pred, const code_t::blocks_t &blocks)
         {
-            return branch_base(op.imm_1, pred(regs[op.reg_1], regs[op.reg_2]));
+            return branch_base(op.imm_1, pred(regs[op.reg_1], regs[op.reg_2]), blocks);
         }
 
         template<typename Pred>
-        static op_res_t _branch_reg1_imm1_off1(const registers_t &regs, const code_t::opcode_t &op, Pred &&pred)
+        static op_res_t _branch_reg1_imm1_off1(const registers_t &regs, const code_t::opcode_t &op, Pred &&pred, const code_t::blocks_t &blocks)
         {
-            return branch_base(op.imm_2, pred(regs[op.reg_1], op.imm_1));
+            return branch_base(op.imm_2, pred(regs[op.reg_1], op.imm_1), blocks);
         }
 
         template<size_t SZ, bool Signed>
@@ -1100,36 +1104,44 @@ namespace turbo::jam::machine {
 
         static op_res_t branch_eq(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_ne(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_lt_u(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_lt_s(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
-                return static_cast<register_val_signed_t>(lhs) < static_cast<register_val_signed_t>(rhs);
-            });
+            return _branch_reg2_off1(self._regs, op,
+                [](const register_val_t lhs, const register_val_t rhs) noexcept {
+                    return static_cast<register_val_signed_t>(lhs) < static_cast<register_val_signed_t>(rhs);
+                },
+                self._code.blocks());
         }
 
         static op_res_t branch_ge_u(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
+            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_ge_s(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg2_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
-                return static_cast<register_val_signed_t>(lhs) >= static_cast<register_val_signed_t>(rhs);
-            });
+            return _branch_reg2_off1(self._regs, op,
+                [](const register_val_t lhs, const register_val_t rhs) noexcept {
+                    return static_cast<register_val_signed_t>(lhs) >= static_cast<register_val_signed_t>(rhs);
+                },
+                self._code.blocks());
         }
 
         static op_res_t add_imm_32(impl &self, const code_t::opcode_t &op)
@@ -1335,63 +1347,77 @@ namespace turbo::jam::machine {
 
         static op_res_t branch_eq_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs == rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_ne_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs != rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_lt_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs < rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_le_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs <= rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs <= rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_ge_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs >= rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_gt_u_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs > rhs; });
+            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept { return lhs > rhs; },
+                self._code.blocks());
         }
 
         static op_res_t branch_lt_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
-                return static_cast<register_val_signed_t>(lhs) < static_cast<register_val_signed_t>(rhs);
-            });
+            return _branch_reg1_imm1_off1(self._regs, op,
+                [](const register_val_t lhs, const register_val_t rhs) noexcept {
+                    return static_cast<register_val_signed_t>(lhs) < static_cast<register_val_signed_t>(rhs);
+                },
+                self._code.blocks());
         }
 
         static op_res_t branch_le_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
-                return static_cast<register_val_signed_t>(lhs) <= static_cast<register_val_signed_t>(rhs);
-            });
+            return _branch_reg1_imm1_off1(self._regs, op,
+                [](const register_val_t lhs, const register_val_t rhs) noexcept {
+                    return static_cast<register_val_signed_t>(lhs) <= static_cast<register_val_signed_t>(rhs);
+                },
+                self._code.blocks());
         }
 
         static op_res_t branch_ge_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
-                return static_cast<register_val_signed_t>(lhs) >= static_cast<register_val_signed_t>(rhs);
-            });
+            return _branch_reg1_imm1_off1(self._regs, op,
+                [](const register_val_t lhs, const register_val_t rhs) noexcept {
+                    return static_cast<register_val_signed_t>(lhs) >= static_cast<register_val_signed_t>(rhs);
+                },
+                self._code.blocks());
         }
 
         static op_res_t branch_gt_s_imm(impl &self, const code_t::opcode_t &op)
         {
-            return _branch_reg1_imm1_off1(self._regs, op, [](const register_val_t lhs, const register_val_t rhs) noexcept {
-                return static_cast<register_val_signed_t>(lhs) > static_cast<register_val_signed_t>(rhs);
-            });
+            return _branch_reg1_imm1_off1(self._regs, op,
+                [](const register_val_t lhs, const register_val_t rhs) noexcept {
+                    return static_cast<register_val_signed_t>(lhs) > static_cast<register_val_signed_t>(rhs);
+                },
+                self._code.blocks());
         }
 
-        static op_res_t jump(impl &self, const code_t::opcode_t &op)
+        static op_res_t jump(impl &, const code_t::opcode_t &op)
         {
             return sjump(op.imm_1);
         }
@@ -2044,7 +2070,7 @@ namespace turbo::jam::machine {
 
         state_t state{
             .pc = pc,
-            .gas = numeric_cast<gas_remaining_t>(static_cast<gas_t::base_type>(gas))
+            .gas = numeric_cast<gas_remaining_t>(gas)
         };
         pages_t page_map{};
 
