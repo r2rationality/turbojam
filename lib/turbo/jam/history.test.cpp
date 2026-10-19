@@ -71,7 +71,7 @@ namespace {
         }
         auto new_beta = tc.pre.beta;
         state_t<CFG>::beta_dagger(new_beta, tc.in.parent_state_root);
-        state_t<CFG>::beta_prime(new_beta, tc.in.header_hash, tc.in.accumulate_root, tc.in.work_packages);
+        state_t<CFG>::beta_prime(new_beta, tc.in.header_hash, tc.in.accumulate_root, tc.in.slot, tc.in.work_packages);
         expect(new_beta == tc.post.beta) << path;
     }
 }

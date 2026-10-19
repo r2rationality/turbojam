@@ -1035,7 +1035,8 @@ namespace turbo::jam {
         // (4.6)
         static void beta_dagger(recent_blocks_t<CFG> &beta, const state_root_t &sr);
         // (4.17)
-        static void beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh, const opaque_hash_t &ar, const reported_work_seq_t<CFG> &wp);
+        static void beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh, const opaque_hash_t &ar,
+            const time_slot_t<CFG> &slot, const reported_work_seq_t<CFG> &wp);
         // JAM (4.7)
         static void eta_prime(entropy_buffer_t &eta, const time_slot_t<CFG> &prev_tau, const time_slot_t<CFG> &blk_slot, const entropy_t &blk_entropy);
         // JAM (4.8)-(4.10)

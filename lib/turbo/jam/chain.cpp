@@ -66,7 +66,7 @@ namespace turbo::jam {
                     _state.emplace(_triedb);
                     *_state = _genesis_state;
                     logger::run_log_errors_rethrow([&] {
-                        state_t<CFG>::beta_prime(_state->beta.update(), blk_hash, {}, {});
+                        state_t<CFG>::beta_prime(_state->beta.update(), blk_hash, {}, blk.header.slot, {});
                         _state->stage();
                     });
                     _triedb->commit();

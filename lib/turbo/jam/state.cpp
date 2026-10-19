@@ -1386,7 +1386,7 @@ namespace turbo::jam {
 
     template<typename CFG>
     void state_t<CFG>::beta_prime(recent_blocks_t<CFG> &new_beta, const header_hash_t &hh,
-        const opaque_hash_t &accumulation_result, const reported_work_seq_t<CFG> &wp)
+        const opaque_hash_t &accumulation_result, const time_slot_t<CFG> &slot, const reported_work_seq_t<CFG> &wp)
     {
         new_beta.mmr.append(accumulation_result);
         if (new_beta.history.size() == new_beta.history.max_size) [[likely]]
@@ -1394,6 +1394,7 @@ namespace turbo::jam {
         new_beta.history.emplace_back(block_info_t<CFG>{
             .header_hash=hh,
             .beefy_root=new_beta.mmr.root(),
+            .slot=slot,
             .reported=wp
         });
     }
@@ -1513,7 +1514,7 @@ namespace turbo::jam {
                 for (const auto &g: blk.extrinsic.guarantees) {
                     reported_work.emplace_hint(reported_work.end(), g.report.package_spec.hash, g.report.package_spec.exports_root);
                 }
-                state_t::beta_prime(new_beta, blk.header.hash(), accumulate_res.theta.root(), reported_work);
+                state_t::beta_prime(new_beta, blk.header.hash(), accumulate_res.theta.root(), blk.header.slot, reported_work);
                 this->theta.update() = std::move(accumulate_res.theta);
             }
 
