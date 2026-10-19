@@ -1344,7 +1344,7 @@ namespace turbo::jam {
             // JAM (10.15)
             for (auto &ra: new_rho) {
                 if (ra) {
-                    const encoder enc{ra->report};
+                    const encoder enc{ra->guarantee.report};
                     const auto report_hash = crypto::blake2b::digest<work_report_hash_t>(enc.bytes());
                     if (const auto r_it = report_info.find(report_hash); r_it != report_info.end() && r_it->second.oks < CFG::validator_super_majority(r_it->second.validators.size())) [[unlikely]]
                         ra.reset();
@@ -1419,13 +1419,6 @@ namespace turbo::jam {
             if (new_offenders != blk.header.offenders_mark) [[unlikely]]
                 throw err_bad_offenders_mark_t{};
 
-            // (4.13) (4.14) (4.15) - extra deps:
-            // - updates pi';
-            // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
-            const auto ready_reports = rho_dagger_2(
-                new_rho, new_pi.cores, this->kappa.unmodified(),
-                blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
-
             const typename decltype(this->lambda)::ptr_type prev_lambda_ptr{blk.header.slot.epoch() > prev_tau.epoch() ? this->lambda.unmodified_ptr() : nullptr};
 
             // (4.7) gamma_prime + (4.9) kappa_prime + (4.10) lambda_prime - deps match GP
@@ -1445,17 +1438,20 @@ namespace turbo::jam {
                     throw error("supplied tickets_mark does not match the computed one!");
             }
 
+            // (4.13) (4.14) (4.15) - extra deps:
+            // - updates pi';
+            // - uses: beta_dagger, eta', psi', kappa', lambda', alpha, delta
+            const auto ready_reports = rho_dagger_2(
+                new_rho, new_pi.cores,
+                blk.header.slot.epoch() == prev_tau.epoch() ? new_kappa : new_lambda,
+                new_kappa.size(),
+                blk.header.slot, blk.header.parent, blk.extrinsic.assurances);
+
             // TODO: Run concurrently with the STF work.
             verify_all_signatures(blk, prev_tau,
                 new_eta, new_gamma, new_kappa, new_lambda, new_psi,
                 prev_lambda_ptr ? *prev_lambda_ptr : new_lambda,
                 prepared_header_signatures);
-
-            // Clear remaining availability assignments when the validator set changes its size.
-            if (blk.header.slot.epoch() > prev_tau.epoch() && new_lambda.size() != new_kappa.size()) {
-                for (auto &assignment: new_rho)
-                    assignment.reset();
-            }
 
             // JAM (4.12)
             const auto report_res = update_reports(
@@ -1648,7 +1644,8 @@ namespace turbo::jam {
 
     template <typename CFG>
     work_reports_t<CFG> state_t<CFG>::rho_dagger_2(availability_assignments_t<CFG> &new_rho, cores_statistics_t<CFG> &tmp_pi_cores,
-        const validators_data_t<CFG> &prev_kappa, const time_slot_t<CFG> &slot, const header_hash_t &parent, const assurances_extrinsic_t<CFG> &assurances)
+        const validators_data_t<CFG> &prev_kappa, const size_t new_kappa_size,
+        const time_slot_t<CFG> &slot, const header_hash_t &parent, const assurances_extrinsic_t<CFG> &assurances)
     {
         std::optional<validator_index_t> prev_validator{};
         for (const auto &a: assurances) {
@@ -1671,12 +1668,13 @@ namespace turbo::jam {
             }
         }
         work_reports_t<CFG> res {};
+        const bool clear_all = new_kappa_size != prev_kappa.size();
         for (size_t ci = 0; ci < CFG::C_core_count; ++ci) {
             if (new_rho[ci]) {
                 // (11.16) - validator_super_majority = 2/3V + 1
                 // For that reason the "strictly greater" in the spec is replaced with "greater or equal" below
                 if (tmp_pi_cores[ci].popularity >= CFG::validator_super_majority(prev_kappa.size())) {
-                    auto &report = new_rho[ci]->report;
+                    auto &report = new_rho[ci]->guarantee.report;
                     {
                         using da_load_t = decltype(core_activity_record_t{}.da_load)::base_type;
                         constexpr uint64_t max_da_segment_count = CFG::WX_max_package_exports + (CFG::WX_max_package_exports + 63ULL) / 64ULL;
@@ -1697,9 +1695,12 @@ namespace turbo::jam {
                     }
                     res.emplace_back(std::move(report));
                     new_rho[ci].reset();
-                } else if (slot >= new_rho[ci]->timeout + CFG::U_reported_work_timeout) {
+                } else if (slot >= new_rho[ci]->registered_slot.slot() + CFG::U_reported_work_timeout) {
                     new_rho[ci].reset();
                 }
+            }
+            if (clear_all && new_rho[ci]) {
+                new_rho[ci].reset();
             }
         }
         return res;

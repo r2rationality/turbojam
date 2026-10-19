@@ -90,12 +90,14 @@ namespace turbo::jam::assurances_test {
     struct test_state_t {
         availability_assignments_t<CFG> rho;
         validators_data_t<CFG> kappa;
+        sequence_t<validator_data_t> kappa_prime;
 
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
             archive.process("avail_assignments"sv, rho);
             archive.process("curr_validators"sv, kappa);
+            archive.process("post_validators"sv, kappa_prime);
         }
 
         bool operator==(const test_state_t &o) const = default;
@@ -123,32 +125,37 @@ namespace turbo::jam::assurances_test {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
-        {
-            const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
-            expect(tc == j_tc) << "json test case does not match the binary one" << path;
-        }
-        std::optional<test_output_t<CFG>> out{};
-        auto new_st = tc.pre;
-        err_code_t::catch_into(
-            [&] {
-                test_output_data_t<CFG> res{};
-                std::decay_t<typename decltype(state_t<CFG>::pi)::element_type> new_pi;
-                // ignore the updated statistics as they are tested in a separate set of tests
-                out.emplace(test_output_data_t{ state_t<CFG>::rho_dagger_2(new_st.rho, new_pi.cores, tc.pre.kappa,
-                    tc.in.slot, tc.in.parent, tc.in.assurances) });
-                state_t<CFG>::verify_assurance_signatures(tc.in.parent, tc.pre.kappa, tc.in.assurances);
-            },
-            [&](err_code_t err) {
-                out.emplace(std::move(err));
-                new_st = tc.pre;
+        try {
+            const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
+            {
+                const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
+                expect(tc == j_tc) << "json test case does not match the binary one" << path;
             }
-        );
-        if (out.has_value()) {
-            expect(out == tc.out) << path;
-            expect(new_st == tc.post) << path;
-        } else {
-            expect(false) << path;
+            std::optional<test_output_t<CFG>> out{};
+            auto new_st = tc.pre;
+            err_code_t::catch_into(
+                [&] {
+                    test_output_data_t<CFG> res{};
+                    std::decay_t<typename decltype(state_t<CFG>::pi)::element_type> new_pi;
+                    // ignore the updated statistics as they are tested in a separate set of tests
+                    out.emplace(test_output_data_t{ state_t<CFG>::rho_dagger_2(new_st.rho, new_pi.cores,
+                        tc.pre.kappa, tc.pre.kappa_prime.size(),
+                        tc.in.slot, tc.in.parent, tc.in.assurances) });
+                    state_t<CFG>::verify_assurance_signatures(tc.in.parent, tc.pre.kappa, tc.in.assurances);
+                },
+                [&](err_code_t err) {
+                    out.emplace(std::move(err));
+                    new_st = tc.pre;
+                }
+            );
+            if (out.has_value()) {
+                expect(out == tc.out) << path;
+                expect(new_st == tc.post) << path;
+            } else {
+                expect(false) << path;
+            }
+        } catch (const std::exception &e) {
+            expect(false) << fmt::format("{}: {}", path, e.what());
         }
     }
 }
@@ -156,7 +163,7 @@ namespace turbo::jam::assurances_test {
 suite turbo_jam_assurances_suite = [] {
     using namespace turbo::jam::assurances_test;
     "turbo::jam::assurances"_test = [] {
-        //test_file<config_tiny>(file::install_path("test/jam-test-vectors/stf/assurances/tiny/assurances_for_stale_report-1"));
+        test_file<config_tiny>(file::install_path("test/jam-conformance/test-vectors/stf/assurances/tiny/val_set_size_change_clears_pending_reports-1"));
         "tiny"_test = [] {
             for (const auto &path: file::files_with_ext(test_vector_dir("stf/assurances/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

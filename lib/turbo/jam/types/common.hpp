@@ -749,29 +749,11 @@ namespace turbo::jam {
     template<typename CFG=config_prod>
     using assurances_extrinsic_t = sequence_t<avail_assurance_t<CFG>, 0U, CFG::V_validator_count_max>;
 
-    template<typename CFG>
-    struct availability_assignment_t {
-        work_report_t<CFG> report;
-        uint32_t timeout;
-
-        void serialize(auto &archive)
-        {
-            using namespace std::string_view_literals;
-            archive.process("report"sv, report);
-            archive.process("timeout"sv, timeout);
-        }
-
-        bool operator==(const availability_assignment_t &o) const = default;
-    };
-
-    template<typename CFG>
-    using availability_assignments_item_t = optional_t<availability_assignment_t<CFG>>;
-
-    template<typename CFG>
+    template<typename CFG, size_t MIN=CFG::V_validator_count_min>
     struct validators_data_t {
-        using ed25519_set_type = set_t<ed25519_public_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
-        using bandersnatch_list_type = sequence_t<bandersnatch_public_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
         using storage_type = sequence_t<validator_data_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
+        using ed25519_set_type = set_t<ed25519_public_t, storage_type::min_size, storage_type::max_size>;
+        using bandersnatch_list_type = sequence_t<bandersnatch_public_t, storage_type::min_size, storage_type::max_size>;
 
         validators_data_t() =default;
 
@@ -819,9 +801,9 @@ namespace turbo::jam {
 
         void _update_derived() {
             if (_storage.size() < storage_type::min_size) [[unlikely]]
-                throw error{"validator count must not less than than {} but got: {}!", CFG::V_validator_count_min, _storage.size()};
+                throw error{"validator count must not less than than {} but got: {}!", storage_type::min_size, _storage.size()};
             if (_storage.size() > storage_type::max_size) [[unlikely]]
-                throw error{"validator count cannot be greater than {} but got: {}!", CFG::V_validator_count_max, _storage.size()};
+                throw error{"validator count cannot be greater than {} but got: {}!", storage_type::max_size, _storage.size()};
             if (_storage.size() % CFG::validator_factor) [[unlikely]]
                 throw error{"validator count must be a multiple of {} but got: {}!", CFG::validator_factor, _storage.size()};
             _ed25519_keys.clear();
@@ -832,23 +814,6 @@ namespace turbo::jam {
                 _ed25519_keys.emplace(v.ed25519);
                 _bandersnatch_list.emplace_back(v.bandersnatch);
             }
-        }
-    };
-
-    template<typename CFG>
-    struct availability_assignments_t: fixed_sequence_t<availability_assignments_item_t<CFG>, CFG::C_core_count> {
-        using base_type = fixed_sequence_t<availability_assignments_item_t<CFG>, CFG::C_core_count>;
-        using base_type::base_type;
-
-        [[nodiscard]] std::vector<work_package_hash_t> package_hashes() const
-        {
-            std::vector<work_package_hash_t> hashes{};
-            hashes.reserve(this->size());
-            for (const auto &assignment: *this) {
-                if (assignment)
-                    hashes.emplace_back(assignment->report.package_spec.hash);
-            }
-            return hashes;
         }
     };
 
@@ -1226,6 +1191,41 @@ namespace turbo::jam {
         }
 
         bool operator==(const report_guarantee_t &o) const = default;
+    };
+
+    template<typename CFG>
+    struct availability_assignment_t {
+        report_guarantee_t<CFG> guarantee{};
+        time_slot_t<CFG> registered_slot{};
+
+        void serialize(auto &archive)
+        {
+            using namespace std::string_view_literals;
+            archive.process("guarantee"sv, guarantee);
+            archive.process("registered_slot"sv, registered_slot);
+        }
+
+        bool operator==(const availability_assignment_t &o) const = default;
+    };
+
+    template<typename CFG>
+    using availability_assignments_item_t = optional_t<availability_assignment_t<CFG>>;
+
+    template<typename CFG>
+        struct availability_assignments_t: fixed_sequence_t<availability_assignments_item_t<CFG>, CFG::C_core_count> {
+        using base_type = fixed_sequence_t<availability_assignments_item_t<CFG>, CFG::C_core_count>;
+        using base_type::base_type;
+
+        [[nodiscard]] std::vector<work_package_hash_t> package_hashes() const
+        {
+            std::vector<work_package_hash_t> hashes{};
+            hashes.reserve(this->size());
+            for (const auto &assignment: *this) {
+                if (assignment)
+                    hashes.emplace_back(assignment->guarantee.report.package_spec.hash);
+            }
+            return hashes;
+        }
     };
 
     template<typename CFG>

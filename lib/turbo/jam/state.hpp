@@ -1093,7 +1093,7 @@ namespace turbo::jam {
 
         static work_reports_t<CFG> rho_dagger_2(
             availability_assignments_t<CFG> &new_rho, cores_statistics_t<CFG> &tmp_pi_cores,
-            const validators_data_t<CFG> &prev_kappa,
+            const validators_data_t<CFG> &prev_kappa, size_t new_kappa_size,
             const time_slot_t<CFG> &slot, const header_hash_t &parent,
             const assurances_extrinsic_t<CFG> &assurances);
 
