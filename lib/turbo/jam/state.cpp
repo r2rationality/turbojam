@@ -53,8 +53,9 @@ namespace turbo::jam {
 
     struct ark_vrf_initializer_t {
         explicit ark_vrf_initializer_t() {
-            if (ark_vrf::init(file::install_path("data/zcash-srs-2-11-uncompressed.bin")) != 0) [[unlikely]]
-                throw error("ark_vrf_cpp::init() failed");;
+            const auto path = file::install_path("data/zcash-srs-2-11-uncompressed.bin");
+            if (const auto rc = ark_vrf::init(path); rc != 0) [[unlikely]]
+                throw error("ark_vrf_cpp::init() failed: path: {} return code: {}", path, rc);
         }
 
         static void init()
@@ -70,6 +71,7 @@ namespace turbo::jam {
     template <typename CFG>
     void state_t<CFG>::_ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG>::bandersnatch_list_type &vkeys)
     {
+        ark_vrf_initializer_t::init();
         if (ark_vrf::ring_commitment(res, buffer{reinterpret_cast<const uint8_t *>(vkeys.data()), sizeof(vkeys[0]) * vkeys.size()}) != 0) [[unlikely]]
             throw error("failed to generate a ring commitment!");
     }
@@ -1622,6 +1624,7 @@ namespace turbo::jam {
         static_assert(input_size == 48U);
         if (tickets.empty())
             return;
+        ark_vrf_initializer_t::init();
         std::vector<uint8_t> sigs(tickets.size() * sig_size);
         std::vector<uint8_t> inputs(tickets.size() * input_size);
         std::array<uint8_t, input_size> input_base{};

@@ -42,39 +42,36 @@ struct RingVrfSignature {
     proof: RingProof,
 }
 
-fn base_ring_proof_params(path_opt: Option<&str>) -> &'static Option<PcsParams> {
-    use std::sync::OnceLock;
-    static PARAMS: OnceLock<Option<PcsParams>> = OnceLock::new();
-    PARAMS.get_or_init(|| {
-        match path_opt {
-            Some(path) => {
-                use std::{fs::File, io::Read};
-                let file_res = File::open(path);
-                if file_res.is_err() {
-                    println!("Failed to open: {}", path);
-                    return None;
-                }
-                let mut file = file_res.unwrap();
-                let mut buf = Vec::new();
-                if file.read_to_end(&mut buf).is_err() {
-                    println!("Failed to read from: {}", path);
-                    return None;
-                };
-                match PcsParams::deserialize_uncompressed_unchecked(&mut &buf[..]) {
-                    Ok(val) => {
-                        Some(val)
-                    }
-                    Err(_err) => {
-                        println!("Failed to deserialize ark_vrf params: {}", _err);
-                        None
-                    }
-                }
-            }
-            None => {
-                None
-            }
+fn base_ring_proof_params(path_opt: Option<&str>) -> Option<&'static PcsParams> {
+    use std::{fs::File, io::Read, sync::OnceLock};
+    static PARAMS: OnceLock<PcsParams> = OnceLock::new();
+    if let Some(params) = PARAMS.get() {
+        return Some(params);
+    }
+    // A lookup before init must not cache an unsuccessful initialization.
+    let path = path_opt?;
+    let mut file = match File::open(path) {
+        Ok(file) => file,
+        Err(err) => {
+            eprintln!("Failed to open ark_vrf params {}: {}", path, err);
+            return None;
         }
-    })
+    };
+    let mut buf = Vec::new();
+    if let Err(err) = file.read_to_end(&mut buf) {
+        eprintln!("Failed to read ark_vrf params {}: {}", path, err);
+        return None;
+    }
+    let params = match PcsParams::deserialize_uncompressed_unchecked(&mut &buf[..]) {
+        Ok(params) => params,
+        Err(err) => {
+            eprintln!("Failed to deserialize ark_vrf params {}: {}", path, err);
+            return None;
+        }
+    };
+    // Publish only successful loads. If another initializer won, use its value.
+    let _ = PARAMS.set(params);
+    PARAMS.get()
 }
 
 fn ring_context(ring_size: usize) -> Option<std::sync::Arc<RingContext>> {
@@ -86,7 +83,7 @@ fn ring_context(ring_size: usize) -> Option<std::sync::Arc<RingContext>> {
     if let Some(p) = map.get(&ring_size) {
         return Some(Arc::clone(p));
     }
-    let params = base_ring_proof_params(None).clone().and_then(|pcs_params| {
+    let params = base_ring_proof_params(None).cloned().and_then(|pcs_params| {
         match RingProofParams::from_pcs_params(ring_size, pcs_params) {
             Ok(val) => Some(val),
             Err(_err) => {
