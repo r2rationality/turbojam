@@ -367,7 +367,7 @@ namespace turbo::jam {
                 enc.uint_fixed(2, CFG::T_max_package_extrinsics);
                 enc.uint_fixed(2, CFG::U_reported_work_timeout);
                 enc.uint_fixed(4, CFG::WA_max_is_authorized_code_size);
-                enc.uint_fixed(4, CFG::WB_max_work_package_size);
+                enc.uint_fixed(4, CFG::WB_max_work_package_bundle_size);
                 enc.uint_fixed(4, CFG::WC_max_service_code_size);
                 enc.uint_fixed(4, CFG::WM_max_work_package_imports);
                 enc.uint_fixed(4, CFG::WR_max_blobs_size);

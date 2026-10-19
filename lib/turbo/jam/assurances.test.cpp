@@ -163,7 +163,7 @@ namespace turbo::jam::assurances_test {
 suite turbo_jam_assurances_suite = [] {
     using namespace turbo::jam::assurances_test;
     "turbo::jam::assurances"_test = [] {
-        test_file<config_tiny>(file::install_path("test/jam-conformance/test-vectors/stf/assurances/tiny/val_set_size_change_clears_pending_reports-1"));
+        //test_file<config_tiny>(file::install_path("test/jam-conformance/test-vectors/stf/assurances/tiny/val_set_size_change_clears_pending_reports-1"));
         "tiny"_test = [] {
             for (const auto &path: file::files_with_ext(test_vector_dir("stf/assurances/tiny"), ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

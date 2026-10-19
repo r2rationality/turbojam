@@ -1384,7 +1384,7 @@ namespace turbo::jam {
         varlen_uint_t<uint32_t> extrinsic_size = 0; // e
         varlen_uint_t<uint16_t> exports = 0; // x
         varlen_uint_t<uint32_t> bundle_size = 0; // l
-        gas_t gas_used = 0; // g
+        varlen_uint_t<gas_t> gas_used = 0; // g
 
         void serialize(auto &archive)
         {

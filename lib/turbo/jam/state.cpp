@@ -10,6 +10,7 @@
 #include <limits>
 #include <numeric>
 #include <ranges>
+#include <type_traits>
 #include <unordered_set>
 #include <ed25519-consensus.hpp>
 #include <turbo/common/timer.hpp>
@@ -1002,6 +1003,15 @@ namespace turbo::jam {
         tau = blk_slot;
     }
 
+    template<typename ERR, typename S, typename V>
+    static void add_bounded(S &sum, const V val,
+        const std::type_identity_t<S> limit = std::numeric_limits<S>::max()) {
+        static_assert(std::is_unsigned_v<S>);
+        if (sum > limit || val > limit - sum) [[unlikely]]
+            throw ERR{};
+        sum += val;
+    }
+
     template<typename CFG>
     reports_output_data_t state_t<CFG>::update_reports(
         availability_assignments_t<CFG> &new_rho,
@@ -1061,15 +1071,7 @@ namespace turbo::jam {
 
                 // JAM Paper (11.33)
                 const auto blk_it = std::find_if(new_beta.begin(), new_beta.end(), [&g](const auto &blk) {
-                    if (blk.header_hash != g.report.context.anchor)
-                        return false;
-                    if (blk.state_root != g.report.context.state_root)
-                        return false;
-                    if (blk.beefy_root != g.report.context.beefy_root)
-                        return false;
-                    if (blk.slot != g.report.context.anchor_slot)
-                        return false;
-                    return true;
+                    return blk.header_hash == g.report.context.anchor;
                 });
                 if (blk_it == new_beta.end()) [[unlikely]]
                     throw err_anchor_not_recent_t{};
@@ -1077,6 +1079,8 @@ namespace turbo::jam {
                     throw err_bad_state_root_t{};
                 if (blk_it->beefy_root != g.report.context.beefy_root) [[unlikely]]
                     throw err_bad_beefy_mmr_root_t{};
+                if (blk_it->slot != g.report.context.anchor_slot)
+                    throw err_bad_anchor_slot_t{};
                 if (g.report.core_index >= new_core_count) [[unlikely]]
                     throw err_bad_core_index_t{};
                 if (g.report.core_index >= new_rho.size()) [[unlikely]]
@@ -1101,7 +1105,7 @@ namespace turbo::jam {
 
                 // JAM Paper (11.34)
                 if (g.report.context.lookup_anchor_slot.slot() + CFG::L_max_lookup_anchor_age < blk_slot) [[unlikely]]
-                    throw err_segment_root_lookup_invalid_t{};
+                    throw err_lookup_anchor_not_recent_t{};
 
                 // JAM Paper (11.35)
                 const auto lblk_it = std::find_if(new_beta.begin(), new_beta.end(), [&g](const auto &blk) {
@@ -1119,8 +1123,7 @@ namespace turbo::jam {
                     throw err_duplicate_package_t{};
 
                 if (g.report.package_spec.erasure_shards != new_kappa.size()) [[unlikely]]
-                    throw error{"report spec {}: expect {} erasure shards but got: {}",
-                        g.report.package_spec.erasure_shards, new_kappa.size(), g.report.package_spec.erasure_shards};
+                    throw err_bad_erasure_shards_t{};
 
                 // JAM Paper (11.3)
                 if (g.report.context.prerequisites.size() + g.report.segment_root_lookup.size() > CFG::J_max_report_dependencies) [[unlikely]]
@@ -1149,7 +1152,7 @@ namespace turbo::jam {
                         throw err_core_unauthorized_t{};
                 }
 
-                new_rho[g.report.core_index] = availability_assignment_t<CFG>{g.report, blk_slot.slot()};
+                new_rho[g.report.core_index].emplace(g, blk_slot);
                 res.reported.emplace_back(g.report.package_spec.hash, g.report.package_spec.exports_root);
 
                 const auto guarantors = _guarantors(new_eta, new_kappa, new_lambda, new_psi, g.slot, blk_slot);
@@ -1180,14 +1183,21 @@ namespace turbo::jam {
                 if (g.signatures.size() < CFG::min_guarantors) [[unlikely]]
                     throw err_insufficient_guarantees_t{};
 
-                size_t blobs_size = g.report.auth_output.size();
+                size_t blobs_size = 0;
+                add_bounded<err_work_report_too_big_t>(blobs_size, g.report.auth_output.size(), CFG::WR_max_blobs_size);
                 gas_t total_accumulate_gas = 0;
                 auto &core_stats = new_pi_cores[g.report.core_index];
                 core_stats.bundle_size += g.report.package_spec.length;
 
+                uint64_t total_exports = 0;
+                uint64_t total_input_size = 0;
+                uint64_t total_extrinsic_count = 0;
+                uint64_t total_imports = 0;
+                gas_t total_refine_gas = 0;
                 for (const auto &r: g.report.results) {
                     if (std::holds_alternative<work_result_ok_t>(r.result)) {
-                        blobs_size += std::get<work_result_ok_t>(r.result).data.size();
+                        add_bounded<err_work_report_too_big_t>(blobs_size,
+                            std::get<work_result_ok_t>(r.result).data.size(), CFG::WR_max_blobs_size);
                     }
                     const auto s_info = prev_delta.info_get(r.service_id);
                     if (!s_info) [[unlikely]]
@@ -1198,7 +1208,14 @@ namespace turbo::jam {
                     // JAM (11.30) part 1
                     if (r.accumulate_gas < s_info->min_item_gas) [[unlikely]]
                         throw err_service_item_gas_too_low_t{};
-                    total_accumulate_gas += r.accumulate_gas;
+                    add_bounded<err_work_report_gas_too_high_t>(total_accumulate_gas, r.accumulate_gas, CFG::GA_max_accumulate_gas);
+                    add_bounded<err_refine_load_too_high_t>(total_exports, r.refine_load.exports, CFG::WX_max_package_exports);
+                    add_bounded<err_refine_load_too_high_t>(total_imports, r.refine_load.imports, CFG::WM_max_work_package_imports);
+                    add_bounded<err_refine_load_too_high_t>(total_input_size, r.refine_load.extrinsic_size, CFG::WI_max_work_package_input_size);
+                    add_bounded<err_refine_load_too_high_t>(total_input_size,
+                        uint64_t{r.refine_load.imports} * CFG::WF_segment_footprint, CFG::WI_max_work_package_input_size);
+                    add_bounded<err_refine_load_too_high_t>(total_extrinsic_count, r.refine_load.extrinsic_count, CFG::T_max_package_extrinsics);
+                    add_bounded<err_refine_load_too_high_t>(total_refine_gas, r.refine_load.gas_used, CFG::GR_max_refine_gas);
 
                     core_stats.gas_used += r.refine_load.gas_used;
                     core_stats.imports += r.refine_load.imports;
@@ -1214,13 +1231,12 @@ namespace turbo::jam {
                     service_stats.extrinsic_size += r.refine_load.extrinsic_size;
                     service_stats.extrinsic_count += r.refine_load.extrinsic_count;
                 }
-                // JAM (11.30) part 2
-                if (total_accumulate_gas > CFG::GA_max_accumulate_gas) [[unlikely]]
-                    throw err_work_report_gas_too_high_t{};
-
-                // JAM Paper (11.8)
-                if (blobs_size > CFG::WR_max_blobs_size) [[unlikely]]
-                    throw err_work_report_too_big_t{};
+                if (g.report.package_spec.length > CFG::WB_max_work_package_bundle_size) [[unlikely]]
+                    throw err_bundle_too_big_t{};
+                if (g.report.auth_gas_used > CFG::GI_max_is_authorized_gas) [[unlikely]]
+                    throw err_auth_gas_too_high_t{};
+                if (total_exports != g.report.package_spec.exports_count) [[unlikely]]
+                    throw err_bad_exports_count_t{};
             }
             // Jam Paper (11.32)
             if (guarantees.size() != wp_hashes.size()) [[unlikely]]
@@ -1678,7 +1694,7 @@ namespace turbo::jam {
                     {
                         using da_load_t = decltype(core_activity_record_t{}.da_load)::base_type;
                         constexpr uint64_t max_da_segment_count = CFG::WX_max_package_exports + (CFG::WX_max_package_exports + 63ULL) / 64ULL;
-                        constexpr uint64_t max_valid_da_load = CFG::WB_max_work_package_size + CFG::WG_segment_size * max_da_segment_count;
+                        constexpr uint64_t max_valid_da_load = CFG::WB_max_work_package_bundle_size + CFG::WG_segment_size * max_da_segment_count;
                         static_assert(max_da_segment_count * static_cast<uint64_t>(CFG::WG_segment_size) <= std::numeric_limits<da_load_t>::max());
                         static_assert(max_valid_da_load <= std::numeric_limits<da_load_t>::max());
 

@@ -94,7 +94,13 @@ namespace turbo_jam_reports_test {
         err_work_report_too_big_t,
         err_banned_validator_t,
         err_lookup_anchor_not_recent_t,
-        err_missing_work_results_t
+        err_missing_work_results_t,
+        err_bad_anchor_slot_t,
+        err_bad_erasure_shards_t,
+        err_refine_load_too_high_t,
+        err_bad_exports_count_t,
+        err_bundle_too_big_t,
+        err_auth_gas_too_high_t
     >;
 
     struct err_code_t: err_group_t<err_code_t, err_code_base_t> {
@@ -130,8 +136,14 @@ namespace turbo_jam_reports_test {
                 "bad_signature"sv,
                 "work_report_too_big"sv,
                 "banned_validator"sv,
-                "lookup-anchor-not-recept"sv,
-                "missing_work_results"sv
+                "lookup_anchor_not_recent"sv,
+                "missing_work_results"sv,
+                "bad_anchor_slot"sv,
+                "bad_erasure_shards"sv,
+                "refine_load_too_high"sv,
+                "bad_exports_count"sv,
+                "bundle_too_big"sv,
+                "auth_gas_too_high"sv
             };
             archive.process(codec::as_variant<err_code_base_t>(*this, names));
         }
@@ -182,7 +194,7 @@ namespace turbo_jam_reports_test {
             archive.process("services_statistics", pi_services);
         }
 
-        bool operator==(const test_state_t &o) const = default;
+        [[nodiscard]] bool operator==(const test_state_t &o) const =default;
     };
 
     template<typename CFG>
@@ -270,7 +282,7 @@ suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
         static const std::string test_prefix = "stf/reports/";
         static std::optional<std::string> override_test{};
-        //override_test.emplace("tiny/different_core_same_guarantors-1");
+        //override_test.emplace("tiny/lookup_anchor_not_recent-1");
         if (!override_test) {
             "tiny"_test = [] {
                 for (const auto &path: file::files_with_ext(test_vector_dir(test_prefix + "tiny"), ".bin")) {

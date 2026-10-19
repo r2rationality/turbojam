@@ -56,7 +56,8 @@ namespace turbo::jam {
         static_assert(V_validator_count_max == 1023U);
         static_assert(V_validator_count_max >= V_validator_count_min);
         static constexpr size_t WA_max_is_authorized_code_size = 64'000;
-        static constexpr size_t WB_max_work_package_size = 13'791'360;
+        static constexpr size_t WI_max_work_package_input_size = 13'791'360;
+        static constexpr size_t WB_max_work_package_bundle_size = 13'904'950;
         static constexpr size_t WC_max_service_code_size = 4'000'000;
         static constexpr size_t WP_segment_num_pieces = 6;
         static constexpr size_t WG_segment_size = 4'104U;

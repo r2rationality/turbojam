@@ -184,6 +184,24 @@ namespace turbo::jam {
     struct err_missing_work_results_t final: error_t {
         explicit err_missing_work_results_t(): error_t{*this} {}
     };
+    struct err_bad_anchor_slot_t final: error_t {
+        explicit err_bad_anchor_slot_t(): error_t{*this} {}
+    };
+    struct err_bad_erasure_shards_t final: error_t {
+        explicit err_bad_erasure_shards_t(): error_t{*this} {}
+    };
+    struct err_refine_load_too_high_t final: error_t {
+        explicit err_refine_load_too_high_t(): error_t{*this} {}
+    };
+    struct err_bad_exports_count_t final: error_t {
+        explicit err_bad_exports_count_t(): error_t{*this} {}
+    };
+    struct err_bundle_too_big_t final: error_t {
+        explicit err_bundle_too_big_t(): error_t{*this} {}
+    };
+    struct err_auth_gas_too_high_t final: error_t {
+        explicit err_auth_gas_too_high_t(): error_t{*this} {}
+    };
 
     template<typename BASE_T, typename BASE_V>
     struct err_group_t: BASE_V {
