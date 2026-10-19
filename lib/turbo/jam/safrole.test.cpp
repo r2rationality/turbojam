@@ -157,7 +157,7 @@ namespace {
                     tc.pre.tau, tc.pre.iota,
                     tc.in.slot, tc.in.extrinsic
                 );
-                state_t<CFG>::verify_ticket_signatures(new_st.eta, new_st.gamma.z, tc.in.extrinsic);
+                state_t<CFG>::verify_ticket_signatures(new_st.eta, new_st.gamma.p, new_st.gamma.z, tc.in.extrinsic);
                 state_t<CFG>::tau_prime(new_st.tau, tc.in.slot);
                 out.emplace(test_output_data_t<CFG>{std::move(res.epoch_mark), std::move(res.tickets_mark)});
             },

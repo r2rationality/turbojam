@@ -135,7 +135,7 @@ namespace turbo::jam::assurances_test {
                 test_output_data_t<CFG> res{};
                 std::decay_t<typename decltype(state_t<CFG>::pi)::element_type> new_pi;
                 // ignore the updated statistics as they are tested in a separate set of tests
-                out.emplace(test_output_data_t{ state_t<CFG>::rho_dagger_2(new_st.rho, new_pi.cores,
+                out.emplace(test_output_data_t{ state_t<CFG>::rho_dagger_2(new_st.rho, new_pi.cores, tc.pre.kappa,
                     tc.in.slot, tc.in.parent, tc.in.assurances) });
                 state_t<CFG>::verify_assurance_signatures(tc.in.parent, tc.pre.kappa, tc.in.assurances);
             },

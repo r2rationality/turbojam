@@ -40,7 +40,6 @@ namespace turbo::jam {
         static constexpr size_t J_max_report_dependencies = 8;
         static constexpr size_t K_max_tickets_per_block = 16;
         static constexpr size_t L_max_lookup_anchor_age = 14'400;
-        static constexpr size_t N_ticket_attempts = 2;
         static constexpr size_t NV_max_verdicts = 16;
         static constexpr size_t NO_max_culprits = 16;
         static constexpr size_t O_auth_pool_max_size = 8;
@@ -52,8 +51,10 @@ namespace turbo::jam {
         static constexpr size_t T_max_package_extrinsics = 128;
         static constexpr size_t U_reported_work_timeout = 5;
         static constexpr size_t validator_factor = 3;
-        static constexpr size_t V_validator_count = C_core_count * validator_factor;
-        static_assert(V_validator_count == 1023U);
+        static constexpr size_t V_validator_count_min = 6;
+        static constexpr size_t V_validator_count_max = C_core_count * validator_factor;
+        static_assert(V_validator_count_max == 1023U);
+        static_assert(V_validator_count_max >= V_validator_count_min);
         static constexpr size_t WA_max_is_authorized_code_size = 64'000;
         static constexpr size_t WB_max_work_package_size = 13'791'360;
         static constexpr size_t WC_max_service_code_size = 4'000'000;
@@ -74,22 +75,30 @@ namespace turbo::jam {
         static constexpr size_t ZP_pvm_page_size = 1ULL << 12U;
         static constexpr size_t ZZ_pvm_init_zone_size = 1ULL << 16U;
 
-        static constexpr size_t pvm_p_size(const size_t x)
-        {
+        static constexpr size_t pvm_p_size(const size_t x) {
             return ((x + ZP_pvm_page_size - 1) / ZP_pvm_page_size) * ZP_pvm_page_size;
         }
 
-        static constexpr size_t pvm_z_size(const size_t x)
-        {
+        static constexpr size_t pvm_z_size(const size_t x) {
             return ((x + ZZ_pvm_init_zone_size - 1) / ZZ_pvm_init_zone_size) * ZZ_pvm_init_zone_size;
+        }
+
+        static constexpr size_t validator_super_majority(const size_t validator_count) {
+            return validator_count * 2U / 3U + 1U;
+        }
+
+        static constexpr size_t validator_wonky_count(const size_t validator_count) {
+            return validator_count / 3;
+        }
+
+        static constexpr size_t N_ticket_attempts(const size_t epoch_length, const size_t new_gamma_p_size) {
+            return (2U * epoch_length + new_gamma_p_size - 1U) / new_gamma_p_size;
         }
     };
 
     // Overrides for the production/full config
     struct config_prod: config_base {
         static constexpr size_t min_guarantors = validator_factor - 1;
-        static constexpr size_t validator_super_majority = V_validator_count * 2 / 3 + 1;
-        static constexpr size_t validator_wonky_count = V_validator_count * 1 / 3;
     };
 
     // Overrides for the tiny/testing config
@@ -101,19 +110,19 @@ namespace turbo::jam {
         static constexpr size_t GT_max_total_accumulation_gas = 20'000'000;
         static constexpr size_t K_max_tickets_per_block = 3;
         static constexpr size_t L_max_lookup_anchor_age = 24;
-        static constexpr size_t N_ticket_attempts = 3;
         static constexpr size_t R_core_assignment_rotation_period = 4;
         static constexpr size_t R_shard_recovery_threshold = 2; // JAMNP-S
-        static constexpr size_t V_validator_count = C_core_count * validator_factor;
+        static constexpr size_t V_validator_count_max = C_core_count * validator_factor;
+        static_assert(V_validator_count_max >= V_validator_count_min);
         static constexpr size_t Y_ticket_submission_end = 10;
         static_assert(Y_ticket_submission_end <=  E_epoch_length * 5 / 6);
-        static constexpr size_t validator_super_majority = V_validator_count * 2 / 3 + 1;
-        static constexpr size_t validator_wonky_count = V_validator_count * 1 / 3;
+        //static constexpr size_t validator_super_majority = V_validator_count * 2 / 3 + 1;
+        //static constexpr size_t validator_wonky_count = V_validator_count * 1 / 3;
         static constexpr size_t avail_bitfield_bytes = (C_core_count + 7) / 8;
         static_assert(WG_segment_size == 4'104U);
         static constexpr size_t WP_segment_num_pieces = 1026;
         static constexpr size_t WE_segment_piece_size = WG_segment_size / WP_segment_num_pieces;
-        static_assert(V_validator_count == 6U);
+        static_assert(V_validator_count_max == 6U);
         static_assert(WE_segment_piece_size == 4U);
     };
 }

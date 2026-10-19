@@ -41,6 +41,12 @@ namespace turbo::jam {
         {
         }
 
+        [[nodiscard]] const ptr_type &unmodified_ptr() const {
+            if (_update_active) [[unlikely]]
+                throw error("the unmodified value is unavailable after the value has been updated");
+            return _storage();
+        }
+
         [[nodiscard]] const element_type &unmodified() const {
             if (_update_active) [[unlikely]]
                 throw error("the unmodified value is unavailable after the value has been updated");
@@ -62,6 +68,8 @@ namespace turbo::jam {
             if (_update_active) [[unlikely]]
                 throw error("a staged value can be updated only once per transaction");
             const auto &ptr = _storage();
+            if (ptr.use_count() > 1)
+                _ptr = std::make_shared<element_type>(*ptr);
             _update_active = true;
             return *ptr;
         }
@@ -1085,6 +1093,7 @@ namespace turbo::jam {
 
         static work_reports_t<CFG> rho_dagger_2(
             availability_assignments_t<CFG> &new_rho, cores_statistics_t<CFG> &tmp_pi_cores,
+            const validators_data_t<CFG> &prev_kappa,
             const time_slot_t<CFG> &slot, const header_hash_t &parent,
             const assurances_extrinsic_t<CFG> &assurances);
 
@@ -1102,7 +1111,8 @@ namespace turbo::jam {
 
         static void verify_all_signatures(const block_t<CFG> &blk, const time_slot_t<CFG> &prev_tau,
             const entropy_buffer_t &new_eta, const safrole_state_t<CFG> &new_gamma,
-            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda, const disputes_records_t &prev_psi,
+            const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
+            const disputes_records_t &prev_psi, const validators_data_t<CFG> &prev_lambda,
             const typename header_t<CFG>::prepared_signatures_t &prepared_header_signatures);
         static void verify_assurance_signatures(const header_hash_t &parent, const validators_data_t<CFG> &validators, const assurances_extrinsic_t<CFG> &assurances);
         static void verify_dispute_signatures(const time_slot_t<CFG> &prev_tau,
@@ -1110,7 +1120,8 @@ namespace turbo::jam {
         static void verify_guarantee_signatures(const time_slot_t<CFG> &new_tau, const entropy_buffer_t &new_eta,
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
             const ed25519_keys_set_t &new_psi_o, const guarantees_extrinsic_t<CFG> &guarantees);
-        static void verify_ticket_signatures(const entropy_buffer_t &new_eta, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets);
+        static void verify_ticket_signatures(const entropy_buffer_t &new_eta, const validators_data_t<CFG> &new_gamma_p,
+            const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets);
 
         static is_authorized_res_t is_authorized(const work_package_t<CFG> &p, core_index_t c,
             const time_slot_t<CFG> &tau, const accounts_t<CFG> &services);
@@ -1120,7 +1131,7 @@ namespace turbo::jam {
     private:
         friend struct accumulate_test_access_t;
 
-        using guarantor_assignments_t = fixed_sequence_t<core_index_t, CFG::V_validator_count>;
+        using guarantor_assignments_t = sequence_t<core_index_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
         struct guarantors_t {
             guarantor_assignments_t guarantors;
             validators_data_t<CFG> validators;
@@ -1129,7 +1140,7 @@ namespace turbo::jam {
         static void _ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG>::bandersnatch_list_type &);
         static keys_t<CFG> _fallback_key_sequence(const entropy_t &entropy, const validators_data_t<CFG> &kappa);
         static tickets_t<CFG> _permute_tickets(const tickets_accumulator_t<CFG> &gamma_a);
-        static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const time_slot_t<CFG> &slot);
+        static guarantor_assignments_t _guarantor_assignments(const entropy_t &e, const validators_data_t<CFG> &kappa, const time_slot_t<CFG> &slot);
         static guarantors_t _guarantors(const entropy_buffer_t &eta, const validators_data_t<CFG> &kappa, const validators_data_t<CFG> &lambda,
             const ed25519_keys_set_t &psi_o, const time_slot_t<CFG> &g_slot, const time_slot_t<CFG> &blk_slot);
 

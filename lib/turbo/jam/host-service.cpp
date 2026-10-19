@@ -360,20 +360,16 @@ namespace turbo::jam {
                 enc.uint_fixed(2, CFG::J_max_report_dependencies);
                 enc.uint_fixed(2, CFG::K_max_tickets_per_block);
                 enc.uint_fixed(4, CFG::L_max_lookup_anchor_age);
-                enc.uint_fixed(2, CFG::N_ticket_attempts);
                 enc.uint_fixed(2, CFG::O_auth_pool_max_size);
                 enc.uint_fixed(2, CFG::P_slot_period);
                 enc.uint_fixed(2, CFG::Q_auth_queue_size);
                 enc.uint_fixed(2, CFG::R_core_assignment_rotation_period);
                 enc.uint_fixed(2, CFG::T_max_package_extrinsics);
                 enc.uint_fixed(2, CFG::U_reported_work_timeout);
-                enc.uint_fixed(2, CFG::V_validator_count);
                 enc.uint_fixed(4, CFG::WA_max_is_authorized_code_size);
                 enc.uint_fixed(4, CFG::WB_max_work_package_size);
                 enc.uint_fixed(4, CFG::WC_max_service_code_size);
-                enc.uint_fixed(4, CFG::WE_segment_piece_size);
                 enc.uint_fixed(4, CFG::WM_max_work_package_imports);
-                enc.uint_fixed(4, CFG::WP_segment_num_pieces);
                 enc.uint_fixed(4, CFG::WR_max_blobs_size);
                 enc.uint_fixed(4, CFG::WT_transfer_memo_size);
                 enc.uint_fixed(4, CFG::WX_max_package_exports);
@@ -735,15 +731,29 @@ namespace turbo::jam {
     {
         static_assert(sizeof(validator_data_t) == 336U);
         logger::trace("gas: {} host_service::designate", this->_p.m.gas());
-        const auto &phi = this->_p.m.regs();
-        const auto o = phi[7];
-        this->_p.m.consume_gas(1100U + CFG::V_validator_count * 302);
-        const auto bytes = this->_p.m.mem_read(o, sizeof(validator_data_t) * CFG::V_validator_count);
+        const auto [o, z] = this->_p.m.regs(std::index_sequence<7, 8>{});
+        this->_consume_count_rated_gas(302U, z, 1100ULL);
+        const auto bytes = this->_p.m.mem_read(o, sizeof(validator_data_t) * z);
+        if (static_cast<int>(z < CFG::V_validator_count_min) | static_cast<int>(z > CFG::V_validator_count_max)
+                | static_cast<int>(z % CFG::validator_factor != 0)) [[unlikely]] {
+            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
+            return;
+        }
         if (this->_p.service_id != _ok.state.chi.get().designate) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
-        _ok.state.iota = std::make_shared<validators_data_t<CFG>>(jam::from_bytes<validators_data_t<CFG>>(bytes));
+        {
+            typename validators_data_t<CFG>::storage_type new_iota{};
+            new_iota.reserve(z);
+            decoder dec{bytes};
+            while (new_iota.size() < z) {
+                validator_data_t v;
+                dec.process(v);
+                new_iota.emplace_back(std::move(v));
+            }
+            _ok.state.iota = std::make_shared<validators_data_t<CFG>>(std::move(new_iota));
+        }
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
 

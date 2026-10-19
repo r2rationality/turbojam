@@ -747,7 +747,7 @@ namespace turbo::jam {
     };
 
     template<typename CFG=config_prod>
-    using assurances_extrinsic_t = sequence_t<avail_assurance_t<CFG>, 0, CFG::V_validator_count>;
+    using assurances_extrinsic_t = sequence_t<avail_assurance_t<CFG>, 0U, CFG::V_validator_count_max>;
 
     template<typename CFG>
     struct availability_assignment_t {
@@ -769,35 +769,29 @@ namespace turbo::jam {
 
     template<typename CFG>
     struct validators_data_t {
-        using ed25519_set_type = set_t<ed25519_public_t, 0, CFG::V_validator_count>;
-        using bandersnatch_set_type = set_t<bandersnatch_public_t, 0, CFG::V_validator_count>;
-        using bandersnatch_list_type = fixed_sequence_t<bandersnatch_public_t, CFG::V_validator_count>;
-        using storage_type = fixed_sequence_t<validator_data_t, CFG::V_validator_count>;
+        using ed25519_set_type = set_t<ed25519_public_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
+        using bandersnatch_list_type = sequence_t<bandersnatch_public_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
+        using storage_type = sequence_t<validator_data_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
 
-        validators_data_t() {
-            _ed25519_keys.reserve(CFG::V_validator_count);
-            _bandersnatch_keys.reserve(CFG::V_validator_count);
-        }
+        validators_data_t() =default;
 
         validators_data_t(storage_type &&storage): _storage(std::move(storage)) {
-            _ed25519_keys.reserve(CFG::V_validator_count);
-            _bandersnatch_keys.reserve(CFG::V_validator_count);
+            _ed25519_keys.reserve(_storage.size());
             _update_derived();
         }
 
-        static constexpr size_t size() noexcept {
-            return storage_type::fixed_size;
+        [[nodiscard]] size_t size() const noexcept {
+            return _storage.size();
         }
 
-        void serialize(auto &archive)
-        {
+        void serialize(auto &archive) {
             using namespace std::string_view_literals;
             archive.process(_storage);
             _update_derived();
         }
 
-        const validator_data_t &at(const size_t idx) const {
-            if (idx >= CFG::V_validator_count) [[unlikely]] {
+        [[nodiscard]] const validator_data_t &at(const size_t idx) const {
+            if (idx >= _storage.size()) [[unlikely]] {
                 throw err_bad_validator_index_t{};
             }
             return _storage[idx];
@@ -811,10 +805,6 @@ namespace turbo::jam {
             return _ed25519_keys;
         }
 
-        const bandersnatch_set_type &bandersnatch_keys() const noexcept {
-            return _bandersnatch_keys;
-        }
-
         const bandersnatch_list_type &bandersnatch_list() const noexcept {
             return _bandersnatch_list;
         }
@@ -825,16 +815,22 @@ namespace turbo::jam {
     private:
         storage_type _storage{};
         ed25519_set_type _ed25519_keys{};
-        bandersnatch_set_type _bandersnatch_keys{};
         bandersnatch_list_type _bandersnatch_list{};
 
         void _update_derived() {
+            if (_storage.size() < storage_type::min_size) [[unlikely]]
+                throw error{"validator count must not less than than {} but got: {}!", CFG::V_validator_count_min, _storage.size()};
+            if (_storage.size() > storage_type::max_size) [[unlikely]]
+                throw error{"validator count cannot be greater than {} but got: {}!", CFG::V_validator_count_max, _storage.size()};
+            if (_storage.size() % CFG::validator_factor) [[unlikely]]
+                throw error{"validator count must be a multiple of {} but got: {}!", CFG::validator_factor, _storage.size()};
             _ed25519_keys.clear();
-            _bandersnatch_keys.clear();
+            _ed25519_keys.reserve(_storage.size());
+            _bandersnatch_list.clear();
+            _bandersnatch_list.reserve(_storage.size());
             for (const auto &[i, v]: std::views::enumerate(_storage)) {
                 _ed25519_keys.emplace(v.ed25519);
-                _bandersnatch_keys.emplace(v.bandersnatch);
-                _bandersnatch_list[i] = v.bandersnatch;
+                _bandersnatch_list.emplace_back(v.bandersnatch);
             }
         }
     };
@@ -955,7 +951,7 @@ namespace turbo::jam {
     };
 
     using ticket_id_t = opaque_hash_t;
-    using ticket_attempt_t = varlen_uint_t<uint8_t>;
+    using ticket_attempt_t = uint8_t;
 
     struct ticket_envelope_t {
         ticket_attempt_t attempt;
@@ -1062,7 +1058,7 @@ namespace turbo::jam {
     struct verdict_t {
         work_report_hash_t report; // r
         uint32_t age; // a
-        fixed_sequence_t<judgement_t, CFG::validator_super_majority> judgements; // j
+        sequence_t<judgement_t, CFG::validator_super_majority(CFG::V_validator_count_min), CFG::validator_super_majority(CFG::V_validator_count_max)> judgements; // j
 
         void serialize(auto &archive)
         {
@@ -1329,19 +1325,15 @@ namespace turbo::jam {
     };
 
     template<typename CFG>
-    struct epoch_mark_validators_t: fixed_sequence_t<epoch_mark_validator_keys_t, CFG::V_validator_count> {
-        using base_type = fixed_sequence_t<epoch_mark_validator_keys_t, CFG::V_validator_count>;
+    struct epoch_mark_validators_t: sequence_t<epoch_mark_validator_keys_t, CFG::V_validator_count_min, CFG::V_validator_count_max> {
+        using base_type = sequence_t<epoch_mark_validator_keys_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
         using base_type::base_type;
 
         epoch_mark_validators_t(const validators_data_t<CFG> &o)
         {
-            if (o.size() != this->size()) [[unlikely]]
-                throw error("internal error: validators_t size != epoch_mark_validators_t!");
-            for (size_t i = 0; i < this->size(); ++i) {
-                auto &v_dst = (*this)[i];
+            for (size_t i = 0; i < o.size(); ++i) {
                 const auto &v_src = o[i];
-                v_dst.bandersnatch = v_src.bandersnatch;
-                v_dst.ed25519 = v_src.ed25519;
+                this->emplace_back(v_src.bandersnatch, v_src.ed25519);
             }
         }
 
@@ -1382,7 +1374,7 @@ namespace turbo::jam {
     using offenders_mark_t = ed25519_keys_list_t;
 
     template<typename CFG=config_prod>
-    using validators_statistics_t = fixed_sequence_t<validator_statistics_t, CFG::V_validator_count>;
+    using validators_statistics_t = sequence_t<validator_statistics_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
 
     struct core_activity_record_t {
         varlen_uint_t<uint32_t> da_load = 0; // d
