@@ -72,7 +72,7 @@ namespace turbo::jam {
     void state_t<CFG>::_ring_commitment(bandersnatch_ring_commitment_t &res, const validators_data_t<CFG>::bandersnatch_list_type &vkeys)
     {
         ark_vrf_initializer_t::init();
-        if (ark_vrf::ring_commitment(res, buffer{reinterpret_cast<const uint8_t *>(vkeys.data()), sizeof(vkeys[0]) * vkeys.size()}) != 0) [[unlikely]]
+        if (ark_vrf::ring_commitment(CFG::V_validator_count_max, res, buffer{reinterpret_cast<const uint8_t *>(vkeys.data()), sizeof(vkeys[0]) * vkeys.size()}) != 0) [[unlikely]]
             throw error("failed to generate a ring commitment!");
     }
 
@@ -1616,7 +1616,7 @@ namespace turbo::jam {
     }
 
     template <typename CFG>
-    void state_t<CFG>::verify_ticket_signatures(const entropy_buffer_t &new_eta, const validators_data_t<CFG> &new_gamma_p, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets) {
+    void state_t<CFG>::verify_ticket_signatures(const entropy_buffer_t &new_eta, const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets) {
         static const uint8_vector aux{};
         static constexpr std::string_view input_prefix = CFG::jam_ticket_seal;
         static constexpr size_t input_size = input_prefix.size() + sizeof(entropy_t) + 1U;
@@ -1637,7 +1637,7 @@ namespace turbo::jam {
             memcpy(inp, input_base.data(), input_size);
             inp[input_size - 1U] = static_cast<uint8_t>(t.attempt);
         }
-        if (ark_vrf::ring_vrf_verify_batch(new_gamma_p.size(), new_gamma_z, sigs, inputs, input_size, aux) != 0) [[unlikely]]
+        if (ark_vrf::ring_vrf_verify_batch(CFG::V_validator_count_max, new_gamma_z, sigs, inputs, input_size, aux) != 0) [[unlikely]]
             throw err_bad_ticket_proof_t{};
     }
 
@@ -1659,7 +1659,7 @@ namespace turbo::jam {
         verify_assurance_signatures(blk.header.parent, prev_kappa, blk.extrinsic.assurances);
         verify_dispute_signatures(prev_tau, prev_kappa, prev_lambda, blk.extrinsic.disputes);
         verify_guarantee_signatures(blk.header.slot, new_eta, new_kappa, new_lambda, prev_psi.offenders, blk.extrinsic.guarantees);
-        verify_ticket_signatures(new_eta, new_gamma.p, new_gamma.z, blk.extrinsic.tickets);
+        verify_ticket_signatures(new_eta, new_gamma.z, blk.extrinsic.tickets);
     }
 
     template <typename CFG>

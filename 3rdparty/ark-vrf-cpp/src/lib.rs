@@ -121,6 +121,7 @@ pub extern "C" fn init(path_ptr: *const u8, path_len: usize) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn ring_commitment(
+    ring_size: usize,
     out_ptr: *mut u8,
     out_len: usize,
     vkeys_ptr: *const u8,
@@ -137,9 +138,13 @@ pub extern "C" fn ring_commitment(
     }
 
     let num_vkeys = vkeys_len / VKEY_SZ;
+    if num_vkeys > ring_size {
+        return -2;
+    }
     let vkeys = unsafe { std::slice::from_raw_parts(vkeys_ptr, vkeys_len) };
 
-    let ring_ctx = match ring_context(num_vkeys) {
+    // The cryptographic domain stays fixed when the validator set shrinks.
+    let ring_ctx = match ring_context(ring_size) {
         Some(ctx) => ctx,
         None => return -1,
     };
@@ -456,7 +461,7 @@ mod tests {
     fn test_ring_verify() {
         setup();
         let mut ring_comm: [u8; RING_COMMIT_SZ] = [0; RING_COMMIT_SZ];
-        assert_eq!(0, ring_commitment(ring_comm.as_mut_ptr(), ring_comm.len(), KEYS.as_ptr(), KEYS.len()));
+        assert_eq!(0, ring_commitment(KEYS.len() / VKEY_SZ, ring_comm.as_mut_ptr(), ring_comm.len(), KEYS.as_ptr(), KEYS.len()));
         assert_eq!(
             hex::decode("85f9095f4abd040839d793d89ab5ff25c61e50c844ab6765e2c0b22373b5a8f6fbe5fc0cd61fdde580b3d44fe1be127197e33b91960b10d2c6fc75aec03f36e16c2a8204961097dbc2c5ba7655543385399cc9ef08bf2e520ccf3b0a7569d88492e630ae2b14e758ab0960e372172203f4c9a41777dadd529971d7ab9d23ab29fe0e9c85ec450505dde7f5ac038274cf").expect("must be hex"),
             ring_comm

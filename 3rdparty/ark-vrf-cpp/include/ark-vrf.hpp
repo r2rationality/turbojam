@@ -10,7 +10,7 @@ namespace ark_vrf {
     namespace internal {
         extern "C" {
             int init(const void *path_ptr, size_t path_len);
-            int ring_commitment(void* out_ptr, size_t out_len, const void* vkeys_ptr, size_t vkeys_len);
+            int ring_commitment(size_t ring_size, void* out_ptr, size_t out_len, const void* vkeys_ptr, size_t vkeys_len);
             int ring_vrf_output(void *out_ptr, size_t out_len, const void *sig_ptr, size_t sig_len);
             int ring_vrf_verify(size_t ring_size, const void *comm_ptr, size_t comm_len,
                 const void* sig_ptr, size_t sig_len,
@@ -31,9 +31,9 @@ namespace ark_vrf {
         return internal::init(path.data(), path.size());
     }
 
-    inline int ring_commitment(const std::span<uint8_t> &out, const std::span<const uint8_t> &vkeys)
+    inline int ring_commitment(size_t ring_size, const std::span<uint8_t> &out, const std::span<const uint8_t> &vkeys)
     {
-        return internal::ring_commitment(out.data(), out.size(), vkeys.data(), vkeys.size());
+        return internal::ring_commitment(ring_size, out.data(), out.size(), vkeys.data(), vkeys.size());
     }
 
     inline int ring_vrf_output(const std::span<uint8_t, 32> &out, const std::span<const uint8_t> &sig)

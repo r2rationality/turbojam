@@ -1121,7 +1121,7 @@ namespace turbo::jam {
         static void verify_guarantee_signatures(const time_slot_t<CFG> &new_tau, const entropy_buffer_t &new_eta,
             const validators_data_t<CFG> &new_kappa, const validators_data_t<CFG> &new_lambda,
             const ed25519_keys_set_t &new_psi_o, const guarantees_extrinsic_t<CFG> &guarantees);
-        static void verify_ticket_signatures(const entropy_buffer_t &new_eta, const validators_data_t<CFG> &new_gamma_p,
+        static void verify_ticket_signatures(const entropy_buffer_t &new_eta,
             const bandersnatch_ring_commitment_t &new_gamma_z, const tickets_extrinsic_t<CFG> &tickets);
 
         static is_authorized_res_t is_authorized(const work_package_t<CFG> &p, core_index_t c,
