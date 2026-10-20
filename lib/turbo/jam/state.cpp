@@ -1277,7 +1277,7 @@ namespace turbo::jam {
                     throw err_bad_judgement_age_t{};
                 const auto &validators = v.age == prev_tau.epoch() ? prev_kappa : prev_lambda;
                 if (const auto super_majority = CFG::validator_super_majority(validators.size()); v.judgements.size() != super_majority)
-                    throw error{"invalid number of judgements expected {} but got {}", super_majority, v.judgements.size()};
+                    throw err_bad_votes_count_t{};
                 // uniqueness is checked already, so it's ok to rely on access to create a key-value pair
                 auto [r_it, r_ok] = report_info.try_emplace(v.report, validators);
                 for (const auto &j: v.judgements) {
@@ -1350,8 +1350,7 @@ namespace turbo::jam {
                     if (!new_fault_reports.contains(report_hash)) [[unlikely]]
                         throw err_not_enough_faults_t{};
                 } else if (r_info.oks == 0) {
-                    if (const auto c_it = new_culprits.find(report_hash); c_it == new_culprits.end() || c_it->second < 2)
-                        throw err_not_enough_culprits_t{};
+                    // do nothing
                 } else if (r_info.oks == CFG::validator_wonky_count(r_info.validators.size())) {
                     // do nothing
                 } else [[unlikely]] {

@@ -31,7 +31,6 @@ namespace {
         err_judgements_not_sorted_unique_t,
         err_culprits_not_sorted_unique_t,
         err_faults_not_sorted_unique_t,
-        err_not_enough_culprits_t,
         err_not_enough_faults_t,
         err_culprits_verdict_not_bad_t,
         err_fault_verdict_wrong_t,
@@ -40,7 +39,8 @@ namespace {
         err_bad_validator_index_t,
         err_bad_signature_t,
         err_bad_guarantor_key_t,
-        err_bad_auditor_key_t
+        err_bad_auditor_key_t,
+        err_bad_votes_count_t
     >;
 
     struct err_code_t: err_group_t<err_code_t, err_code_base_t> {
@@ -58,7 +58,6 @@ namespace {
                 "judgements_not_sorted_unique"sv,
                 "culprits_not_sorted_unique"sv,
                 "faults_not_sorted_unique"sv,
-                "not_enough_culprits"sv,
                 "not_enough_faults"sv,
                 "culprits_verdict_not_bad"sv,
                 "fault_verdict_wrong"sv,
@@ -67,7 +66,8 @@ namespace {
                 "bad_validator_index"sv,
                 "bad_signature"sv,
                 "bad_guarantor_key"sv,
-                "bad_auditor_key"sv
+                "bad_auditor_key"sv,
+                "bad_votes_count"sv
             };
             archive.process(codec::as_variant<err_code_base_t>(*this, names));
         }
@@ -145,32 +145,38 @@ namespace {
     template<typename CFG>
     void test_file(const std::string &path)
     {
-        const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
-        {
-            const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
-            expect(tc == j_tc) << "json test case does not match the binary one" << path;
-        }
-        std::optional<test_output_t> out{};
-        auto new_st = tc.pre;
-        err_code_t::catch_into(
-            [&] {
-                 {};
-                auto new_offenders = state_t<CFG>::psi_prime(new_st.psi, new_st.rho,
-                    tc.pre.kappa, tc.pre.lambda, tc.pre.tau, tc.in.disputes
-                );
-                state_t<CFG>::verify_dispute_signatures(tc.pre.tau, tc.pre.kappa, tc.pre.lambda, tc.in.disputes);
-                out.emplace(test_output_data_t{ .offenders_mark=std::move(new_offenders) });
-            },
-            [&](err_code_t err) {
-                out.emplace(std::move(err));
-                new_st = tc.pre;
+        try {
+            const auto tc = jam::load_obj<test_case_t<CFG>>(path + ".bin");
+            {
+                const auto j_tc = codec::json::load_obj<test_case_t<CFG>>(path + ".json");
+                expect(tc == j_tc) << "json test case does not match the binary one" << path;
             }
-        );
-        if (out.has_value()) {
-            expect(out == tc.out) << path;
-            expect(new_st == tc.post) << path;
-        } else {
-            expect(false) << path;
+            std::optional<test_output_t> out{};
+            auto new_st = tc.pre;
+            err_code_t::catch_into(
+                [&] {
+                     {};
+                    auto new_offenders = state_t<CFG>::psi_prime(new_st.psi, new_st.rho,
+                        tc.pre.kappa, tc.pre.lambda, tc.pre.tau, tc.in.disputes
+                    );
+                    state_t<CFG>::verify_dispute_signatures(tc.pre.tau, tc.pre.kappa, tc.pre.lambda, tc.in.disputes);
+                    out.emplace(test_output_data_t{ .offenders_mark=std::move(new_offenders) });
+                },
+                [&](err_code_t err) {
+                    out.emplace(std::move(err));
+                    new_st = tc.pre;
+                }
+            );
+            if (out.has_value()) {
+                expect(out == tc.out) << path
+                    << fmt::format("expected: {}", tc.out)
+                    << fmt::format("actual: {}", *out);
+                expect(new_st == tc.post) << path;
+            } else {
+                expect(false) << path;
+            }
+        } catch (const std::exception &ex) {
+            expect(false) << path << ex.what();
         }
     }
 }
@@ -181,7 +187,7 @@ suite turbo_jam_disputes_suite = [] {
         static std::optional<std::string> override_test{};
         // an extra guard to ensure test cases overrides are never applied in release builds
 #if !defined(NDEBUG)
-        //override_test.emplace("tiny/progress_with_culprits-6");
+        //override_test.emplace("tiny/progress_with_bad_votes_count-1");
 #endif
         if (!override_test) {
             for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {

@@ -16,7 +16,8 @@ namespace {
 
 suite turbo_jam_fuzzer_suite = [] {
     "turbo::jam::fuzzer"_test = [] {
-        "minifuzz forks"_test = [&] {
+        // Disabled given no 0.8.0 examples are available
+        /*"minifuzz forks"_test = [&] {
             file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
             minifuzz_client_t<config_tiny, local_processor_t> c{std::make_unique<local_processor_t<config_tiny>>("dev", tmp_dir.path())};
             const timer t{"minifuzz forks", logger::level::info};
@@ -34,6 +35,6 @@ suite turbo_jam_fuzzer_suite = [] {
             impl_vs_trace_client_t<config_tiny, local_processor_t> client{std::make_unique<local_processor_t<config_tiny>>("dev", tmp_dir.path())};
             const timer t{"fuzzer traces", logger::level::info};
             expect(client.test_dir(data_dir));
-        };
+        };*/
     };
 };

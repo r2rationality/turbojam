@@ -1023,7 +1023,7 @@ namespace turbo::jam {
     struct verdict_t {
         work_report_hash_t report; // r
         uint32_t age; // a
-        sequence_t<judgement_t, CFG::validator_super_majority(CFG::V_validator_count_min), CFG::validator_super_majority(CFG::V_validator_count_max)> judgements; // j
+        sequence_t<judgement_t, 0U, CFG::validator_super_majority(CFG::V_validator_count_max)> judgements; // j
 
         void serialize(auto &archive)
         {

@@ -157,9 +157,6 @@ namespace turbo::jam {
     struct err_faults_not_sorted_unique_t final: error_t {
         explicit err_faults_not_sorted_unique_t(): error_t{*this} {}
     };
-    struct err_not_enough_culprits_t final: error_t {
-        explicit err_not_enough_culprits_t(): error_t{*this} {}
-    };
     struct err_not_enough_faults_t final: error_t {
         explicit err_not_enough_faults_t(): error_t{*this} {}
     };
@@ -201,6 +198,9 @@ namespace turbo::jam {
     };
     struct err_auth_gas_too_high_t final: error_t {
         explicit err_auth_gas_too_high_t(): error_t{*this} {}
+    };
+    struct err_bad_votes_count_t final: error_t {
+        explicit err_bad_votes_count_t(): error_t{*this} {}
     };
 
     template<typename BASE_T, typename BASE_V>
