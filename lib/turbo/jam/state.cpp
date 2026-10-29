@@ -1370,8 +1370,9 @@ namespace turbo::jam {
 
             // JAM (10.19)
             for (const auto &k: new_offenders) {
-                if (const auto [it, created] = psi.offenders.emplace_unique(k); !created) [[unlikely]]
-                    throw err_offender_already_reported_t{};
+                // the fact that the offenders are new to this block have already been checked
+                // the same can be in both culprits and faults so attempted to be inserted here twice
+                psi.offenders.emplace_unique(k);
             }
         }
 
