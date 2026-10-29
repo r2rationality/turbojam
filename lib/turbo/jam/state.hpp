@@ -786,7 +786,7 @@ namespace turbo::jam {
         opaque_hash_t exports_root; // e
         opaque_hash_t authorizer_hash; // a
         opaque_hash_t payload_hash; // y
-        gas_t accumulate_gas; // g
+        varlen_uint_t<gas_t> accumulate_gas; // g
         work_exec_result_t result; // l
         byte_sequence_t auth_output; // t
 
