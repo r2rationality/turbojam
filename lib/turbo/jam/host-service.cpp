@@ -595,6 +595,7 @@ namespace turbo::jam {
     template<typename CFG>
     void host_service_base_t<CFG>::log()
     {
+        this->_p.m.consume_gas(1000U);
         const auto &phi = _p.m.regs();
         const auto level = phi[7];
         std::optional<std::string> target {};
