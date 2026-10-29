@@ -16,7 +16,7 @@ namespace {
 
 suite turbo_jam_ed25519_suite = [] {
     "turbo::jam::ed25519"_test = [] {
-        const auto vectors = codec::json::load(file::install_path("test/jam-conformance/crypto/ed25519/vectors.json")).as_array();
+        const auto vectors = codec::json::load(file::install_path("test/jam-crypto/ed25519/vectors.json")).as_array();
         expect(!vectors.empty());
         for (const auto &v: vectors) {
             const auto pk = vkey_t::from_hex(v.at("pk").as_string());

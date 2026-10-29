@@ -1,6 +1,6 @@
 [submodule "test/jam-test-vectors"]
 	path = test/jam-test-vectors
-	url = https://github.com/davxy/jam-test-vectors.git
+	url = https://github.com/jam-conformance/jam-test-vectors
 [submodule "test/pvm-test-vectors"]
 	path = test/pvm-test-vectors
 	url = https://github.com/koute/jamtestvectors.git
@@ -10,9 +10,12 @@
 [submodule "lib/turbo/common"]
 	path = lib/turbo/common
 	url = https://github.com/r2rationality/turbo-common.git
-[submodule "test/jam-conformance"]
-	path = test/jam-conformance
-	url = https://github.com/davxy/jam-conformance.git
 [submodule "test/graypaper"]
 	path = test/graypaper
 	url = https://github.com/gavofyork/graypaper.git
+[submodule "test/jam-fuzzing"]
+	path = test/jam-fuzzing
+	url = https://github.com/jam-conformance/jam-fuzzing
+[submodule "test/jam-crypto"]
+	path = test/jam-crypto
+	url = https://github.com/jam-conformance/jam-crypto
