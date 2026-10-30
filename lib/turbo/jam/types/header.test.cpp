@@ -89,15 +89,19 @@ suite turbo_jam_ancestry_suite = [] {
             state_root_t root{};
             root[0] = 1;
             expect(throws([&] { (void)ancestors.known(hash(1), root); }));
-            ancestors.add(hash(1), {}); // Unknown root accepts any root.
+            ancestors.add(1, hash(1), std::nullopt); // Unknown root accepts any root.
             expect(ancestors.known(hash(1), root) == ancestors.end());
             expect(!ancestors.begin()->state_root);
-            ancestors.add(hash(2), root);
+            ancestors.add(2, hash(2), root);
             expect(ancestors.known(hash(1), {}) == ancestors.begin() + 1);
             expect(ancestors.known(hash(2), root) == ancestors.end());
             expect(throws([&] { (void)ancestors.known(hash(2), {}); }));
             expect(throws([&] { (void)ancestors.known(hash(3), root); }));
-            check(ancestors, {0, 0});
+            ancestors.add(3, hash(3), state_root_t{}); // Zero is a known root, not an unknown-root marker.
+            expect(ancestors.known(hash(3), {}) == ancestors.end());
+            expect(ancestors.view().back().state_root.has_value());
+            expect(throws<err_bad_state_root_t>([&] { (void)ancestors.known(hash(3), root); }));
+            check(ancestors, {1, 2, 3});
         };
 
         "codec insertion and binary round trip"_test = [] {

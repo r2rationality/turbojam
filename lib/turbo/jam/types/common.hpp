@@ -450,6 +450,36 @@ namespace turbo::jam {
         byte_sequence_t authorizer_config; // f_bold
         sequence_t<work_item_t, 1, CFG::I_max_work_items> items; // w_bold
 
+        // Package-side limits, including data that is absent from work reports (GP #563).
+        void validate_limits() const
+        {
+            if (items.empty() || items.size() > CFG::I_max_work_items) [[unlikely]]
+                throw error{"work-package item count is outside the allowed bounds: {}", items.size()};
+            if (context.prerequisites.size() > CFG::J_max_report_dependencies) [[unlikely]]
+                throw error{"work-package prerequisite count exceeds the limit: {}", CFG::J_max_report_dependencies};
+            const auto add = [](uint64_t &sum, const uint64_t value, const uint64_t limit, const char *field) {
+                if (sum > limit || value > limit - sum) [[unlikely]]
+                    throw error("work-package {} exceeds limit {}", field, limit);
+                sum += value;
+            };
+            uint64_t refine_gas = 0, accumulate_gas = 0;
+            uint64_t imports = 0, exports = 0, extrinsics = 0, input_size = 0;
+            add(input_size, authorization.size(), CFG::WI_max_work_package_input_size, "input size");
+            add(input_size, authorizer_config.size(), CFG::WI_max_work_package_input_size, "input size");
+            for (const auto &w: items) {
+                add(refine_gas, w.refine_gas_limit, CFG::GR_max_refine_gas, "refine gas");
+                add(accumulate_gas, w.accumulate_gas_limit, CFG::GA_max_accumulate_gas, "accumulate gas");
+                add(imports, w.import_segments.size(), CFG::WM_max_work_package_imports, "import count");
+                add(exports, w.export_count, CFG::WX_max_package_exports, "export count");
+                add(extrinsics, w.extrinsic.size(), CFG::T_max_package_extrinsics, "extrinsic count");
+                add(input_size, w.payload.size(), CFG::WI_max_work_package_input_size, "input size");
+                // The import-count check above bounds this multiplication.
+                add(input_size, uint64_t{w.import_segments.size()} * CFG::WF_segment_footprint, CFG::WI_max_work_package_input_size, "input size");
+                for (const auto &e: w.extrinsic)
+                    add(input_size, e.len, CFG::WI_max_work_package_input_size, "input size");
+            }
+        }
+
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;
@@ -619,11 +649,15 @@ namespace turbo::jam {
             refine_load{
                 .gas_used=u,
                 .imports=numeric_cast<typename decltype(refine_load_t::imports)::base_type>(w.import_segments.size()),
-                .extrinsic_count=numeric_cast<typename decltype(refine_load_t::extrinsic_count)::base_type>(w.import_segments.size()),
+                .extrinsic_count=numeric_cast<typename decltype(refine_load_t::extrinsic_count)::base_type>(w.extrinsic.size()),
                 .extrinsic_size=std::ranges::fold_left(
                     w.extrinsic | std::views::transform([](const auto &e) { return e.len; }),
                     uint32_t{0},
-                    std::plus<uint32_t>()
+                    [](const uint32_t sum, const uint32_t len) {
+                        if (len > std::numeric_limits<uint32_t>::max() - sum) [[unlikely]]
+                            throw error("work-item extrinsic size exceeds the digest field range");
+                        return sum + len;
+                    }
                 ),
                 .exports=w.export_count
             }
@@ -1325,8 +1359,9 @@ namespace turbo::jam {
     };
 
     template<typename CFG>
-    struct epoch_mark_validators_t: sequence_t<epoch_mark_validator_keys_t, CFG::V_validator_count_min, CFG::V_validator_count_max> {
-        using base_type = sequence_t<epoch_mark_validator_keys_t, CFG::V_validator_count_min, CFG::V_validator_count_max>;
+    // The wire schema permits short lists; block validation checks the expected validator set.
+    struct epoch_mark_validators_t: sequence_t<epoch_mark_validator_keys_t, 0, CFG::V_validator_count_max> {
+        using base_type = sequence_t<epoch_mark_validator_keys_t, 0, CFG::V_validator_count_max>;
         using base_type::base_type;
 
         epoch_mark_validators_t(const validators_data_t<CFG> &o)

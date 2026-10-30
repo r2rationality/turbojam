@@ -905,6 +905,7 @@ namespace turbo::jam {
     is_authorized_res_t state_t<CFG>::is_authorized(const work_package_t<CFG> &p, const core_index_t c,
         const time_slot_t<CFG> &tau, const accounts_t<CFG> &services)
     {
+        p.validate_limits();
         const auto code = services.preimage_get(p.auth_code_host, p.auth_code_hash);
         if (!code) [[unlikely]]
             return {work_result_bad_code_t{}};
@@ -952,6 +953,7 @@ namespace turbo::jam {
          const work_package_t<CFG> &p, const byte_sequence_t &r, const sequence_t<segments_t<CFG>> &all_imports,
          const uint16_t export_offset, const accounts_t<CFG> &services)
     {
+        p.validate_limits();
         const auto &w = p.items.at(i);
         const auto info = services.info_get(w.service);
         if (!info) [[unlikely]]
@@ -959,7 +961,7 @@ namespace turbo::jam {
         const auto code = services.historical_lookup(w.service, p.context.lookup_anchor_slot, w.code_hash);
         if (!code) [[unlikely]]
             return {work_result_bad_code_t{}};
-        if (code->size() > CFG::WA_max_is_authorized_code_size) [[unlikely]]
+        if (code->size() > CFG::WC_max_service_code_size) [[unlikely]]
             return {work_result_code_oversize_t{}};
         encoder args{};
         args.uint_varlen(c);
@@ -972,7 +974,7 @@ namespace turbo::jam {
         static opaque_hash_t h0{};
         segments_t<CFG> exports{};
         auto res = machine::invoke(
-            *code, 0U, CFG::GI_max_is_authorized_gas, args.bytes(),
+            *code, 0U, w.refine_gas_limit, args.bytes(),
             [&](machine::machine_t &m) {
                 host_service.emplace(
                     host_service_params_t<CFG>{

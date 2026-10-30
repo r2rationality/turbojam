@@ -205,7 +205,7 @@ namespace turbo::jam::fuzzer_runner {
             return false;
         }
 
-        bool test_sample(const std::string &sample_dir)
+        bool test_sample(const std::string &sample_dir, const std::optional<header_t<CFG>> &shared_genesis={})
         {
             try {
                 const auto start_time = std::chrono::system_clock::now();
@@ -223,7 +223,10 @@ namespace turbo::jam::fuzzer_runner {
                     file::read(path, tc_data);
                     _append_test_cases(test_cases, tc_data);
                 }
-                const auto ok = _io_worker.sync_call(_test_sample(std::move(test_cases)));
+                auto genesis = _load_genesis_header(sample_dir);
+                if (!genesis)
+                    genesis = shared_genesis;
+                const auto ok = _io_worker.sync_call(_test_sample(std::move(test_cases), std::move(genesis)));
                 logger::info("sample {}({}): {} in {:0.3f} sec", sample_dir, paths.size(), ok ? "OK" : "FAILED",
                     std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count());
                 return ok;
@@ -237,10 +240,24 @@ namespace turbo::jam::fuzzer_runner {
 
         bool test_dir(const std::filesystem::path &data_dir)
         {
+            // Truncated traces may omit genesis.bin. Share it only when all available
+            // genesis headers in this corpus agree; their initialization states may differ.
+            std::optional<header_t<CFG>> shared_genesis{};
+            for (const auto &e: std::filesystem::directory_iterator(data_dir)) {
+                if (e.is_directory() && !e.path().filename().string().starts_with('.')) {
+                    if (auto genesis = _load_genesis_header(e.path())) {
+                        if (shared_genesis && *shared_genesis != *genesis) {
+                            shared_genesis.reset();
+                            break;
+                        }
+                        shared_genesis = std::move(genesis);
+                    }
+                }
+            }
             size_t ok = 0, err = 0;
             for (const auto &e: std::filesystem::directory_iterator(data_dir)) {
                 if (e.is_directory() && !e.path().filename().string().starts_with('.')) {
-                    auto &cnt = test_sample(e.path().string()) ? ok : err;
+                    auto &cnt = test_sample(e.path().string(), shared_genesis) ? ok : err;
                     ++cnt;
                 }
             }
@@ -265,6 +282,16 @@ namespace turbo::jam::fuzzer_runner {
         io_worker_t &_io_worker;
         perf_stats_t _stats{};
 
+        static std::optional<header_t<CFG>> _load_genesis_header(const std::filesystem::path &sample_dir)
+        {
+            const auto path = sample_dir / "genesis.bin";
+            if (!std::filesystem::exists(path))
+                return std::nullopt;
+            const auto bytes = file::read(path.string());
+            decoder dec{bytes};
+            return codec::from<header_t<CFG>>(dec);
+        }
+
         static void _append_test_cases(test_cases_t &test_cases, const buffer tc_data)
         {
             decoder dec{tc_data};
@@ -278,12 +305,12 @@ namespace turbo::jam::fuzzer_runner {
             co_return ::turbo::variant::get_nice<state_snapshot_t>(_proc->process(message_t<CFG>{get_state_t{hh}}));
         }
 
-        boost::asio::awaitable<bool> _test_sample(const test_cases_t test_cases)
+        boost::asio::awaitable<bool> _test_sample(const test_cases_t test_cases, const std::optional<header_t<CFG>> genesis={})
         {
             if (test_cases.empty()) [[unlikely]]
                 throw error("test_sample: no test cases provided!");
             const auto &tc0 = test_cases[0];
-            auto pre_root = ::turbo::variant::get_nice<state_root_t>(co_await _proc->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals)}));
+            auto pre_root = ::turbo::variant::get_nice<state_root_t>(co_await _proc->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals, genesis)}));
             logger::trace("pre_root: {}", pre_root);
             for (size_t i = 0; i < test_cases.size(); ++i) {
                 const auto &tc = test_cases[i];

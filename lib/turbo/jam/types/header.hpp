@@ -70,12 +70,6 @@ namespace turbo::jam {
             _add(item_t{slot, hash, std::move(sr), std::move(undo)});
         }
 
-        // Snapshot history has no slots; an all-zero root means genesis state.
-        void add(const header_hash_t &blk_hash, const state_root_t &state_root) {
-            static const state_root_t null_root{};
-            add(0U, blk_hash, state_root != null_root ? std::optional{state_root} : std::nullopt);
-        }
-
         const_iterator known(const header_hash_t &parent_hash, const state_root_t &parent_state_root) const {
             const auto parent_it = std::find_if(this->begin(), this->end(), [&](const auto &a) {
                 return a.header_hash == parent_hash;

@@ -70,7 +70,7 @@ namespace turbo::jam::fuzzer {
         state_snapshot_t state;
         ancestry_t<CFG> ancestry;
 
-        static initialize_t from_snapshot(const state_snapshot_t &state);
+        static initialize_t from_snapshot(const state_snapshot_t &state, const std::optional<header_t<CFG>> &genesis={});
 
         void serialize(auto &archive)
         {

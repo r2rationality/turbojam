@@ -5,6 +5,7 @@
 
 #include <turbo/common/test.hpp>
 #include "state.hpp"
+#include "machine/program-builder.hpp"
 
 namespace {
     using namespace turbo;
@@ -29,6 +30,42 @@ namespace {
 }
 
 suite turbo_jam_state_suite = [] {
+    "turbo::jam::state::refine"_test = [] {
+        using cfg = config_tiny;
+        accounts_t<cfg> accounts{make_db()};
+        work_package_t<cfg> package{};
+        package.items.resize(1);
+        auto &item = package.items[0];
+        item.service = 100;
+        item.refine_gas_limit = 10'000;
+
+        machine::program_builder_t program{};
+        program.return_bytes(0, 0);
+        program.pad_image(cfg::WA_max_is_authorized_code_size + 1);
+        const auto code = program.program_bytes();
+        item.code_hash = crypto::blake2b::digest<opaque_hash_t>(code);
+        service_info_t<cfg> info{};
+        info.code_hash = item.code_hash;
+        accounts.info_set(item.service, info);
+        accounts.preimage_set(item.service, item.code_hash, code);
+        accounts.lookup_set(item.service, {item.code_hash, numeric_cast<uint32_t>(code.size())}, {0});
+
+        const auto run = [&] { return state_t<cfg>::refine(0, 0, package, {}, {}, 0, accounts); };
+        const auto funded = run();
+        expect(std::holds_alternative<work_result_ok_t>(funded.result))
+            << "refine code may exceed the authorization code-size limit";
+        expect(funded.gas_used > 0 && funded.gas_used <= item.refine_gas_limit);
+        item.refine_gas_limit = 0;
+        const auto unfunded = run();
+        expect(std::holds_alternative<work_result_out_of_gas_t>(unfunded.result))
+            << "refine must use the work item's declared budget";
+        expect_equal(gas_t{0}, unfunded.gas_used);
+
+        item.refine_gas_limit = cfg::GR_max_refine_gas + 1;
+        expect(throws([&] { (void)run(); })) << "refine rejects an invalid package before execution";
+        expect(throws([&] { (void)state_t<cfg>::is_authorized(package, 0, {}, accounts); }))
+            << "authorization rejects an invalid package before execution";
+    };
     "turbo::jam::account_updates"_test = [] {
         "copies and forks apply only to the explicit destination"_test = [] {
             for (const bool fork: {false, true}) {

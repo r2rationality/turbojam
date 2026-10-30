@@ -17,41 +17,41 @@ namespace turbo::jam {
             const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry, const bool load_existing):
             _id{id},
             _path{path},
-            _triedb{std::make_shared<triedb::db_t>((std::filesystem::path{path} / "kv").string(), load_existing)},
-            _genesis_state{genesis_state}
+            _triedb{std::make_shared<triedb::db_t>((std::filesystem::path{path} / "kv").string(), load_existing)}
         {
-            _genesis_header = state_t<CFG>::make_genesis_header(_genesis_state);
-            if (ancestry)
-                _ancestry = std::move(*ancestry);
-            if (!prev_state.empty()) {
-                _triedb->replace_with(prev_state);
-                _state.emplace(_triedb);
-                const auto &beta = _state->beta.unmodified();
-                for (const auto &h: beta.history) {
-                    _ancestry.add(h.header_hash, h.state_root);
-                }
-            }
+            // Opening an existing database without a snapshot must not clear it.
+            reset(genesis_state, prev_state, std::move(ancestry), false);
         }
 
-        void reset(const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry)
+        void reset(const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state,
+            std::optional<ancestry_t<CFG>> ancestry, const bool clear_empty_state=true)
         {
             _genesis_state = genesis_state;
             _genesis_header = state_t<CFG>::make_genesis_header(_genesis_state);
             _ancestry = ancestry ? std::move(*ancestry) : ancestry_t<CFG>{};
 
-            _triedb->replace_with(prev_state);
+            // An empty snapshot clears storage on reset, but preserves it when opening a chain.
+            // A nonempty snapshot always replaces storage, regardless of clear_empty_state.
+            if (clear_empty_state || !prev_state.empty())
+                _triedb->replace_with(prev_state);
             if (prev_state.empty()) {
                 _state.reset();
-                return;
-            }
-
-            if (!_state)
-                _state.emplace(_triedb);
-            else
-                _state->reset_cache();
-            const auto &beta = _state->beta.unmodified();
-            for (const auto &h: beta.history) {
-                _ancestry.add(h.header_hash, h.state_root);
+            } else {
+                if (!_state)
+                    _state.emplace(_triedb);
+                else
+                    _state->reset_cache();
+                if (!ancestry) {
+                    const auto genesis_hash = _genesis_header.hash();
+                    _ancestry.add(_genesis_header.slot, genesis_hash, _genesis_state.root());
+                    const auto &beta = _state->beta.unmodified();
+                    const auto restored_root = state_root();
+                    // Beta's newest entry has a placeholder root until the next block.
+                    for (const auto &[i, h]: std::views::enumerate(beta.history)) {
+                        if (h.header_hash != genesis_hash)
+                            _ancestry.add(h.slot, h.header_hash, std::cmp_equal(i + 1, beta.history.size()) ? restored_root : h.state_root);
+                    }
+                }
             }
         }
 
