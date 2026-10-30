@@ -81,10 +81,8 @@ namespace turbo::jam::machine {
         bool consume_gas(const gas_remaining_t gas)
         {
             static_assert(std::is_same_v<std::remove_cv_t<decltype(gas)>, decltype(_gas)>);
-            if (gas > _gas) [[unlikely]] {
-                _gas = 0;
+            if (gas > _gas) [[unlikely]]
                 return false;
-            }
             _gas -= gas;
             return true;
         }
@@ -1922,8 +1920,10 @@ namespace turbo::jam::machine {
 
     void machine_t::consume_gas(const gas_t gas)
     {
-        if (!_impl->consume_gas(gas)) [[unlikely]]
+        if (!_impl->consume_gas(gas)) [[unlikely]] {
+            _impl->set_gas(0ULL);
             throw exit_out_of_gas_t{};
+        }
     }
 
     void machine_t::set_gas(const gas_t gas)
