@@ -12,6 +12,7 @@
 #include <optional>
 #include <type_traits>
 #include <variant>
+#include <turbo/common/logger.hpp>
 #include <turbo/jam/types/constants.hpp>
 #include <turbo/jam/encoding.hpp>
 #include <turbo/jam/machine/common.hpp>
@@ -264,8 +265,12 @@ namespace turbo::jam::machine {
                             } else if constexpr (std::is_same_v<HT, exit_halt_t>) {
                                 status = halt_status();
                             } else if constexpr (std::is_same_v<HT, exit_out_of_gas_t>) {
+                                logger::trace("pvm host call failed: id={} pc={:#x} gas_remaining={} reason=out-of-gas",
+                                    rv.id, m->pc(), m->gas());
                                 status = std::move(hv);
                             } else {
+                                logger::trace("pvm host call failed: id={} pc={:#x} gas_remaining={} reason=panic",
+                                    rv.id, m->pc(), m->gas());
                                 status = exit_panic_t {};
                             }
                         }, std::move(h_res));
@@ -278,7 +283,8 @@ namespace turbo::jam::machine {
                     }
                 }, m_res);
             }
-        } catch (const std::exception &) {
+        } catch (const std::exception &ex) {
+            logger::trace("pvm invocation exception: pc={:#x} gas_remaining={} error={}", m->pc(), m->gas(), ex.what());
             status = exit_panic_t {};
         }
         return {

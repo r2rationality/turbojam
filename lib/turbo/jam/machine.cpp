@@ -66,6 +66,21 @@ namespace turbo::jam::machine {
         result_t run()
         {
             auto res = _run();
+            std::visit([&](const auto &rv) {
+                using T = std::decay_t<decltype(rv)>;
+                if constexpr (std::is_same_v<T, exit_panic_t> || std::is_same_v<T, exit_page_fault_t> || std::is_same_v<T, exit_out_of_gas_t>) {
+                    const auto reason = std::is_same_v<T, exit_panic_t> ? "panic"
+                        : std::is_same_v<T, exit_page_fault_t> ? "page-fault" : "out-of-gas";
+                    std::optional<unsigned> opcode{};
+                    if (_pc < _code.instrs.size())
+                        opcode = _code.instrs.at(_pc);
+                    std::optional<address_val_t> fault_addr{};
+                    if constexpr (std::is_same_v<T, exit_page_fault_t>)
+                        fault_addr = rv.addr;
+                    logger::trace("pvm exit: reason={} pc={:#x} opcode={} gas_remaining={} fault_addr={} regs={}",
+                        reason, _pc, opcode, _gas, fault_addr, _regs);
+                }
+            }, res);
             // GP 0.7.2 requires the PC after halt or panic to be zero.
             if (std::holds_alternative<exit_halt_t>(res) || std::holds_alternative<exit_panic_t>(res)) {
                 _pc = 0;
@@ -263,6 +278,10 @@ namespace turbo::jam::machine {
             };
         }
     private:
+        static constexpr address_val_t page_size = config_prod::ZP_pvm_page_size;
+        static constexpr address_val_t page_mask  = page_size - 1;
+        static_assert((page_size & page_mask) == 0, "page size must be power of two");
+
         using vm_page_t = std::array<uint8_t, config_prod::ZP_pvm_page_size>;
 
         struct page_info_t {
@@ -690,7 +709,13 @@ namespace turbo::jam::machine {
                 return {std::move(ex)};
             } catch (exit_out_of_gas_t &ex) {
                 return {std::move(ex)};
-            } catch (...) { // exit_panic_t or an internal error
+            } catch (const exit_panic_t &) {
+                return {exit_panic_t{}};
+            } catch (const std::exception &ex) {
+                logger::trace("pvm internal exception: pc={:#x} gas_remaining={} error={}", _pc, _gas, ex.what());
+                return {exit_panic_t{}};
+            } catch (...) {
+                logger::trace("pvm internal exception: pc={:#x} gas_remaining={} error=unknown", _pc, _gas);
                 return {exit_panic_t{}};
             }
         }
@@ -867,18 +892,16 @@ namespace turbo::jam::machine {
         }
 
         // (A.8)
-        template<size_t SZ>
-        std::pair<address_val_t, const page_info_t *> _addr_check(const address_val_t addr) const
+        std::pair<address_val_t, const page_info_t *> _addr_check(const address_val_t addr, const address_val_t sz) const
         {
-            static constexpr address_val_t page_size  = config_prod::ZP_pvm_page_size;
-            static constexpr address_val_t page_mask  = page_size - 1;
             static constexpr unsigned page_shift = std::countr_zero(page_size);
-            static_assert((page_size & page_mask) == 0, "page size must be power of two");
             if (addr < config_prod::ZZ_pvm_init_zone_size) [[unlikely]]
+                throw exit_panic_t{};
+            if (sz > 8) [[unlikely]]
                 throw exit_panic_t{};
             const auto page_off = addr & page_mask;
             const auto page_id  = addr >> page_shift;
-            if (page_off > page_mask - (SZ - 1)) [[unlikely]]
+            if (page_off > page_mask - (sz - 1)) [[unlikely]]
                 throw exit_page_fault_t{(addr & ~page_mask) + page_size};
             const auto *page = _page_lookup(page_id);
             if (!page) [[unlikely]]
@@ -886,31 +909,48 @@ namespace turbo::jam::machine {
             return {page_off, page};
         }
 
-        template<size_t SZ>
-        std::pair<address_val_t, page_info_t *> _addr_check_mut(const address_val_t addr) const {
-            const auto [page_off, page] = _addr_check<SZ>(addr);
+        std::pair<address_val_t, page_info_t *> _addr_check_mut(const address_val_t addr, const address_val_t sz) const {
+            const auto [page_off, page] = _addr_check(addr, sz);
             return {page_off, const_cast<page_info_t *>(page)};
         }
 
-        template<size_t SZ>
+        void _load_unsigned_single_page(std::span<uint8_t> out, const address_val_t addr) const
+        {
+            const auto [page_off, page_it] = _addr_check(addr, out.size());
+            if (!page_it->is_materialized()) {
+                std::memset(out.data(), 0, out.size());
+            } else {
+                std::memcpy(out.data(), page_it->data() + page_off, out.size());
+            }
+        }
+
+        template<address_val_t SZ>
         register_val_t _load_unsigned(const address_val_t addr) const
         {
-            const auto [page_off, page_it] = _addr_check<SZ>(addr);
-            if (!page_it->is_materialized())
-                return 0;
+            static_assert(SZ == 1 || SZ == 2 || SZ == 4 || SZ == 8);
+            const auto page_off = addr & page_mask;
+            const auto first_load_sz = std::min(page_size - page_off, SZ);
+            std::array<uint8_t, SZ> data;
+            if (first_load_sz < SZ) [[unlikely]] {
+                _load_unsigned_single_page(std::span{data.begin(), data.begin() + first_load_sz}, addr);
+                _load_unsigned_single_page(std::span{data.begin() + first_load_sz, data.end()}, addr + first_load_sz);
+            } else {
+                _load_unsigned_single_page(data, addr);
+            }
+
             if constexpr (SZ == 1) {
-                return page_it->data()[page_off];
+                return data[0];
             } else if constexpr (SZ == 2) {
                 uint16_t res;
-                std::memcpy(&res, page_it->data() + page_off, sizeof(res));
+                std::memcpy(&res, data.data(), sizeof(res));
                 return res;
             } else if constexpr (SZ == 4) {
                 uint32_t res;
-                std::memcpy(&res, page_it->data() + page_off, sizeof(res));
+                std::memcpy(&res, data.data(), sizeof(res));
                 return res;
             } else if constexpr (SZ == 8) {
                 uint64_t res;
-                std::memcpy(&res, page_it->data() + page_off, sizeof(res));
+                std::memcpy(&res, data.data(), sizeof(res));
                 return res;
             } else {
                 throw exit_panic_t{};
@@ -923,14 +963,34 @@ namespace turbo::jam::machine {
             return code_t::sign_extend(SZ, _load_unsigned<SZ>(addr));
         }
 
+        std::pair<address_val_t, page_info_t *> _store_unsigned_prepare_page(const address_val_t addr, const std::span<const uint8_t> src)
+        {
+            auto [page_off, page_it] = _addr_check_mut(addr, src.size());
+            if (!page_it->is_writable()) [[unlikely]]
+                throw exit_page_fault_t{addr - page_off};
+            _materialize_page(*page_it);
+            return {page_off, page_it};
+        }
+
         template<typename T>
         void _store_unsigned(const address_val_t addr, const T val)
         {
-            auto [page_off, page] = _addr_check_mut<sizeof(T)>(addr);
-            if (!page->is_writable()) [[unlikely]]
-                throw exit_page_fault_t{addr - page_off};
-            _materialize_page(*page);
-            std::memcpy(page->data() + page_off, &val, sizeof(val));
+            static_assert(sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
+            const auto page_off = addr & page_mask;
+            std::array<uint8_t, sizeof(T)> src;
+            std::memcpy(src.data(), &val, sizeof(T));
+            const auto first_load_sz = std::min(page_size - page_off, static_cast<address_val_t>(sizeof(T)));
+            if (first_load_sz < src.size()) [[unlikely]] {
+                const std::span src1{src.begin(), src.begin() + first_load_sz};
+                auto [page1_off, page1_it] = _store_unsigned_prepare_page(addr, src1);
+                const std::span src2{src.begin() + first_load_sz, src.end()};
+                auto [page2_off, page2_it] = _store_unsigned_prepare_page(addr + first_load_sz, src2);
+                std::memcpy(page1_it->data() + page1_off, src1.data(), src1.size());
+                std::memcpy(page2_it->data() + page2_off, src2.data(), src2.size());
+            } else {
+                auto [page_off, page_it] = _store_unsigned_prepare_page(addr, src);
+                std::memcpy(page_it->data() + page_off, src.data(), src.size());
+            }
         }
 
         template<typename Pred>
