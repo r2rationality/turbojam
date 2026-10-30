@@ -133,7 +133,7 @@ namespace turbo::jam::machine {
         {
             return {
                 _heap_end / config_prod::ZP_pvm_page_size,
-                _stack_begin / config_prod::ZP_pvm_page_size
+                (_stack_begin ^ (_stack_begin & (config_prod::ZZ_pvm_init_zone_size - 1))) / config_prod::ZP_pvm_page_size
             };
         }
 

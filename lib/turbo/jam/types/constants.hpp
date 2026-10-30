@@ -72,7 +72,9 @@ namespace turbo::jam {
         static constexpr size_t Y_ticket_submission_end = 500U;
         static_assert(Y_ticket_submission_end <=  E_epoch_length * 5 / 6);
         static constexpr size_t ZA_pvm_address_alignment_factor = 2;
+        static constexpr size_t ZC_pvm_max_code_size = 1ULL << 25U;
         static constexpr size_t ZI_pvm_input_size = 1ULL << 24U;
+        static constexpr size_t ZJ_pvm_max_jump_table_size = 1ULL << 24U;
         static constexpr size_t ZP_pvm_page_size = 1ULL << 12U;
         static constexpr size_t ZZ_pvm_init_zone_size = 1ULL << 16U;
 

@@ -628,8 +628,12 @@ namespace turbo::jam::machine {
         {
             decoder dec{bytes};
             const auto jt_sz = dec.uint_varlen();
+            if (jt_sz > config_prod::ZJ_pvm_max_jump_table_size) [[unlikely]]
+                throw error{"jump table too big: {}", jt_sz};
             const auto jt_offset_sz = dec.uint_fixed<uint8_t>(1);
             const auto instrs_size = dec.uint_varlen();
+            if (instrs_size > config_prod::ZC_pvm_max_code_size) [[unlikely]]
+                throw error{"code blov too big: {}", instrs_size};
             offset_list_t jt{};
             jt.reserve(jt_sz);
             while (jt.size() < jt_sz) {

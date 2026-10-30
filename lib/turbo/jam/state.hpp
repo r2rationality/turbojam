@@ -736,6 +736,9 @@ namespace turbo::jam {
     template<typename CFG>
     using deferred_transfers_t = sequence_t<deferred_transfer_t<CFG>>;
 
+    template<typename CFG>
+    using deferred_transfers_span_t = std::span<const deferred_transfer_t<CFG>>;
+
     // JAM (B.7)
     template<typename CFG>
     struct accumulate_context_t {
@@ -906,7 +909,7 @@ namespace turbo::jam {
         services_gas_used_t gas_used{}; // u
 
         // Consume each invocation once, in ascending service-ID order, after conflict validation.
-        void consume_from(service_id_t service_id, accumulate_result_t<CFG> &&o);
+        void consume_from(service_id_t service_id, accumulate_result_t<CFG> &&o, const set_t<service_id_t> &ejected_ids);
     };
 
     // JAM (12.16)
@@ -1155,7 +1158,7 @@ namespace turbo::jam {
             const time_slot_t<CFG> &slot,
             const entropy_t &new_eta0,
             const std::span<const work_report_t<CFG>> &reports,
-            const deferred_transfers_t<CFG> &transfers,
+            const deferred_transfers_span_t<CFG> &transfers,
             const free_services_t *free_services);
         static accumulate_result_t<CFG> accumulate_delta_one(
             mutable_state_t<CFG> state, // e
@@ -1163,7 +1166,7 @@ namespace turbo::jam {
             const entropy_t &new_eta0,
             const service_id_t service_id, // s
             const std::span<const work_report_t<CFG>> &reports, // r
-            const deferred_transfers_t<CFG> &transfers, // t
+            const deferred_transfers_span_t<CFG> &transfers, // t
             const free_services_t *free_services); // f
     };
 }

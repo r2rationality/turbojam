@@ -44,7 +44,7 @@ namespace turbo_jam_accumulate_test {
         static constexpr service_id_t actor = 100;
         static constexpr service_id_t target = 200;
         static constexpr balance_t initial_balance = 10'000;
-        static constexpr gas_t gas_budget = 1'000;
+        static constexpr gas_t gas_budget = 100'000;
 
         accounts_t<cfg> accounts{std::make_shared<storage::memory::db_t>()};
         privileges_t<cfg> chi{};
@@ -307,7 +307,7 @@ suite turbo_jam_accumulate_suite = [] {
         "test vectors"_test = [] {
             static const auto test_prefix = test_vector_dir("stf/accumulate/");
             static std::optional<std::string> override_test{};
-            //override_test.emplace("tiny/always_accumulate-1");
+            //override_test.emplace("tiny/designate_with_invalid_count-1");
             if (!override_test) {
                 for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                     test_file<config_tiny>(path.substr(0, path.size() - 4));
@@ -528,26 +528,26 @@ suite turbo_jam_accumulate_suite = [] {
                 }
             };
 
-            "ejection conflicting with recipient account is rejected"_test = [] {
-                accumulate_program_t program{};
-                program.host_call(host_call_t::eject, {fixture_t::target, program.zero_hash});
-                program.halt();
-                fixture_t f{program};
-                f.add_ejectable_target();
+            "ejection overrides recipient account in either merge order"_test = [] {
+                for (const auto target: {service_id_t{50}, fixture_t::target}) {
+                    accumulate_program_t program{};
+                    program.host_call(host_call_t::eject, {target, program.zero_hash});
+                    program.halt();
+                    fixture_t f{program};
+                    f.add_ejectable_target(target);
 
-                for (const auto amount: {balance_t{0}, balance_t{50}}) {
-                    const deferred_transfers_t<cfg> transfers{{
-                        .source=300, .destination=fixture_t::target, .amount=amount, .metadata={}, .gas_limit=0
-                    }};
-                    // (12.19): the recipient contributes its own account even with no code and zero credit,
-                    // when it stages no writes. That contribution conflicts with the registrar's ejection.
-                    bool conflict = false;
-                    try {
-                        (void)f.star(transfers);
-                    } catch (const err_accumulate_conflict_t &) {
-                        conflict = true;
+                    for (const auto amount: {balance_t{0}, balance_t{50}}) {
+                        const deferred_transfers_t<cfg> transfers{{
+                            .source=300, .destination=target, .amount=amount, .metadata={}, .gas_limit=0
+                        }};
+                        const auto result = f.star(transfers);
+                        expect(!result.state.services.contains(target)) << "target=" << target << " amount=" << amount;
+                        expect(!result.state.services.lookup_get(target, {opaque_hash_t{}, 0}).has_value());
+                        // The ejector sees the initial balance, not the concurrent incoming credit.
+                        expect_equal(2 * fixture_t::initial_balance, result.state.services.info_get_or_throw(fixture_t::actor).balance);
+                        expect(result.commitments.contains(service_commitment_item_t{fixture_t::actor, opaque_hash_t{}}));
+                        expect_equal(gas_t{0}, result.gas_used.at(target));
                     }
-                    expect(conflict) << "transfer amount=" << amount;
                 }
             };
         };

@@ -441,7 +441,7 @@ namespace turbo::jam {
         const entropy_t &new_eta0,
         const service_id_t service_id, // s
         const std::span<const work_report_t<CFG>> &reports, // r
-        const deferred_transfers_t<CFG> &transfers, // t
+        const deferred_transfers_span_t<CFG> &transfers, // t
         const free_services_t *free_services) // f
     {
         logger::trace("accumulate_delta_one {} invocation t-count: {} r-count: {}",
@@ -540,12 +540,15 @@ namespace turbo::jam {
 
     // (12.19)
     template<typename CFG>
-    void delta_star_result_t<CFG>::consume_from(const service_id_t service_id, accumulate_result_t<CFG> &&o) {
+    void delta_star_result_t<CFG>::consume_from(const service_id_t service_id, accumulate_result_t<CFG> &&o,
+        const set_t<service_id_t> &ejected_ids) {
         // (12.19): merge n_s over initial accounts and apply m_s's staged deletions.
-        // Conflict validation makes account merging independent of invocation order.
-        if (!o.updated_foreign_ids.empty()) [[unlikely]] {
+        // Deletion wins over the recipient's own account, including incoming transfer credit.
+        // Keep the ejector's deletion writes so the result is independent of merge order.
+        const bool discard_self = ejected_ids.contains(service_id);
+        if (discard_self || !o.updated_foreign_ids.empty()) [[unlikely]] {
             state.services.consume_from(std::move(o.state.services), [&](const service_id_t id) {
-                return !o.updated_foreign_ids.contains(id);
+                return !o.updated_foreign_ids.contains(id) && !(discard_self && id == service_id);
             });
         } else {
             state.services.consume_from(std::move(o.state.services));
@@ -556,7 +559,8 @@ namespace turbo::jam {
         gas_used.emplace(service_id, o.gas); // u-bold
     }
 
-    // (12.19): different services must not contribute the same index to keys(n) union m.
+    // Reject competing foreign contributions and creations overlapping a service's own account.
+    // Ejections may overlap the target's own account; the merge gives deletion precedence.
     template<typename CFG>
     static service_result_map_t<CFG> accumulate_check_conflicts(const set_t<service_id_t> &ids, service_results_par_t<CFG> &&results)
     {
@@ -577,14 +581,15 @@ namespace turbo::jam {
             std::map<service_id_t, service_id_t> foreign_contributors{};
             for (const auto &[active_id, service_res]: res) {
                 const auto check = [&](const service_id_t affected_id) {
-                    if (const auto self_it = res.find(affected_id); self_it != res.end() && self_it->second.state.services.contains(affected_id)) [[unlikely]]
-                        throw err_accumulate_conflict_t{};
                     const auto [it, created] = foreign_contributors.try_emplace(affected_id, active_id);
                     if (!created && it->second != active_id) [[unlikely]]
                         throw err_accumulate_conflict_t{};
                 };
-                for (const auto id: service_res.new_ids)
+                for (const auto id: service_res.new_ids) {
+                    if (const auto self_it = res.find(id); self_it != res.end() && self_it->second.state.services.contains(id)) [[unlikely]]
+                        throw err_accumulate_conflict_t{};
                     check(id);
+                }
                 for (const auto id: service_res.ejected_ids)
                     check(id);
             }
@@ -599,7 +604,7 @@ namespace turbo::jam {
         const time_slot_t<CFG> &blk_slot,
         const entropy_t &new_eta0,
         const std::span<const work_report_t<CFG>> &reports,
-        const deferred_transfers_t<CFG> &transfers,
+        const deferred_transfers_span_t<CFG> &transfers,
         const free_services_t *free_services)
     {
         set_t<service_id_t> service_ids{}; // s-bold - the set of all to-be-accumulated services
@@ -675,8 +680,13 @@ namespace turbo::jam {
                 if (const auto phi_it = a_it->second.state.phi.find(ci); phi_it != a_it->second.state.phi.end())
                     res.state.phi[ci] = std::move(phi_it->second);
 
+        // Use the selected post-states' deletions, local to this round. An eject-then-recreate
+        // within one invocation is classified as a foreign update, not a deletion.
+        set_t<service_id_t> ejected_ids{};
+        for (const auto &[s_id, s_res]: service_res)
+            ejected_ids.insert(s_res.ejected_ids.begin(), s_res.ejected_ids.end());
         for (auto &&[s_id, s_res]: service_res)
-            res.consume_from(s_id, std::move(s_res));
+            res.consume_from(s_id, std::move(s_res), ejected_ids);
 
         // integrate preimages only after the final service state is ready
         for (auto &&[s_id, s_res]: service_res)
@@ -703,7 +713,7 @@ namespace turbo::jam {
         const time_slot_t<CFG> &blk_slot, const entropy_t &new_eta0
     ) {
         const free_services_t *free_services = &prev_chi.always_acc; // f-bold, nullptr implies an empty set
-        deferred_transfers_t<CFG> transfers{}; // t-bold
+        deferred_transfers_span_t<CFG> transfers{}; // t-bold
         delta_plus_result_t<CFG> res{{prev_delta, prev_chi}}; // e-bold
         for (;;) {
             size_t num_reports = 0; // i
@@ -746,8 +756,10 @@ namespace turbo::jam {
                     throw error("PVM implementation error: the actually consumed gas is above the limit!");
                 gas_limit -= gas_used;
             }
-            transfers = std::move(star_res.transfers);
+            // copy
+            const auto num_transfers = star_res.transfers.size();
             res.consume_from(std::move(star_res));
+            transfers = deferred_transfers_span_t<CFG>{res.transfers.end() - num_transfers, res.transfers.end()};
             res.num_accumulated += num_reports;
             reports = reports.subspan(num_reports);
             free_services = nullptr;
@@ -834,13 +846,17 @@ namespace turbo::jam {
             ++s_stats.accumulate_transfer_count;
         }
 
-        // (12.29) + (12.31)
         for (const auto &[s_id, gas_used]: plus_res.gas_used) {
             if (gas_used) {
                 auto &s_stats = new_pi_services[s_id];
                 s_stats.accumulate_gas_used += gas_used;
             }
-            if (gas_used || service_acc_reports.contains(s_id)) {
+        }
+
+        for (const auto &[s_id, s_stats]: new_pi_services) {
+            if (static_cast<int>(s_stats.accumulate_count > 0)
+                    | static_cast<int>(s_stats.accumulate_transfer_count > 0)
+                    | static_cast<int>(s_stats.accumulate_gas_used > 0)) {
                 if (auto info = plus_res.state.services.info_get(s_id); info) {
                     info->last_accumulation_slot = blk_slot;
                     plus_res.state.services.info_set(s_id, std::move(*info));
