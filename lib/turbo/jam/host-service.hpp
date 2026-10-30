@@ -58,7 +58,9 @@ namespace turbo::jam {
                 return std::monostate {};
             } catch (machine::exit_out_of_gas_t &ex) {
                 return machine::exit_out_of_gas_t { std::move(ex) };
-            } catch (const machine::exit_page_fault_t &) {
+            } catch (const machine::exit_page_fault_t &ex) {
+                logger::trace("host call page fault: service={} pc={:#x} gas_remaining={} fault_addr={:#x}",
+                    _p.service_id, _p.m.pc(), _p.m.gas(), ex.addr);
                 return machine::exit_panic_t {};
             } catch (const std::exception &ex) {
                 logger::error("host call failed with error: {}", ex.what());

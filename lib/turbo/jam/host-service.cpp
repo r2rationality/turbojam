@@ -649,6 +649,8 @@ namespace turbo::jam {
         });
     }
 
+    // Temporary jam-test-vectors compatibility:
+    // CHANGELOG.md documents permissive bless until GP #519/#558 adoption.
     template<typename CFG>
     void host_service_accumulate_t<CFG>::bless()
     {
@@ -656,54 +658,31 @@ namespace turbo::jam {
         const auto [m, a, v, r, o, n] = this->_p.m.regs(std::index_sequence<7, 8, 9, 10, 11, 12>{});
         this->_consume_count_rated_gas(20ULL, n, 422ULL);
 
-        const auto &old_chi = _ok.state.chi.get();
-        // Keep scalar IDs at register width until permission and range checks pass.
-        constexpr auto keep = std::numeric_limits<machine::register_val_t>::max();
-        const auto new_m = m == keep ? old_chi.bless : m;
-        const auto new_v = v == keep ? old_chi.designate : v;
-        const auto new_r = r == keep ? old_chi.registrar : r;
+        auto new_chi = _ok.state.chi.get();
+        const auto assign_bytes = this->_p.m.mem_read(a, 4 * CFG::C_core_count);
+        new_chi.assign = jam::from_bytes<assigners_t<CFG>>(assign_bytes);
 
-        auto new_chi = old_chi;
-        if (a != keep) {
-            const auto bytes = this->_p.m.mem_read(a, 4 * CFG::C_core_count);
-            new_chi.assign = jam::from_bytes<assigners_t<CFG>>(bytes);
-        }
-        if (o != keep) {
-            if (n > keep / 12U) [[unlikely]]
-                throw machine::exit_page_fault_t{std::numeric_limits<machine::address_val_t>::max()};
-            const auto bytes = this->_p.m.mem_read(o, n * 12U);
-            decoder dec{bytes};
-            new_chi.always_acc.clear();
-            new_chi.always_acc.reserve(n);
-            for (size_t i = 0; i < n; ++i) {
-                const auto s = dec.uint_fixed<service_id_t>(4);
-                const auto g = dec.uint_fixed<gas_t>(8);
-                new_chi.always_acc.emplace_hint(new_chi.always_acc.end(), s, g);
-            }
+        if (n > std::numeric_limits<machine::register_val_t>::max() / 12U) [[unlikely]]
+            throw machine::exit_page_fault_t{std::numeric_limits<machine::address_val_t>::max()};
+
+        const auto acc_bytes = this->_p.m.mem_read(o, n * 12U);
+        decoder dec{acc_bytes};
+        new_chi.always_acc.clear();
+        new_chi.always_acc.reserve(n);
+        for (size_t i = 0; i < n; ++i) {
+            const auto s = dec.uint_fixed<service_id_t>(4);
+            const auto g = dec.uint_fixed<gas_t>(8);
+            new_chi.always_acc.emplace_hint(new_chi.always_acc.end(), s, g);
         }
 
-        const auto caller = _ok.service_id;
-        const auto may_replace = [&](const auto &current, const auto &proposed, const service_id_t owner) {
-            return current == proposed || caller == old_chi.bless || caller == owner;
-        };
-        bool permitted = may_replace(old_chi.bless, new_m, old_chi.bless)
-            && may_replace(old_chi.always_acc, new_chi.always_acc, old_chi.bless)
-            && may_replace(old_chi.designate, new_v, old_chi.designate)
-            && may_replace(old_chi.registrar, new_r, old_chi.registrar);
-        for (size_t c = 0; c < old_chi.assign.size(); ++c)
-            permitted &= may_replace(old_chi.assign[c], new_chi.assign[c], old_chi.assign[c]);
-
-        if (!permitted) [[unlikely]] {
-            this->_p.m.set_reg(7, machine::host_call_res_t::huh);
-            return;
-        }
-        if (std::max(std::max(new_m, new_v), new_r) > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
+        if (std::max(std::max(m, v), r) > std::numeric_limits<service_id_t>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::who);
             return;
         }
-        new_chi.bless = static_cast<service_id_t>(new_m);
-        new_chi.designate = static_cast<service_id_t>(new_v);
-        new_chi.registrar = static_cast<service_id_t>(new_r);
+
+        new_chi.bless = static_cast<service_id_t>(m);
+        new_chi.designate = static_cast<service_id_t>(v);
+        new_chi.registrar = static_cast<service_id_t>(r);
         _ok.state.chi.set(std::move(new_chi));
         this->_p.m.set_reg(7, machine::host_call_res_t::ok);
     }
@@ -940,11 +919,11 @@ namespace turbo::jam {
         this->_p.m.consume_gas(643ULL);
         const auto &phi = this->_p.m.regs();
         lookup_meta_map_key_t key;
-        this->_p.m.mem_read(key.hash, phi[7]);
         if (phi[8] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
+        this->_p.m.mem_read(key.hash, phi[7]);
         key.length = static_cast<uint32_t>(phi[8]);
         logger::trace("gas: {} host_service::query service: {} h: {} l: {}", this->_p.m.gas(), this->_p.service_id, key.hash, key.length);
         const auto a = this->_p.services.lookup_get(this->_p.service_id, key);
@@ -981,11 +960,11 @@ namespace turbo::jam {
         this->_p.m.consume_gas(2193ULL);
         const auto &phi = this->_p.m.regs();
         lookup_meta_map_key_t key;
-        this->_p.m.mem_read(key.hash, phi[7]);
         if (phi[8] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
+        this->_p.m.mem_read(key.hash, phi[7]);
         key.length = static_cast<uint32_t>(phi[8]);
         logger::trace("gas: {} host_service::solicit service: {} h: {} l: {}", this->_p.m.gas(), this->_p.service_id, key.hash, key.length);
         auto info = this->_service_info();
@@ -1014,11 +993,11 @@ namespace turbo::jam {
         this->_p.m.consume_gas(3250U);
         const auto &phi = this->_p.m.regs();
         lookup_meta_map_key_t key;
-        this->_p.m.mem_read(key.hash, phi[7]);
         if (phi[8] > std::numeric_limits<decltype(key.length)>::max()) [[unlikely]] {
             this->_p.m.set_reg(7, machine::host_call_res_t::huh);
             return;
         }
+        this->_p.m.mem_read(key.hash, phi[7]);
         key.length = static_cast<uint32_t>(phi[8]);
         logger::trace("gas: {} host_service::forget service: {} h: {} l: {}", this->_p.m.gas(), this->_p.service_id, key.hash, key.length);
         auto l_res = this->_p.services.lookup_get(this->_p.service_id, key);

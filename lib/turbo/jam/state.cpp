@@ -421,7 +421,8 @@ namespace turbo::jam {
         return std::visit([&](auto &&rv) -> accumulate_result_t<CFG> {
             using T = std::decay_t<decltype(rv)>;
             if constexpr (std::is_same_v<T, machine::exit_panic_t> || std::is_same_v<T, machine::exit_out_of_gas_t>) {
-                logger::trace("accumulate_delta_one {} failed with an error gas used: {}", service_id, gas_used);
+                logger::trace("accumulate_delta_one {} failed: reason={} gas_used={}", service_id,
+                    std::is_same_v<T, machine::exit_panic_t> ? "panic" : "out-of-gas", gas_used);
                 return {std::move(err_ctx), gas_used};
             } else if (rv.size() == sizeof(opaque_hash_t)) {
                 logger::trace("accumulate_delta_one {} returned a hash: {} gas used: {}", service_id, rv, gas_used);
