@@ -906,7 +906,7 @@ namespace turbo::jam {
         const time_slot_t<CFG> &tau, const accounts_t<CFG> &services)
     {
         p.validate_limits();
-        const auto code = services.preimage_get(p.auth_code_host, p.auth_code_hash);
+        const auto code = services.historical_lookup(p.auth_code_host, p.context.lookup_anchor_slot, p.auth_code_hash);
         if (!code) [[unlikely]]
             return {work_result_bad_code_t{}};
         if (code->size() > CFG::WA_max_is_authorized_code_size) [[unlikely]]
