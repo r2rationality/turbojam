@@ -311,12 +311,12 @@ namespace turbo::jam {
                         }
                         case 2U: {
                             if (static_cast<int>((*l)[0] <= t) & static_cast<int>(t < (*l)[1]))
-                                return {};
+                                return code;
                             break;
                         }
                         case 3U: {
                             if ((static_cast<int>((*l)[0] <= t) & static_cast<int>(t < (*l)[1])) | static_cast<int>((*l)[2] <= t))
-                                return {};
+                                return code;
                             break;
                         }
                     }
