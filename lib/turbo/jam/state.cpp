@@ -1053,12 +1053,12 @@ namespace turbo::jam {
             all_known_packages.reserve(CFG::C_core_count * CFG::E_epoch_length);
             std::unordered_set<opaque_hash_t> recent_known_packages{};
             recent_known_packages.reserve(CFG::C_core_count * CFG::H_max_blocks_history);
-            std::set<opaque_hash_t> known_segment_roots{};
+            std::set<std::pair<work_package_hash_t, exports_root_t>> known_exports{};
             for (const auto &blk: new_beta) {
                 for (const auto &wr: blk.reported) {
                     recent_known_packages.emplace(wr.hash);
                     all_known_packages.emplace(wr.hash);
-                    known_segment_roots.insert(wr.exports_root);
+                    known_exports.emplace(wr.hash, wr.exports_root);
                 }
             }
 
@@ -1080,7 +1080,7 @@ namespace turbo::jam {
             std::set<opaque_hash_t> wp_hashes{};
             for (const auto &g: guarantees) {
                 wp_hashes.emplace(g.report.package_spec.hash);
-                known_segment_roots.insert(g.report.package_spec.exports_root);
+                known_exports.emplace(g.report.package_spec.hash, g.report.package_spec.exports_root);
             }
 
             std::optional<core_index_t> prev_core{};
@@ -1129,17 +1129,25 @@ namespace turbo::jam {
                     throw err_lookup_anchor_not_recent_t{};
 
                 // JAM Paper (11.35)
-                const auto lblk_it = std::find_if(new_beta.begin(), new_beta.end(), [&g](const auto &blk) {
-                    return blk.header_hash == g.report.context.lookup_anchor;
+                const auto &ctx = g.report.context;
+                const auto lblk_it = std::find_if(new_beta.begin(), new_beta.end(), [&ctx](const auto &blk) {
+                    return blk.header_hash == ctx.lookup_anchor;
                 });
-                if (lblk_it == new_beta.end()) [[unlikely]] {
-                    const auto a_it = std::lower_bound(ancestry.begin(), ancestry.end(), g.report.context.lookup_anchor_slot,
+                if (lblk_it != new_beta.end()) {
+                    if (lblk_it->slot != ctx.lookup_anchor_slot || lblk_it->state_root != ctx.lookup_anchor_state_root) [[unlikely]]
+                        throw err_segment_root_lookup_invalid_t{};
+                } else {
+                    const auto a_it = std::lower_bound(ancestry.begin(), ancestry.end(), ctx.lookup_anchor_slot,
                         [](const auto &a, const auto &v) { return a.slot < v; });
-                    if (a_it == ancestry.end() || a_it->slot != g.report.context.lookup_anchor_slot || a_it->header_hash != g.report.context.lookup_anchor) [[unlikely]]
+                    if (a_it == ancestry.end() || a_it->slot != ctx.lookup_anchor_slot || a_it->header_hash != ctx.lookup_anchor) [[unlikely]]
+                        throw err_segment_root_lookup_invalid_t{};
+                    // Missing evidence is incomplete validation context, not a root mismatch.
+                    if (!a_it->state_root) [[unlikely]]
+                        throw error{"lookup-anchor state root unavailable in ancestry"};
+                    if (*a_it->state_root != ctx.lookup_anchor_state_root) [[unlikely]]
                         throw err_segment_root_lookup_invalid_t{};
                 }
 
-                // JAM Paper (11.38)
                 if (all_known_packages.contains(g.report.package_spec.hash)) [[unlikely]]
                     throw err_duplicate_package_t{};
 
@@ -1157,9 +1165,7 @@ namespace turbo::jam {
                 }
 
                 for (const auto &s: g.report.segment_root_lookup) {
-                    if (!recent_known_packages.contains(s.work_package_hash) && !wp_hashes.contains(s.work_package_hash)) [[unlikely]]
-                        throw err_segment_root_lookup_invalid_t{};
-                    if (!known_segment_roots.contains(s.segment_tree_root)) [[unlikely]]
+                    if (!known_exports.contains({s.work_package_hash, s.segment_tree_root})) [[unlikely]]
                         throw err_segment_root_lookup_invalid_t{};
                 }
 
