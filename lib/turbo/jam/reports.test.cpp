@@ -282,7 +282,9 @@ suite turbo_jam_reports_suite = [] {
     "turbo::jam::reports"_test = [] {
         static const std::string test_prefix = "stf/reports/";
         static std::optional<std::string> override_test{};
-        //override_test.emplace("tiny/lookup_anchor_not_recent-1");
+#if !defined(NDEBUG)
+        //override_test.emplace("tiny/report_curr_rotation-1");
+#endif
         if (!override_test) {
             "tiny"_test = [] {
                 for (const auto &path: file::files_with_ext(test_vector_dir(test_prefix + "tiny"), ".bin")) {

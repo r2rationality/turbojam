@@ -307,7 +307,9 @@ suite turbo_jam_accumulate_suite = [] {
         "test vectors"_test = [] {
             static const auto test_prefix = test_vector_dir("stf/accumulate/");
             static std::optional<std::string> override_test{};
+#if !defined(NDEBUG)
             //override_test.emplace("tiny/designate_with_invalid_count-1");
+#endif
             if (!override_test) {
                 for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                     test_file<config_tiny>(path.substr(0, path.size() - 4));

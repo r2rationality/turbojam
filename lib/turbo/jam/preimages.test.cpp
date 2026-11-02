@@ -196,7 +196,9 @@ suite turbo_jam_preimages_suite = [] {
     "turbo::jam::preimages"_test = [] {
         static const auto test_prefix = test_vector_dir("stf/preimages/");
         static std::optional<std::string> override_test{};
+#if !defined(NDEBUG)
         //override_test.emplace("tiny/preimage_needed-2");
+#endif
         if (!override_test) {
             for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));

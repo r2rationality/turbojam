@@ -80,7 +80,9 @@ suite turbo_jam_history_suite = [] {
     "turbo::jam::history"_test = [] {
         static const auto test_prefix = test_vector_dir("stf/history/");
         static std::optional<std::string> override_test{};
+#if !defined(NDEBUG)
         //override_test.emplace("tiny/progress_blocks_history-2");
+#endif
         if (!override_test) {
             for (const auto &path: file::files_with_ext(test_prefix + "tiny", ".bin")) {
                 test_file<config_tiny>(path.substr(0, path.size() - 4));
