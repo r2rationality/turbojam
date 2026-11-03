@@ -8,6 +8,7 @@
 #include <turbo/common/test.hpp>
 #include <turbo/codec/json.hpp>
 #include "machine.hpp"
+#include "machine/program-builder.hpp"
 
 namespace {
     using namespace std::string_view_literals;
@@ -248,6 +249,70 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
+        "gas model reorder buffer wraparound"_test = [] {
+            for (const size_t count: {1U, 31U, 32U, 33U, 64U, 97U}) {
+                machine::program_builder_t program{};
+                for (size_t i = 0; i < count; ++i)
+                    program.emit({203, 0x10, 0}); // div_u_64 r0, r1 -> r0
+                const auto code = program.build_code();
+                expect_equal(size_t{1}, code.blocks().size());
+                const auto &block = code.blocks().at(0);
+                // Each dependent division takes 60 cycles. The independent delimiter
+                // trap finishes while the divisions fill and drain the reorder buffer.
+                expect_equal(gas_t{60} * count, block.cost);
+                expect_equal(count + 1, block.opcodes.size());
+            }
+        };
+        "gas model retired dependencies and move aliases"_test = [] {
+            for (const size_t count: {1U, 31U, 32U, 33U, 64U, 97U}) {
+                machine::program_builder_t program{};
+                for (size_t i = 0; i < count; ++i) {
+                    program.load(0, 7);
+                    program.emit({203, 0x21, 3}); // div_u_64 r1, r2 -> r3
+                    program.move(5, 0);
+                    program.move(6, 3);
+                    program.emit({200, 0x65, 4}); // add_64 r5, r6 -> r4
+                }
+                const auto code = program.build_code();
+                expect_equal(size_t{1}, code.blocks().size());
+                const auto &block = code.blocks().at(0);
+                // Each add depends on a load that retires before its division finishes.
+                // One divider serializes the 60-cycle divisions; the initial load
+                // delays the first division by one tick, and the final add takes one.
+                expect_equal(gas_t{60} * count + 2, block.cost);
+                expect_equal(5 * count + 1, block.opcodes.size());
+            }
+        };
+        "gas model reused slots do not revive satisfied dependencies"_test = [] {
+            machine::program_builder_t program{};
+            program.emit({202, 0x21, 0}); // mul_64 r1, r2 -> r0 (slot 0)
+            program.emit({203, 0x21, 3}); // div_u_64 r1, r2 -> r3 (slot 1)
+            program.emit({200, 0x30, 4}); // add_64 r0, r3 -> r4 (depends on both)
+            for (size_t i = 0; i < 29; ++i)
+                program.load(7, 0);
+            program.emit({203, 0x21, 5}); // reuses slot 0 after the multiply retires
+
+            const auto code = program.build_code();
+            expect_equal(size_t{1}, code.blocks().size());
+            const auto &block = code.blocks().at(0);
+            // The add can start alongside the second division, without waiting for it.
+            // Two serialized 60-cycle divisions plus one initial decode stall cost 121.
+            expect_equal(gas_t{121}, block.cost);
+            expect_equal(size_t{34}, block.opcodes.size());
+        };
+        "gas model moves with an empty reorder buffer"_test = [] {
+            for (const size_t count: {0U, 31U, 32U, 33U, 64U, 97U}) {
+                machine::program_builder_t program{};
+                for (size_t i = 0; i < count; ++i)
+                    program.move(1, 0);
+                const auto code = program.build_code();
+                expect_equal(size_t{1}, code.blocks().size());
+                const auto &block = code.blocks().at(0);
+                // Moves use only decode slots (four per cycle); the delimiter costs two.
+                expect_equal(gas_t{count / 4 + 2}, block.cost);
+                expect_equal(count + 1, block.opcodes.size());
+            }
+        };
         //test_gas(file::install_path("test/pvm-test-vectors/pvm/gas-tests/pinky.json"));
         //test_program(file::install_path("test/pvm-test-vectors/pvm/programs/riscv_rv64ua_amoadd_d.json"));
         "jump destinations"_test = [] {

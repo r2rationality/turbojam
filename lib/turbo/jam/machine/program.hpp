@@ -4,6 +4,9 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <cassert>
+#include <bit>
+#include <boost/circular_buffer.hpp>
 #include "opcodes.hpp"
 
 namespace turbo::jam::machine {
@@ -683,10 +686,11 @@ namespace turbo::jam::machine {
         blocks_t _blocks{};
 
         struct reorder_item_t {
-            enum state_t { dec, wait, exe, fin, none };
+            enum state_t { dec, wait, exe, fin };
             state_t state; // s
             size_t cycles; // c
-            boost::container::flat_set<size_t> deps; // p
+            uint32_t deps; // p: reorder slot mask
+            uint32_t slot_mask;
             register_set_t clob_regs; // r
             execution_units_t used_units; // t
         };
@@ -715,23 +719,16 @@ namespace turbo::jam::machine {
             size_t _decode_slots = 4; // d
             size_t _max_instructions = 5; // e
             execution_units_t _exec_units{4, 4, 4, 1, 1}; // t
-            sequence_t<reorder_item_t> _reorder_buffer{};
+            // The gas model permits at most 32 unretired entries.
+            boost::circular_buffer<reorder_item_t> _reorder_buffer{32U};
             sequence_t<opcode_t> _opcodes{};
-            size_t _reorder_buffer_active = 0; // all items of reorder buffer with .state != none
+            uint32_t _unfinished_mask = 0; // slots whose remaining cycles are positive
+            uint32_t _next_slot_mask = 1; // rotates with each appended entry
 
             [[nodiscard]] reorder_item_t *_ready() {
                 for (auto &r: _reorder_buffer) {
-                    if (r.state == reorder_item_t::wait && r.used_units <= _exec_units) {
-                        bool ready = true;
-                        for (const auto &d: r.deps) {
-                            if (_reorder_buffer.at(d).cycles > 0) {
-                                ready = false;
-                                break;
-                            }
-                        }
-                        if (ready)
-                            return &r;
-                    }
+                    if (r.state == reorder_item_t::wait && (r.deps & _unfinished_mask) == 0 && r.used_units <= _exec_units)
+                        return &r;
                 }
                 return nullptr;
             }
@@ -779,25 +776,26 @@ namespace turbo::jam::machine {
                     throw error{"cannot decrement 0 decode slots"};
                 _decode_slots -= d_cost;
                 decltype(reorder_item_t::deps) deps{};
-                for (auto [i, r]: _reorder_buffer | std::views::enumerate) {
+                for (auto &r: _reorder_buffer) {
+                    // FIFO retirement and the 32-entry limit guarantee this slot is free.
+                    // Remove references to its retired occupant before reusing its bit.
+                    r.deps &= ~_next_slot_mask;
                     if (op.src_regs().intersect(r.clob_regs).size() > 0)
-                        deps.emplace_hint(deps.end(), i);
+                        deps |= r.slot_mask;
                     r.clob_regs.del(op.dst_regs());
                 }
-                _reorder_buffer.emplace_back(reorder_item_t::dec, op.cycle_cost(), std::move(deps), op.dst_regs(), op.uint_cost());
-                ++_reorder_buffer_active;
+                _reorder_buffer.push_back({reorder_item_t::dec, op.cycle_cost(), deps & _unfinished_mask, _next_slot_mask, op.dst_regs(), op.uint_cost()});
+                if (op.cycle_cost() > 0)
+                    _unfinished_mask |= _next_slot_mask;
+                _next_slot_mask = std::rotl(_next_slot_mask, 1);
             }
 
             // X''
-            void _simulate_next() {
-                if (_max_instructions == 0) [[unlikely]]
-                    throw error{"cannot simulate next when no instruction slots remain!"};
+            void _simulate_next(reorder_item_t &r) {
+                // the caller ensures that _max_instructions > 0
                 --_max_instructions;
-                auto n = _ready();
-                if (!n) [[unlikely]]
-                    throw error{"cannot simulate next when no instruction is ready!"};
-                _exec_units -= n->used_units;
-                n->state = reorder_item_t::exe;
+                _exec_units -= r.used_units;
+                r.state = reorder_item_t::exe;
             }
 
             // X'''
@@ -807,28 +805,21 @@ namespace turbo::jam::machine {
                 if (_cycles == std::numeric_limits<decltype(_cycles)>::max()) [[unlikely]]
                     throw error{"cannot increment the cycle count; numeric overflow!"};
                 ++_cycles;
-                for (const auto &r: _reorder_buffer) {
-                    if (r.state == reorder_item_t::exe && r.cycles == 1)
-                        _exec_units += r.used_units;
+                // Only entries already FIN at the start of this tick may retire, in order.
+                while (!_reorder_buffer.empty() && _reorder_buffer.front().state == reorder_item_t::fin) {
+                    _reorder_buffer.pop_front();
                 }
-
-                bool all_prev_done = true;
                 for (auto &r: _reorder_buffer) {
-                    if (r.state != reorder_item_t::fin && r.state != reorder_item_t::none)
-                        all_prev_done = false;
-                    if (all_prev_done) {
-                        if (r.state != reorder_item_t::none) {
-                            r.state = reorder_item_t::none;
-                            if (_reorder_buffer_active == 0) [[unlikely]]
-                                throw error{"internal error: reorder_buffer size tracking broke unexpectedly!"};
-                            --_reorder_buffer_active;
-                        }
-                    } else if (r.state == reorder_item_t::dec) {
+                    if (r.state == reorder_item_t::dec) {
                         r.state = reorder_item_t::wait;
                     } else if (r.state == reorder_item_t::exe) {
                         if (r.cycles == 0) {
                             r.state = reorder_item_t::fin;
                         } else {
+                            if (r.cycles == 1) {
+                                _exec_units += r.used_units;
+                                _unfinished_mask &= ~r.slot_mask;
+                            }
                             r.cycles--;
                         }
                     }
@@ -836,15 +827,17 @@ namespace turbo::jam::machine {
             }
 
             void _simulate() {
+                // Keep the current opcode decoded while waiting for decode slots or buffer space.
+                std::optional<opcode_t> op{};
                 for (;;) {
-                    std::optional<opcode_t> op{};
-                    if (_pc < _pc_end)
+                    if (!op && _pc < _pc_end)
                         op.emplace(_opcode(_pc));
-                    if (op && op->decode_cost() <= _decode_slots && _reorder_buffer_active < 32U) {
+                    if (op && op->decode_cost() <= _decode_slots && !_reorder_buffer.full()) {
                         _decode(*op);
-                    } else if (const auto r = _ready(); r && _max_instructions > 0) {
-                        _simulate_next();
-                    } else if (_pc >= _pc_end && _reorder_buffer_active == 0) {
+                        op.reset();
+                    } else if (const auto r = _max_instructions > 0 ? _ready() : nullptr) {
+                        _simulate_next(*r);
+                    } else if (_pc >= _pc_end && _reorder_buffer.empty()) {
                         break;
                     } else {
                         _simulate_rest();
