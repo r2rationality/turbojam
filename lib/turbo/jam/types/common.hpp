@@ -464,12 +464,19 @@ namespace turbo::jam {
             };
             uint64_t refine_gas = 0, accumulate_gas = 0;
             uint64_t imports = 0, exports = 0, extrinsics = 0, input_size = 0;
+            boost::container::flat_set<opaque_hash_t> imported_packages{};
             add(input_size, authorization.size(), CFG::WI_max_work_package_input_size, "input size");
             add(input_size, authorizer_config.size(), CFG::WI_max_work_package_input_size, "input size");
             for (const auto &w: items) {
                 add(refine_gas, w.refine_gas_limit, CFG::GR_max_refine_gas, "refine gas");
                 add(accumulate_gas, w.accumulate_gas_limit, CFG::GA_max_accumulate_gas, "accumulate gas");
                 add(imports, w.import_segments.size(), CFG::WM_max_work_package_imports, "import count");
+                for (const auto &segment: w.import_segments) {
+                    if ((segment.index & 0x8000U) == 0)
+                        continue;
+                    if (imported_packages.insert(segment.tree_root).second && imported_packages.size() > CFG::J_max_report_dependencies - context.prerequisites.size()) [[unlikely]]
+                        throw error{"work-package dependency count exceeds the limit: {}", CFG::J_max_report_dependencies};
+                }
                 add(exports, w.export_count, CFG::WX_max_package_exports, "export count");
                 add(extrinsics, w.extrinsic.size(), CFG::T_max_package_extrinsics, "extrinsic count");
                 add(input_size, w.payload.size(), CFG::WI_max_work_package_input_size, "input size");

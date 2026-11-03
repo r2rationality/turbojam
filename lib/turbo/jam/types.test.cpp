@@ -59,6 +59,37 @@ namespace {
     }
 
     template<typename CFG>
+    void test_package_dependencies()
+    {
+        work_package_t<CFG> p{};
+        p.items.resize(2);
+        for (size_t i = 0; i < CFG::J_max_report_dependencies; ++i) {
+            import_spec_t segment{};
+            segment.tree_root[0] = numeric_cast<uint8_t>(i);
+            segment.index = 0x8000U;
+            p.items[0].import_segments.emplace_back(segment);
+        }
+        // Importing another segment of the same package in another item counts once.
+        auto repeated = p.items[0].import_segments.front();
+        repeated.index = 0x8001U;
+        p.items[1].import_segments.emplace_back(repeated);
+        import_spec_t direct{};
+        direct.tree_root[0] = numeric_cast<uint8_t>(CFG::J_max_report_dependencies);
+        p.items[1].import_segments.emplace_back(direct);
+        expect(nothrow([&] { p.validate_limits(); })) << "distinct tagged imports at the limit";
+
+        auto too_many = p;
+        too_many.items[1].import_segments.back().index = 0x8000U;
+        expect(throws([&] { too_many.validate_limits(); })) << "one more distinct tagged import";
+
+        // A prerequisite also named by an import contributes to both counts.
+        p.context.prerequisites.emplace_back(repeated.tree_root);
+        expect(throws([&] { p.validate_limits(); })) << "prerequisites count separately from imports";
+        p.items[0].import_segments.pop_back();
+        expect(nothrow([&] { p.validate_limits(); })) << "combined dependency count at the limit";
+    }
+
+    template<typename CFG>
     void test_package_limits()
     {
         work_package_t<CFG> p{};
@@ -115,6 +146,8 @@ suite turbo_jam_types_suite = [] {
     "turbo::jam::types::common::work_package"_test = [] {
         test_package_limits<config_tiny>();
         test_package_limits<config_prod>();
+        test_package_dependencies<config_tiny>();
+        test_package_dependencies<config_prod>();
     };
     "turbo::jam::types::common::work_digest"_test = [] {
         work_item_t item{};
