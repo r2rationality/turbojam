@@ -208,13 +208,14 @@ namespace turbo::jam {
         template<std::unsigned_integral T>
         T uint_fixed(const size_t num_bytes)
         {
-            if (num_bytes > 8) [[unlikely]]
-                throw error("uint_trivial supports 8-bytes values at most!");
-            T x = 0;
+            using val_t = uint64_t;
+            if (num_bytes > sizeof(val_t)) [[unlikely]]
+                throw error("uint_fixed supports {}-bytes values at most!", sizeof(val_t));
+            val_t x = 0;
             for (size_t i = 0; i < num_bytes; ++i) {
-                x |= static_cast<T>(next()) << (i * 8);
+                x |= static_cast<val_t>(next()) << (i * 8);
             }
-            return x;
+            return numeric_cast<T>(x);
         }
 
         template<std::unsigned_integral T=uint64_t>
