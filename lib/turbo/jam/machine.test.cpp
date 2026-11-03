@@ -249,6 +249,51 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
+        "gas model stalled cycles release execution units at the earliest completion"_test = [] {
+            for (const size_t count: {1U, 2U, 4U, 5U, 9U, 33U}) {
+                machine::program_builder_t program{};
+                for (size_t i = 0; i < count; ++i)
+                    program.ecalli(0);
+                const auto code = program.build_code();
+                expect_equal(size_t{1}, code.blocks().size());
+                const auto &block = code.blocks().at(0);
+                // Each host call occupies one of four ALUs for 100 cycles. Decoding
+                // staggers their starts by one tick, and a fifth call waits for an ALU.
+                expect_equal(gas_t{100} * ((count + 3) / 4) + (count - 1) % 4, block.cost);
+                expect_equal(count + 1, block.opcodes.size());
+            }
+        };
+        "gas model stalled cycles wake dependent instructions before longer executions finish"_test = [] {
+            machine::program_builder_t program{};
+            program.ecalli(0); // runs independently for 100 cycles
+            program.emit({202, 0x21, 0}); // mul_64 r1, r2 -> r0
+            program.emit({200, 0x10, 3}); // add_64 r0, r1 -> r3
+            program.emit({203, 0x23, 4}); // div_u_64 r3, r2 -> r4
+            program.emit({203, 0x24, 5}); // div_u_64 r4, r2 -> r5
+            const auto code = program.build_code();
+            expect_equal(size_t{1}, code.blocks().size());
+            const auto &block = code.blocks().at(0);
+            // The multiply starts at cycle 2. Its dependent chain takes 3+1+60+60
+            // cycles, completing at 126; FIN and retirement take two further ticks.
+            expect_equal(gas_t{125}, block.cost);
+            expect_equal(size_t{6}, block.opcodes.size());
+        };
+        "gas model stalled cycles preserve decode budget refills"_test = [] {
+            for (const size_t moves: {0U, 1U, 4U, 156U, 157U, 160U, 161U}) {
+                machine::program_builder_t program{};
+                program.ecalli(0);
+                for (size_t i = 0; i < moves; ++i)
+                    program.move(2, 1);
+                program.emit({203, 0x21, 3}); // div_u_64 r1, r2 -> r3
+                const auto code = program.build_code();
+                expect_equal(size_t{1}, code.blocks().size());
+                const auto &block = code.blocks().at(0);
+                // Moves consume decode slots without adding reorder entries. The divider
+                // starts at cycle 2 + ceil(moves/4), even while the host call is running.
+                expect_equal(std::max(gas_t{100}, gas_t{61} + (moves + 3) / 4), block.cost);
+                expect_equal(moves + 3, block.opcodes.size());
+            }
+        };
         "gas model reorder buffer wraparound"_test = [] {
             for (const size_t count: {1U, 31U, 32U, 33U, 64U, 97U}) {
                 machine::program_builder_t program{};

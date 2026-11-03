@@ -696,13 +696,14 @@ namespace turbo::jam::machine {
         };
 
         struct gas_model_t {
-            gas_model_t(const code_t &c, const address_val_t block_begin, const address_val_t block_end):
+            gas_model_t(const code_t &c, const address_val_t block_begin, const address_val_t block_end, const size_t num_instructions):
                 _code{c},
                 _pc{block_begin},
                 _pc_end{block_end}
             {
                 if (_pc >= _pc_end) [[unlikely]]
                     throw error{"block's code must have at least a single byte but got [{}:{})!", _pc, _pc_end};
+                _opcodes.reserve(num_instructions);
             }
 
             [[nodiscard]] block_t simulate() {
@@ -798,13 +799,36 @@ namespace turbo::jam::machine {
                 r.state = reorder_item_t::exe;
             }
 
-            // X'''
+            // Called only when decoding and issuing cannot proceed in the current cycle.
+            [[nodiscard]] size_t _rest_cycles() const {
+                // A fresh budget may allow progress next tick. In particular, _ready()
+                // was not checked when the issue budget was exhausted.
+                if (_max_instructions == 0 || (_pc < _pc_end && !_reorder_buffer.full()))
+                    return 1;
+                if (_reorder_buffer.empty() || _reorder_buffer.front().state == reorder_item_t::fin)
+                    return 1;
+
+                auto cycles = std::numeric_limits<size_t>::max();
+                for (const auto &r: _reorder_buffer) {
+                    // These transitions must still happen on the very next tick.
+                    if (r.state == reorder_item_t::dec || (r.state == reorder_item_t::exe && r.cycles <= 1))
+                        return 1;
+                    if (r.state == reorder_item_t::exe)
+                        cycles = std::min(cycles, r.cycles);
+                }
+                // Until the earliest completion, dependencies, available execution units,
+                // and buffer occupancy cannot change. No instruction can become eligible.
+                return cycles == std::numeric_limits<size_t>::max() ? 1 : cycles;
+            }
+
+            // X''' (possibly several ticks with no intervening decode or issue)
             void _simulate_rest() {
+                const auto cycles = _rest_cycles();
                 _decode_slots = 4;
                 _max_instructions = 5;
-                if (_cycles == std::numeric_limits<decltype(_cycles)>::max()) [[unlikely]]
+                if (_cycles > std::numeric_limits<decltype(_cycles)>::max() - cycles) [[unlikely]]
                     throw error{"cannot increment the cycle count; numeric overflow!"};
-                ++_cycles;
+                _cycles += cycles;
                 // Only entries already FIN at the start of this tick may retire, in order.
                 while (!_reorder_buffer.empty() && _reorder_buffer.front().state == reorder_item_t::fin) {
                     _reorder_buffer.pop_front();
@@ -816,11 +840,11 @@ namespace turbo::jam::machine {
                         if (r.cycles == 0) {
                             r.state = reorder_item_t::fin;
                         } else {
-                            if (r.cycles == 1) {
+                            if (r.cycles == cycles) {
                                 _exec_units += r.used_units;
                                 _unfinished_mask &= ~r.slot_mask;
                             }
-                            r.cycles--;
+                            r.cycles -= cycles;
                         }
                     }
                 }
@@ -848,6 +872,7 @@ namespace turbo::jam::machine {
 
         [[nodiscard]] bool _validate_blob(address_val_t pc) {
             address_val_t block_start = pc;
+            size_t num_instructions = 0;
             for (;;) {
                 if (pc > 0 && pc == bitmasks.size())
                     return true;
@@ -864,10 +889,12 @@ namespace turbo::jam::machine {
                     return false;
                 if (!is_opcode(op)) [[unlikely]] // v_inst
                     return false;
+                ++num_instructions;
                 if (is_block_end_opcode(op)) {
-                    gas_model_t m{*this, block_start, next_pc};
+                    gas_model_t m{*this, block_start, next_pc, num_instructions};
                     _blocks.emplace_hint(_blocks.end(), block_start, m.simulate());
                     block_start = next_pc;
+                    num_instructions = 0;
                 }
                 pc = next_pc;
             }
