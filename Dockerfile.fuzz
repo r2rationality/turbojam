@@ -7,33 +7,33 @@ COPY --chown=dev:dev src /home/dev/turbojam/src
 COPY --chown=dev:dev CMakeLists.txt /home/dev/turbojam/
 
 WORKDIR /home/dev/turbojam
-RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++-19 \
+RUN cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++-21 \
     && cmake --build build -t tjam
 
-FROM ubuntu:24.04 AS runtime
+FROM ubuntu:26.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 LABEL org.opencontainers.image.source="https://github.com/r2rationality/turbojam"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libboost-json1.83.0 \
-    libboost-container1.83.0 \
-    libboost-coroutine1.83.0 \
-    libboost-context1.83.0 \
-    libboost-url1.83.0 \
-    libboost-thread1.83.0 \
-    libboost-atomic1.83.0 \
-    libboost-stacktrace1.83.0 \
-    libfmt9 \
-    libspdlog1.12 \
-    libzstd1 \
-    libssl3t64 \
-    libsodium23 \
+    libboost-json-dev \
+    libboost-container-dev \
+    libboost-coroutine-dev \
+    libboost-context-dev \
+    libboost-url-dev \
+    libboost-thread-dev \
+    libboost-atomic-dev \
+    libboost-stacktrace-dev \
+    libfmt-dev \
+    libspdlog-dev \
+    libzstd-dev \
+    libssl-dev \
+    libsodium-dev \
     libatomic1 \
-    libnuma1 \
-    liblmdb0 \
-    libngtcp2-9 \
-    libngtcp2-crypto-gnutls2 \
-    libgnutls30t64 \
+    libnuma-dev \
+    liblmdb-dev \
+    libngtcp2-dev \
+    libngtcp2-crypto-gnutls-dev \
+    libgnutls28-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -s /bin/bash -d /opt/tjam tjam \
