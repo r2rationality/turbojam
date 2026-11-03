@@ -248,6 +248,9 @@ namespace turbo::jam::merkle {
                     break;
             }
 
+            if (shared_sz != prefix_max)
+                return false;
+
             if (auto &node = *path.back(); node) {
                 if (node->prefix_sz != prefix_max)
                     return false;

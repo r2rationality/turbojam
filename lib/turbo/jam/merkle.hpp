@@ -118,18 +118,7 @@ namespace turbo::jam::merkle {
             compact_node_t(const hash_t &l, const hash_t &r):
                 node_t { l, r }
             {
-                //left[0] &= 0xFE;
                 left[0] &= 0x7F;
-            }
-
-            bool is_branch() const
-            {
-                return !is_leaf();
-            }
-
-            bool is_leaf() const
-            {
-                return left[0] & 1;
             }
 
             hash_t hash(hash_func hf) const
