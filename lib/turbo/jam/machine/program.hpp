@@ -8,6 +8,7 @@
 #include <bit>
 #include <cstddef>
 #include <iterator>
+#include <memory>
 #include <memory_resource>
 #include <span>
 #include <boost/circular_buffer.hpp>
@@ -630,6 +631,12 @@ namespace turbo::jam::machine {
         bit_vector_t bitmasks;
         buffer instrs;
         offset_list_t jump_table;
+
+        static constexpr size_t cache_capacity = 128;
+
+        // The caller must supply the trusted preimage hash of the containing program
+        // image. It identifies these code bytes; this method does not recompute it.
+        [[nodiscard]] static std::shared_ptr<const code_t> from_bytes_cached(buffer bytes, const opaque_hash_t &code_hash);
 
         // (A.2) deblob
         static code_t from_bytes(uint8_vector bytes)

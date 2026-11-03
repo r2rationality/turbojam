@@ -530,7 +530,7 @@ namespace turbo::jam {
                             return machine::exit_panic_t{};
                         return host_service->call(id);
                     },
-                    CFG::WC_max_service_code_size
+                    CFG::WC_max_service_code_size, info->code_hash
                 );
                 return accumulate_delta_one_combine(service_id, inv_res.gas_used, std::move(inv_res.result), std::move(ctx_ok), std::move(ctx_err));
             }
@@ -934,7 +934,7 @@ namespace turbo::jam {
                     return machine::exit_panic_t{};
                 return host_service->call(id);
             },
-            CFG::WA_max_is_authorized_code_size
+            CFG::WA_max_is_authorized_code_size, p.auth_code_hash
         );
         return std::visit([&](auto &&r) -> is_authorized_res_t {
             using T = std::decay_t<decltype(r)>;
@@ -998,7 +998,7 @@ namespace turbo::jam {
                     return machine::exit_panic_t{};
                 return host_service->call(id);
             },
-            CFG::WC_max_service_code_size
+            CFG::WC_max_service_code_size, w.code_hash
         );
         return std::visit([&](auto &&r) -> refine_res_t<CFG> {
             using T = std::decay_t<decltype(r)>;

@@ -153,6 +153,7 @@ namespace turbo::jam::machine {
         machine_t(const machine_t &o) =delete;
         machine_t(machine_t &&o);
         machine_t(code_t &&code, const state_t &init, const pages_t &page_map);
+        machine_t(std::shared_ptr<const code_t> code, const state_t &init, const pages_t &page_map);
         ~machine_t();
         result_t run();
         void consume_gas(gas_t gas);
@@ -234,14 +235,16 @@ namespace turbo::jam::machine {
         invocation_result_base_t result;
     };
 
+    // code_hash, when supplied, must be the trusted preimage hash of blob.
     extern std::optional<machine_t> configure(buffer blob, address_val_t pc, gas_t gas, buffer args,
-        size_t max_code_size=std::numeric_limits<size_t>::max());
+        size_t max_code_size=std::numeric_limits<size_t>::max(), const std::optional<opaque_hash_t> &code_hash=std::nullopt);
 
     // (A.44) - Psi_M
     template<typename HostInit, typename HostFn>
-    invocation_t invoke(const buffer blob, const address_val_t pc, const gas_t gas, const buffer args, HostInit &&host_init, HostFn &&host_fn, const size_t max_code_size)
+    invocation_t invoke(const buffer blob, const address_val_t pc, const gas_t gas, const buffer args, HostInit &&host_init, HostFn &&host_fn,
+        const size_t max_code_size, const std::optional<opaque_hash_t> &code_hash=std::nullopt)
     {
-        auto m = configure(blob, pc, gas, args, max_code_size);
+        auto m = configure(blob, pc, gas, args, max_code_size, code_hash);
         if (!m) [[unlikely]]
             return { 0, exit_panic_t {} };
         host_init(*m);

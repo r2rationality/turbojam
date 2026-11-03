@@ -3,7 +3,10 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <future>
 #include <initializer_list>
+#include <latch>
+#include <turbo/crypto/blake2b.hpp>
 #include <turbo/common/cli.hpp>
 #include <turbo/common/test.hpp>
 #include <turbo/codec/json.hpp>
@@ -249,6 +252,82 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
+        "cached configuration shares code but preserves invocation state and validation"_test = [] {
+            machine::program_builder_t program{};
+            program.load(7, 42);
+            program.ecalli(0);
+            const auto blob = program.program_bytes();
+            const auto hash = crypto::blake2b::digest<opaque_hash_t>(blob);
+            auto first = machine::configure(blob, 0, 1000, {}, blob.size(), hash);
+            auto second = machine::configure(blob, 0, 2000, {}, blob.size(), hash);
+            auto uncached = machine::configure(blob, 0, 1000, {}, blob.size());
+            expect(first.has_value() && second.has_value() && uncached.has_value()) << fatal;
+            expect(&first->code() == &second->code());
+            const auto second_registers = second->regs();
+            const auto result = first->run();
+            expect(std::holds_alternative<machine::exit_host_call_t>(result));
+            expect_equal(machine::register_val_t{42}, first->regs()[7]);
+            expect(second_registers == second->regs());
+            expect_equal(machine::gas_remaining_t{2000}, second->gas());
+            expect(result == uncached->run());
+            expect(first->state() == uncached->state());
+            expect(!machine::configure(blob, 0, 1000, {}, 0, hash));
+
+            auto invalid_code = program.code_bytes();
+            auto invalid_blob = blob;
+            invalid_code.back() = 0; // Missing delimiter boundary.
+            invalid_blob.back() = 0;
+            const auto invalid_hash = crypto::blake2b::digest<opaque_hash_t>(invalid_blob);
+            expect(throws<error>([&] { (void)machine::code_t::from_bytes_cached(invalid_code, invalid_hash); }));
+            expect(!machine::configure(invalid_blob, 0, 1000, {}, invalid_blob.size(), invalid_hash));
+            expect(throws<error>([] { (void)machine::machine_t{std::shared_ptr<const machine::code_t>{}, {}, {}}; }));
+        };
+        "decoded program cache evicts the least recently used program without invalidating machines"_test = [] {
+            const auto load = [](const size_t value) {
+                machine::program_builder_t program{};
+                program.load(7, value);
+                const auto hash = crypto::blake2b::digest<opaque_hash_t>(program.program_bytes());
+                return machine::code_t::from_bytes_cached(program.code_bytes(), hash);
+            };
+            constexpr size_t base = 1000000;
+            const auto oldest = load(base);
+            const std::weak_ptr<const machine::code_t> next_oldest = load(base + 1);
+            for (size_t i = 2; i < machine::code_t::cache_capacity; ++i)
+                (void)load(base + i);
+            expect(oldest == load(base)); // A hit makes the oldest entry most recently used.
+            {
+                auto retained_code = next_oldest.lock();
+                expect(static_cast<bool>(retained_code)) << fatal;
+                machine::machine_t retained{std::move(retained_code), {.gas=1000}, {}};
+                (void)load(base + machine::code_t::cache_capacity);
+                // The machine, rather than the cache, now owns this decoded program.
+                const auto reloaded = load(base + 1);
+                expect(&retained.code() != reloaded.get());
+                expect(oldest == load(base));
+                expect(std::holds_alternative<machine::exit_panic_t>(retained.run()));
+                expect_equal(machine::register_val_t{base + 1}, retained.regs()[7]);
+            }
+            expect(next_oldest.expired());
+        };
+        "decoded program cache concurrent reuse smoke test"_test = [] {
+            machine::program_builder_t program{};
+            program.load(7, 2000000);
+            const auto bytes = program.code_bytes();
+            const auto hash = crypto::blake2b::digest<opaque_hash_t>(program.program_bytes());
+            // Concurrent callers do not guarantee overlapping cache misses.
+            std::array<std::future<std::shared_ptr<const machine::code_t>>, 2> results;
+            std::latch start{numeric_cast<ptrdiff_t>(results.size())};
+            for (auto &result: results) {
+                result = std::async(std::launch::async, [&] {
+                    start.count_down();
+                    start.wait();
+                    return machine::code_t::from_bytes_cached(bytes, hash);
+                });
+            }
+            const auto first = results[0].get();
+            expect(first == results[1].get());
+            expect(first == machine::code_t::from_bytes_cached(bytes, hash));
+        };
         "shared opcode ranges survive program moves and execute all blocks"_test = [] {
             for (const size_t count: {0U, 1U, 33U, 96U}) {
                 machine::program_builder_t program{};

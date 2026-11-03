@@ -7,7 +7,9 @@
 #   include <intrin.h>
 #endif
 #include <cstring>
+#include <mutex>
 #include <type_traits>
+#include <boost/compute/detail/lru_cache.hpp>
 #include <boost/container/static_vector.hpp>
 #include "machine.hpp"
 #include "state.hpp"
@@ -15,6 +17,29 @@
 #include "turbo/common/scope-exit.hpp"
 
 namespace turbo::jam::machine {
+
+    std::shared_ptr<const code_t> code_t::from_bytes_cached(const buffer bytes, const opaque_hash_t &code_hash)
+    {
+        // One process-wide cache shared across all traces, blocks, and threads.
+        static std::mutex cache_mutex;
+        // Boost 1.88 exposes its LRU implementation through Boost.Compute's detail API.
+        static boost::compute::detail::lru_cache<opaque_hash_t, std::shared_ptr<const code_t>> cache{cache_capacity};
+        {
+            const std::scoped_lock lock{cache_mutex};
+            if (const auto cached = cache.get(code_hash))
+                return *cached;
+        }
+        // Keep decoding and gas simulation outside the lock. Failed decodes are not cached.
+        auto decoded = std::make_shared<const code_t>(from_bytes(bytes));
+        {
+            const std::scoped_lock lock{cache_mutex};
+            // Another thread may have populated this entry while we decoded it.
+            if (const auto cached = cache.get(code_hash))
+                return *cached;
+            cache.insert(code_hash, decoded);
+        }
+        return decoded;
+    }
 
 #if defined(__GNUC__) || defined(__clang__)
 #   pragma GCC diagnostic push
@@ -29,11 +54,12 @@ namespace turbo::jam::machine {
             return _opcode_table()[op].defined();
         }
 
-        explicit impl(code_t &&code, const state_t &init, const pages_t &page_map):
+        explicit impl(std::shared_ptr<const code_t> code, const state_t &init, const pages_t &page_map):
             _pc{init.pc},
             _gas{init.gas},
             _regs{init.regs},
-            _code{std::move(code)}
+            _code_owner{std::move(code)},
+            _code{_code_owner ? *_code_owner : throw error{"a machine requires a decoded program"}}
         {
             static constexpr auto stack_end = (1ULL << 32U) - 2 * config_prod::ZZ_pvm_init_zone_size - config_prod::ZI_pvm_input_size;
             _stack_begin = stack_end;
@@ -398,7 +424,8 @@ namespace turbo::jam::machine {
         address_val_t _stack_begin = 0; // After construction: maximum exclusive heap end, below the stack guard zone.
         address_val_t _heap_end = 0;
         // Cold fields - rarely accessed after construction
-        code_t _code;
+        std::shared_ptr<const code_t> _code_owner;
+        const code_t &_code;
 
         using op_res_t = std::variant<std::monostate, register_val_t, result_t>;
         using op_exec_t = op_res_t(*)(impl &, const code_t::opcode_t &);
@@ -1972,6 +1999,11 @@ namespace turbo::jam::machine {
     }
 
     machine_t::machine_t(code_t &&code, const state_t &init, const pages_t &page_map):
+        machine_t{std::make_shared<const code_t>(std::move(code)), init, page_map}
+    {
+    }
+
+    machine_t::machine_t(std::shared_ptr<const code_t> code, const state_t &init, const pages_t &page_map):
         _impl{std::make_unique<impl>(std::move(code), init, page_map)}
     {
     }
@@ -2136,7 +2168,8 @@ namespace turbo::jam::machine {
         return _impl->code();
     }
 
-    std::optional<machine_t> configure(const buffer blob, const address_val_t pc, const gas_t gas, const buffer args, const size_t max_code_size)
+    std::optional<machine_t> configure(const buffer blob, const address_val_t pc, const gas_t gas, const buffer args,
+        const size_t max_code_size, const std::optional<opaque_hash_t> &code_hash)
     try {
         decoder dec{blob};
         // (9.4)
@@ -2160,7 +2193,8 @@ namespace turbo::jam::machine {
         const auto code = dec.next_bytes(c_sz);
         if (!dec.empty()) [[unlikely]]
             return {};
-        auto prg = code_t::from_bytes(code);
+        auto prg = code_hash ? code_t::from_bytes_cached(code, *code_hash)
+            : std::make_shared<const code_t>(code_t::from_bytes(code));
 
         // JAM (A.41)
         const auto total_sz = 5 * config_prod::ZZ_pvm_init_zone_size
