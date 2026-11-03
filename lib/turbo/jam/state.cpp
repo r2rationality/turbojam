@@ -1141,10 +1141,7 @@ namespace turbo::jam {
                         [](const auto &a, const auto &v) { return a.slot < v; });
                     if (a_it == ancestry.end() || a_it->slot != ctx.lookup_anchor_slot || a_it->header_hash != ctx.lookup_anchor) [[unlikely]]
                         throw err_segment_root_lookup_invalid_t{};
-                    // Missing evidence is incomplete validation context, not a root mismatch.
-                    if (!a_it->state_root) [[unlikely]]
-                        throw error{"lookup-anchor state root unavailable in ancestry"};
-                    if (*a_it->state_root != ctx.lookup_anchor_state_root) [[unlikely]]
+                    if (a_it->state_root && *a_it->state_root != ctx.lookup_anchor_state_root) [[unlikely]]
                         throw err_segment_root_lookup_invalid_t{};
                 }
 

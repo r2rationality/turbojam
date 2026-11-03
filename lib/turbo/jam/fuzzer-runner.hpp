@@ -240,20 +240,7 @@ namespace turbo::jam::fuzzer_runner {
 
         bool test_dir(const std::filesystem::path &data_dir)
         {
-            // Truncated traces may omit genesis.bin. Share it only when all available
-            // genesis headers in this corpus agree; their initialization states may differ.
-            std::optional<header_t<CFG>> shared_genesis{};
-            for (const auto &e: std::filesystem::directory_iterator(data_dir)) {
-                if (e.is_directory() && !e.path().filename().string().starts_with('.')) {
-                    if (auto genesis = _load_genesis_header(e.path())) {
-                        if (shared_genesis && *shared_genesis != *genesis) {
-                            shared_genesis.reset();
-                            break;
-                        }
-                        shared_genesis = std::move(genesis);
-                    }
-                }
-            }
+            const auto shared_genesis = _load_shared_genesis_header(data_dir);
             size_t ok = 0, err = 0;
             for (const auto &e: std::filesystem::directory_iterator(data_dir)) {
                 if (e.is_directory() && !e.path().filename().string().starts_with('.')) {
@@ -262,7 +249,12 @@ namespace turbo::jam::fuzzer_runner {
                 }
             }
             if (ok + err == 0U) {
-                auto &cnt = test_sample(data_dir.string()) ? ok : err;
+                // A standalone sample's siblings belong to its parent corpus.
+                // test_sample still prefers the sample's own genesis.bin.
+                std::optional<header_t<CFG>> parent_genesis{};
+                if (!std::filesystem::exists(data_dir / "genesis.bin"))
+                    parent_genesis = _load_shared_genesis_header(data_dir / "..");
+                auto &cnt = test_sample(data_dir.string(), parent_genesis) ? ok : err;
                 ++cnt;
             }
             if (ok + err > 0U) {
@@ -290,6 +282,22 @@ namespace turbo::jam::fuzzer_runner {
             const auto bytes = file::read(path.string());
             decoder dec{bytes};
             return codec::from<header_t<CFG>>(dec);
+        }
+
+        static std::optional<header_t<CFG>> _load_shared_genesis_header(const std::filesystem::path &corpus_dir)
+        {
+            // Share only an agreed header, never another sample's genesis state root.
+            std::optional<header_t<CFG>> shared_genesis{};
+            for (const auto &e: std::filesystem::directory_iterator(corpus_dir)) {
+                if (e.is_directory() && !e.path().filename().string().starts_with('.')) {
+                    if (auto genesis = _load_genesis_header(e.path())) {
+                        if (shared_genesis && *shared_genesis != *genesis)
+                            return std::nullopt;
+                        shared_genesis = std::move(genesis);
+                    }
+                }
+            }
+            return shared_genesis;
         }
 
         static void _append_test_cases(test_cases_t &test_cases, const buffer tc_data)

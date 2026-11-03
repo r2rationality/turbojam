@@ -46,6 +46,11 @@ suite turbo_jam_fuzzer_suite = [] {
             const timer t{"minifuzz no forks", logger::level::info};
             c.test_dir(file::install_path("test/jam-fuzzing/fuzz-proto/examples/0.8.0/no_forks"));
         };
+        "jam-fuzzing standalone trace"_test = [] {
+            file::tmp_directory tmp_dir{"turbo-jam-fuzzer-standalone"};
+            impl_vs_trace_client_t<config_tiny, local_processor_t> client{std::make_unique<local_processor_t<config_tiny>>("dev", tmp_dir.path())};
+            expect(client.test_dir(file::install_path("test/jam-fuzzing/fuzz-reports/0.8.0/traces/1792930791_3200")));
+        };
         "jam-fuzzing fuzzer traces"_test = [&] {
             file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
             const auto data_dir = file::install_path("test/jam-fuzzing/fuzz-reports/0.8.0/traces/");
