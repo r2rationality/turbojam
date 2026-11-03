@@ -6,6 +6,10 @@
 
 #include <cassert>
 #include <bit>
+#include <cstddef>
+#include <iterator>
+#include <memory_resource>
+#include <span>
 #include <boost/circular_buffer.hpp>
 #include "opcodes.hpp"
 
@@ -574,7 +578,8 @@ namespace turbo::jam::machine {
 
         struct block_t {
             gas_t cost = 0;
-            sequence_t<opcode_t> opcodes{};
+            size_t opcode_offset = 0;
+            size_t opcode_count = 0;
         };
 
         using blocks_t = boost::container::flat_map<address_val_t, block_t>;
@@ -681,9 +686,14 @@ namespace turbo::jam::machine {
         [[nodiscard]] const blocks_t &blocks() const noexcept {
             return _blocks;
         }
+
+        [[nodiscard]] std::span<const opcode_t> block_opcodes(const block_t &block) const noexcept {
+            return std::span<const opcode_t>{_opcodes}.subspan(block.opcode_offset, block.opcode_count);
+        }
     private:
         uint8_vector _raw;
         blocks_t _blocks{};
+        sequence_t<opcode_t> _opcodes{};
 
         struct reorder_item_t {
             enum state_t { dec, wait, exe, fin };
@@ -696,21 +706,22 @@ namespace turbo::jam::machine {
         };
 
         struct gas_model_t {
-            gas_model_t(const code_t &c, const address_val_t block_begin, const address_val_t block_end, const size_t num_instructions):
+            gas_model_t(const code_t &c, const address_val_t block_begin, const address_val_t block_end, sequence_t<opcode_t> &opcodes):
                 _code{c},
                 _pc{block_begin},
-                _pc_end{block_end}
+                _pc_end{block_end},
+                _opcodes{opcodes}
             {
                 if (_pc >= _pc_end) [[unlikely]]
                     throw error{"block's code must have at least a single byte but got [{}:{})!", _pc, _pc_end};
-                _opcodes.reserve(num_instructions);
             }
 
-            [[nodiscard]] block_t simulate() {
+            [[nodiscard]] gas_t simulate() {
+                const auto opcode_begin = _opcodes.size();
                 _simulate();
-                if (_opcodes.empty()) [[unlikely]]
+                if (_opcodes.size() == opcode_begin) [[unlikely]]
                     throw error{"internal error: a simulation returned a block without any instructions!"};
-                return {_cycles > 3U ? _cycles - 3U : 1U, std::move(_opcodes)};
+                return _cycles > 3U ? _cycles - 3U : 1U;
             }
         private:
             const code_t &_code;
@@ -721,8 +732,17 @@ namespace turbo::jam::machine {
             size_t _max_instructions = 5; // e
             execution_units_t _exec_units{4, 4, 4, 1, 1}; // t
             // The gas model permits at most 32 unretired entries.
-            boost::circular_buffer<reorder_item_t> _reorder_buffer{32U};
-            sequence_t<opcode_t> _opcodes{};
+            static constexpr size_t _reorder_capacity = 32U;
+            // Declaration order keeps the backing storage and resource alive until the
+            // circular buffer is destroyed. The null upstream forbids heap fallback.
+            alignas(reorder_item_t) std::byte _reorder_storage[_reorder_capacity * sizeof(reorder_item_t)];
+            std::pmr::monotonic_buffer_resource _reorder_resource{
+                _reorder_storage, sizeof(_reorder_storage), std::pmr::null_memory_resource()
+            };
+            boost::circular_buffer<reorder_item_t, std::pmr::polymorphic_allocator<reorder_item_t>> _reorder_buffer{
+                _reorder_capacity, std::pmr::polymorphic_allocator<reorder_item_t>{&_reorder_resource}
+            };
+            sequence_t<opcode_t> &_opcodes;
             uint32_t _unfinished_mask = 0; // slots whose remaining cycles are positive
             uint32_t _next_slot_mask = 1; // rotates with each appended entry
 
@@ -872,6 +892,7 @@ namespace turbo::jam::machine {
 
         [[nodiscard]] bool _validate_blob(address_val_t pc) {
             address_val_t block_start = pc;
+            size_t opcode_offset = 0;
             size_t num_instructions = 0;
             for (;;) {
                 if (pc > 0 && pc == bitmasks.size())
@@ -891,9 +912,12 @@ namespace turbo::jam::machine {
                     return false;
                 ++num_instructions;
                 if (is_block_end_opcode(op)) {
-                    gas_model_t m{*this, block_start, next_pc, num_instructions};
-                    _blocks.emplace_hint(_blocks.end(), block_start, m.simulate());
+                    _blocks.emplace_hint(_blocks.end(), block_start, block_t{
+                        .opcode_offset = opcode_offset,
+                        .opcode_count = num_instructions
+                    });
                     block_start = next_pc;
+                    opcode_offset += num_instructions;
                     num_instructions = 0;
                 }
                 pc = next_pc;
@@ -904,6 +928,15 @@ namespace turbo::jam::machine {
         void _validate() {
             if (!_validate_blob(0)) [[unlikely]]
                 throw error{"invalid program blob: opcode validation failed"};
+            // Validation records offsets, so no block holds pointers into growing storage.
+            const auto &last_block = _blocks.rbegin()->second;
+            _opcodes.reserve(last_block.opcode_offset + last_block.opcode_count);
+            for (auto it = _blocks.begin(); it != _blocks.end(); ++it) {
+                const auto next = std::next(it);
+                const auto block_end = next != _blocks.end() ? next->first : numeric_cast<address_val_t>(instrs.size());
+                gas_model_t m{*this, it->first, block_end, _opcodes};
+                it->second.cost = m.simulate();
+            }
         }
     };
 }

@@ -663,7 +663,7 @@ namespace turbo::jam::machine {
                 --blk_it;
 
                 // Initial entry or resumption may be inside a block, even before its gas is charged.
-                const auto &entry_ops = blk_it->second.opcodes;
+                const auto entry_ops = _code.block_opcodes(blk_it->second);
                 size_t next_op = 0;
                 auto entry_pc = blk_it->first;
                 while (next_op < entry_ops.size() && entry_pc < _pc) {
@@ -674,7 +674,7 @@ namespace turbo::jam::machine {
                     throw exit_panic_t{};
 
                 for (;;) {
-                    const auto &blk_ops = blk_it->second.opcodes;
+                    const auto blk_ops = _code.block_opcodes(blk_it->second);
                     const auto num_ops = blk_ops.size();
 
                     if (!_gas_charged) {

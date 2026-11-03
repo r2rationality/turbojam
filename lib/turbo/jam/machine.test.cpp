@@ -249,6 +249,56 @@ namespace {
 
 suite turbo_jam_machine_suite = [] {
     "turbo::jam::machine"_test = [] {
+        "shared opcode ranges survive program moves and execute all blocks"_test = [] {
+            for (const size_t count: {0U, 1U, 33U, 96U}) {
+                machine::program_builder_t program{};
+                for (size_t i = 0; i < count; ++i) {
+                    program.load(7, i + 1);
+                    for (size_t j = 0; j < i % 3; ++j)
+                        program.move(8, 7);
+                    program.emit({1}); // fallthrough to the next block
+                }
+                auto code = [&] {
+                    auto original = program.build_code();
+                    return machine::code_t{std::move(original)};
+                }(); // The original owner is destroyed before any opcode view is read.
+                expect_equal(count + 1, code.blocks().size()); // includes the delimiter trap
+
+                size_t block_index = 0;
+                size_t opcode_offset = 0;
+                gas_t total_cost = 0;
+                const machine::code_t::opcode_t *next_opcode = nullptr;
+                for (const auto &entry: code.blocks()) {
+                    const auto &block = entry.second;
+                    const auto ops = code.block_opcodes(block);
+                    expect(!ops.empty()) << fatal;
+                    expect_equal(opcode_offset, block.opcode_offset);
+                    if (next_opcode)
+                        expect(ops.data() == next_opcode);
+                    if (block_index < count) {
+                        expect_equal(block_index % 3 + 2, ops.size());
+                        expect(ops.front().id == 51); // load_imm
+                        expect_equal(block_index + 1, ops.front().imm_1);
+                        for (size_t i = 1; i + 1 < ops.size(); ++i)
+                            expect(ops[i].id == 100); // move_reg
+                        expect(ops.back().id == 1); // fallthrough
+                    } else {
+                        expect_equal(size_t{1}, ops.size());
+                        expect(ops.front().id == 0); // trap
+                    }
+                    next_opcode = ops.data() + ops.size();
+                    opcode_offset += ops.size();
+                    total_cost += block.cost;
+                    ++block_index;
+                }
+
+                constexpr gas_t initial_gas = 100000;
+                machine::machine_t m{std::move(code), {.gas=initial_gas}, {}};
+                expect(std::holds_alternative<machine::exit_panic_t>(m.run()));
+                expect_equal(count, m.regs()[7]);
+                expect_equal(initial_gas - total_cost, m.gas());
+            }
+        };
         "gas model stalled cycles release execution units at the earliest completion"_test = [] {
             for (const size_t count: {1U, 2U, 4U, 5U, 9U, 33U}) {
                 machine::program_builder_t program{};
@@ -260,7 +310,7 @@ suite turbo_jam_machine_suite = [] {
                 // Each host call occupies one of four ALUs for 100 cycles. Decoding
                 // staggers their starts by one tick, and a fifth call waits for an ALU.
                 expect_equal(gas_t{100} * ((count + 3) / 4) + (count - 1) % 4, block.cost);
-                expect_equal(count + 1, block.opcodes.size());
+                expect_equal(count + 1, code.block_opcodes(block).size());
             }
         };
         "gas model stalled cycles wake dependent instructions before longer executions finish"_test = [] {
@@ -276,7 +326,7 @@ suite turbo_jam_machine_suite = [] {
             // The multiply starts at cycle 2. Its dependent chain takes 3+1+60+60
             // cycles, completing at 126; FIN and retirement take two further ticks.
             expect_equal(gas_t{125}, block.cost);
-            expect_equal(size_t{6}, block.opcodes.size());
+            expect_equal(size_t{6}, code.block_opcodes(block).size());
         };
         "gas model stalled cycles preserve decode budget refills"_test = [] {
             for (const size_t moves: {0U, 1U, 4U, 156U, 157U, 160U, 161U}) {
@@ -291,7 +341,7 @@ suite turbo_jam_machine_suite = [] {
                 // Moves consume decode slots without adding reorder entries. The divider
                 // starts at cycle 2 + ceil(moves/4), even while the host call is running.
                 expect_equal(std::max(gas_t{100}, gas_t{61} + (moves + 3) / 4), block.cost);
-                expect_equal(moves + 3, block.opcodes.size());
+                expect_equal(moves + 3, code.block_opcodes(block).size());
             }
         };
         "gas model reorder buffer wraparound"_test = [] {
@@ -305,7 +355,7 @@ suite turbo_jam_machine_suite = [] {
                 // Each dependent division takes 60 cycles. The independent delimiter
                 // trap finishes while the divisions fill and drain the reorder buffer.
                 expect_equal(gas_t{60} * count, block.cost);
-                expect_equal(count + 1, block.opcodes.size());
+                expect_equal(count + 1, code.block_opcodes(block).size());
             }
         };
         "gas model retired dependencies and move aliases"_test = [] {
@@ -325,7 +375,7 @@ suite turbo_jam_machine_suite = [] {
                 // One divider serializes the 60-cycle divisions; the initial load
                 // delays the first division by one tick, and the final add takes one.
                 expect_equal(gas_t{60} * count + 2, block.cost);
-                expect_equal(5 * count + 1, block.opcodes.size());
+                expect_equal(5 * count + 1, code.block_opcodes(block).size());
             }
         };
         "gas model reused slots do not revive satisfied dependencies"_test = [] {
@@ -343,7 +393,7 @@ suite turbo_jam_machine_suite = [] {
             // The add can start alongside the second division, without waiting for it.
             // Two serialized 60-cycle divisions plus one initial decode stall cost 121.
             expect_equal(gas_t{121}, block.cost);
-            expect_equal(size_t{34}, block.opcodes.size());
+            expect_equal(size_t{34}, code.block_opcodes(block).size());
         };
         "gas model moves with an empty reorder buffer"_test = [] {
             for (const size_t count: {0U, 31U, 32U, 33U, 64U, 97U}) {
@@ -355,7 +405,7 @@ suite turbo_jam_machine_suite = [] {
                 const auto &block = code.blocks().at(0);
                 // Moves use only decode slots (four per cycle); the delimiter costs two.
                 expect_equal(gas_t{count / 4 + 2}, block.cost);
-                expect_equal(count + 1, block.opcodes.size());
+                expect_equal(count + 1, code.block_opcodes(block).size());
             }
         };
         //test_gas(file::install_path("test/pvm-test-vectors/pvm/gas-tests/pinky.json"));
