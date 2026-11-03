@@ -138,6 +138,10 @@ namespace turbo::cli::fuzzer_api {
                 logger::info("starting a fuzzer API with full config");
                 server_t<config_prod> srv{"dev", fuzz_args->data_path, fuzz_args->sock_path};
                 srv.run();
+            } else if (fuzz_args->spec == "fuzz") {
+                logger::info("starting a fuzzer API with fuzz config");
+                server_t<config_fuzz> srv{"dev", fuzz_args->data_path, fuzz_args->sock_path};
+                srv.run();
             } else {
                 throw error(fmt::format("unsupported spec value: {}", fuzz_args->spec));
             }

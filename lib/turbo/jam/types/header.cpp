@@ -61,4 +61,5 @@ namespace turbo::jam {
 
     template struct header_t<config_tiny>;
     template struct header_t<config_prod>;
+    template struct header_t<config_fuzz>;
 }

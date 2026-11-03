@@ -250,4 +250,5 @@ namespace turbo::jam {
 
     template struct chain_t<config_prod>;
     template struct chain_t<config_tiny>;
+    template struct chain_t<config_fuzz>;
 }

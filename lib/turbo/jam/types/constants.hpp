@@ -119,13 +119,29 @@ namespace turbo::jam {
         static_assert(V_validator_count_max >= V_validator_count_min);
         static constexpr size_t Y_ticket_submission_end = 10;
         static_assert(Y_ticket_submission_end <=  E_epoch_length * 5 / 6);
-        //static constexpr size_t validator_super_majority = V_validator_count * 2 / 3 + 1;
-        //static constexpr size_t validator_wonky_count = V_validator_count * 1 / 3;
         static constexpr size_t avail_bitfield_bytes = (C_core_count + 7) / 8;
         static_assert(WG_segment_size == 4'104U);
         static constexpr size_t WP_segment_num_pieces = 1026;
         static constexpr size_t WE_segment_piece_size = WG_segment_size / WP_segment_num_pieces;
         static_assert(V_validator_count_max == 6U);
         static_assert(WE_segment_piece_size == 4U);
+    };
+
+    // Overrides for the fuzz config
+    struct config_fuzz: config_prod {
+        static constexpr size_t C_core_count = 85;
+        static constexpr size_t D_preimage_expunge_delay = 900;
+        static constexpr size_t E_epoch_length = 60;
+        static constexpr size_t GR_max_refine_gas = 1'250'000'000;
+        static constexpr size_t GT_max_total_accumulation_gas = 875'000'000;
+        static constexpr size_t K_max_tickets_per_block = 4;
+        static constexpr size_t L_max_lookup_anchor_age = 600;
+        static constexpr size_t R_core_assignment_rotation_period = 5;
+        static constexpr size_t V_validator_count_max = C_core_count * validator_factor;
+        static_assert(V_validator_count_max >= V_validator_count_min);
+        static_assert(V_validator_count_max == 255U);
+        static constexpr size_t Y_ticket_submission_end = 50;
+        static_assert(Y_ticket_submission_end <=  E_epoch_length * 5 / 6);
+        static constexpr size_t avail_bitfield_bytes = (C_core_count + 7) / 8;
     };
 }

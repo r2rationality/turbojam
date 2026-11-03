@@ -1836,4 +1836,5 @@ namespace turbo::jam {
 
     template struct state_t<config_prod>;
     template struct state_t<config_tiny>;
+    template struct state_t<config_fuzz>;
 }

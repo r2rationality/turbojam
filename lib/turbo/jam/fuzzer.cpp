@@ -102,4 +102,5 @@ namespace turbo::jam::fuzzer {
 
     template struct local_processor_t<config_prod>;
     template struct local_processor_t<config_tiny>;
+    template struct local_processor_t<config_fuzz>;
 }
