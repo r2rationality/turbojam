@@ -48,6 +48,14 @@ namespace turbo::jam {
         // helper methods
         service_info_t<CFG> _service_info() const;
         service_lookup_res_t _get_service(machine::register_val_t id);
+        void _write_memory(const machine::register_val_t offset, const buffer data)
+        {
+            // A failed host call must not write a prefix before faulting on a later page.
+            if (auto ex = _p.m.mem_writable(offset, data.size()); ex) [[unlikely]]
+                throw std::move(*ex);
+            _p.m.mem_write(offset, data);
+        }
+
         template<typename F>
         [[nodiscard]] machine::host_call_res_t _safe_call(F &&f) noexcept
         {
@@ -125,6 +133,10 @@ namespace turbo::jam {
     struct inner_machines_t {
         using ptr_type = std::unique_ptr<machine::machine_t>;
         using machines_map_t = std::unordered_map<size_t, ptr_type>;
+
+        [[nodiscard]] size_t size() const noexcept {
+            return _machines.size();
+        }
 
         [[nodiscard]] size_t add(ptr_type machine) {
             const auto id = _next_id();
