@@ -749,8 +749,8 @@ namespace turbo::jam {
                 std::move(res.state), blk_slot, new_eta0,
                 reports.subspan(0U, num_reports),
                 transfers, free_services);
-            // increase the gas_limit for the subsequent delta_plus iteration by the gas_limit of transfers in the current iteration
-            for (const auto &t: transfers)
+            // increase the gas_limit for the subsequent delta_plus iteration by the gas_limit of new transfers from the current iteration
+            for (const auto &t: star_res.transfers)
                 gas_limit += t.gas_limit;
             for (const auto &[s_id, gas_used]: star_res.gas_used) {
                 if (gas_limit < gas_used) [[unlikely]]
