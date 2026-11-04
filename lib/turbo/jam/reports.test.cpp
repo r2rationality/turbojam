@@ -107,6 +107,18 @@ namespace turbo_jam_reports_test {
         using base_type = err_group_t;
         using base_type::base_type;
 
+        static void catch_into(const std::function<void()> &action, const std::function<void(err_code_t)> &on_error)
+        {
+            base_type::catch_into([&] {
+                try {
+                    action();
+                } catch (const err_lookup_anchor_invalid_t &) {
+                    // The report-vector schema uses one category for both lookup failures.
+                    throw err_segment_root_lookup_invalid_t{};
+                }
+            }, on_error);
+        }
+
         void serialize(auto &archive)
         {
             using namespace std::string_view_literals;

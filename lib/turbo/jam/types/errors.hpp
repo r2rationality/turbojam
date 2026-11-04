@@ -130,6 +130,9 @@ namespace turbo::jam {
     struct err_banned_validator_t final: error_t {
         explicit err_banned_validator_t(): error_t{*this} {}
     };
+    struct err_lookup_anchor_invalid_t final: error_t {
+        explicit err_lookup_anchor_invalid_t(): error_t{*this} {}
+    };
     struct err_lookup_anchor_not_recent_t final: error_t {
         explicit err_lookup_anchor_not_recent_t(): error_t{*this} {}
     };

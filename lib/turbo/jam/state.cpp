@@ -1135,14 +1135,14 @@ namespace turbo::jam {
                 });
                 if (lblk_it != new_beta.end()) {
                     if (lblk_it->slot != ctx.lookup_anchor_slot || lblk_it->state_root != ctx.lookup_anchor_state_root) [[unlikely]]
-                        throw err_segment_root_lookup_invalid_t{};
+                        throw err_lookup_anchor_invalid_t{};
                 } else {
                     const auto a_it = std::lower_bound(ancestry.begin(), ancestry.end(), ctx.lookup_anchor_slot,
                         [](const auto &a, const auto &v) { return a.slot < v; });
                     if (a_it == ancestry.end() || a_it->slot != ctx.lookup_anchor_slot || a_it->header_hash != ctx.lookup_anchor) [[unlikely]]
-                        throw err_segment_root_lookup_invalid_t{};
+                        throw err_lookup_anchor_invalid_t{};
                     if (a_it->state_root && *a_it->state_root != ctx.lookup_anchor_state_root) [[unlikely]]
-                        throw err_segment_root_lookup_invalid_t{};
+                        throw err_lookup_anchor_invalid_t{};
                 }
 
                 if (all_known_packages.contains(g.report.package_spec.hash)) [[unlikely]]
