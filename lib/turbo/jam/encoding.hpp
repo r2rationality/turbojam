@@ -34,14 +34,14 @@ namespace turbo::jam {
             if (!num_bytes) [[unlikely]]
                 throw error("jam::codec::encoder: uint_fixed: num_bytes must be greater than 0!");
             if (bytes.size() != num_bytes) [[unlikely]]
-                throw error(fmt::format("uint_fixed: expected an output buffer of {} bytes, got {}", num_bytes, bytes.size()));
+                throw error{"uint_fixed: expected an output buffer of {} bytes, got {}", num_bytes, bytes.size()};
             auto x = val;
             for (size_t i = 0; i < num_bytes; ++i) {
                 bytes[i] = static_cast<uint8_t>(x & 0xFF);
                 x >>= 8;
             }
             if (x) [[unlikely]]
-                throw error(fmt::format("{} cannot be encoded as a sequence of {} bytes", val, num_bytes));
+                throw error{"{} cannot be encoded as a sequence of {} bytes", val, num_bytes};
         }
 
         template<typename ...Args>
@@ -160,7 +160,7 @@ namespace turbo::jam {
             } else if constexpr (std::convertible_to<T, std::span<const uint8_t>>) {
                 _bytes << static_cast<std::span<const uint8_t>>(val);
             } else {
-                throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
+                throw error{"serialization is not enabled for type {}", typeid(T).name()};
             }
         }
 
@@ -260,12 +260,12 @@ namespace turbo::jam {
                 switch (const auto typ = uint_fixed<uint8_t>(1)) {
                     case 0: break;
                     case 1: val.emplace(); process(*val); break;
-                    [[unlikely]] default: throw error(fmt::format("unsupported optional type: {}", typ));
+                    [[unlikely]] default: throw error{"unsupported optional type: {}", typ};
                 }
             } else if constexpr (codec::bounded_range_c<T>) {
                 const auto sz = uint_varlen<size_t>();
                 if (!(static_cast<int>(sz >= T::min_size) & static_cast<int>(sz <= T::max_size))) [[unlikely]]
-                    throw error(fmt::format("array size {} is out of allowed bounds: [{}, {}]", sz, T::min_size, T::max_size));
+                    throw error{"array size {} is out of allowed bounds: [{}, {}]", sz, T::min_size, T::max_size};
                 val.clear();
                 if constexpr (requires { val.reserve(sz); })
                     val.reserve(sz);
@@ -314,7 +314,7 @@ namespace turbo::jam {
             } else if constexpr (std::is_same_v<bool, T>) {
                 val = static_cast<T>(uint_fixed<uint8_t>(1));
             } else {
-                throw error(fmt::format("serialization is not enabled for type {}", typeid(T).name()));
+                throw error{"serialization is not enabled for type {}", typeid(T).name()};
             }
         }
 

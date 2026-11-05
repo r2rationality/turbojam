@@ -92,24 +92,24 @@ namespace turbo::codec::json {
                     jv_dec.process(val_name, v);
                     const auto [it, created] = val.try_emplace(std::move(k), std::move(v));
                     if (!created) [[unlikely]]
-                        throw error(fmt::format("a map contains non-unique items: {}", typeid(val).name()));
+                        throw error{"a map contains non-unique items: {}", typeid(val).name()};
                 }
             } else if constexpr (fixed_array_like_c<T>) {
                 const auto &j_arr = jv.get_array();
                 if (j_arr.size() != val.size()) [[unlikely]]
-                    throw error(fmt::format("fixed array: expected size {} but got {}", val.size(), j_arr.size()));
+                    throw error{"fixed array: expected size {} but got {}", val.size(), j_arr.size()};
                 for (size_t i = 0; i < j_arr.size(); ++i)
                     decode(j_arr[i], val[i]);
             } else if constexpr (byte_array_like_c<T>) {
                 const auto hex = boost::json::value_to<std::string_view>(jv);
                 if (!hex.starts_with("0x")) [[unlikely]]
-                    throw error(fmt::format("expected a hex string but got: {}", hex));
+                    throw error{"expected a hex string but got: {}", hex};
                 init_from_hex(std::span<uint8_t>{val.data(), val.size()}, hex.substr(2));
             } else if constexpr (byte_sequence_like_c<T>) {
                 if (jv.is_string()) {
                     const auto hex = boost::json::value_to<std::string_view>(jv);
                     if (!hex.starts_with("0x")) [[unlikely]]
-                        throw error(fmt::format("expected a hex string but got: {}", hex));
+                        throw error{"expected a hex string but got: {}", hex};
                     const auto hex_data = hex.substr(2);
                     val.resize(hex_data.size() / 2);
                     init_from_hex(val, hex_data);
@@ -120,7 +120,7 @@ namespace turbo::codec::json {
                     for (const auto &byte: ja)
                         val.emplace_back(boost::json::value_to<uint8_t>(byte));
                 } else {
-                    throw error(fmt::format("expected a bytestring got: {}", serialize_pretty(jv)));
+                    throw error{"expected a bytestring got: {}", serialize_pretty(jv)};
                 }
             } else if constexpr (std::is_same_v<T, uint8_t>
                     || std::is_same_v<T, uint16_t>
@@ -132,7 +132,7 @@ namespace turbo::codec::json {
             } else if constexpr (std::is_same_v<T, std::string>) {
                 val = boost::json::value_to<std::string_view>(jv);
             } else {
-                throw error(fmt::format("json serialization is not enabled for type {}", typeid(T).name()));
+                throw error{"json serialization is not enabled for type {}", typeid(T).name()};
             }
         }
 
@@ -150,7 +150,7 @@ namespace turbo::codec::json {
                     }
                     ++idx;
                 }
-                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(jv)));
+                throw error{"an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(jv)};
             } else if (jv.is_string()) {
                 const auto req_name = json::value_to<std::string_view>(jv);
                 size_t idx = 0;
@@ -162,9 +162,9 @@ namespace turbo::codec::json {
                     }
                     ++idx;
                 }
-                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(jv)));
+                throw error{"an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(jv)};
             } else {
-                throw error(fmt::format("an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(jv)));
+                throw error{"an invalid value for type {}: {}", typeid(T).name(), json::serialize_pretty(jv)};
             }
         }
 
@@ -187,7 +187,7 @@ namespace turbo::codec::json {
                 if constexpr (optional_c<T>) {
                     val.reset();
                 } else {
-                    throw error(fmt::format("an unsupported value for type {}: {}", typeid(T).name(), codec::json::serialize_pretty(jo)));
+                    throw error{"an unsupported value for type {}: {}", typeid(T).name(), codec::json::serialize_pretty(jo)};
                 }
             }
         }
@@ -216,7 +216,7 @@ namespace turbo::codec::json {
             codec::json::decoder j_dec { j };
             return codec::from<T>(j_dec);
         } else {
-            throw error(fmt::format("JSON serialization not supported for {}", typeid(T).name()));
+            throw error{"JSON serialization not supported for {}", typeid(T).name()};
         }
     }
 

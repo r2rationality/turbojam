@@ -47,7 +47,7 @@ namespace turbo::jamnp {
             decoder dec{data};
             auto val = jam::from<T>(dec);
             if (!dec.empty()) [[unlikely]]
-                throw error{fmt::format("jamnp message has {} trailing bytes after decoding {}", data.size() - dec.consumed(), typeid(T).name())};
+                throw error{"jamnp message has {} trailing bytes after decoding {}", data.size() - dec.consumed(), typeid(T).name()};
             return val;
         }
 

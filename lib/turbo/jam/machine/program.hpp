@@ -23,7 +23,7 @@ namespace turbo::jam::machine {
             _num_bits{num_bits}
         {
             if (_num_bits > bytes.size() * 8U) [[unlikely]]
-                throw error(fmt::format("too many bits for bit vector of {} bytes: {}", bytes.size(), _num_bits));
+                throw error{"too many bits for bit vector of {} bytes: {}", bytes.size(), _num_bits};
             _bytes.reserve(bytes.size() + 3U);
             _bytes.insert(_bytes.end(), bytes.begin(), bytes.end());
             _bytes.insert(_bytes.end(), 3U, uint8_t{0});
@@ -680,7 +680,7 @@ namespace turbo::jam::machine {
             _raw{std::move(c)}
         {
             if (bitmasks.size() != _raw.size()) [[unlikely]]
-                throw error(fmt::format("the code bitmask size must match the number of instructions!"));
+                throw error{"the code bitmask size must match the number of instructions!"};
             // GP's zero suffix permits operand reads beyond the logical end of code.
             _raw.insert(_raw.end(), 16U, uint8_t{0});
             instrs = buffer{_raw.data(), bitmasks.size()};

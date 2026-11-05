@@ -284,7 +284,7 @@ namespace turbo::jam {
             } else if constexpr (std::is_same_v<T, machine::exit_halt_t>) {
                 return machine::inner_pvm_res_t::halt;
             } else {
-                throw error(fmt::format("internal PVM invoke: unsupported result type: {}", typeid(rv).name()));
+                throw error{"internal PVM invoke: unsupported result type: {}", typeid(rv).name()};
             }
         }, res);
         this->_p.m.set_reg(7, ret);

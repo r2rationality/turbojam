@@ -55,7 +55,7 @@ namespace turbo::jam::fuzzer {
         void compatible_with(const peer_info_t &o) const
         {
             if (jam_version != o.jam_version) [[unlikely]]
-                throw error(fmt::format("jam version mismatch: {} != {}", jam_version, o.jam_version));
+                throw error{"jam version mismatch: {} != {}", jam_version, o.jam_version};
         }
 
         bool operator==(const peer_info_t &) const =default;

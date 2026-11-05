@@ -17,7 +17,7 @@ namespace turbo::jamnp::internal {
     struct gnutls_global_state_t {
         gnutls_global_state_t() {
             if (const auto err = gnutls_global_init(); err != GNUTLS_E_SUCCESS) [[unlikely]]
-                throw error{fmt::format("gnutls_global_init failed: {}", gnutls_error_text(err))};
+                throw error{"gnutls_global_init failed: {}", gnutls_error_text(err)};
         }
 
         ~gnutls_global_state_t() {

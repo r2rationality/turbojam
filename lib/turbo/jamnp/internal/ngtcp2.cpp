@@ -118,21 +118,21 @@ namespace turbo::jamnp::transport::ngtcp2 {
             explicit gnutls_state_t(const transport_config_t &cfg, const bool is_server) {
                 [[maybe_unused]] auto &global = gnutls_global_state();
                 if (const auto err = gnutls_certificate_allocate_credentials(&_cred); err != GNUTLS_E_SUCCESS) [[unlikely]]
-                    throw jamnp::error{fmt::format("gnutls_certificate_allocate_credentials failed: {}", gnutls_error_text(err))};
+                    throw jamnp::error{"gnutls_certificate_allocate_credentials failed: {}", gnutls_error_text(err)};
 
                 if (!cfg.certificate.empty()) {
                     gnutls_x509_crt_t certs[]{cfg.certificate.certificate};
                     const auto err = gnutls_certificate_set_x509_key(_cred, certs, 1, cfg.certificate.private_key);
                     if (err != GNUTLS_E_SUCCESS) [[unlikely]]
-                        throw jamnp::error{fmt::format("failed to load certificate and key: {}", gnutls_error_text(err))};
+                        throw jamnp::error{"failed to load certificate and key: {}", gnutls_error_text(err)};
                 }
 
                 if (const auto err = gnutls_init(&_session, is_server ? GNUTLS_SERVER : GNUTLS_CLIENT); err != GNUTLS_E_SUCCESS) [[unlikely]]
-                    throw jamnp::error{fmt::format("gnutls_init failed: {}", gnutls_error_text(err))};
+                    throw jamnp::error{"gnutls_init failed: {}", gnutls_error_text(err)};
                 if (const auto err = gnutls_priority_set_direct(_session, "NORMAL:-VERS-ALL:+VERS-TLS1.3", nullptr); err != GNUTLS_E_SUCCESS) [[unlikely]]
-                    throw jamnp::error{fmt::format("gnutls_priority_set_direct failed: {}", gnutls_error_text(err))};
+                    throw jamnp::error{"gnutls_priority_set_direct failed: {}", gnutls_error_text(err)};
                 if (const auto err = gnutls_credentials_set(_session, GNUTLS_CRD_CERTIFICATE, _cred); err != GNUTLS_E_SUCCESS) [[unlikely]]
-                    throw jamnp::error{fmt::format("gnutls_credentials_set failed: {}", gnutls_error_text(err))};
+                    throw jamnp::error{"gnutls_credentials_set failed: {}", gnutls_error_text(err)};
                 if (is_server)
                     gnutls_certificate_server_set_request(_session, GNUTLS_CERT_REQUEST);
 
@@ -144,14 +144,14 @@ namespace turbo::jamnp::transport::ngtcp2 {
                     }
                 };
                 if (const auto err = gnutls_alpn_set_protocols(_session, protocols, 1, 0); err != GNUTLS_E_SUCCESS) [[unlikely]]
-                    throw jamnp::error{fmt::format("gnutls_alpn_set_protocols failed: {}", gnutls_error_text(err))};
+                    throw jamnp::error{"gnutls_alpn_set_protocols failed: {}", gnutls_error_text(err)};
 
                 const auto err = is_server
                     ? ngtcp2_crypto_gnutls_configure_server_session(_session)
                     : ngtcp2_crypto_gnutls_configure_client_session(_session);
                 if (err != 0) [[unlikely]]
-                    throw jamnp::error{fmt::format("ngtcp2_crypto_gnutls_configure_{}_session failed: {}",
-                        is_server ? "server" : "client", err)};
+                    throw jamnp::error{"ngtcp2_crypto_gnutls_configure_{}_session failed: {}",
+                        is_server ? "server" : "client", err};
             }
 
             ~gnutls_state_t() {
@@ -177,7 +177,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
         struct gnutls_crt_scope_t {
             gnutls_crt_scope_t() {
                 if (const auto err = gnutls_x509_crt_init(&value); err != GNUTLS_E_SUCCESS) [[unlikely]]
-                    throw jamnp::error{fmt::format("gnutls_x509_crt_init failed: {}", gnutls_error_text(err))};
+                    throw jamnp::error{"gnutls_x509_crt_init failed: {}", gnutls_error_text(err)};
             }
 
             ~gnutls_crt_scope_t() {
@@ -204,13 +204,13 @@ namespace turbo::jamnp::transport::ngtcp2 {
             void append(const uint64_t offset, const uint8_t *data, const size_t sz) {
                 const auto expected_offset = _base_offset + _bytes.size();
                 if (offset != expected_offset) [[unlikely]]
-                    throw jamnp::error{fmt::format("stream buffer offset out of range got: {}, expected: {}", offset, expected_offset)};
+                    throw jamnp::error{"stream buffer offset out of range got: {}, expected: {}", offset, expected_offset};
                 _bytes << buffer{data, sz};
             }
 
             [[nodiscard]] uint8_vector read(const size_t sz) {
                 if (sz > size()) [[unlikely]]
-                    throw jamnp::error{fmt::format("stream buffer read size out of range got: {}, available: {}", sz, size())};
+                    throw jamnp::error{"stream buffer read size out of range got: {}, available: {}", sz, size()};
                 uint8_vector bytes{buffer{_bytes.data(), sz}};
                 _bytes.erase(_bytes.begin(), _bytes.begin() + static_cast<std::ptrdiff_t>(sz));
                 _base_offset += sz;
@@ -349,7 +349,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 if (n == 0)
                     break;
                 if (n < 0) [[unlikely]]
-                    throw jamnp::error{fmt::format("ngtcp2_conn_write_pkt failed: {}", ngtcp2_strerror(static_cast<int>(n)))};
+                    throw jamnp::error{"ngtcp2_conn_write_pkt failed: {}", ngtcp2_strerror(static_cast<int>(n))};
                 send(buffer{out.data(), static_cast<size_t>(n)});
             }
         }
@@ -372,7 +372,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 const auto n = ngtcp2_conn_writev_stream(conn, &write_path, &pi, out.data(), out.size(),
                     &data_written, flags, stream_id, &datav, datav.len > 0 ? 1 : 0, now_ns());
                 if (n < 0) [[unlikely]]
-                    throw jamnp::error{fmt::format("ngtcp2_conn_writev_stream failed: {}", ngtcp2_strerror(static_cast<int>(n)))};
+                    throw jamnp::error{"ngtcp2_conn_writev_stream failed: {}", ngtcp2_strerror(static_cast<int>(n))};
                 if (n == 0 && data_written == 0) [[unlikely]]
                     throw jamnp::error{"ngtcp2_conn_writev_stream produced no packet or stream progress"};
                 if (data_written > 0)
@@ -388,7 +388,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             pi.ecn = NGTCP2_ECN_NOT_ECT;
             const auto rv = ngtcp2_conn_read_pkt(conn, &path, &pi, packet.data(), packet.size(), now_ns());
             if (rv != 0) [[unlikely]]
-                throw jamnp::error{fmt::format("ngtcp2_conn_read_pkt failed: {}", ngtcp2_strerror(rv))};
+                throw jamnp::error{"ngtcp2_conn_read_pkt failed: {}", ngtcp2_strerror(rv)};
         }
 
         template<typename Owner>
@@ -530,7 +530,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 logger::info("ngtcp2 server created connection {} for {}", key, endpoint_key(remote));
                 auto [it, inserted] = _connections.emplace(key, std::move(connection));
                 if (!inserted) [[unlikely]]
-                    throw jamnp::error{fmt::format("duplicate ngtcp2 connection id {}", key)};
+                    throw jamnp::error{"duplicate ngtcp2 connection id {}", key};
                 return it;
             }
 
@@ -547,7 +547,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 boost::system::error_code ec{};
                 _socket.send_to(boost::asio::buffer(packet.data(), packet.size()), remote, 0, ec);
                 if (ec) [[unlikely]]
-                    throw jamnp::error{fmt::format("ngtcp2 server send failed: {}", ec.message())};
+                    throw jamnp::error{"ngtcp2 server send failed: {}", ec.message()};
             }
 
             [[nodiscard]] static ngtcp2_callbacks _make_callbacks() {
@@ -609,7 +609,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             const auto rv = ngtcp2_conn_server_new(&_conn, &initial_hd.scid, &_scid, &_path.path,
                 initial_hd.version, &callbacks, &settings, &params, nullptr, this);
             if (rv != 0) [[unlikely]]
-                throw jamnp::error{fmt::format("ngtcp2_conn_server_new failed: {}", ngtcp2_strerror(rv))};
+                throw jamnp::error{"ngtcp2_conn_server_new failed: {}", ngtcp2_strerror(rv)};
 
             bind_tls_to_conn(_conn, _tls, _conn_ref, this, _get_conn);
         }
@@ -658,12 +658,12 @@ namespace turbo::jamnp::transport::ngtcp2 {
             while (stream_buffer.size() < sz && !stream_buffer.finished()) {
                 co_await coro::external_task_t{[this, stream_id](auto h) {
                     if (const auto [_, inserted] = _stream_waiters.emplace(stream_id, h); !inserted) [[unlikely]]
-                        throw jamnp::error{fmt::format("duplicate ngtcp2 read waiter for stream {}", stream_id)};
+                        throw jamnp::error{"duplicate ngtcp2 read waiter for stream {}", stream_id};
                 }};
             }
 
             if (stream_buffer.size() < sz) [[unlikely]]
-                throw jamnp::error{fmt::format("ngtcp2 stream {} ended before {} bytes were available", stream_id, sz)};
+                throw jamnp::error{"ngtcp2 stream {} ended before {} bytes were available", stream_id, sz};
             co_return stream_buffer.read(sz);
         }
 
@@ -672,7 +672,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             while (stream_buffer.empty() && !stream_buffer.finished()) {
                 co_await coro::external_task_t{[this, stream_id](auto h) {
                     if (const auto [_, inserted] = _stream_waiters.emplace(stream_id, h); !inserted) [[unlikely]]
-                        throw jamnp::error{fmt::format("duplicate ngtcp2 read waiter for stream {}", stream_id)};
+                        throw jamnp::error{"duplicate ngtcp2 read waiter for stream {}", stream_id};
                 }};
             }
 
@@ -707,19 +707,19 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 unsigned int cert_count = 0;
                 const auto *certs = gnutls_certificate_get_peers(_tls.session(), &cert_count);
                 if (!certs || cert_count != 1) {
-                    throw jamnp::error{fmt::format("ngtcp2 client [{}]:{} supplied {} certificates",
-                        _remote.address().to_string(), _remote.port(), cert_count)};
+                    throw jamnp::error{"ngtcp2 client [{}]:{} supplied {} certificates",
+                        _remote.address().to_string(), _remote.port(), cert_count};
                 }
 
                 gnutls_crt_scope_t cert{};
                 if (const auto err = gnutls_x509_crt_import(cert.value, &certs[0], GNUTLS_X509_FMT_DER); err != GNUTLS_E_SUCCESS) [[unlikely]]
-                    throw jamnp::error{fmt::format("gnutls_x509_crt_import failed: {}", gnutls_error_text(err))};
+                    throw jamnp::error{"gnutls_x509_crt_import failed: {}", gnutls_error_text(err)};
 
                 gnutls_ecc_curve_t curve{};
                 gnutls_datum_scope_t x{};
                 gnutls_datum_scope_t y{};
                 if (const auto err = gnutls_x509_crt_get_pk_ecc_raw(cert.value, &curve, &x.value, &y.value); err != GNUTLS_E_SUCCESS) [[unlikely]]
-                    throw jamnp::error{fmt::format("gnutls_x509_crt_get_pk_ecc_raw failed: {}", gnutls_error_text(err))};
+                    throw jamnp::error{"gnutls_x509_crt_get_pk_ecc_raw failed: {}", gnutls_error_text(err)};
                 if (curve != GNUTLS_ECC_CURVE_ED25519 || x.value.size != sizeof(crypto::ed25519::vkey_t)) [[unlikely]]
                     throw jamnp::error{"ngtcp2 client certificate does not contain an Ed25519 public key"};
 
@@ -840,7 +840,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 boost::system::error_code ec{};
                 _socket.send_to(boost::asio::buffer(packet.data(), packet.size()), _endpoint, 0, ec);
                 if (ec) [[unlikely]]
-                    throw jamnp::error{fmt::format("ngtcp2 client send failed: {}", ec.message())};
+                    throw jamnp::error{"ngtcp2 client send failed: {}", ec.message()};
             }
         private:
             friend struct client_connection_t;
@@ -918,7 +918,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
             const auto rv = ngtcp2_conn_client_new(&_conn, &_dcid, &_scid, &_path.path, NGTCP2_PROTO_VER_V1,
                 &callbacks, &settings, &params, nullptr, this);
             if (rv != 0) [[unlikely]]
-                throw jamnp::error{fmt::format("ngtcp2_conn_client_new failed: {}", ngtcp2_strerror(rv))};
+                throw jamnp::error{"ngtcp2_conn_client_new failed: {}", ngtcp2_strerror(rv)};
 
             bind_tls_to_conn(_conn, _tls, _conn_ref, this, _get_conn);
         }
@@ -990,7 +990,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
 
                 if (rv != 0) [[unlikely]] {
                     _fail_request(req, std::make_exception_ptr(jamnp::error{
-                        fmt::format("ngtcp2_conn_open_bidi_stream failed: {}", ngtcp2_strerror(rv))
+                        "ngtcp2_conn_open_bidi_stream failed: {}", ngtcp2_strerror(rv)
                     }));
                     continue;
                 }
@@ -998,7 +998,7 @@ namespace turbo::jamnp::transport::ngtcp2 {
                 const auto [it, inserted] = _requests.emplace(stream_id, req);
                 if (!inserted) [[unlikely]] {
                     _fail_request(req, std::make_exception_ptr(jamnp::error{
-                        fmt::format("duplicate ngtcp2 client stream id {}", stream_id)
+                        "duplicate ngtcp2 client stream id {}", stream_id
                     }));
                     continue;
                 }

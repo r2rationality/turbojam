@@ -39,7 +39,7 @@ namespace turbo::cli::jamnp_client {
             if (request == "fetch-blocks") {
                 logger::info("fetch-blocks: {}", client.fetch_blocks({}, 10).wait());
             } else {
-                throw error(fmt::format("unsupported request: {}", request));
+                throw error{"unsupported request: {}", request};
             }
         }
     };

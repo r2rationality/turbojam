@@ -103,7 +103,7 @@ namespace turbo::jam {
             if (!_ptr) {
                 const auto bytes = _db->get(_key);
                 if (!bytes) [[unlikely]]
-                    throw error(fmt::format("a required state element is missing: {}", _key));
+                    throw error{"a required state element is missing: {}", _key};
                 _ptr = std::make_shared<element_type>(jam::from_bytes<element_type>(*bytes));
             }
             return _ptr;
@@ -131,7 +131,7 @@ namespace turbo::jam {
                 uint8_t version = 0;
                 archive.process("version"sv, version);
                 if (version != 0) [[unlikely]]
-                    throw error(fmt::format("unsupported service_info_t version: {}", version));
+                    throw error{"unsupported service_info_t version: {}", version};
             }
             archive.process("code_hash"sv, code_hash);
             archive.process("balance"sv, balance);
@@ -1065,7 +1065,7 @@ namespace turbo::jam {
                 auto &pool = new_alpha.at(ca.core);
                 auto pool_it = std::find(pool.begin(), pool.end(), ca.auth_hash);
                 if (pool_it == pool.end()) [[unlikely]]
-                    throw error(fmt::format("a work report for core {} mentions an unknown auth_hash: {}", ca.core, ca.auth_hash));
+                    throw error{"a work report for core {} mentions an unknown auth_hash: {}", ca.core, ca.auth_hash};
                 pool.erase(pool_it);
             }
 

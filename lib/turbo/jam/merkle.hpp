@@ -132,7 +132,7 @@ namespace turbo::jam::merkle {
             {
                 // the metadata byte is excluded from the comparison!
                 if (i >= (sizeof(*this) - 1) * 8) [[unlikely]]
-                    throw error(fmt::format("bit index {} is beyond the num bits: {}", i, sizeof(*this) * 8));
+                    throw error{"bit index {} is beyond the num bits: {}", i, sizeof(*this) * 8};
                 if (i < (sizeof(left) - 1) * 8)
                     return left.bit(8 + i);
                 return right.bit(i - (sizeof(left) - 1) * 8);

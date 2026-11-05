@@ -78,7 +78,7 @@ namespace turbo::jam {
                     if (new_ancestry_end != _ancestry.end()) {
                         for (const auto &ancestor: std::views::reverse(ancestry_range_t<CFG>{new_ancestry_end, _ancestry.end()})) {
                             if (!ancestor.undo) [[unlikely]]
-                                throw error(fmt::format("can't rollback block {} due to missing undo record", ancestor.header_hash));
+                                throw error{"can't rollback block {} due to missing undo record", ancestor.header_hash};
                             // Preserve the undo record if applying it fails.
                             for (const auto &[k, v]: *ancestor.undo | std::views::reverse)
                                 _triedb->apply(k, v);

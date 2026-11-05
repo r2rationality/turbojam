@@ -126,7 +126,7 @@ namespace turbo::jam {
         [[nodiscard]] bool test(const size_t pos) const
         {
             if (pos >= SZ) [[unlikely]]
-                throw error(fmt::format("the requested bit index: {} is out of range: [0;{})", pos, SZ));
+                throw error{"the requested bit index: {} is out of range: [0;{})", pos, SZ};
             const auto byte_pos = pos >> 3;
             const auto bit_pos = pos & 7;
             return (*this)[byte_pos] & (1 << bit_pos);

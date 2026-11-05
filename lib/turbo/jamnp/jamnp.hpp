@@ -62,18 +62,18 @@ namespace turbo::jamnp {
         static protocol_id_t from_text(const std::string_view text) {
             const auto parts = _split(text, '/');
             if (parts.size() < 3U || parts.size() > 4U) [[unlikely]]
-                throw error(fmt::format("invalid protocol id: {}", text));
+                throw error{"invalid protocol id: {}", text};
             if (parts[0] != prefix) [[unlikely]]
-                throw error(fmt::format("invalid protocol id: {}", text));
+                throw error{"invalid protocol id: {}", text};
             const auto ver = _to_uint16(parts[1]);
             if (ver != 0U) [[unlikely]]
-                throw error(fmt::format("unsupported protocol version: {}", ver));
+                throw error{"unsupported protocol version: {}", ver};
             const auto hash = hash4_t::from_hex(parts[2]);
             _validate_hex_case(parts[2]);
             if (parts.size() == 3U)
                 return {hash, ver};
             if (parts[3] != builder_suffix) [[unlikely]]
-                throw error(fmt::format("invalid protocol id: {}", text));
+                throw error{"invalid protocol id: {}", text};
             return {hash, ver, true};
         }
 
@@ -122,15 +122,15 @@ namespace turbo::jamnp {
             unsigned int value{};
             const auto result = std::from_chars(s.data(), s.data() + s.size(), value);
             if (result.ec != std::errc{} || result.ptr != s.data() + s.size()) [[unlikely]]
-                throw error(fmt::format("invalid uint16_t value: {}", s));
+                throw error{"invalid uint16_t value: {}", s};
             if (value > std::numeric_limits<uint16_t>::max()) [[unlikely]]
-                throw error(fmt::format("invalid uint16_t value: {}", value));
+                throw error{"invalid uint16_t value: {}", value};
             return static_cast<uint16_t>(value);
         }
 
         static void _validate_hex_case(const uint8_t k) {
             if ((k < '0' || k > '9') && (k < 'a' || k > 'f')) [[unlikely]]
-                throw error(fmt::format("unexpected hex character case: {}!", static_cast<char>(k)));
+                throw error{"unexpected hex character case: {}!", static_cast<char>(k)};
         }
 
         static void _validate_hex_case(const buffer hex) {

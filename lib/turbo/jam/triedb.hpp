@@ -62,7 +62,7 @@ namespace turbo::jam::triedb {
                     if constexpr (std::is_same_v<T, merkle::trie::value_hash_t>) {
                         auto val = _store->get(buffer{k});
                         if (!val) [[unlikely]]
-                            throw error(fmt::format("internal error: failed to get value for key {} from the store", k));
+                            throw error{"internal error: failed to get value for key {} from the store", k};
                         obs(static_cast<buffer>(k), *val);
                     } else {
                         obs(static_cast<buffer>(k), buffer {vv.data(), vv.size()});
@@ -95,7 +95,7 @@ namespace turbo::jam::triedb {
                     if constexpr (std::is_same_v<T, merkle::trie::value_hash_t>) {
                         auto val = _store->get(buffer{k});
                         if (!val) [[unlikely]]
-                            throw error(fmt::format("internal error: failed to get value for key {} from the store", k));
+                            throw error{"internal error: failed to get value for key {} from the store", k};
                         _undo.emplace_back(k, std::move(val));
                     } else {
                         _undo.emplace_back(k, buffer {vv.data(), vv.size()});
@@ -228,7 +228,7 @@ namespace turbo::jam::triedb {
                     cmp.foreach([&](const auto &k, const auto &v) {
                         logger::debug("trie cmp: {}", k);
                     });*/
-                    throw error(fmt::format("internal error: trie root mismatch after erase key: {}!", k));
+                    throw error{"internal error: trie root mismatch after erase key: {}!", k};
                 }
 #endif
         }
@@ -250,7 +250,7 @@ namespace turbo::jam::triedb {
             }
 #           if !defined(NDEBUG) && !defined(MY_NDEBUG)
                 if (_snapshot.root() != _trie->root()) [[unlikely]]
-                    throw error(fmt::format("internal error: trie root mismatch after set key: {}!", k));
+                    throw error{"internal error: trie root mismatch after set key: {}!", k};
 #           endif
         }
 

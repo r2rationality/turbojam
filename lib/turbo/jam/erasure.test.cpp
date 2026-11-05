@@ -39,7 +39,7 @@ namespace {
             const auto t_data = transpose(CFG::V_validator_count, tc.data);
             byte_array<6U * 2U> shards;
             if (const auto res = erasure_coding::construct_chunks(shards, CFG::V_validator_count, t_data); res != 0) [[unlikely]]
-                throw error(fmt::format("erasure_coding::construct_chunks failed with error code {}", res));
+                throw error{"erasure_coding::construct_chunks failed with error code {}", res};
             expect(false) << "not implemented";
         } catch (const std::exception &ex) {
             expect(false) << path << ex.what();

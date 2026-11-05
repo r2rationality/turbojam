@@ -141,7 +141,7 @@ namespace turbo::jam {
         [[nodiscard]] size_t add(ptr_type machine) {
             const auto id = _next_id();
             if (const auto [it, created] = _machines.try_emplace(id, std::move(machine)); !created) [[unlikely]]
-                throw error(fmt::format("internal error: a duplicate internal machine with id {}", id));
+                throw error{"internal error: a duplicate internal machine with id {}", id};
             return id;
         }
 

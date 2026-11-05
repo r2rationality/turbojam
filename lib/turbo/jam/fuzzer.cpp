@@ -74,7 +74,7 @@ namespace turbo::jam::fuzzer {
                     // For this reason, the current state is always returned
                     return _chain->state().snapshot();
                 } else {
-                    throw error(fmt::format("unexpected message type: {}", typeid(T).name()));
+                    throw error{"unexpected message type: {}", typeid(T).name()};
                 }
             }, std::move(msg));
         }

@@ -149,7 +149,7 @@ namespace turbo::storage::lmdb {
 
         static void _throw_lmdb(int rc, const char* what) {
             if (rc != MDB_SUCCESS) [[unlikely]]
-                throw error(fmt::format("lmdb: {}: {}", what, mdb_strerror(rc)));
+                throw error{"lmdb: {}: {}", what, mdb_strerror(rc)};
         }
 
         static MDB_val _to_mdb_val(const buffer b) {

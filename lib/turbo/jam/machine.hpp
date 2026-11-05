@@ -56,7 +56,7 @@ namespace turbo::jam::machine {
             case 3: return {read, existing};
             case 4: return {write, existing};
             default: [[unlikely]]
-                throw error(fmt::format("invalid page init code: {}", r));
+                throw error{"invalid page init code: {}", r};
             }
         }
 
@@ -78,10 +78,10 @@ namespace turbo::jam::machine {
             using namespace std::string_view_literals;
             archive.process("address"sv, address);
             if (address % config_prod::ZP_pvm_page_size != 0) [[unlikely]]
-                throw error(fmt::format("an invalid page address: {}", address));
+                throw error{"an invalid page address: {}", address};
             archive.process("length"sv, length);
             if (length % config_prod::ZP_pvm_page_size != 0) [[unlikely]]
-                throw error(fmt::format("an invalid page length: {}", length));
+                throw error{"an invalid page length: {}", length};
             archive.process("is-writable"sv, is_writable);
         }
     };
@@ -128,7 +128,7 @@ namespace turbo::jam::machine {
                 return {exit_out_of_gas_t{}};
             if (val == "ecalli"sv)
                 return {exit_host_call_t{}};
-            throw error(fmt::format("unsupported machine_status_t value '{}'", val));
+            throw error{"unsupported machine_status_t value '{}'", val};
         }
 
         void serialize(auto &archive)

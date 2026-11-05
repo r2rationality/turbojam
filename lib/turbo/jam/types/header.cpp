@@ -46,7 +46,7 @@ namespace turbo::jam {
                     throw err_bad_signature_t {};
                 seal_input << CFG::jam_fallback_seal << eta3;
             } else {
-                throw error(fmt::format("unsupported type for tickets_or_keys: {}", typeid(T).name()));
+                throw error{"unsupported type for tickets_or_keys: {}", typeid(T).name()};
             }
         }, gamma_s);
         if (ark_vrf::ietf_vrf_verify(vkey, seal, buffer{seal_input.data(), seal_input.size()}, prepared.unsigned_header) != 0) [[unlikely]]

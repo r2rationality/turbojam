@@ -85,7 +85,7 @@ namespace turbo::jam::merkle {
                 }
             }
             if (cnt != _size) [[unlikely]]
-                throw error(fmt::format("internal error: the action trie size does not match the recorded one: {} != {}!", cnt, _size));
+                throw error{"internal error: the action trie size does not match the recorded one: {} != {}!", cnt, _size};
         }
 
         value_t make_value(const buffer &bytes) const

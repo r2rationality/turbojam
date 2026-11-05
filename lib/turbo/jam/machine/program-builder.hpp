@@ -26,10 +26,10 @@ namespace turbo::jam::machine {
         void emit(const buffer instruction) {
             static constexpr size_t max_instr_size = max_skip_len + 1U;
             if (instruction.empty() || instruction.size() > max_instr_size) [[unlikely]]
-                throw error(fmt::format(
+                throw error{
                     "an instruction must contain between 1 and {} bytes but got {}",
                     max_instr_size, instruction.size()
-                ));
+                };
             const auto offset = _instrs.size();
             _instrs.insert(_instrs.end(), instruction.begin(), instruction.end());
             _mask.resize((_instrs.size() + 7) / 8, 0);
@@ -192,7 +192,7 @@ namespace turbo::jam::machine {
 
         static void _check_reg(const size_t reg) {
             if (reg >= registers_t::fixed_size) [[unlikely]]
-                throw error(fmt::format("invalid program register index: {}", reg));
+                throw error{"invalid program register index: {}", reg};
         }
 
         void _check_readonly_mutable() const {

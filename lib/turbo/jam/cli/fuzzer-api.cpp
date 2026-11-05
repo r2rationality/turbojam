@@ -143,7 +143,7 @@ namespace turbo::cli::fuzzer_api {
                 server_t<config_fuzz> srv{"dev", fuzz_args->data_path, fuzz_args->sock_path};
                 srv.run();
             } else {
-                throw error(fmt::format("unsupported spec value: {}", fuzz_args->spec));
+                throw error{"unsupported spec value: {}", fuzz_args->spec};
             }
         }
     private:

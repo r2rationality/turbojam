@@ -100,7 +100,7 @@ namespace turbo::jam {
         tickets_t<CFG> tickets;
         static_assert(!tickets.empty() && tickets.size() % 2U == 0U);
         if (gamma_a.size() != tickets.size()) [[unlikely]]
-            throw error(fmt::format("unexpected size of gamma.a: got: {} expected: {}", gamma_a.size(), tickets.size()));
+            throw error{"unexpected size of gamma.a: got: {} expected: {}", gamma_a.size(), tickets.size()};
         auto left = gamma_a.begin();
         auto right = std::prev(gamma_a.end());
         for (size_t i = 0; i < tickets.size(); ++i) {
@@ -497,7 +497,7 @@ namespace turbo::jam {
             } else [[likely]] {
                 const auto code_hash = crypto::blake2b::digest(*code);
                 if (code_hash != info->code_hash) [[unlikely]]
-                    throw error(fmt::format("the blob registered for code hash {} has hash {}", info->code_hash, code_hash));
+                    throw error{"the blob registered for code hash {} has hash {}", info->code_hash, code_hash};
                 auto ctx_ok = ctx_err;
 
                 encoder arg_enc{};
@@ -566,7 +566,7 @@ namespace turbo::jam {
     static service_result_map_t<CFG> accumulate_check_conflicts(const set_t<service_id_t> &ids, service_results_par_t<CFG> &&results)
     {
         if (ids.size() != results.size()) [[unlikely]]
-            throw error(fmt::format("internal error: accumulate_check_conflicts results size mismatch: {} != {}", ids.size(), results.size()));
+            throw error{"internal error: accumulate_check_conflicts results size mismatch: {} != {}", ids.size(), results.size()};
         service_result_map_t<CFG> res{};
         for (auto id_it = ids.begin(); id_it != ids.end(); ++id_it) {
             const auto idx = numeric_cast<size_t>(id_it - ids.begin());
@@ -576,7 +576,7 @@ namespace turbo::jam {
                 throw error("internal error: all service results must be known before the conflicts check can begin!");
             const auto [it, created] = res.try_emplace(service_id, std::move(*r));
             if (!created) [[unlikely]]
-                throw error(fmt::format("internal error: an unexpected duplicate service: {}", service_id));
+                throw error{"internal error: an unexpected duplicate service: {}", service_id};
         }
         {
             std::map<service_id_t, service_id_t> foreign_contributors{};
@@ -1797,7 +1797,7 @@ namespace turbo::jam {
     std::string state_t<CFG>::decode_val(const buffer key, const buffer val)
     {
         if (key.size() != sizeof(merkle::key_t)) [[unlikely]]
-            throw error(fmt::format("Invalid key size: {} bytes while expecting {}", key.size(), sizeof(merkle::key_t)));
+            throw error{"Invalid key size: {} bytes while expecting {}", key.size(), sizeof(merkle::key_t)};
         const auto key_info = state_dict_t::key_info(key);
         return std::visit([&](const auto &ki) {
             using T = std::decay_t<decltype(ki)>;

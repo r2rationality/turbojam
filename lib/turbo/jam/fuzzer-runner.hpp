@@ -155,7 +155,7 @@ namespace turbo::jam::fuzzer_runner {
                 boost::system::error_code ignored;
                 _conn.cancel(ignored);
                 _conn.close(ignored);
-                throw error(fmt::format("timed out while trying to connect to {}", _sock_path));
+                throw error{"timed out while trying to connect to {}", _sock_path};
             }
         }
     };
@@ -335,7 +335,7 @@ namespace turbo::jam::fuzzer_runner {
                         logger::trace("sample {}: post_root: {}", i, rv);
                         return rv == tc.post.state_root;
                     } else {
-                        throw error(fmt::format("sample {}: unexpected message type: {}", i, typeid(rv).name()));
+                        throw error{"sample {}: unexpected message type: {}", i, typeid(rv).name()};
                     }
                 }, resp);
                 logger::debug("sample {}: {}", i, ok ? "OK" : "FAILED");
@@ -487,7 +487,7 @@ namespace turbo::jam::fuzzer_runner {
                     target_files.emplace_back(path);
             }
             if (fuzzer_files.size() != target_files.size())
-                throw error(fmt::format("the number of fuzzer files: {} != the number of target files: {}", fuzzer_files.size(), target_files.size()));
+                throw error{"the number of fuzzer files: {} != the number of target files: {}", fuzzer_files.size(), target_files.size()};
             for (size_t i = 0; i < fuzzer_files.size(); ++i) {
                 test_sample(fuzzer_files[i], target_files[i]);
             }

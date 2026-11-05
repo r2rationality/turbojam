@@ -15,7 +15,7 @@ namespace turbo::jamnp {
     namespace {
         void check_gnutls(const int err, const std::string_view what) {
             if (err < 0) [[unlikely]]
-                throw error(fmt::format("{} failed: {}", what, internal::gnutls_error_text(err)));
+                throw error{"{} failed: {}", what, internal::gnutls_error_text(err)};
         }
 
         struct gnutls_crt_scope_t {
