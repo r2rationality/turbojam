@@ -30,7 +30,7 @@ namespace {
     };
 
     struct run_step_t {
-        void serialize(auto &archive) {
+        void serialize(auto &) {
         }
     };
 

@@ -1105,12 +1105,12 @@ namespace turbo::jam::machine {
             return register_val_t{self._pc + 1U + op.skip_len};
         }
 
-        static op_res_t unlikely(impl &, const code_t::opcode_t &op)
+        static op_res_t unlikely(impl &, const code_t::opcode_t &)
         {
             return {};
         }
 
-        static op_res_t ecalli(impl &self, const code_t::opcode_t &op)
+        static op_res_t ecalli(impl &, const code_t::opcode_t &op)
         {
             return exit_host_call_t{op.imm_1};
         }
