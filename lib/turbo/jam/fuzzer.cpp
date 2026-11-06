@@ -62,11 +62,13 @@ namespace turbo::jam::fuzzer {
                 } else if constexpr (std::is_same_v<T, import_block_t<CFG>>) {
                     if (!_chain) [[unlikely]]
                         throw error("import_block is not allowed before set_state");
+                    const auto pre_root = _chain->state_root();
                     try {
                         _chain->apply(m);
                         return _chain->state_root();
                     } catch (const std::exception &ex) {
-                        return fuzzer::error_t{ex.what()};
+                        const auto post_root = _chain->state_root();
+                        return fuzzer::error_t{std::string{post_root == pre_root ? std::string_view{ex.what()} : error_rollback_failed}};
                     }
                 } else if constexpr (std::is_same_v<T, get_state_t>) {
                     if (!_chain) [[unlikely]]
