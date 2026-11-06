@@ -1,10 +1,19 @@
 services:
+  test-base:
+    image: turbojam:test-base
+    build:
+      context: .
+      dockerfile: Dockerfile.test-base
   dev:
     image: r2rationality/turbojam
     restart: "no"
     build:
       context: .
       dockerfile: Dockerfile.dev
+      args:
+        TEST_BASE_IMAGE: turbojam:test-base
+      additional_contexts:
+        "turbojam:test-base": service:test-base
     volumes:
       - D:/data:/data-ext
       - /var/run/docker.sock:/var/run/docker.sock
