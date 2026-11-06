@@ -287,8 +287,6 @@ namespace turbo::jam::fuzzer_runner {
                     using T = std::decay_t<decltype(rv)>;
                     if constexpr (std::is_same_v<T, turbo::jam::fuzzer::error_t>) {
                         logger::trace("sample {}: error: {}", i, rv);
-                        if (rv == fuzzer::error_rollback_failed) [[unlikely]]
-                            throw error{"sample {}: error: {}", i, rv};
                         return tc.pre.state_root == tc.post.state_root;
                     } else if constexpr (std::is_same_v<T, state_root_t>) {
                         logger::trace("sample {}: post_root: {}", i, rv);

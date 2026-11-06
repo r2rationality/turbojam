@@ -67,8 +67,9 @@ namespace turbo::jam::fuzzer {
                         _chain->apply(m);
                         return _chain->state_root();
                     } catch (const std::exception &ex) {
-                        const auto post_root = _chain->state_root();
-                        return fuzzer::error_t{std::string{post_root == pre_root ? std::string_view{ex.what()} : error_rollback_failed}};
+                        if (const auto post_root = _chain->state_root(); post_root != pre_root) [[unlikely]]
+                            throw error{"chain failed to rollback after an error: {}", ex.what()};
+                        return fuzzer::error_t{ex.what()};
                     }
                 } else if constexpr (std::is_same_v<T, get_state_t>) {
                     if (!_chain) [[unlikely]]

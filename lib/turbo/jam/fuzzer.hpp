@@ -99,8 +99,6 @@ namespace turbo::jam::fuzzer {
         }
     };
 
-    static constexpr std::string_view error_rollback_failed{"chain failed to rollback after an error"};
-
     template<typename CFG>
     using message_base_t = std::variant<
         peer_info_t,
