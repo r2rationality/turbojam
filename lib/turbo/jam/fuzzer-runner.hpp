@@ -189,14 +189,14 @@ namespace turbo::jam::fuzzer_runner {
         {
         }
 
-        bool test_sample(const buffer tc_data, const std::optional<size_t> num_cases={})
+        bool test_sample(const buffer tc_data, genesis_t<CFG> genesis, const std::optional<size_t> num_cases={})
         {
             try {
                 test_cases_t test_cases{};
                 if (num_cases)
                     test_cases.reserve(*num_cases);
                 _append_test_cases(test_cases, tc_data);
-                return _io_worker.sync_call(_test_sample(std::move(test_cases)));
+                return _io_worker.sync_call(_test_sample(std::move(test_cases), std::move(genesis)));
             } catch (const std::exception &ex) {
                 logger::error("test_sample: failed due to an uncaught exception: {}", ex.what());
             } catch (...) {
@@ -205,7 +205,7 @@ namespace turbo::jam::fuzzer_runner {
             return false;
         }
 
-        bool test_sample(const std::string &sample_dir, const std::optional<header_t<CFG>> &shared_genesis={})
+        bool test_sample(const std::string &sample_dir, genesis_t<CFG> genesis)
         {
             try {
                 const auto start_time = std::chrono::system_clock::now();
@@ -223,9 +223,6 @@ namespace turbo::jam::fuzzer_runner {
                     file::read(path, tc_data);
                     _append_test_cases(test_cases, tc_data);
                 }
-                auto genesis = _load_genesis_header(sample_dir);
-                if (!genesis)
-                    genesis = shared_genesis;
                 const auto ok = _io_worker.sync_call(_test_sample(std::move(test_cases), std::move(genesis)));
                 logger::info("sample {}({}): {} in {:0.3f} sec", sample_dir, paths.size(), ok ? "OK" : "FAILED",
                     std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count());
@@ -240,29 +237,19 @@ namespace turbo::jam::fuzzer_runner {
 
         bool test_dir(const std::filesystem::path &data_dir)
         {
-            const auto shared_genesis = _load_shared_genesis_header(data_dir);
             size_t ok = 0, err = 0;
             for (const auto &e: std::filesystem::directory_iterator(data_dir)) {
                 if (e.is_directory() && !e.path().filename().string().starts_with('.')) {
-                    auto &cnt = test_sample(e.path().string(), shared_genesis) ? ok : err;
+                    auto &cnt = test_sample(e.path().string(), load_genesis<CFG>(e.path())) ? ok : err;
                     ++cnt;
                 }
             }
             if (ok + err == 0U) {
-                // A standalone sample's siblings belong to its parent corpus.
-                // test_sample still prefers the sample's own genesis.bin.
-                std::optional<header_t<CFG>> parent_genesis{};
-                if (!std::filesystem::exists(data_dir / "genesis.bin"))
-                    parent_genesis = _load_shared_genesis_header(data_dir / "..");
-                auto &cnt = test_sample(data_dir.string(), parent_genesis) ? ok : err;
+                auto &cnt = test_sample(data_dir.string(), load_genesis<CFG>(data_dir)) ? ok : err;
                 ++cnt;
             }
-            if (ok + err > 0U) {
-                logger::info("{}: success rate: {:.3f}% ({} out of {})",
-                    data_dir, static_cast<double>(ok) * 100 / static_cast<double>(ok + err), ok, ok + err);
-            } else {
-                logger::info("no actionable samples found in {}", data_dir);
-            }
+            logger::info("{}: success rate: {:.3f}% ({} out of {})",
+                data_dir, static_cast<double>(ok) * 100 / static_cast<double>(ok + err), ok, ok + err);
             return err == 0;
         }
 
@@ -274,32 +261,6 @@ namespace turbo::jam::fuzzer_runner {
         io_worker_t &_io_worker;
         perf_stats_t _stats{};
 
-        static std::optional<header_t<CFG>> _load_genesis_header(const std::filesystem::path &sample_dir)
-        {
-            const auto path = sample_dir / "genesis.bin";
-            if (!std::filesystem::exists(path))
-                return std::nullopt;
-            const auto bytes = file::read(path.string());
-            decoder dec{bytes};
-            return codec::from<header_t<CFG>>(dec);
-        }
-
-        static std::optional<header_t<CFG>> _load_shared_genesis_header(const std::filesystem::path &corpus_dir)
-        {
-            // Share only an agreed header, never another sample's genesis state root.
-            std::optional<header_t<CFG>> shared_genesis{};
-            for (const auto &e: std::filesystem::directory_iterator(corpus_dir)) {
-                if (e.is_directory() && !e.path().filename().string().starts_with('.')) {
-                    if (auto genesis = _load_genesis_header(e.path())) {
-                        if (shared_genesis && *shared_genesis != *genesis)
-                            return std::nullopt;
-                        shared_genesis = std::move(genesis);
-                    }
-                }
-            }
-            return shared_genesis;
-        }
-
         static void _append_test_cases(test_cases_t &test_cases, const buffer tc_data)
         {
             decoder dec{tc_data};
@@ -308,18 +269,14 @@ namespace turbo::jam::fuzzer_runner {
             }
         }
 
-        boost::asio::awaitable<state_snapshot_t> _get_state(const header_hash_t &hh)
-        {
-            co_return ::turbo::variant::get_nice<state_snapshot_t>(_proc->process(message_t<CFG>{get_state_t{hh}}));
-        }
-
-        boost::asio::awaitable<bool> _test_sample(const test_cases_t test_cases, const std::optional<header_t<CFG>> genesis={})
+        boost::asio::awaitable<bool> _test_sample(const test_cases_t test_cases, const genesis_t<CFG> genesis)
         {
             if (test_cases.empty()) [[unlikely]]
                 throw error("test_sample: no test cases provided!");
-            const auto &tc0 = test_cases[0];
-            auto pre_root = ::turbo::variant::get_nice<state_root_t>(co_await _proc->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(tc0.pre.keyvals, genesis)}));
-            logger::trace("pre_root: {}", pre_root);
+            const auto &initial_state = test_cases.front().pre;
+            const auto pre_root = ::turbo::variant::get_nice<state_root_t>(co_await _proc->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(initial_state.keyvals, genesis)}));
+            if (pre_root != initial_state.state_root) [[unlikely]]
+                throw error{"initial state root mismatch: expected {} actual {}", initial_state.state_root, pre_root};
             for (size_t i = 0; i < test_cases.size(); ++i) {
                 const auto &tc = test_cases[i];
                 logger::debug("sample {}: testing block {} {}", i, tc.block.header.slot, tc.block.header.hash());
@@ -346,13 +303,6 @@ namespace turbo::jam::fuzzer_runner {
                 }
             }
             co_return true;
-        }
-
-        void _print_state_diff(const header_hash_t &hh, const state_root_t &exp_root, const state_snapshot_t &exp_state)
-        {
-            const auto snap = _io_worker.sync_call(_get_state(hh));
-            logger::debug("state for block {} does not match expected root: {} actual: {}", hh, exp_root, snap.root());
-            logger::debug("state diff: {}", snap.diff(exp_state));
         }
     };
 
@@ -495,16 +445,6 @@ namespace turbo::jam::fuzzer_runner {
     private:
         my_processor_ptr_t _proc;
         io_worker_t &_io_worker;
-
-        boost::asio::awaitable<state_root_t> _set_state(initialize_t<CFG> init)
-        {
-            co_return variant::get_nice<state_root_t>(_proc->process(message_t<CFG>{std::move(init)}));
-        }
-
-        boost::asio::awaitable<state_snapshot_t> _get_state(const header_hash_t &hh)
-        {
-            co_return variant::get_nice<state_snapshot_t>(_proc->process(message_t<CFG>{get_state_t{hh}}));
-        }
 
         boost::asio::awaitable<bool> _test_case(message_t<CFG> in, message_t<CFG> exp)
         {

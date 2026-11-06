@@ -3,54 +3,39 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
-#include <turbo/common/logger.hpp>
 #include <turbo/storage/common.hpp>
 #include "chain.hpp"
 #include "triedb.hpp"
 
-#include "fuzzer-runner.hpp"
-
 namespace turbo::jam {
     template<typename CFG>
     struct chain_t<CFG>::impl {
-        explicit impl(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state,
-            const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry, const bool load_existing):
+        explicit impl(const std::string_view &id, const std::string_view &path, genesis_t<CFG> genesis,
+            std::optional<reset_t> reset):
             _id{id},
             _path{path},
-            _triedb{std::make_shared<triedb::db_t>((std::filesystem::path{path} / "kv").string(), load_existing)}
+            _triedb{std::make_shared<triedb::db_t>((std::filesystem::path{path} / "kv").string(), !reset)},
+            _genesis_state{std::move(genesis.state)},
+            _genesis_header{std::move(genesis.header)},
+            _state{_triedb}
         {
-            // Opening an existing database without a snapshot must not clear it.
-            reset(genesis_state, prev_state, std::move(ancestry), false);
-        }
-
-        void reset(const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state,
-            std::optional<ancestry_t<CFG>> ancestry, const bool clear_empty_state=true)
-        {
-            _genesis_state = genesis_state;
-            _genesis_header = state_t<CFG>::make_genesis_header(_genesis_state);
-            _ancestry = ancestry ? std::move(*ancestry) : ancestry_t<CFG>{};
-
-            // An empty snapshot clears storage on reset, but preserves it when opening a chain.
-            // A nonempty snapshot always replaces storage, regardless of clear_empty_state.
-            if (clear_empty_state || !prev_state.empty())
-                _triedb->replace_with(prev_state);
-            if (prev_state.empty()) {
-                _state.reset();
-            } else {
-                if (!_state)
-                    _state.emplace(_triedb);
-                else
-                    _state->reset_cache();
-                if (!ancestry) {
-                    const auto genesis_hash = _genesis_header.hash();
-                    _ancestry.add(_genesis_header.slot, genesis_hash, _genesis_state.root());
-                    const auto &beta = _state->beta.unmodified();
-                    const auto restored_root = state_root();
-                    // Beta's newest entry has a placeholder root until the next block.
-                    for (const auto &[i, h]: std::views::enumerate(beta.history)) {
-                        if (h.header_hash != genesis_hash)
-                            _ancestry.add(h.slot, h.header_hash, std::cmp_equal(i + 1, beta.history.size()) ? restored_root : h.state_root);
-                    }
+            if (reset) {
+                if (reset->state.empty() && !reset->ancestry.empty()) [[unlikely]]
+                    throw error{"chain reset ancestry requires a state snapshot"};
+                _triedb->replace_with(reset->empty() ? _genesis_state : reset->state);
+                _ancestry = std::move(reset->ancestry);
+            } else if (_triedb->size() == 0) {
+                _triedb->replace_with(_genesis_state);
+            }
+            if (_ancestry.empty()) {
+                const auto genesis_hash = _genesis_header.hash();
+                _ancestry.add(_genesis_header.slot, genesis_hash, _genesis_state.root());
+                const auto &beta = _state.beta.unmodified();
+                const auto restored_root = state_root();
+                // Beta's newest entry has a placeholder root until the next block.
+                for (const auto &[i, h]: std::views::enumerate(beta.history)) {
+                    if (h.header_hash != genesis_hash)
+                        _ancestry.add(h.slot, h.header_hash, std::cmp_equal(i + 1, beta.history.size()) ? restored_root : h.state_root);
                 }
             }
         }
@@ -58,53 +43,36 @@ namespace turbo::jam {
         void apply(const block_t<CFG> &blk)
         {
             const auto blk_hash = blk.header.hash();
-            std::optional<storage::update::undo_list_t> undo{};
             try {
-                if (!_state) [[unlikely]] {
-                    if (blk_hash != _genesis_header.hash()) [[unlikely]]
-                       throw error("the genesis header does not match the genesis state!");
-                    _state.emplace(_triedb);
-                    *_state = _genesis_state;
-                    logger::run_log_errors_rethrow([&] {
-                        state_t<CFG>::beta_prime(_state->beta.update(), blk_hash, {}, blk.header.slot, {});
-                        _state->stage();
-                    });
-                    _triedb->commit();
-                    _state->accept();
-                } else {
-                    const auto new_ancestry_end = _ancestry.known(blk.header.parent, blk.header.parent_state_root);
-                    const ancestry_range_t<CFG> retained_ancestry{_ancestry.begin(), new_ancestry_end};
-                    size_t undo_fork_point = 0;
-                    if (new_ancestry_end != _ancestry.end()) {
-                        for (const auto &ancestor: std::views::reverse(ancestry_range_t<CFG>{new_ancestry_end, _ancestry.end()})) {
-                            if (!ancestor.undo) [[unlikely]]
-                                throw error{"can't rollback block {} due to missing undo record", ancestor.header_hash};
-                            // Preserve the undo record if applying it fails.
-                            for (const auto &[k, v]: *ancestor.undo | std::views::reverse)
-                                _triedb->apply(k, v);
-                        }
-                        _state->reset_cache();
-                        // Earlier writes restore ancestors; later writes belong to the new block.
-                        undo_fork_point = _triedb->undo_size();
-                    } else {
-                        const auto local_state_root = state_root();
-                        if (local_state_root != blk.header.parent_state_root) [[unlikely]]
-                            throw err_bad_state_root_t{};
+                const auto new_ancestry_end = _ancestry.known(blk.header.parent, blk.header.parent_state_root);
+                const ancestry_range_t<CFG> retained_ancestry{_ancestry.begin(), new_ancestry_end};
+                size_t undo_fork_point = 0;
+                if (new_ancestry_end != _ancestry.end()) {
+                    for (const auto &ancestor: std::views::reverse(ancestry_range_t<CFG>{new_ancestry_end, _ancestry.end()})) {
+                        if (!ancestor.undo) [[unlikely]]
+                            throw error{"can't rollback block {} due to missing undo record", ancestor.header_hash};
+                        // Preserve the undo record if applying it fails.
+                        for (const auto &[k, v]: *ancestor.undo | std::views::reverse)
+                            _triedb->apply(k, v);
                     }
-                    _state->apply(blk, retained_ancestry);
-                    _state->stage();
-                    undo = _triedb->commit();
-                    _state->accept();
-                    if (undo_fork_point > 0)
-                        undo->erase(undo->begin(), undo->begin() + static_cast<std::ptrdiff_t>(undo_fork_point));
-                    _ancestry.truncate(retained_ancestry.size());
+                    _state.reset_cache();
+                    // Earlier writes restore ancestors; later writes belong to the new block.
+                    undo_fork_point = _triedb->undo_size();
+                } else {
+                    const auto local_state_root = state_root();
+                    if (local_state_root != blk.header.parent_state_root) [[unlikely]]
+                        throw err_bad_state_root_t{};
                 }
+                _state.apply(blk, retained_ancestry);
+                _state.stage();
+                auto undo = _triedb->commit();
+                _state.accept();
+                if (undo_fork_point > 0)
+                    undo.erase(undo.begin(), undo.begin() + static_cast<std::ptrdiff_t>(undo_fork_point));
+                _ancestry.truncate(retained_ancestry.size());
                 _ancestry.add(blk.header.slot, blk_hash, state_root(), std::move(undo));
             } catch (...) {
-                if (_state)
-                    _state->rollback();
-                if (_ancestry.empty()) [[unlikely]]
-                    _state.reset();
+                _state.rollback();
                 _triedb->rollback();
                 throw;
             }
@@ -117,11 +85,9 @@ namespace turbo::jam {
 
         [[nodiscard]] header_hash_t parent() const
         {
-            if (_state) {
-                if (const auto &beta = _state->beta.unmodified(); !beta.history.empty())
-                    return beta.history.back().header_hash;
-            }
-            return {};
+            if (const auto &beta = _state.beta.unmodified(); !beta.history.empty())
+                return beta.history.back().header_hash;
+            return _genesis_header.hash();
         }
 
         [[nodiscard]] const std::string &path() const
@@ -141,9 +107,7 @@ namespace turbo::jam {
 
         [[nodiscard]] const state_t<CFG> &state() const
         {
-            if (!_state) [[unlikely]]
-                throw error("chain is empty: no state is available!");
-            return *_state;
+            return _state;
         }
 
         [[nodiscard]] state_root_t state_root() const
@@ -161,7 +125,7 @@ namespace turbo::jam {
         triedb::db_ptr_t _triedb;
         state_snapshot_t _genesis_state;
         header_t<CFG> _genesis_header;
-        std::optional<state_t<CFG>> _state{};
+        state_t<CFG> _state;
         ancestry_t<CFG> _ancestry{};
     };
 
@@ -169,18 +133,20 @@ namespace turbo::jam {
     chain_t<CFG> chain_t<CFG>::from_json_spec(const std::string_view &path, const std::string &spec_path)
     {
         const auto j_cfg = codec::json::load(spec_path);
-        auto genesis_state = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
         return chain_t{
             boost::json::value_to<std::string_view>(j_cfg.at("id")),
             path,
-            std::move(genesis_state)
+            genesis_t<CFG>{
+                state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object()),
+                jam::from_bytes<header_t<CFG>>(uint8_vector::from_hex(j_cfg.at("genesis_header").as_string()))
+            }
         };
     }
 
     template<typename CFG>
-    chain_t<CFG>::chain_t(const std::string_view &id, const std::string_view &path, const state_snapshot_t &genesis_state,
-        const state_snapshot_t &prev_state, std::optional<ancestry_t<CFG>> ancestry, bool load_existing):
-        _impl{std::make_unique<impl>(id, path, genesis_state, prev_state, std::move(ancestry), load_existing)}
+    chain_t<CFG>::chain_t(const std::string_view &id, const std::string_view &path, genesis_t<CFG> genesis,
+        std::optional<reset_t> reset):
+        _impl{std::make_unique<impl>(id, path, std::move(genesis), std::move(reset))}
     {
     }
 
@@ -239,13 +205,6 @@ namespace turbo::jam {
     void chain_t<CFG>::apply(const block_t<CFG> &blk)
     {
         _impl->apply(blk);
-    }
-
-    template<typename CFG>
-    void chain_t<CFG>::reset(const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state,
-        std::optional<ancestry_t<CFG>> ancestry)
-    {
-        _impl->reset(genesis_state, prev_state, std::move(ancestry));
     }
 
     template struct chain_t<config_prod>;

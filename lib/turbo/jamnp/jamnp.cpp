@@ -164,19 +164,10 @@ namespace turbo::jamnp {
         return cert;
     }
 
-    jam::state_snapshot_t local_genesis_state() {
-        const auto j_spec = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
-        const auto &j_snap = j_spec.at("genesis_state").as_object();
-        jam::state_snapshot_t snap{};
-        for (const auto &[k, v]: j_snap) {
-            snap.emplace(jam::merkle::trie::key_t::from_hex(k), jam::byte_sequence_t::from_hex(v.as_string()));
-        }
-        return snap;
-    }
-
     protocol_id_t protocol_id_t::from_local_dev_spec() {
-        const auto snap = local_genesis_state();
-        const auto genesis_header = jam::state_t<jam::config_tiny>::make_genesis_header(snap);
+        const auto j_spec = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
+        const auto genesis_header = jam::from_bytes<jam::header_t<jam::config_tiny>>(
+            uint8_vector::from_hex(j_spec.at("genesis_header").as_string()));
         return {genesis_header.hash()};
     }
 }

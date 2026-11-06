@@ -54,9 +54,9 @@ namespace turbo::cli::fuzzer_convert {
                 }
             }
             if (!test_cases.empty()) {
-                const auto &tc0 = test_cases[0];
                 {
-                    const jam::encoder enc{initialize_t<config_tiny>::from_snapshot(tc0.pre.keyvals)};
+                    const auto genesis = load_genesis<config_tiny>(sample_dir);
+                    const jam::encoder enc{initialize_t<config_tiny>::from_snapshot(test_cases.front().pre.keyvals, genesis)};
                     file::write(state_path, enc.bytes());
                 }
                 for (const auto &[i, tc]: test_cases | std::views::enumerate) {

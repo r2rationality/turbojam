@@ -12,6 +12,11 @@
 #include "types/header.hpp"
 #include "types/state-dict.hpp"
 
+namespace turbo::jam {
+    template<typename CFG>
+    struct genesis_t;
+}
+
 namespace turbo::jam::fuzzer {
     struct version_t {
         uint8_t major;
@@ -40,7 +45,7 @@ namespace turbo::jam::fuzzer {
         uint8_t fuzz_version=0x01; // indicate support for v1
         features_t fuzz_features=feature_ancestry | feature_forks;
         version_t jam_version{0, 8, 0};
-        version_t app_version{0, 3, 1};
+        version_t app_version{0, 3, 2};
 
         void serialize(auto &archive)
         {
@@ -70,7 +75,7 @@ namespace turbo::jam::fuzzer {
         state_snapshot_t state;
         ancestry_t<CFG> ancestry;
 
-        static initialize_t from_snapshot(const state_snapshot_t &state, const std::optional<header_t<CFG>> &genesis={});
+        static initialize_t from_snapshot(const state_snapshot_t &state, const genesis_t<CFG> &genesis);
 
         void serialize(auto &archive)
         {

@@ -20,61 +20,101 @@ suite turbo_jam_chain_suite = [] {
         };
         safrole_state_t<cfg> gamma{};
         gamma.p = validators_data_t<cfg>{validators_data_t<cfg>::storage_type(cfg::V_validator_count_min)};
-        state_snapshot_t genesis{
+        state_snapshot_t genesis_state{
             {state_dict_t::make_key(3), encode(recent_blocks_t<cfg>{})},
             {state_dict_t::make_key(4), encode(gamma)},
             {state_dict_t::make_key(6), encode(entropy_buffer_t{})}
         };
-        const auto genesis_hash = state_t<cfg>::make_genesis_header(genesis).hash();
+        genesis_t<cfg> genesis{genesis_state, state_t<cfg>::make_genesis_header(genesis_state)};
+        // Exercise a supplied header that cannot be recovered by deriving it from state.
+        genesis.header.slot = 3;
+        const auto genesis_hash = genesis.header.hash();
         header_hash_t tip_hash{};
         tip_hash[0] = 1;
         recent_blocks_t<cfg> beta{};
         beta.history.emplace_back(block_info_t<cfg>{.header_hash = tip_hash, .slot = 7});
-        auto snapshot = genesis;
+        auto snapshot = genesis.state;
         snapshot[state_dict_t::make_key(3)] = encode(beta);
 
-        // Exercise both entry points through their observable parent-validation errors.
-        for (const bool via_reset: {false, true}) {
-            const auto check = [&](const state_snapshot_t &previous, std::optional<ancestry_t<cfg>> ancestry,
+        using reset_t = chain_t<cfg>::reset_t;
+        // Reset and reopening must both restore a usable state and derived ancestry.
+        for (const bool reopen: {false, true}) {
+            const auto check = [&](const state_snapshot_t &previous,
                 const auto &verify) {
                 file::tmp_directory dir{"turbo-jam-chain-restore"};
-                chain_t<cfg> chain{"restore", dir.path(), genesis,
-                    via_reset ? state_snapshot_t{} : previous, via_reset ? std::nullopt : ancestry, false};
-                if (via_reset)
-                    chain.reset(genesis, previous, std::move(ancestry));
-                verify(chain);
+                {
+                    chain_t<cfg> chain{"restore", dir.path(), genesis, reset_t{previous}};
+                    if (!reopen)
+                        verify(chain);
+                }
+                if (reopen) {
+                    chain_t<cfg> chain{"restore", dir.path(), genesis};
+                    verify(chain);
+                }
             };
             block_t<cfg> block{};
-            check(snapshot, std::nullopt, [&](auto &chain) {
+            check(snapshot, [&](auto &chain) {
+                expect(chain.state().snapshot() == snapshot);
+                expect_equal(chain.state_root(), snapshot.root());
+                expect_equal(chain.parent(), tip_hash);
                 block.header.parent = genesis_hash;
                 expect(throws<err_bad_state_root_t>([&] { chain.apply(block); })) << "genesis is known with its root";
                 block.header.parent = tip_hash;
                 expect(throws<err_bad_state_root_t>([&] { chain.apply(block); })) << "beta tip is known";
             });
 
-            ancestry_t<cfg> supplied{};
-            supplied.add(7, tip_hash);
-            check(snapshot, supplied, [&](auto &chain) {
-                block.header.parent = genesis_hash;
-                expect(throws<err_unknown_parent_t>([&] { chain.apply(block); })) << "explicit ancestry excludes genesis";
-                block.header.parent = tip_hash;
-                expect(throws<err_bad_state_root_t>([&] { chain.apply(block); })) << "beta must not duplicate the supplied tip";
-            });
-            check(snapshot, ancestry_t<cfg>{}, [&](auto &chain) {
-                block.header.parent = tip_hash;
-                expect(throws<err_unknown_parent_t>([&] { chain.apply(block); })) << "explicit empty ancestry stays empty";
-            });
-
             auto genesis_beta = beta;
             genesis_beta.history.front().header_hash = genesis_hash;
-            genesis_beta.history.front().slot = 0;
-            auto genesis_in_beta = genesis;
+            genesis_beta.history.front().slot = genesis.header.slot;
+            auto genesis_in_beta = genesis.state;
             genesis_in_beta[state_dict_t::make_key(3)] = encode(genesis_beta);
-            check(genesis_in_beta, std::nullopt, [&](auto &chain) {
+            check(genesis_in_beta, [&](auto &chain) {
                 block.header.parent = genesis_hash;
-                block.header.parent_state_root = genesis.root();
+                block.header.parent_state_root = genesis.state.root();
                 expect(throws<err_bad_state_root_t>([&] { chain.apply(block); })) << "genesis must not be duplicated by beta";
             });
+        }
+        file::tmp_directory dir{"turbo-jam-chain-reset"};
+        const auto check_genesis = [&](const auto &chain) {
+            expect(chain.state().snapshot() == genesis.state);
+            expect_equal(chain.state_root(), genesis.state.root());
+            expect_equal(chain.genesis_header(), genesis.header);
+            expect_equal(chain.parent(), genesis_hash);
+        };
+        {
+            chain_t<cfg> chain{"restore", dir.path(), genesis};
+            check_genesis(chain);
+        }
+        ancestry_t<cfg> supplied{};
+        supplied.add(7, tip_hash);
+        // This key must disappear when resetting to genesis.
+        snapshot[state_dict_t::make_key(250)] = byte_sequence_t{1, 2, 3};
+        {
+            chain_t<cfg> chain{"restore", dir.path(), genesis, reset_t{snapshot, supplied}};
+            block_t<cfg> block{};
+            block.header.parent = genesis_hash;
+            expect(throws<err_unknown_parent_t>([&] { chain.apply(block); })) << "supplied ancestry excludes genesis";
+            block.header.parent = tip_hash;
+            expect(throws<err_bad_state_root_t>([&] { chain.apply(block); })) << "supplied ancestry remains usable after rejection";
+        }
+        expect(throws<error>([&] {
+            chain_t<cfg> chain{"restore", dir.path(), genesis, reset_t{{}, supplied}};
+        })) << "ancestry without state is invalid";
+        {
+            chain_t<cfg> chain{"restore", dir.path(), genesis};
+            expect(chain.state().snapshot() == snapshot) << "invalid reset preserves storage";
+        }
+        {
+            chain_t<cfg> chain{"restore", dir.path(), genesis, reset_t{}};
+            check_genesis(chain);
+            block_t<cfg> block{};
+            block.header.parent = genesis_hash;
+            expect(throws<err_bad_state_root_t>([&] { chain.apply(block); })) << "reset restores genesis ancestry";
+            check_genesis(chain);
+        }
+        {
+            chain_t<cfg> chain{"restore", dir.path(), genesis};
+            check_genesis(chain);
         }
     };
     "turbo::jam::chain"_test = [] {

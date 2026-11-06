@@ -47,7 +47,6 @@ namespace turbo::jamnp {
     };
 
     [[nodiscard]] extern cert_pair_t make_cert(const crypto::ed25519::key_pair_t &kp);
-    [[nodiscard]] extern jam::state_snapshot_t local_genesis_state();
 
     struct protocol_id_t {
         static constexpr std::string_view prefix = "jamnp-s";

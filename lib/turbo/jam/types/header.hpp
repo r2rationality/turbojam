@@ -84,6 +84,8 @@ namespace turbo::jam {
         storage_t _data{max_size};
 
         void _add(item_t item) {
+            if (!_data.empty() && _data.back().slot >= item.slot) [[unlikely]]
+                throw error{"ancestry: an attempt to add a block with slot {} after one with slot {}", item.slot, _data.back().slot};
             _data.push_back(std::move(item));
             if (_data.size() > max_undo_history)
                 _data[_data.size() - max_undo_history - 1].undo.reset();

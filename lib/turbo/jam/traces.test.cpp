@@ -14,7 +14,7 @@ namespace {
     perf_stats_t test_sample(const std::string &sample_dir) {
         const file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
         impl_vs_trace_client_t<config_tiny, local_processor_t> client{std::make_unique<local_processor_t<config_tiny>>("dev", tmp_dir.path())};
-        expect(client.test_sample(sample_dir));
+        expect(client.test_sample(sample_dir, load_genesis<config_tiny>(sample_dir)));
         return client.stats();
     }
 }

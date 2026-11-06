@@ -9,11 +9,26 @@
 
 namespace turbo::jam {
     template<typename CFG>
+    struct genesis_t {
+        state_snapshot_t state;
+        header_t<CFG> header;
+    };
+
+    template<typename CFG>
     struct chain_t {
+        struct reset_t {
+            state_snapshot_t state{};
+            ancestry_t<CFG> ancestry{};
+
+            [[nodiscard]] bool empty() const noexcept {
+                return state.empty() && ancestry.empty();
+            }
+        };
+
         static chain_t from_json_spec(const std::string_view &data_path, const std::string &spec_path);
 
-        explicit chain_t(const std::string_view &id, const std::string_view &data_path, const state_snapshot_t &genesis_state,
-            const state_snapshot_t &prev_state={}, std::optional<ancestry_t<CFG>> ancestry={}, bool load_existing=true);
+        explicit chain_t(const std::string_view &id, const std::string_view &data_path,
+            genesis_t<CFG> genesis, std::optional<reset_t> reset={});
         ~chain_t();
         [[nodiscard]] const std::string &id() const;
         [[nodiscard]] const std::string &path() const;
@@ -23,8 +38,6 @@ namespace turbo::jam {
         [[nodiscard]] state_root_t state_root() const;
         [[nodiscard]] header_hash_t parent() const;
         [[nodiscard]] size_t trie_size() const;
-        void reset(const state_snapshot_t &genesis_state, const state_snapshot_t &prev_state={},
-            std::optional<ancestry_t<CFG>> ancestry={});
         void apply(const block_t<CFG> &blk);
     private:
         struct impl;

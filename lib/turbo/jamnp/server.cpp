@@ -17,7 +17,7 @@ namespace turbo::jamnp {
     struct server_t<CFG>::impl_t {
         explicit impl_t(address_t addr, cert_pair_t cert, const std::string &spec_path, const std::string &data_path):
             _addr{std::move(addr)},
-            _chain{_load_chain(spec_path, data_path)},
+            _chain{chain_t<ICFG>::from_json_spec(data_path, spec_path)},
             _ngtcp2{transport::ngtcp2::transport_config_t{
                 .protocol_id = _protocol_id,
                 .certificate = std::move(cert)
@@ -79,7 +79,7 @@ namespace turbo::jamnp {
             logger::info("jamnp stream {}: server received block announcement", stream.id());
             {
                 handshake_t handshake{
-                    final_t{_chain.genesis_header().hash(), 0},
+                    final_t{_chain.genesis_header().hash(), _chain.genesis_header().slot.slot()},
                     {}
                 };
                 co_await _send_message(stream, handshake, false);
@@ -105,12 +105,6 @@ namespace turbo::jamnp {
                 break;
             }
             co_return;
-        }
-
-        static chain_t<ICFG> _load_chain(const std::string &spec_path, const std::string &data_path) {
-            (void) spec_path;
-            const auto snap = local_genesis_state();
-            return chain_t<ICFG>{"dev", data_path, snap};
         }
     };
 

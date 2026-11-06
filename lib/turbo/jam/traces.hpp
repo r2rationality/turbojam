@@ -4,6 +4,7 @@
  * This code is distributed under the license specified in:
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
+#include <filesystem>
 #include <turbo/common/timer.hpp>
 #include "types/header.hpp"
 #include "types/state-dict.hpp"
@@ -36,6 +37,23 @@ namespace turbo::jam::traces {
             archive.process("state"sv, state);
         }
     };
+
+    template<typename CFG>
+    genesis_t<CFG> load_genesis(const std::filesystem::path &sample_dir={})
+    {
+        if (!sample_dir.empty()) {
+            const auto path = sample_dir / "genesis.bin";
+            if (std::filesystem::exists(path)) {
+                auto genesis = jam::load_obj<test_genesis_t<CFG>>(path.string());
+                return {std::move(genesis.state.keyvals), std::move(genesis.header)};
+            }
+        }
+        const auto spec = codec::json::load(file::install_path("etc/devnet/dev-spec.json"));
+        return {
+            state_dict_t::from_genesis_json(spec.at("genesis_state").as_object()),
+            jam::from_bytes<header_t<CFG>>(uint8_vector::from_hex(spec.at("genesis_header").as_string()))
+        };
+    }
 
     struct test_case_t {
         raw_state_t pre;

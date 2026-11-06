@@ -9,25 +9,30 @@
 
 namespace turbo::jam::fuzzer {
     template<typename CFG>
-    initialize_t<CFG> initialize_t<CFG>::from_snapshot(const state_snapshot_t &snap, const std::optional<header_t<CFG>> &genesis)
+    initialize_t<CFG> initialize_t<CFG>::from_snapshot(const state_snapshot_t &snap, const genesis_t<CFG> &genesis)
     {
-        auto hdr = genesis ? *genesis : state_t<CFG>::make_genesis_header(snap);
         ancestry_t<CFG> ancestry;
         const auto beta = jam::from_bytes<typename decltype(state_t<CFG>::beta)::element_type>(snap.at(state_dict_t::make_key(3)));
         const auto snapshot_root = snap.root();
+        const auto genesis_hash = genesis.header.hash();
+        if (genesis.header.slot != 0) [[unlikely]]
+            throw error{"genesis header slot must be 0 but got: {}", genesis.header.slot};
         if (beta.history.empty()) {
-            ancestry.add(hdr.slot, hdr.hash(), snapshot_root);
+            const auto genesis_root = genesis.state.root();
+            if (snapshot_root != genesis_root) [[unlikely]]
+                throw error{"initial snapshot with empty history does not match the supplied genesis state"};
+            ancestry.add(genesis.header.slot, genesis_hash, genesis_root);
         } else {
-            // The supplied genesis header remains useful after beta has evicted it.
-            // Its historical state root cannot be inferred from the current snapshot.
-            const auto genesis_hash = hdr.hash();
-            if (genesis && std::ranges::none_of(beta.history, [&](const auto &h) { return h.header_hash == genesis_hash; }))
-                ancestry.add(hdr.slot, genesis_hash);
-            // The snapshot supplies the root missing from beta's newest entry.
-            for (const auto &[i, h]: std::views::enumerate(beta.history))
-                ancestry.add(h.slot, h.header_hash, std::cmp_equal(i + 1, beta.history.size()) ? snapshot_root : h.state_root);
+            // current fuzzer configuration does not always provide a full genesis state, so the state_root check must be skipped in such cases
+            if (beta.history.front().slot > 0)
+                ancestry.add(genesis.header.slot, genesis_hash);
+            else if (const auto beta0_hash = beta.history.front().header_hash; beta0_hash != genesis_hash) [[unlikely]]
+                throw error{"beta provided genesis hash {} does not match the supplied genesis header's one {}", beta0_hash, genesis_hash};
         }
-        return {std::move(hdr), snap, std::move(ancestry)};
+        for (const auto &[i, h]: std::views::enumerate(beta.history)) {
+            ancestry.add(h.slot, h.header_hash, std::cmp_equal(i + 1, beta.history.size()) ? snapshot_root : h.state_root);
+        }
+        return {genesis.header, snap, std::move(ancestry)};
     }
 
     template struct initialize_t<config_prod>;
@@ -50,12 +55,9 @@ namespace turbo::jam::fuzzer {
             return std::visit([&](auto &&m) -> message_t<CFG> {
                 using T = std::decay_t<decltype(m)>;
                 if constexpr (std::is_same_v<T, initialize_t<CFG>>) {
-                    std::optional<ancestry_t<CFG>> ancestry{};
-                    if (!m.ancestry.empty())
-                        ancestry.emplace(std::move(m.ancestry));
-                    if (!_chain)
-                        _chain.emplace(_chain_id, _chain_dir, m.state, state_snapshot_t{}, std::nullopt, false);
-                    _chain->reset(m.state, m.state, std::move(ancestry));
+                    genesis_t genesis{m.state, std::move(m.header)};
+                    _chain.emplace(_chain_id, _chain_dir, std::move(genesis),
+                        typename chain_t<CFG>::reset_t{std::move(m.state), std::move(m.ancestry)});
                     return _chain->state_root();
                 } else if constexpr (std::is_same_v<T, import_block_t<CFG>>) {
                     if (!_chain) [[unlikely]]
