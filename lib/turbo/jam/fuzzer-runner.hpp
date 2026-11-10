@@ -183,9 +183,10 @@ namespace turbo::jam::fuzzer_runner {
         using test_cases_t = std::vector<test_case_t>;
         using my_processor_ptr_t = std::unique_ptr<PROC<CFG>>;
 
-        explicit impl_vs_trace_client_t(my_processor_ptr_t proc, io_worker_t &io_worker=io_worker_t::get()):
+        explicit impl_vs_trace_client_t(my_processor_ptr_t proc, io_worker_t &io_worker=io_worker_t::get(), const bool send_ancestry=true):
             _proc{std::move(proc)},
-            _io_worker{io_worker}
+            _io_worker{io_worker},
+            _send_ancestry{send_ancestry}
         {
         }
 
@@ -260,6 +261,7 @@ namespace turbo::jam::fuzzer_runner {
         my_processor_ptr_t _proc;
         io_worker_t &_io_worker;
         perf_stats_t _stats{};
+        bool _send_ancestry;
 
         static void _append_test_cases(test_cases_t &test_cases, const buffer tc_data)
         {
@@ -274,7 +276,10 @@ namespace turbo::jam::fuzzer_runner {
             if (test_cases.empty()) [[unlikely]]
                 throw error("test_sample: no test cases provided!");
             const auto &initial_state = test_cases.front().pre;
-            const auto pre_root = ::turbo::variant::get_nice<state_root_t>(co_await _proc->process(message_t<CFG>{initialize_t<CFG>::from_snapshot(initial_state.keyvals, genesis)}));
+            auto init = initialize_t<CFG>::from_snapshot(initial_state.keyvals, genesis);
+            if (!_send_ancestry)
+                init.ancestry = {};
+            const auto pre_root = ::turbo::variant::get_nice<state_root_t>(co_await _proc->process(message_t<CFG>{std::move(init)}));
             if (pre_root != initial_state.state_root) [[unlikely]]
                 throw error{"initial state root mismatch: expected {} actual {}", initial_state.state_root, pre_root};
             for (size_t i = 0; i < test_cases.size(); ++i) {

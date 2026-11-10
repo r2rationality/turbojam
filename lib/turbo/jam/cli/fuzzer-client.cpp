@@ -23,17 +23,19 @@ namespace turbo::cli::fuzzer_client {
             cmd.name = "fuzzer-client";
             cmd.desc = "Test a given Fuzzer API target listening at <unix-socket-path> using samples from <sample-dir>";
             cmd.opts.try_emplace("sock-path", "an optional path to the unix socket for an external fuzzer API");
+            cmd.opts.try_emplace("no-ancestry", "send initialize messages with empty ancestry");
             cmd.args.expect({"sample-dir"});
         }
 
         void run(const arguments &args, const options &opts) const override
         {
             const auto &data_dir = args.at(0);
+            const bool send_ancestry = !opts.contains("no-ancestry");
             if (const auto it = opts.find("sock-path"); it != opts.end() && it->second) {
-                _run_tests(impl_vs_trace_client_t<config_tiny, unix_socket_processor_t>{std::make_unique<unix_socket_processor_t<config_tiny>>(*it->second)}, data_dir);
+                _run_tests(impl_vs_trace_client_t<config_tiny, unix_socket_processor_t>{std::make_unique<unix_socket_processor_t<config_tiny>>(*it->second), io_worker_t::get(), send_ancestry}, data_dir);
             } else {
                 file::tmp_directory tmp_dir{"turbo-jam-fuzzer"};
-                _run_tests(impl_vs_trace_client_t<config_tiny, local_processor_t>{std::make_unique<local_processor_t<config_tiny>>("dev", tmp_dir.path())}, data_dir);
+                _run_tests(impl_vs_trace_client_t<config_tiny, local_processor_t>{std::make_unique<local_processor_t<config_tiny>>("dev", tmp_dir.path()), io_worker_t::get(), send_ancestry}, data_dir);
             }
         }
 
