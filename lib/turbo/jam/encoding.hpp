@@ -364,7 +364,7 @@ namespace turbo::jam {
     }
 
     template<typename T>
-    T from(decoder &dec)
+    [[nodiscard]] T from(decoder &dec)
     {
         if constexpr (from_bytes_c<T>) {
             return T::from_bytes(dec);
@@ -374,16 +374,29 @@ namespace turbo::jam {
     }
 
     template<typename T>
-    T from_bytes(const buffer bytes)
+    [[nodiscard]] T from_bytes(const buffer bytes)
     {
         decoder dec{bytes};
         return from<T>(dec);
     }
 
     template<typename T>
-    T load_obj(const std::string &path)
+    [[nodiscard]] uint8_vector to_bytes(const T &val)
+    {
+        encoder enc{val};
+        return std::move(enc.bytes());
+    }
+
+    template<typename T>
+    [[nodiscard]] T load_obj(const std::string &path)
     {
         const auto bytes = file::read(path);
         return from_bytes<T>(bytes);
+    }
+
+    template<typename T>
+    void save_obj(const std::string &path, const T &val)
+    {
+        file::write(path, to_bytes(val));
     }
 }
