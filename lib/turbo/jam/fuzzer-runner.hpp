@@ -134,7 +134,7 @@ namespace turbo::jam::fuzzer_runner {
 
         boost::asio::awaitable<void> _send_peer_info()
         {
-            static const peer_info_t my_peer_info{"turbojam-fuzzer-client"};
+            static const peer_info_t my_peer_info{"turbojam-fuzzer-client", features_t{features_t::f_fork}};
             co_await write_message(_conn, message_t<CFG>{my_peer_info});
             const auto server_info = co_await read_message<CFG>(_conn, _read_buf);
             my_peer_info.compatible_with(variant::get_nice<peer_info_t>(server_info));
@@ -183,10 +183,9 @@ namespace turbo::jam::fuzzer_runner {
         using test_cases_t = std::vector<test_case_t>;
         using my_processor_ptr_t = std::unique_ptr<PROC<CFG>>;
 
-        explicit impl_vs_trace_client_t(my_processor_ptr_t proc, io_worker_t &io_worker=io_worker_t::get(), const bool send_ancestry=true):
+        explicit impl_vs_trace_client_t(my_processor_ptr_t proc, io_worker_t &io_worker=io_worker_t::get()):
             _proc{std::move(proc)},
-            _io_worker{io_worker},
-            _send_ancestry{send_ancestry}
+            _io_worker{io_worker}
         {
         }
 
@@ -261,7 +260,6 @@ namespace turbo::jam::fuzzer_runner {
         my_processor_ptr_t _proc;
         io_worker_t &_io_worker;
         perf_stats_t _stats{};
-        bool _send_ancestry;
 
         static void _append_test_cases(test_cases_t &test_cases, const buffer tc_data)
         {
@@ -277,8 +275,6 @@ namespace turbo::jam::fuzzer_runner {
                 throw error("test_sample: no test cases provided!");
             const auto &initial_state = test_cases.front().pre;
             auto init = initialize_t<CFG>::from_snapshot(initial_state.keyvals);
-            if (!_send_ancestry)
-                init.ancestry = {};
             const auto pre_root = ::turbo::variant::get_nice<state_root_t>(co_await _proc->process(message_t<CFG>{std::move(init)}));
             if (pre_root != initial_state.state_root) [[unlikely]]
                 throw error{"initial state root mismatch: expected {} actual {}", initial_state.state_root, pre_root};

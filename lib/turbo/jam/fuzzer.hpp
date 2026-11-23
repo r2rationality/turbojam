@@ -80,8 +80,8 @@ namespace turbo::jam::fuzzer {
     struct peer_info_t {
         // app name is first to simplify initialization
         std::string app_name{"turbojam"};
-        uint8_t fuzz_version=0x01; // indicate support for v1
         features_t fuzz_features{};
+        uint8_t fuzz_version=0x01; // indicate support for v1
         version_t jam_version{0, 8, 0};
         version_t app_version{0, 3, 2};
 

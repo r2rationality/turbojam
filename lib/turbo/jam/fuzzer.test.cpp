@@ -42,18 +42,14 @@ suite turbo_jam_fuzzer_suite = [] {
             const auto path = std::filesystem::path{data_dir} / "1792930791_3200_full";
             const auto tc = jam::load_obj<test_case_t>((path / "00000026.bin").string());
             const auto data = file::read((path / "00000026.bin").string());
-            for (const bool send_ancestry: {true, false}) {
-                std::optional<initialize_t<config_tiny>> captured;
-                auto proc = std::make_unique<initialize_capture_processor_t<config_tiny>>(captured, tc.post.state_root);
-                auto client = send_ancestry
-                    ? impl_vs_trace_client_t<config_tiny, initialize_capture_processor_t>{std::move(proc)}
-                    : impl_vs_trace_client_t<config_tiny, initialize_capture_processor_t>{std::move(proc), io_worker_t::get(), false};
-                expect(client.test_sample(data));
-                expect(captured.has_value());
-                if (captured) {
-                    expect(captured->state == tc.pre.keyvals);
-                    expect(captured->ancestry.empty());
-                }
+            std::optional<initialize_t<config_tiny>> captured;
+            auto proc = std::make_unique<initialize_capture_processor_t<config_tiny>>(captured, tc.post.state_root);
+            impl_vs_trace_client_t<config_tiny, initialize_capture_processor_t> client{std::move(proc), io_worker_t::get()};
+            expect(client.test_sample(data));
+            expect(captured.has_value());
+            if (captured) {
+                expect(captured->state == tc.pre.keyvals);
+                expect(captured->ancestry.empty());
             }
         };
         "minifuzz forks"_test = [&] {
