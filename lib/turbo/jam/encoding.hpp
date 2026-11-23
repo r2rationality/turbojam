@@ -125,8 +125,17 @@ namespace turbo::jam {
                 } else {
                     uint_fixed(1, 0);
                 }
-            } else if constexpr (codec::bounded_range_c<T>) {
-                codec::check_bounds(val);
+            } else if constexpr (codec::pair_c<T>) {
+                process(val.first);
+                process(val.second);
+            } else if constexpr (codec::byte_sequence_like_c<T>) {
+                if constexpr (codec::bounded_range_c<T>)
+                    codec::check_bounds(val);
+                uint_varlen(val.size());
+                _bytes << buffer{val.data(), val.size()};
+            } else if constexpr (codec::sequence_like_c<T>) {
+                if constexpr (codec::bounded_range_c<T>)
+                    codec::check_bounds(val);
                 uint_varlen(val.size());
                 for (const auto &v: val)
                     process(v);
@@ -137,9 +146,6 @@ namespace turbo::jam {
                     process(v);
                 }
             } else if constexpr (codec::byte_array_like_c<T>) {
-                _bytes << buffer{val.data(), val.size()};
-            } else if constexpr (codec::byte_sequence_like_c<T>) {
-                uint_varlen(val.size());
                 _bytes << buffer{val.data(), val.size()};
             } else if constexpr (codec::fixed_array_like_c<T>) {
                 for (const auto &v: val)
@@ -262,15 +268,24 @@ namespace turbo::jam {
                     case 1: val.emplace(); process(*val); break;
                     [[unlikely]] default: throw error{"unsupported optional type: {}", typ};
                 }
-            } else if constexpr (codec::bounded_range_c<T>) {
+            } else if constexpr (codec::pair_c<T>) {
+                process(val.first);
+                process(val.second);
+            } else if constexpr (codec::byte_sequence_like_c<T>) {
                 const auto sz = uint_varlen<size_t>();
-                if (!(static_cast<int>(sz >= T::min_size) & static_cast<int>(sz <= T::max_size))) [[unlikely]]
-                    throw error{"array size {} is out of allowed bounds: [{}, {}]", sz, T::min_size, T::max_size};
+                if constexpr (codec::bounded_range_c<T>)
+                    codec::check_bounds<T>(sz);
+                const auto data = next_bytes(sz);
+                val.assign(data.begin(), data.end());
+            } else if constexpr (codec::sequence_like_c<T>) {
+                const auto sz = uint_varlen<size_t>();
+                if constexpr (codec::bounded_range_c<T>)
+                    codec::check_bounds<T>(sz);
                 val.clear();
                 if constexpr (requires { val.reserve(sz); })
                     val.reserve(sz);
                 for (size_t i = 0; i < sz; ++i) {
-                    typename T::value_type v;
+                    typename T::value_type v{};
                     process(v);
                     if constexpr (codec::has_emplace_c<T>) {
                         val.emplace_hint_unique(val.end(), std::move(v));
@@ -292,10 +307,6 @@ namespace turbo::jam {
             } else if constexpr (codec::byte_array_like_c<T>) {
                 const auto data = next_bytes(val.size());
                 memcpy(val.data(), data.data(), val.size());
-            } else if constexpr (codec::byte_sequence_like_c<T>) {
-                const auto sz = uint_varlen<size_t>();
-                const auto data = next_bytes(sz);
-                val.assign(data.begin(), data.end());
             } else if constexpr (codec::fixed_array_like_c<T>) {
                 for (size_t i = 0; i < val.size(); ++i)
                     process(val[i]);

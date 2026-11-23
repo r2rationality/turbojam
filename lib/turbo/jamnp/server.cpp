@@ -39,7 +39,7 @@ namespace turbo::jamnp {
     private:
         address_t _addr;
         chain_t<ICFG> _chain;
-        protocol_id_t _protocol_id{_chain.genesis_header().hash()};
+        protocol_id_t _protocol_id{_chain.genesis().header_hash};
         transport::ngtcp2::server_t _ngtcp2;
 
         template<typename T>
@@ -79,7 +79,7 @@ namespace turbo::jamnp {
             logger::info("jamnp stream {}: server received block announcement", stream.id());
             {
                 handshake_t handshake{
-                    final_t{_chain.genesis_header().hash(), _chain.genesis_header().slot.slot()},
+                    final_t{_chain.genesis().header_hash, _chain.genesis().slot.slot()},
                     {}
                 };
                 co_await _send_message(stream, handshake, false);

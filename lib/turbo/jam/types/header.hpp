@@ -5,96 +5,10 @@
  * https://github.com/r2rationality/turbojam/blob/main/LICENSE */
 
 #include <ark-vrf.hpp>
-#include <boost/circular_buffer.hpp>
 #include <turbo/storage/update.hpp>
-#include "common.hpp"
+#include "ancestry.hpp"
 
 namespace turbo::jam {
-    template<typename CFG>
-    struct ancestry_item_t {
-        time_slot_t<CFG> slot;
-        header_hash_t header_hash;
-        std::optional<state_root_t> state_root{};
-        std::optional<storage::update::undo_list_t> undo{};
-
-        void serialize(auto &archive) {
-            using namespace std::string_view_literals;
-            archive.process("slot"sv, slot);
-            archive.process("header_hash"sv, header_hash);
-        }
-
-        bool operator==(const ancestry_item_t &o) const {
-            return slot == o.slot && header_hash == o.header_hash;
-        }
-    };
-
-    template<typename CFG>
-    struct ancestry_t {
-        using item_t = ancestry_item_t<CFG>;
-        using value_type = item_t;
-        using storage_t = boost::circular_buffer<item_t>;
-        using const_iterator = typename storage_t::const_iterator;
-        using range_t = std::ranges::subrange<const_iterator>;
-        static constexpr size_t min_size = 0;
-        static constexpr size_t max_size = CFG::L_max_lookup_anchor_age;
-        static constexpr size_t max_undo_history = CFG::H_max_blocks_history * 4U;
-        static_assert(max_size > 0 && max_undo_history > 0, "mac_size and max_undo_history must be greater than zero");
-
-        const_iterator begin() const { return _data.begin(); }
-        const_iterator end() const { return _data.end(); }
-
-        [[nodiscard]] bool empty() const { return size() == 0; }
-        [[nodiscard]] size_t size() const { return _data.size(); }
-        [[nodiscard]] range_t view() const { return {begin(), end()}; }
-
-        void clear() { _data.clear(); }
-
-        // Necessary for compatibility with serialization codecs that expect a vector like API
-        void emplace_back(item_t item) {
-            codec::check_bounds<ancestry_t>(size() + 1);
-            _add(std::move(item));
-        }
-
-        void truncate(const size_t retained) {
-            if (retained > size()) [[unlikely]]
-                throw error("ancestry truncation exceeds its size");
-            _data.erase_end(size() - retained);
-        }
-
-        bool operator==(const ancestry_t &other) const {
-            return std::ranges::equal(view(), other.view());
-        }
-
-        void add(const time_slot_t<CFG> &slot, const header_hash_t &hash,
-                 std::optional<state_root_t> sr={}, std::optional<storage::update::undo_list_t> undo={}) {
-            _add(item_t{slot, hash, std::move(sr), std::move(undo)});
-        }
-
-        const_iterator known(const header_hash_t &parent_hash, const state_root_t &parent_state_root) const {
-            const auto parent_it = std::find_if(this->begin(), this->end(), [&](const auto &a) {
-                return a.header_hash == parent_hash;
-            });
-            if (parent_it == this->end()) [[unlikely]]
-                throw err_unknown_parent_t{};
-            if (parent_it->state_root && *parent_it->state_root != parent_state_root) [[unlikely]]
-                throw err_bad_state_root_t{};
-            return std::next(parent_it);
-        }
-    private:
-        storage_t _data{max_size};
-
-        void _add(item_t item) {
-            if (!_data.empty() && _data.back().slot >= item.slot) [[unlikely]]
-                throw error{"ancestry: an attempt to add a block with slot {} after one with slot {}", item.slot, _data.back().slot};
-            _data.push_back(std::move(item));
-            if (_data.size() > max_undo_history)
-                _data[_data.size() - max_undo_history - 1].undo.reset();
-        }
-    };
-
-    template<typename CFG>
-    using ancestry_range_t = typename ancestry_t<CFG>::range_t;
-
     // JAM (4.3)
     template<typename CFG>
     struct extrinsic_t {

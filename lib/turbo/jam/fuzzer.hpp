@@ -34,16 +34,54 @@ namespace turbo::jam::fuzzer {
         bool operator==(const version_t &) const = default;
     };
 
-    using features_t = uint32_t;
+    struct features_t {
+        using value_type = uint32_t;
 
-    static constexpr features_t feature_ancestry = 0x01;
-    static constexpr features_t feature_forks    = 0x02;
+        static constexpr value_type f_ancestry = 0x01;
+        static constexpr value_type f_fork    = 0x02;
+
+        void serialize(auto &archive)
+        {
+            archive.process(_bits);
+        }
+
+        explicit features_t(): features_t{f_ancestry | f_fork}
+        {}
+
+        explicit features_t(value_type bits)
+        {
+            for (const auto feat: {f_ancestry, f_fork}) {
+                if (bits & feat) {
+                    _bits |= feat;
+                    bits ^= feat;
+                }
+            }
+            if (bits) [[unlikely]]
+                throw error{"unexpected feature bits: {:08X}", bits};
+        }
+
+        [[nodiscard]] bool ancestry() const noexcept {
+            return _bits & f_ancestry;
+        }
+
+        [[nodiscard]] bool fork() const noexcept {
+            return _bits & f_fork;
+        }
+
+        [[nodiscard]] features_t common(const features_t &o) const noexcept {
+            return features_t{_bits & o._bits};
+        }
+
+        [[nodiscard]] bool operator==(const features_t &) const =default;
+    private:
+        value_type _bits = 0;
+    };
 
     struct peer_info_t {
         // app name is first to simplify initialization
         std::string app_name{"turbojam"};
         uint8_t fuzz_version=0x01; // indicate support for v1
-        features_t fuzz_features=feature_ancestry | feature_forks;
+        features_t fuzz_features{};
         version_t jam_version{0, 8, 0};
         version_t app_version{0, 3, 2};
 
@@ -63,6 +101,11 @@ namespace turbo::jam::fuzzer {
                 throw error{"jam version mismatch: {} != {}", jam_version, o.jam_version};
         }
 
+        [[nodiscard]] features_t compatible_features(const peer_info_t &o) const
+        {
+            return fuzz_features.common(o.fuzz_features);
+        }
+
         bool operator==(const peer_info_t &) const =default;
     };
 
@@ -73,9 +116,9 @@ namespace turbo::jam::fuzzer {
     struct initialize_t {
         header_t<CFG> header;
         state_snapshot_t state;
-        ancestry_t<CFG> ancestry;
+        partial_ancestry_t<CFG> ancestry{};
 
-        static initialize_t from_snapshot(const state_snapshot_t &state, const genesis_t<CFG> &genesis);
+        static initialize_t from_snapshot(const state_snapshot_t &state);
 
         void serialize(auto &archive)
         {
@@ -136,7 +179,7 @@ namespace turbo::jam::fuzzer {
 
     template<typename CFG>
     struct local_processor_t {
-        local_processor_t(std::string chain_id, std::string_view chain_dir);
+        local_processor_t(std::string chain_id, std::string_view chain_dir, features_t feats=features_t{});
         ~local_processor_t();
         boost::asio::awaitable<message_t<CFG>> process(message_t<CFG> msg);
     private:

@@ -24,31 +24,29 @@
 
 namespace turbo::jam {
     template<typename CFG>
-    header_t<CFG> state_t<CFG>::make_genesis_header(const entropy_buffer_t &eta, const validators_data_t<CFG> &gamma_p)
+    header_t<CFG> state_t<CFG>::make_genesis_header(const time_slot_t<CFG> &slot, const entropy_buffer_t &eta, const validators_data_t<CFG> &gamma_p)
     {
         // Genesis Block Header expectations from here: https://docs.jamcha.in/basics/genesis-config
-        header_t<CFG> h{};
-        h.epoch_mark.emplace(
-            eta[1],
-            eta[2],
-            gamma_p
-        );
-        h.author_index = 0xFFFFU;
+        header_t<CFG> h{
+            .slot = slot,
+            .epoch_mark = epoch_mark_t<CFG>{eta[1], eta[2], gamma_p},
+            .author_index = 0xFFFFU
+        };
         return h;
     }
 
     template<typename CFG>
-    header_t<CFG> state_t<CFG>::make_genesis_header(const state_snapshot_t &snap)
+    header_t<CFG> state_t<CFG>::make_genesis_header(const state_snapshot_t &snap, time_slot_t<CFG> slot)
     {
         const auto gamma = jam::from_bytes<typename decltype(state_t::gamma)::element_type>(snap.at(state_dict_t::make_key(4U)));
         const auto eta = jam::from_bytes<typename decltype(state_t::eta)::element_type>(snap.at(state_dict_t::make_key(6U)));
-        return make_genesis_header(eta, gamma.p);
+        return make_genesis_header(slot, eta, gamma.p);
     }
 
     template<typename CFG>
     header_t<CFG> state_t<CFG>::make_genesis_header() const
     {
-        return make_genesis_header(this->eta.unmodified(), this->gamma.unmodified().p);
+        return make_genesis_header(0, this->eta.unmodified(), this->gamma.unmodified().p);
     }
 
     struct ark_vrf_initializer_t {
@@ -1136,7 +1134,8 @@ namespace turbo::jam {
                 if (lblk_it != new_beta.end()) {
                     if (lblk_it->slot != ctx.lookup_anchor_slot || lblk_it->state_root != ctx.lookup_anchor_state_root) [[unlikely]]
                         throw err_lookup_anchor_invalid_t{};
-                } else {
+                    // an empty registry is a special case to disabled checks, a normal ancestry always includes at least one node - the genesis block
+                } else if (!ancestry.empty()) {
                     const auto a_it = std::lower_bound(ancestry.begin(), ancestry.end(), ctx.lookup_anchor_slot,
                         [](const auto &a, const auto &v) { return a.slot < v; });
                     if (a_it == ancestry.end() || a_it->slot != ctx.lookup_anchor_slot || a_it->header_hash != ctx.lookup_anchor) [[unlikely]]

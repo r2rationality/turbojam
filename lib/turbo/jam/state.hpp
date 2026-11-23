@@ -1018,8 +1018,8 @@ namespace turbo::jam {
         state_t(const state_t &) = delete;
 
         static std::string decode_val(buffer key, buffer val);
-        static header_t<CFG> make_genesis_header(const entropy_buffer_t &eta, const validators_data_t<CFG> &gamma_p);
-        static header_t<CFG> make_genesis_header(const state_snapshot_t &);
+        static header_t<CFG> make_genesis_header(const time_slot_t<CFG> &slot, const entropy_buffer_t &eta, const validators_data_t<CFG> &gamma_p);
+        static header_t<CFG> make_genesis_header(const state_snapshot_t &, time_slot_t<CFG> slot={});
         header_t<CFG> make_genesis_header() const;
         state_t &operator=(const state_snapshot_t &o);
         state_t &operator=(const state_t &o) = delete;

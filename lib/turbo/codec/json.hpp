@@ -64,14 +64,21 @@ namespace turbo::codec::json {
                     val.emplace();
                     decode(jv, *val);
                 }
-            } else if constexpr (bounded_range_c<T>) {
-                const auto &j_arr = jv.get_array();
-                check_bounds<T>(j_arr.size());
+            } else if constexpr (pair_c<T>) {
+                const auto &j_arr = jv.as_array();
+                if (j_arr.size() != 2) [[unlikely]]
+                    throw error{"pair: expected size 2 but got {}", j_arr.size()};
+                decode(j_arr[0], val.first);
+                decode(j_arr[1], val.second);
+            } else if constexpr (sequence_like_c<T>) {
+                const auto &j_arr = jv.as_array();
+                if constexpr (bounded_range_c<T>)
+                    check_bounds<T>(j_arr.size());
                 val.clear();
                 if constexpr (requires { val.reserve(j_arr.size()); })
                     val.reserve(j_arr.size());
                 for (size_t i = 0; i < j_arr.size(); ++i) {
-                    typename T::value_type v;
+                    typename T::value_type v{};
                     decode(j_arr[i], v);
                     if constexpr (has_emplace_c<T>) {
                         val.emplace_hint_unique(val.end(), std::move(v));

@@ -32,22 +32,14 @@ namespace {
 suite turbo_jam_fuzzer_suite = [] {
     "turbo::jam::fuzzer"_test = [] {
         const auto data_dir = file::install_path("test/jam-fuzzing/fuzz-reports/0.8.0/traces/");
-        "snapshot ancestry roots"_test = [&] {
-            const auto genesis = load_genesis<config_tiny>(std::filesystem::path{data_dir} / "1792930791_3200_full");
+        "snapshot initialization omits ancestry"_test = [&] {
             const auto tc = jam::load_obj<test_case_t>((std::filesystem::path{data_dir} / "1792930791_3200_full/00000026.bin").string());
-            const auto init = initialize_t<config_tiny>::from_snapshot(tc.pre.keyvals, genesis);
-            expect(init.header == genesis.header);
+            const auto init = initialize_t<config_tiny>::from_snapshot(tc.pre.keyvals);
             expect(init.state == tc.pre.keyvals);
-            expect(init.ancestry.begin()->header_hash == genesis.header.hash());
-            expect(!init.ancestry.begin()->state_root);
-            expect(std::prev(init.ancestry.end())->state_root == tc.pre.state_root);
-            expect(genesis.state.root() != tc.pre.state_root);
-            const auto initial = initialize_t<config_tiny>::from_snapshot(genesis.state, genesis);
-            expect(initial.ancestry.begin()->state_root == genesis.state.root());
+            expect(init.ancestry.empty());
         };
         "trace client initialize ancestry"_test = [&] {
             const auto path = std::filesystem::path{data_dir} / "1792930791_3200_full";
-            const auto genesis = load_genesis<config_tiny>(path);
             const auto tc = jam::load_obj<test_case_t>((path / "00000026.bin").string());
             const auto data = file::read((path / "00000026.bin").string());
             for (const bool send_ancestry: {true, false}) {
@@ -56,12 +48,11 @@ suite turbo_jam_fuzzer_suite = [] {
                 auto client = send_ancestry
                     ? impl_vs_trace_client_t<config_tiny, initialize_capture_processor_t>{std::move(proc)}
                     : impl_vs_trace_client_t<config_tiny, initialize_capture_processor_t>{std::move(proc), io_worker_t::get(), false};
-                expect(client.test_sample(data, genesis));
+                expect(client.test_sample(data));
                 expect(captured.has_value());
                 if (captured) {
-                    expect(captured->header == genesis.header);
                     expect(captured->state == tc.pre.keyvals);
-                    expect(captured->ancestry.empty() == !send_ancestry);
+                    expect(captured->ancestry.empty());
                 }
             }
         };

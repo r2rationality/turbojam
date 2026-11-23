@@ -5,6 +5,7 @@
 
 #include <turbo/common/test.hpp>
 #include "encoding.hpp"
+#include "types/common.hpp"
 
 namespace {
     using namespace turbo;
@@ -39,6 +40,44 @@ suite turbo_jam_encoding_suite = [] {
                 const encoder enc{octet};
                 expect_equal(octet, enc.bytes());
             }
+        };
+        "bounded byte sequences"_test = [] {
+            using bytes_t = sequence_t<uint8_t, 1, 2>;
+            const bytes_t expected{1, 2};
+            const uint8_vector encoded{2, 1, 2};
+            expect_equal(encoded, to_bytes(expected));
+            bytes_t actual{9};
+            decoder dec{encoded};
+            dec.process(actual);
+            expect(actual == expected);
+            expect(dec.empty());
+            for (const auto &invalid: {bytes_t{}, bytes_t{1, 2, 3}}) {
+                expect(throws<error>([&] { (void)to_bytes(invalid); }));
+                const auto data = to_bytes(static_cast<const std::vector<uint8_t> &>(invalid));
+                expect(throws<error>([&] { (void)from_bytes<bytes_t>(data); }));
+            }
+            expect(throws<error>([] { (void)from_bytes<bytes_t>(uint8_vector{2, 1}); }));
+        };
+        "optional vector of pairs"_test = [] {
+            using records_t = std::vector<std::pair<uint8_vector, std::optional<uint8_vector>>>;
+            const records_t records{
+                {uint8_vector{1}, std::nullopt},
+                {uint8_vector{1}, uint8_vector{}},
+                {uint8_vector{1}, uint8_vector{2}}
+            };
+            const std::optional<records_t> cases[]{std::nullopt, records_t{}, records};
+            for (const auto &expected: cases) {
+                const encoder enc{expected};
+                std::optional<records_t> actual{records};
+                decoder dec{enc.bytes()};
+                dec.process(actual);
+                expect(actual == expected);
+                expect(dec.empty());
+            }
+            expect_equal(uint8_vector::from_hex("0103010100010101000101010102"), to_bytes(cases[2]));
+            expect_equal(uint8_vector{2, 1, 2}, to_bytes(std::vector<uint8_t>{1, 2}));
+            const std::vector<bool> flags{true, false, true};
+            expect(from_bytes<std::vector<bool>>(to_bytes(flags)) == flags);
         };
         // C.5: general naturals
         "uint_varlen"_test = [] {

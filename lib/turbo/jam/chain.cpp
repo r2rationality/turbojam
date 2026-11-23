@@ -10,34 +10,41 @@
 namespace turbo::jam {
     template<typename CFG>
     struct chain_t<CFG>::impl {
-        explicit impl(const std::string_view &id, const std::string_view &path, genesis_t<CFG> genesis,
-            std::optional<reset_t> reset):
+        explicit impl(const std::string_view &id, const std::string_view &path, std::optional<reset_t> reset):
             _id{id},
             _path{path},
-            _triedb{std::make_shared<triedb::db_t>((std::filesystem::path{path} / "kv").string(), !reset)},
-            _genesis_state{std::move(genesis.state)},
-            _genesis_header{std::move(genesis.header)},
+            _triedb{std::make_shared<triedb::db_t>(_triedb_path(path), !reset)},
             _state{_triedb}
         {
             if (reset) {
-                if (reset->state.empty() && !reset->ancestry.empty()) [[unlikely]]
-                    throw error{"chain reset ancestry requires a state snapshot"};
-                _triedb->replace_with(reset->empty() ? _genesis_state : reset->state);
+                _triedb->replace_with(reset->genesis.state);
+                _genesis.slot = reset->genesis.header.slot;
+                _genesis.header_hash = reset->genesis.header.hash();
+                _genesis.state_root = reset->genesis.state.root();
+                save_obj(_genesis_path(_path), _genesis);
                 _ancestry = std::move(reset->ancestry);
-            } else if (_triedb->size() == 0) {
-                _triedb->replace_with(_genesis_state);
-            }
-            if (_ancestry.empty()) {
-                const auto genesis_hash = _genesis_header.hash();
-                _ancestry.add(_genesis_header.slot, genesis_hash, _genesis_state.root());
-                const auto &beta = _state.beta.unmodified();
-                const auto restored_root = state_root();
-                // Beta's newest entry has a placeholder root until the next block.
-                for (const auto &[i, h]: std::views::enumerate(beta.history)) {
-                    if (h.header_hash != genesis_hash)
-                        _ancestry.add(h.slot, h.header_hash, std::cmp_equal(i + 1, beta.history.size()) ? restored_root : h.state_root);
+                if (_ancestry.empty()) {
+                    _ancestry.checks_enabled(false);
+                    if (const auto &beta = _state.beta.unmodified(); !beta.history.empty()) {
+                        const auto &tip = beta.history.back();
+                        _ancestry.add(tip.slot, tip.header_hash, state_root());
+                    } else {
+                        _ancestry.add(reset->genesis.header.slot, reset->genesis.header.hash(), state_root());
+                    }
                 }
+                _save_ancestry();
+            } else {
+                if (_triedb->size() == 0) [[unlikely]]
+                    throw error{"an empty database must be initialized with a genesis state"};
+                _genesis = load_obj<decltype(_genesis)>(_genesis_path(_path));
+                _load_ancestry();
             }
+        }
+
+        ~impl() {
+            logger::run_log_errors([&] {
+                _save_ancestry();
+            });
         }
 
         void apply(const block_t<CFG> &blk)
@@ -63,7 +70,7 @@ namespace turbo::jam {
                     if (local_state_root != blk.header.parent_state_root) [[unlikely]]
                         throw err_bad_state_root_t{};
                 }
-                _state.apply(blk, retained_ancestry);
+                _state.apply(blk, _ancestry.checks_enabled() ? retained_ancestry : ancestry_range_t<CFG>{});
                 _state.stage();
                 auto undo = _triedb->commit();
                 _state.accept();
@@ -85,9 +92,9 @@ namespace turbo::jam {
 
         [[nodiscard]] header_hash_t parent() const
         {
-            if (const auto &beta = _state.beta.unmodified(); !beta.history.empty())
-                return beta.history.back().header_hash;
-            return _genesis_header.hash();
+            if (_ancestry.empty()) [[unlikely]]
+                throw error{"internal error: the ancestry is empty!"};
+            return _ancestry.view().back().header_hash;
         }
 
         [[nodiscard]] const std::string &path() const
@@ -95,14 +102,9 @@ namespace turbo::jam {
             return _path;
         }
 
-        [[nodiscard]] const header_t<CFG> &genesis_header() const
+        [[nodiscard]] const ancestry_item_triplet_t<CFG> &genesis() const
         {
-            return _genesis_header;
-        }
-
-        [[nodiscard]] const state_snapshot_t &genesis_state() const
-        {
-            return _genesis_state;
+            return _genesis;
         }
 
         [[nodiscard]] const state_t<CFG> &state() const
@@ -123,30 +125,61 @@ namespace turbo::jam {
         std::string _id;
         std::string _path;
         triedb::db_ptr_t _triedb;
-        state_snapshot_t _genesis_state;
-        header_t<CFG> _genesis_header;
+        ancestry_item_triplet_t<CFG> _genesis;
         state_t<CFG> _state;
         ancestry_t<CFG> _ancestry{};
+
+        static std::string _triedb_path(const std::filesystem::path &path) {
+            return (std::filesystem::path{path} / "kv").string();
+        }
+
+        static std::string _ancestry_path(const std::filesystem::path &path) {
+            return (std::filesystem::path{path} / "ancestry.bin").string();
+        }
+
+        static std::string _genesis_path(const std::filesystem::path &path) {
+            return (std::filesystem::path{path} / "genesis.bin").string();
+        }
+
+        void _load_ancestry() {
+            const auto path = _ancestry_path(_path);
+            _ancestry = load_obj<decltype(_ancestry)>(path);
+        }
+
+        void _save_ancestry() {
+            const auto path = _ancestry_path(_path);
+            try {
+                save_obj(path, _ancestry);
+            } catch (...) {
+                std::filesystem::remove(path);
+                throw;
+            }
+        }
     };
 
     template<typename CFG>
     chain_t<CFG> chain_t<CFG>::from_json_spec(const std::string_view &path, const std::string &spec_path)
     {
         const auto j_cfg = codec::json::load(spec_path);
+        auto state = state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object());
+        const auto state_root = state.root();
+        auto header = jam::from_bytes<header_t<CFG>>(uint8_vector::from_hex(j_cfg.at("genesis_header").as_string()));
+        ancestry_t<CFG> ancestry{};
+        ancestry.add(header.slot, header.hash(), state_root);
+        std::optional<reset_t> reset{};
+        if (!std::filesystem::exists(path)) {
+            reset.emplace(genesis_t{std::move(state), std::move(header)}, std::move(ancestry));
+        }
         return chain_t{
             boost::json::value_to<std::string_view>(j_cfg.at("id")),
             path,
-            genesis_t<CFG>{
-                state_dict_t::from_genesis_json(j_cfg.at("genesis_state").as_object()),
-                jam::from_bytes<header_t<CFG>>(uint8_vector::from_hex(j_cfg.at("genesis_header").as_string()))
-            }
+            std::move(reset)
         };
     }
 
     template<typename CFG>
-    chain_t<CFG>::chain_t(const std::string_view &id, const std::string_view &path, genesis_t<CFG> genesis,
-        std::optional<reset_t> reset):
-        _impl{std::make_unique<impl>(id, path, std::move(genesis), std::move(reset))}
+    chain_t<CFG>::chain_t(const std::string_view &id, const std::string_view &path, std::optional<reset_t> reset):
+        _impl{std::make_unique<impl>(id, path, std::move(reset))}
     {
     }
 
@@ -154,15 +187,9 @@ namespace turbo::jam {
     chain_t<CFG>::~chain_t() = default;
 
     template<typename CFG>
-    const state_snapshot_t &chain_t<CFG>::genesis_state() const
+    const ancestry_item_triplet_t<CFG> &chain_t<CFG>::genesis() const
     {
-        return _impl->genesis_state();
-    }
-
-    template<typename CFG>
-    const header_t<CFG> &chain_t<CFG>::genesis_header() const
-    {
-        return _impl->genesis_header();
+        return _impl->genesis();
     }
 
     template<typename CFG>

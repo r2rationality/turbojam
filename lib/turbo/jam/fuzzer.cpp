@@ -9,30 +9,9 @@
 
 namespace turbo::jam::fuzzer {
     template<typename CFG>
-    initialize_t<CFG> initialize_t<CFG>::from_snapshot(const state_snapshot_t &snap, const genesis_t<CFG> &genesis)
+    initialize_t<CFG> initialize_t<CFG>::from_snapshot(const state_snapshot_t &snap)
     {
-        ancestry_t<CFG> ancestry;
-        const auto beta = jam::from_bytes<typename decltype(state_t<CFG>::beta)::element_type>(snap.at(state_dict_t::make_key(3)));
-        const auto snapshot_root = snap.root();
-        const auto genesis_hash = genesis.header.hash();
-        if (genesis.header.slot != 0) [[unlikely]]
-            throw error{"genesis header slot must be 0 but got: {}", genesis.header.slot};
-        if (beta.history.empty()) {
-            const auto genesis_root = genesis.state.root();
-            if (snapshot_root != genesis_root) [[unlikely]]
-                throw error{"initial snapshot with empty history does not match the supplied genesis state"};
-            ancestry.add(genesis.header.slot, genesis_hash, genesis_root);
-        } else {
-            // current fuzzer configuration does not always provide a full genesis state, so the state_root check must be skipped in such cases
-            if (beta.history.front().slot > 0)
-                ancestry.add(genesis.header.slot, genesis_hash);
-            else if (const auto beta0_hash = beta.history.front().header_hash; beta0_hash != genesis_hash) [[unlikely]]
-                throw error{"beta provided genesis hash {} does not match the supplied genesis header's one {}", beta0_hash, genesis_hash};
-        }
-        for (const auto &[i, h]: std::views::enumerate(beta.history)) {
-            ancestry.add(h.slot, h.header_hash, std::cmp_equal(i + 1, beta.history.size()) ? snapshot_root : h.state_root);
-        }
-        return {genesis.header, snap, std::move(ancestry)};
+        return {state_t<CFG>::make_genesis_header(snap), snap};
     }
 
     template struct initialize_t<config_prod>;
@@ -40,9 +19,10 @@ namespace turbo::jam::fuzzer {
 
     template<typename CFG>
     struct local_processor_t<CFG>::impl_t {
-        impl_t(std::string &&chain_id, const std::string_view chain_dir):
+        impl_t(std::string &&chain_id, const std::string_view chain_dir, const features_t feats):
             _chain_id{std::move(chain_id)},
-            _chain_dir{chain_dir}
+            _chain_dir{chain_dir},
+            _feats{feats}
         {
         }
 
@@ -55,9 +35,10 @@ namespace turbo::jam::fuzzer {
             return std::visit([&](auto &&m) -> message_t<CFG> {
                 using T = std::decay_t<decltype(m)>;
                 if constexpr (std::is_same_v<T, initialize_t<CFG>>) {
-                    genesis_t genesis{m.state, std::move(m.header)};
-                    _chain.emplace(_chain_id, _chain_dir, std::move(genesis),
-                        typename chain_t<CFG>::reset_t{std::move(m.state), std::move(m.ancestry)});
+                    partial_ancestry_t<CFG> passed_ancestry{};
+                    if (_feats.ancestry())
+                        passed_ancestry = std::move(m.ancestry);
+                    _chain.emplace(_chain_id, _chain_dir, typename chain_t<CFG>::reset_t{{std::move(m.state), std::move(m.header)}, std::move(passed_ancestry)});
                     return _chain->state_root();
                 } else if constexpr (std::is_same_v<T, import_block_t<CFG>>) {
                     if (!_chain) [[unlikely]]
@@ -86,13 +67,14 @@ namespace turbo::jam::fuzzer {
     private:
         std::string _chain_id;
         std::string _chain_dir;
+        features_t _feats;
         std::optional<chain_t<CFG>> _chain{};
         std::chrono::steady_clock::time_point _next_info{std::chrono::steady_clock::now() + + std::chrono::seconds{60}};
     };
 
     template<typename CFG>
-    local_processor_t<CFG>::local_processor_t(std::string chain_id, std::string_view chain_dir):
-        _impl{std::make_unique<impl_t>(std::move(chain_id), std::move(chain_dir))}
+    local_processor_t<CFG>::local_processor_t(std::string chain_id, std::string_view chain_dir, const features_t feats):
+        _impl{std::make_unique<impl_t>(std::move(chain_id), std::move(chain_dir), feats)}
     {
     }
 

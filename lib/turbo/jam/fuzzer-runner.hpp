@@ -190,14 +190,14 @@ namespace turbo::jam::fuzzer_runner {
         {
         }
 
-        bool test_sample(const buffer tc_data, genesis_t<CFG> genesis, const std::optional<size_t> num_cases={})
+        bool test_sample(const buffer tc_data, const std::optional<size_t> num_cases={})
         {
             try {
                 test_cases_t test_cases{};
                 if (num_cases)
                     test_cases.reserve(*num_cases);
                 _append_test_cases(test_cases, tc_data);
-                return _io_worker.sync_call(_test_sample(std::move(test_cases), std::move(genesis)));
+                return _io_worker.sync_call(_test_sample(std::move(test_cases)));
             } catch (const std::exception &ex) {
                 logger::error("test_sample: failed due to an uncaught exception: {}", ex.what());
             } catch (...) {
@@ -206,7 +206,7 @@ namespace turbo::jam::fuzzer_runner {
             return false;
         }
 
-        bool test_sample(const std::string &sample_dir, genesis_t<CFG> genesis)
+        bool test_sample(const std::string &sample_dir)
         {
             try {
                 const auto start_time = std::chrono::system_clock::now();
@@ -224,7 +224,7 @@ namespace turbo::jam::fuzzer_runner {
                     file::read(path, tc_data);
                     _append_test_cases(test_cases, tc_data);
                 }
-                const auto ok = _io_worker.sync_call(_test_sample(std::move(test_cases), std::move(genesis)));
+                const auto ok = _io_worker.sync_call(_test_sample(std::move(test_cases)));
                 logger::info("sample {}({}): {} in {:0.3f} sec", sample_dir, paths.size(), ok ? "OK" : "FAILED",
                     std::chrono::duration<double>(std::chrono::system_clock::now() - start_time).count());
                 return ok;
@@ -241,12 +241,12 @@ namespace turbo::jam::fuzzer_runner {
             size_t ok = 0, err = 0;
             for (const auto &e: std::filesystem::directory_iterator(data_dir)) {
                 if (e.is_directory() && !e.path().filename().string().starts_with('.')) {
-                    auto &cnt = test_sample(e.path().string(), load_genesis<CFG>(e.path())) ? ok : err;
+                    auto &cnt = test_sample(e.path().string()) ? ok : err;
                     ++cnt;
                 }
             }
             if (ok + err == 0U) {
-                auto &cnt = test_sample(data_dir.string(), load_genesis<CFG>(data_dir)) ? ok : err;
+                auto &cnt = test_sample(data_dir.string()) ? ok : err;
                 ++cnt;
             }
             logger::info("{}: success rate: {:.3f}% ({} out of {})",
@@ -271,12 +271,12 @@ namespace turbo::jam::fuzzer_runner {
             }
         }
 
-        boost::asio::awaitable<bool> _test_sample(const test_cases_t test_cases, const genesis_t<CFG> genesis)
+        boost::asio::awaitable<bool> _test_sample(const test_cases_t test_cases)
         {
             if (test_cases.empty()) [[unlikely]]
                 throw error("test_sample: no test cases provided!");
             const auto &initial_state = test_cases.front().pre;
-            auto init = initialize_t<CFG>::from_snapshot(initial_state.keyvals, genesis);
+            auto init = initialize_t<CFG>::from_snapshot(initial_state.keyvals);
             if (!_send_ancestry)
                 init.ancestry = {};
             const auto pre_root = ::turbo::variant::get_nice<state_root_t>(co_await _proc->process(message_t<CFG>{std::move(init)}));
