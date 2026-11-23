@@ -70,6 +70,9 @@ namespace turbo::jam {
                     if (local_state_root != blk.header.parent_state_root) [[unlikely]]
                         throw err_bad_state_root_t{};
                 }
+                // pre-emptively check that the slot is compatible so that a later ancestry modification always succeeds
+                if (blk.header.slot <= retained_ancestry.back().slot) [[unlikely]]
+                    throw err_bad_slot_t{};
                 _state.apply(blk, _ancestry.checks_enabled() ? retained_ancestry : ancestry_range_t<CFG>{});
                 _state.stage();
                 auto undo = _triedb->commit();
