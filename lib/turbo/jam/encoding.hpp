@@ -229,6 +229,8 @@ namespace turbo::jam {
         {
             static_assert(sizeof(T) <= 8U, "uint_varlen: only supports types with the size of 8 bytes or less!");
             auto prefix = uint_fixed<uint8_t>(1);
+            if (prefix == 0xFF) // avoid UB when l=8
+                return uint_fixed<T>(8);
             size_t l = 0;
             while (prefix & (1U << (7U - l))) {
                 prefix &= ~(1U << (7U - l));
