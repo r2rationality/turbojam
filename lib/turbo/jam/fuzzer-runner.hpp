@@ -36,8 +36,7 @@ namespace turbo::jam::fuzzer_runner {
         co_await boost::asio::async_read(conn, boost::asio::buffer(&msg_len, sizeof(msg_len)), boost::asio::use_awaitable);
         scratch.resize(msg_len);
         co_await boost::asio::async_read(conn, boost::asio::buffer(scratch.data(), scratch.size()), boost::asio::use_awaitable);
-        decoder dec{buffer{scratch.data(), scratch.size()}};
-        co_return codec::from<message_t<CFG>>(dec);
+        co_return from_bytes<message_t<CFG>>(scratch);
     }
 
     template<typename CFG>

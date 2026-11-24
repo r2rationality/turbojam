@@ -762,7 +762,7 @@ namespace turbo::jam {
             enc.next_bytes(eta0);
             enc.uint_varlen(blk_slot.slot());
             const auto h = crypto::blake2b::digest(enc.bytes());
-            const auto prev_id = jam::from_bytes<service_id_t>(h);
+            const auto prev_id = jam::from_bytes<service_id_t>(static_cast<buffer>(h).subspan(0, sizeof(service_id_t)));
             new_service_id = check(gen_new_service_id(prev_id));
         }
 

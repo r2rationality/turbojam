@@ -388,7 +388,10 @@ namespace turbo::jam {
     [[nodiscard]] T from_bytes(const buffer bytes)
     {
         decoder dec{bytes};
-        return from<T>(dec);
+        auto res = from<T>(dec);
+        if (!dec.empty()) [[unlikely]]
+            throw error{"{} trailing bytes after decoding {}", bytes.size() - dec.consumed(), typeid(res).name()};
+        return res;
     }
 
     template<typename T>
