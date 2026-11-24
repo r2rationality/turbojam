@@ -97,6 +97,8 @@ namespace turbo::jam::fuzzer {
 
         void compatible_with(const peer_info_t &o) const
         {
+            if (fuzz_version != o.fuzz_version) [[unlikely]]
+                throw error{"fuzzer version mismatch: {} != {}", fuzz_version, o.fuzz_version};
             if (jam_version != o.jam_version) [[unlikely]]
                 throw error{"jam version mismatch: {} != {}", jam_version, o.jam_version};
         }

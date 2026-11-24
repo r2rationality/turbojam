@@ -70,5 +70,13 @@ suite turbo_jam_fuzzer_suite = [] {
             const timer t{"fuzzer traces", logger::level::info};
             expect(client.test_dir(data_dir));
         };
+        "peer protocol version compatibility"_test = [] {
+            const peer_info_t local{};
+            expect(nothrow([&] { local.compatible_with(local); }));
+            for (const uint8_t version: {0, 2}) {
+                const peer_info_t peer{.fuzz_version = version};
+                expect(throws<error>([&] { local.compatible_with(peer); }));
+            }
+        };
     };
 };
